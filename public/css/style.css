@@ -1,0 +1,192 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700;800&display=swap');
+
+/* Base Styles */
+body { 
+  font-family: 'Inter', system-ui, sans-serif; 
+  background: #fafafc; 
+  margin: 0; 
+  height: 100vh; 
+  overflow: hidden; 
+}
+
+.display-font { 
+  font-family: 'Playfair Display', serif; 
+}
+
+/* Side Panel with Gradient Background */
+.side-panel {
+  background-color: #0f1420;
+  background-image:
+    radial-gradient(circle at 15% 25%, rgba(234,88,12,0.12) 0, transparent 45%),
+    radial-gradient(circle at 85% 80%, rgba(234,88,12,0.10) 0, transparent 45%),
+    radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px);
+  background-size: auto, auto, 22px 22px;
+}
+
+/* Role Cards in Side Panel */
+.role-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.role-card:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(234,88,12,0.35);
+}
+
+/* Signup Role Selection Cards */
+.signup-role-card {
+  border: 1.5px solid #e5e7eb;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  cursor: pointer;
+}
+
+.signup-role-card.selected {
+  border-color: #ea580c;
+  background: #fff7ed;
+  box-shadow: 0 0 0 1px #ea580c;
+}
+
+/* Gradient Button */
+.btn-gradient {
+  background: linear-gradient(90deg, #ea580c, #f59e0b);
+}
+
+.btn-gradient:hover { 
+  filter: brightness(1.05); 
+}
+
+/* Tab Pills */
+.tab-pill {
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+
+/* Form Inputs */
+.field-input:focus {
+  outline: none;
+  border-color: #ea580c;
+  box-shadow: 0 0 0 3px rgba(234,88,12,0.12);
+}
+
+.field-input {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background: white;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.field-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+/* Select Dropdowns */
+select.field-input {
+  appearance: auto;
+}
+
+select.field-input:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+/* Step Wizard Dots */
+.step-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.step-line {
+  flex: 1;
+  height: 2px;
+  background: #e5e7eb;
+  transition: background 0.2s ease;
+  margin: 0 4px;
+}
+
+.step-line.active { 
+  background: #ea580c; 
+}
+
+/* Form Grid Layout */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.form-grid .full-width { 
+  grid-column: 1 / -1; 
+}
+
+/* Layout Containers */
+.right-panel-content {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 1.5rem 2rem;
+}
+
+.form-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-height: 100vh;
+  overflow: hidden;
+}
+
+.fields-container {
+  flex: 1;
+  overflow: visible;
+  padding: 0.25rem 0;
+}
+
+.nav-container {
+  flex-shrink: 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 0.5rem;
+}
+
+/* Logistics Company Link */
+.logistics-link {
+  color: #ea580c;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.logistics-link:hover {
+  color: #c2410c;
+  text-decoration: underline;
+}
+
+/* Animations */
+.fade-enter-active, .fade-leave-active { 
+  transition: opacity 0.15s ease; 
+}
+
+.fade-enter-from, .fade-leave-to { 
+  opacity: 0; 
+}
