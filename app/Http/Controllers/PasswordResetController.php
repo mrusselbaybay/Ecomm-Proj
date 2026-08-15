@@ -85,6 +85,62 @@ class PasswordResetController extends Controller
             'message' => 'Code verified successfully.',
         ]);
     }
+    
+    public function sendSignupCode(Request $request)
+{
+    $request->validate(['email' => 'required|email']);
+    $email = strtolower(trim($request->input('email')));
+
+    if ($this->checkUserExists($email)) {
+        return response()->json([
+            'message' => 'An account with this email already exists. Please log in instead.'
+        ], 422);
+    }
+
+    $code = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+    PasswordResetCode::where('email', $email)->delete();
+    PasswordResetCode::create([
+        'email' => $email,
+        'code' => $code,
+        'expires_at' => now()->addMinutes(15),
+    ]);
+
+    try {
+        Mail::to($email)->send(new PasswordResetCodeMail($code));
+    } catch (\Exception $e) {
+        Log::error('Signup email send failed', ['error' => $e->getMessage()]);
+        return response()->json(['message' => 'Failed to send email. Please try again.'], 500);
+    }
+
+    return response()->json(['message' => 'Verification code sent to your email.']);
+}
+
+public function verifySignupCode(Request $request)
+{
+    $request->validate([
+        'email' => 'required|email',
+        'code' => 'required|string|size:6',
+    ]);
+
+    $email = strtolower(trim($request->input('email')));
+    $code = $request->input('code');
+
+    $resetCode = PasswordResetCode::where('email', $email)->where('code', $code)->first();
+
+    if (!$resetCode || !$resetCode->isValid()) {
+        return response()->json(['message' => 'Invalid or expired code. Please request a new one.'], 422);
+    }
+
+    $resetCode->markAsUsed();
+
+    return response()->json(['message' => 'Email verified successfully.']);
+}
+
+public function resendSignupCode(Request $request)
+{
+    return $this->sendSignupCode($request);
+}
 
     public function resetPassword(Request $request)
     {

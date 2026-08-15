@@ -12,7 +12,7 @@ console.log('✅ Supabase Key:', SUPABASE_ANON_KEY ? 'Loaded' : '❌ Missing');
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ---------- PSGC API Base ----------
-const PSGC_BASE = 'https://rootscratch.com/api/psgc';
+const PSGC_BASE = '/api/psgc';
 
 // ---------- Cookie Helpers ----------
 function setCookie(name, value, days = 7) {
@@ -77,18 +77,11 @@ const App = {
     const successMsg = ref('');
     const loggedInUser = ref(getCookie('nexmart_session') ? JSON.parse(getCookie('nexmart_session')) : null);
     const isLogisticsSignup = ref(false);
+    const isSubmitting = ref(false);
+
+    // Admin Signup - Temporary
     const showAdminSignup = ref(false);
     const adminSignupLoading = ref(false);
-
-    // Password Reset Wizard
-    const resetStep = ref(1); // 1: Email, 2: Verify Code, 3: New Password
-    const resetEmail = ref('');
-    const resetCode = ref('');
-    const newPassword = ref('');
-    const newConfirmPassword = ref('');
-    const isVerifying = ref(false);
-
-    // Admin Signup Form
     const adminForm = ref({
       email: '',
       password: '',
@@ -97,6 +90,20 @@ const App = {
       lastName: '',
       role: 'admin'
     });
+
+    // Signup Email Verification
+    const signupVerifyCode = ref('');
+    const isSendingSignupCode = ref(false);
+    const isVerifyingSignupCode = ref(false);
+    const signupEmailVerified = ref(false);
+
+    // Password Reset Wizard
+    const resetStep = ref(1);
+    const resetEmail = ref('');
+    const resetCode = ref('');
+    const newPassword = ref('');
+    const newConfirmPassword = ref('');
+    const isVerifying = ref(false);
 
     // Validation errors for inline display
     const validationErrors = ref({
@@ -189,6 +196,7 @@ const App = {
       driverVehicle: '',
       driverPlateNumber: '',
       driverOrcrFile: null,
+      driverLicenseNumber: '',
     });
 
     // PSGC API State
@@ -207,35 +215,33 @@ const App = {
     const addressApiError = ref('');
 
     // Step Definitions
-    const steps = ['Personal', 'Address', 'Security', 'Documents'];
-    const logisticsSteps = ['Company Info', 'Owner Details', 'Address', 'Security', 'Documents'];
-    const driverSteps = ['Personal', 'Address', 'Security', 'Documents'];
+    const steps = ['Personal', 'Verify Email', 'Address', 'Security', 'Documents'];
+    const logisticsSteps = ['Company Info', 'Verify Email', 'Owner Details', 'Address', 'Security', 'Documents'];
+    const driverSteps = ['Personal', 'Verify Email', 'Address', 'Security', 'Documents'];
+
+    // Step keys
+    const stepKeys = ['personal', 'verifyEmail', 'address', 'security', 'documents'];
+    const driverStepKeys = ['driverPersonal', 'driverVerifyEmail', 'driverAddress', 'driverSecurity', 'driverDocuments'];
+    const logisticsStepKeys = ['company', 'companyVerifyEmail', 'owner', 'address', 'security', 'documents'];
 
     // Computed: Current Step Index
     const currentStepIndex = computed(() => {
       if (isLogisticsSignup.value) {
         const stepMap = {
-          'company': 0,
-          'owner': 1,
-          'address': 2,
-          'security': 3,
-          'documents': 4
+          'company': 0, 'companyVerifyEmail': 1, 'owner': 2,
+          'address': 3, 'security': 4, 'documents': 5
         };
         return stepMap[signupStep.value] !== undefined ? stepMap[signupStep.value] : -1;
       } else if (selectedRole.value === 'driver') {
         const stepMap = {
-          'driverPersonal': 0,
-          'driverAddress': 1,
-          'driverSecurity': 2,
-          'driverDocuments': 3
+          'driverPersonal': 0, 'driverVerifyEmail': 1, 'driverAddress': 2,
+          'driverSecurity': 3, 'driverDocuments': 4
         };
         return stepMap[signupStep.value] !== undefined ? stepMap[signupStep.value] : -1;
       } else {
         const stepMap = {
-          'personal': 0,
-          'address': 1,
-          'security': 2,
-          'documents': 3
+          'personal': 0, 'verifyEmail': 1, 'address': 2,
+          'security': 3, 'documents': 4
         };
         return stepMap[signupStep.value] !== undefined ? stepMap[signupStep.value] : -1;
       }
@@ -474,6 +480,15 @@ const App = {
           errorMsg.value = 'Please fill in all seller documents and business info.';
           return false;
         }
+        const allowedLines = [
+          'Pet Supplies', 'Kids and Baby', 'Electronics and Gadgets', 
+          'House and Garden', "Woman's Apparel", "Men's Apparel", 
+          'Sports and Outdoors', 'Health and Beauty'
+        ];
+        if (!allowedLines.includes(form.value.lineOfBusiness)) {
+          errorMsg.value = 'Please select a valid line of business.';
+          return false;
+        }
       }
       if (selectedRole.value === 'courier') {
         if (!form.value.vehicle || !form.value.plateNumber || !form.value.orcrFile || !form.value.licenseFile) {
@@ -562,7 +577,7 @@ const App = {
       return true;
     }
 
-    // ---------- Admin Signup Function ----------
+    // ---------- Admin Signup Function (Temporary) ----------
     async function handleAdminSignup() {
       adminSignupLoading.value = true;
       resetMessages();
@@ -594,62 +609,571 @@ const App = {
       }
 
       try {
-        const { data, error } = await supabase.auth.signUp({
+        const { data: authData, error: authError } = await supabase.auth.signUp({
           email: adminForm.value.email.trim().toLowerCase(),
           password: adminForm.value.password,
           options: {
             data: {
               role: 'admin',
               first_name: adminForm.value.firstName,
-              last_name: adminForm.value.lastName
+              last_name: adminForm.value.lastName,
+              status: 'approved'
             }
           }
         });
 
-        if (error) throw error;
+        if (authError) throw authError;
+        if (!authData?.user) throw new Error('User creation failed');
 
-        if (data?.user) {
-          const { error: updateError } = await supabase
-            .from('profiles')
-            .update({ 
-              role: 'admin', 
-              status: 'approved',
-              first_name: adminForm.value.firstName,
-              last_name: adminForm.value.lastName
-            })
-            .eq('id', data.user.id);
+        // Profile is auto-created by trigger, update it
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ 
+            role: 'admin', 
+            status: 'approved',
+            account_status: 'active',
+            first_name: adminForm.value.firstName,
+            last_name: adminForm.value.lastName
+          })
+          .eq('id', authData.user.id);
 
-          if (updateError) throw updateError;
+        if (updateError) throw updateError;
 
-          successMsg.value = 'Admin account created successfully!';
-          
-          adminForm.value = {
-            email: '',
-            password: '',
-            confirmPassword: '',
-            firstName: '',
-            lastName: '',
-            role: 'admin'
-          };
-          
-          setTimeout(() => {
-            showAdminSignup.value = false;
-            successMsg.value = '';
-          }, 2000);
-        }
+        successMsg.value = 'Admin account created successfully!';
+        
+        adminForm.value = {
+          email: '',
+          password: '',
+          confirmPassword: '',
+          firstName: '',
+          lastName: '',
+          role: 'admin'
+        };
+        
+        setTimeout(() => {
+          showAdminSignup.value = false;
+          successMsg.value = '';
+        }, 2000);
+
       } catch (error) {
+        console.error('Admin signup error:', error);
         errorMsg.value = error.message || 'Failed to create admin account.';
       } finally {
         adminSignupLoading.value = false;
       }
     }
 
+    // ---------- Signup Email Verification Functions ----------
+    function getSignupEmailForVerification() {
+      if (isLogisticsSignup.value) return form.value.companyEmail;
+      if (selectedRole.value === 'driver') return form.value.driverEmail;
+      return email.value;
+    }
+
+    async function sendSignupVerificationCode() {
+      const targetEmail = getSignupEmailForVerification();
+      if (!targetEmail || !validateEmail(targetEmail)) {
+        return false;
+      }
+
+      isSendingSignupCode.value = true;
+      try {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const response = await fetch('/api/signup/send-code', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-CSRF-TOKEN': csrfToken
+          },
+          body: JSON.stringify({ 
+            email: targetEmail.trim().toLowerCase() 
+          })
+        });
+        
+        if (!response.ok) {
+          const text = await response.text();
+          let errorMessage = 'Could not send verification code.';
+          try {
+            const data = JSON.parse(text);
+            errorMessage = data.message || data.error || errorMessage;
+          } catch (e) {
+            errorMessage = `Server error: ${response.status} ${response.statusText}`;
+          }
+          throw new Error(errorMessage);
+        }
+        
+        const data = await response.json();
+        signupVerifyCode.value = '';
+        signupEmailVerified.value = false;
+        if (!successMsg.value) {
+          successMsg.value = 'A verification code has been sent to your email.';
+        }
+        return true;
+      } catch (err) {
+        console.error('Failed to send verification code:', err);
+        errorMsg.value = err.message || 'Could not send code. Please try again.';
+        return false;
+      } finally {
+        isSendingSignupCode.value = false;
+      }
+    }
+
+    async function verifySignupCode() {
+      if (!signupVerifyCode.value || signupVerifyCode.value.length !== 6) {
+        errorMsg.value = 'Please enter the 6-digit verification code.';
+        return false;
+      }
+
+      isVerifyingSignupCode.value = true;
+      try {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const targetEmail = getSignupEmailForVerification();
+        
+        const response = await fetch('/api/signup/verify-code', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-CSRF-TOKEN': csrfToken
+          },
+          body: JSON.stringify({ 
+            email: targetEmail.trim().toLowerCase(), 
+            code: signupVerifyCode.value.trim()
+          })
+        });
+        
+        if (!response.ok) {
+          const text = await response.text();
+          let errorMessage = 'Invalid code. Please try again.';
+          try {
+            const data = JSON.parse(text);
+            errorMessage = data.message || data.error || errorMessage;
+          } catch (e) {
+            errorMessage = `Server error: ${response.status} ${response.statusText}`;
+          }
+          throw new Error(errorMessage);
+        }
+        
+        const data = await response.json();
+        signupEmailVerified.value = true;
+        successMsg.value = 'Email verified!';
+        return true;
+      } catch (err) {
+        console.error('Verification error:', err);
+        errorMsg.value = err.message || 'Invalid or expired code.';
+        return false;
+      } finally {
+        isVerifyingSignupCode.value = false;
+      }
+    }
+
+    async function resendSignupVerificationCode() {
+      const targetEmail = getSignupEmailForVerification();
+      if (!targetEmail || !validateEmail(targetEmail)) {
+        errorMsg.value = 'Please enter a valid email address.';
+        return;
+      }
+      
+      try {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const response = await fetch('/api/signup/resend-code', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-CSRF-TOKEN': csrfToken
+          },
+          body: JSON.stringify({ 
+            email: targetEmail.trim().toLowerCase() 
+          })
+        });
+        
+        if (!response.ok) {
+          const text = await response.text();
+          let errorMessage = 'Could not resend code.';
+          try {
+            const data = JSON.parse(text);
+            errorMessage = data.message || data.error || errorMessage;
+          } catch (e) {
+            errorMessage = `Server error: ${response.status} ${response.statusText}`;
+          }
+          throw new Error(errorMessage);
+        }
+        
+        const data = await response.json();
+        signupVerifyCode.value = '';
+        signupEmailVerified.value = false;
+        successMsg.value = 'New verification code sent to your email.';
+      } catch (err) {
+        console.error('Resend error:', err);
+        errorMsg.value = err.message || 'Could not resend code. Please try again.';
+      }
+    }
+
+    // ---------- Document Upload Functions ----------
+    async function uploadDocuments(userId, role) {
+      const files = [];
+      
+      if (role === 'buyer' && form.value.idFile) {
+        files.push({ type: 'valid_id', file: form.value.idFile });
+      } else if (role === 'seller') {
+        if (form.value.idFile) files.push({ type: 'valid_id', file: form.value.idFile });
+        if (form.value.businessPermit) files.push({ type: 'business_permit', file: form.value.businessPermit });
+      } else if (role === 'courier') {
+        if (form.value.orcrFile) files.push({ type: 'orcr', file: form.value.orcrFile });
+        if (form.value.licenseFile) files.push({ type: 'drivers_license', file: form.value.licenseFile });
+      } else if (role === 'driver') {
+        if (form.value.driverIdFile) files.push({ type: 'valid_id', file: form.value.driverIdFile });
+        if (form.value.driverLicenseFile) files.push({ type: 'drivers_license', file: form.value.driverLicenseFile });
+        if (form.value.driverOrcrFile) files.push({ type: 'orcr', file: form.value.driverOrcrFile });
+      }
+
+      for (const fileData of files) {
+        try {
+          const filePath = `profile/${userId}/${fileData.type}_${Date.now()}`;
+          
+          const { error: uploadError } = await supabase.storage
+            .from('documents')
+            .upload(filePath, fileData.file);
+
+          if (uploadError) {
+            console.error('File upload error:', uploadError);
+            continue;
+          }
+
+          const { error: docError } = await supabase
+            .from('documents')
+            .insert({
+              owner_kind: 'profile',
+              profile_id: userId,
+              doc_type: fileData.type,
+              storage_path: filePath,
+              status: 'pending'
+            });
+
+          if (docError) console.error('Document record error:', docError);
+          
+        } catch (err) {
+          console.error('Upload failed:', err);
+        }
+      }
+    }
+
+    async function uploadLogisticsDocuments(userId, companyId) {
+      const files = [
+        { type: 'valid_id', file: form.value.ownerIdFile },
+        { type: 'business_permit', file: form.value.businessPermitFile },
+        { type: 'mayors_permit', file: form.value.mayorPermitFile },
+        { type: 'dti_sec_registration', file: form.value.dtiRegFile }
+      ];
+
+      for (const fileData of files) {
+        if (!fileData.file) continue;
+        
+        try {
+          const filePath = `logistics_company/${companyId}/${fileData.type}_${Date.now()}`;
+          
+          const { error: uploadError } = await supabase.storage
+            .from('documents')
+            .upload(filePath, fileData.file);
+
+          if (uploadError) {
+            console.error('File upload error:', uploadError);
+            continue;
+          }
+
+          const { error: docError } = await supabase
+            .from('documents')
+            .insert({
+              owner_kind: 'logistics_company',
+              logistics_company_id: companyId,
+              doc_type: fileData.type,
+              storage_path: filePath,
+              status: 'pending'
+            });
+
+          if (docError) console.error('Document record error:', docError);
+          
+        } catch (err) {
+          console.error('Upload failed:', err);
+        }
+      }
+    }
+
+    // ---------- Registration Functions ----------
+    async function submitUserRegistration() {
+      try {
+        // Determine email and password based on role
+        const userEmail = selectedRole.value === 'driver' 
+          ? form.value.driverEmail 
+          : email.value;
+        const userPassword = selectedRole.value === 'driver' 
+          ? form.value.driverPassword 
+          : password.value;
+        
+        const userRole = selectedRole.value || 'buyer';
+        
+        // Get name based on role
+        let firstName, lastName, middleInitial, sex, contactNo, birthday;
+        if (selectedRole.value === 'driver') {
+          firstName = form.value.driverFirstName;
+          lastName = form.value.driverLastName;
+          middleInitial = form.value.driverMiddleInitial || '';
+          sex = form.value.driverSex;
+          contactNo = form.value.driverContactNo;
+          birthday = form.value.driverBirthday;
+        } else {
+          firstName = form.value.firstName;
+          lastName = form.value.lastName;
+          middleInitial = form.value.middleInitial || '';
+          sex = form.value.sex;
+          contactNo = form.value.contactNo;
+          birthday = form.value.birthday;
+        }
+        
+        // Step 1: Create auth user with metadata
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: userEmail.trim().toLowerCase(),
+          password: userPassword,
+          options: {
+            data: {
+              role: userRole,
+              first_name: firstName,
+              last_name: lastName,
+              middle_initial: middleInitial,
+              sex: sex,
+              contact_no: contactNo,
+              birthday: birthday,
+              status: 'pending'
+            }
+          }
+        });
+
+        if (authError) throw authError;
+        if (!authData?.user) throw new Error('Failed to create user');
+
+        const userId = authData.user.id;
+        console.log('✅ User created:', userId);
+
+        // Profile is automatically created by the Supabase trigger
+
+        // Step 2: Save address (if provided)
+        if (form.value.provinceCode && form.value.municipalityCode && form.value.barangay) {
+          const { error: addressError } = await supabase
+            .from('addresses')
+            .insert({
+              owner_kind: 'profile',
+              profile_id: userId,
+              province_code: form.value.provinceCode,
+              province_name: form.value.province,
+              municipality_code: form.value.municipalityCode,
+              municipality_name: form.value.municipality,
+              barangay: form.value.barangay,
+              street: form.value.street || '',
+              house_no: form.value.houseNo || null
+            });
+
+          if (addressError) {
+            console.error('Address save error:', addressError);
+          }
+        }
+
+        // Step 3: Role-specific data
+        if (userRole === 'seller') {
+          const { error: sellerError } = await supabase
+            .from('seller_details')
+            .insert({
+              profile_id: userId,
+              business_name: form.value.businessName,
+              line_of_business: form.value.lineOfBusiness
+            });
+
+          if (sellerError) throw sellerError;
+          
+        } else if (userRole === 'courier') {
+          const { error: courierError } = await supabase
+            .from('courier_details')
+            .insert({
+              profile_id: userId,
+              vehicle: form.value.vehicle,
+              plate_number: form.value.plateNumber
+            });
+
+          if (courierError) throw courierError;
+          
+        } else if (userRole === 'driver') {
+          const { error: driverError } = await supabase
+            .from('driver_details')
+            .insert({
+              profile_id: userId,
+              logistics_company_id: null,
+              vehicle: form.value.driverVehicle,
+              plate_number: form.value.driverPlateNumber,
+              license_number: form.value.driverLicenseNumber || null
+            });
+
+          if (driverError) throw driverError;
+        }
+
+        // Step 4: Upload documents
+        await uploadDocuments(userId, userRole);
+
+        successMsg.value = 'Registration submitted! Please wait for administrator approval.';
+        signupStep.value = 'complete';
+
+      } catch (error) {
+        console.error('Registration error:', error);
+        errorMsg.value = error.message || 'Registration failed. Please try again.';
+      }
+    }
+
+    async function submitLogisticsRegistration() {
+      try {
+        // Create auth user for logistics company
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: form.value.companyEmail.trim().toLowerCase(),
+          password: password.value,
+          options: {
+            data: {
+              role: 'logistics',
+              company_name: form.value.companyName,
+              first_name: form.value.ownerFirstName,
+              last_name: form.value.ownerLastName,
+              middle_initial: form.value.ownerMiddleInitial || '',
+              sex: form.value.ownerSex,
+              contact_no: form.value.ownerContactNo,
+              birthday: form.value.ownerBirthday,
+              status: 'pending'
+            }
+          }
+        });
+
+        if (authError) throw authError;
+        if (!authData?.user) throw new Error('Failed to create user');
+
+        const userId = authData.user.id;
+
+        // Step 1: Create logistics company
+        const { data: companyData, error: companyError } = await supabase
+          .from('logistics_companies')
+          .insert({
+            owner_profile_id: userId,
+            company_name: form.value.companyName,
+            company_email: form.value.companyEmail,
+            company_contact_no: form.value.companyContactNo,
+            tin: form.value.companyTIN,
+            sec_registration: form.value.companySECReg || null,
+            status: 'pending'
+          })
+          .select()
+          .single();
+
+        if (companyError) throw companyError;
+
+        const companyId = companyData.id;
+
+        // Step 2: Save company address
+        if (form.value.companyProvinceCode) {
+          const { error: addressError } = await supabase
+            .from('addresses')
+            .insert({
+              owner_kind: 'logistics_company',
+              logistics_company_id: companyId,
+              province_code: form.value.companyProvinceCode,
+              province_name: form.value.companyProvince,
+              municipality_code: form.value.companyMunicipalityCode,
+              municipality_name: form.value.companyMunicipality,
+              barangay: form.value.companyBarangay,
+              street: form.value.companyStreet || '',
+              house_no: form.value.companyHouseNo || null
+            });
+
+          if (addressError) console.error('Address save error:', addressError);
+        }
+
+        // Step 3: Upload documents
+        await uploadLogisticsDocuments(userId, companyId);
+
+        successMsg.value = 'Logistics company registration submitted! Please wait for administrator approval.';
+        signupStep.value = 'complete';
+
+      } catch (error) {
+        console.error('Logistics registration error:', error);
+        errorMsg.value = error.message || 'Registration failed. Please try again.';
+      }
+    }
+
+    function submitRegistration() {
+      resetMessages();
+      
+      if (isSubmitting.value) return;
+      isSubmitting.value = true;
+      
+      try {
+        if (isLogisticsSignup.value) {
+          if (!validateLogisticsDocuments()) {
+            isSubmitting.value = false;
+            return;
+          }
+          submitLogisticsRegistration();
+          isSubmitting.value = false;
+          return;
+        }
+        
+        // Validate based on role
+        if (selectedRole.value === 'driver') {
+          if (!validateDriverPersonal() || !validateDriverSecurityFields() || !validateDocuments()) {
+            isSubmitting.value = false;
+            return;
+          }
+        } else {
+          if (!validateDocuments()) {
+            isSubmitting.value = false;
+            return;
+          }
+        }
+        
+        // Handle other roles (buyer, seller, courier)
+        submitUserRegistration();
+        
+      } catch (error) {
+        console.error('Submit error:', error);
+        errorMsg.value = error.message || 'Registration failed. Please try again.';
+      } finally {
+        isSubmitting.value = false;
+      }
+    }
+
     // ---------- PSGC API Functions ----------
+    const provinceCache = { value: [] };
+
+    function dedupeByCodeOrName(items = []) {
+      const seen = new Map();
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue;
+        const code = String(item.code ?? '').trim();
+        const name = String(item.name ?? '').trim();
+        if (!code && !name) continue;
+        const key = code || name.toLowerCase().replace(/\s+/g, ' ');
+        if (!seen.has(key)) {
+          seen.set(key, item);
+        }
+      }
+      return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }
+
     async function fetchProvinces() {
+      if (provinceCache.value.length > 0) {
+        provinceOptions.value = provinceCache.value;
+        companyProvinceOptions.value = provinceCache.value;
+        return;
+      }
+
       loadingProvinces.value = true;
       loadingCompanyProvinces.value = true;
       addressApiError.value = '';
-      
+
       try {
         const regionsRes = await fetch(`${PSGC_BASE}/regions?limit=100`);
         if (!regionsRes.ok) throw new Error('Request failed: ' + regionsRes.status);
@@ -669,11 +1193,12 @@ const App = {
           })
         );
 
-        const allProvinces = provinceResults.flat();
+        const allProvinces = dedupeByCodeOrName(provinceResults.flat());
         if (allProvinces.length === 0) throw new Error('No provinces returned');
-        const sorted = allProvinces.slice().sort((a, b) => a.name.localeCompare(b.name));
-        provinceOptions.value = sorted;
-        companyProvinceOptions.value = sorted;
+
+        provinceCache.value = allProvinces;
+        provinceOptions.value = allProvinces;
+        companyProvinceOptions.value = allProvinces;
       } catch (err) {
         addressApiError.value = 'Could not load provinces from the PSGC API. Check your connection and retry.';
       } finally {
@@ -707,19 +1232,29 @@ const App = {
       addressApiError.value = '';
       
       try {
-        const prefix = provinceCode.substring(0, 5);
-        const res = await fetch(`${PSGC_BASE}/cities-municipalities?province_code=${prefix}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        
+        const res = await fetch(`${PSGC_BASE}/cities-municipalities?province_code=${provinceCode}`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
         if (!res.ok) throw new Error('Request failed: ' + res.status);
         const json = await res.json();
         const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
-        
+
         if (isCompany) {
           companyMunicipalityOptions.value = data;
         } else {
           municipalityOptions.value = data;
         }
       } catch (err) {
-        addressApiError.value = 'Could not load cities/municipalities. Check your connection and retry.';
+        if (err.name === 'AbortError') {
+          addressApiError.value = 'Request timed out. Please try again.';
+        } else {
+          addressApiError.value = 'Could not load cities/municipalities. Please try again.';
+        }
       } finally {
         if (isCompany) {
           loadingCompanyMunicipalities.value = false;
@@ -748,8 +1283,14 @@ const App = {
       addressApiError.value = '';
       
       try {
-        const cityCode = municipalityCode.substring(0, 7);
-        const res = await fetch(`${PSGC_BASE}/barangays?city_municipality_code=${cityCode}&limit=500`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        
+        const res = await fetch(`${PSGC_BASE}/barangays?municipality_code=${municipalityCode}&limit=500`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
         if (!res.ok) {
           let detail = '';
           try { detail = await res.text(); } catch (e) {}
@@ -757,14 +1298,18 @@ const App = {
         }
         const json = await res.json();
         const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
-        
+
         if (isCompany) {
           companyBarangayOptions.value = data;
         } else {
           barangayOptions.value = data;
         }
       } catch (err) {
-        addressApiError.value = 'Could not load barangays. Check your connection and retry.';
+        if (err.name === 'AbortError') {
+          addressApiError.value = 'Request timed out. Please try again.';
+        } else {
+          addressApiError.value = 'Could not load barangays. Please try again.';
+        }
       } finally {
         if (isCompany) {
           loadingCompanyBarangays.value = false;
@@ -827,6 +1372,11 @@ const App = {
       newPassword.value = '';
       newConfirmPassword.value = '';
       forgotEmail.value = '';
+      isSubmitting.value = false;
+      signupVerifyCode.value = '';
+      signupEmailVerified.value = false;
+      isSendingSignupCode.value = false;
+      isVerifyingSignupCode.value = false;
       
       form.value = { 
         lastName:'', firstName:'', middleInitial:'', sex:'', contactNo:'', birthday:'', 
@@ -843,7 +1393,7 @@ const App = {
         driverFirstName:'', driverLastName:'', driverMiddleInitial:'', driverSex:'', 
         driverBirthday:'', driverContactNo:'', driverEmail:'', driverPassword:'', 
         driverConfirmPassword:'', driverIdFile:null, driverLicenseFile:null, 
-        driverVehicle:'', driverPlateNumber:'', driverOrcrFile:null
+        driverVehicle:'', driverPlateNumber:'', driverOrcrFile:null, driverLicenseNumber:''
       };
       
       Object.keys(validationErrors.value).forEach(key => {
@@ -881,10 +1431,21 @@ const App = {
       }
     }
 
-    function goToStep(step) {
+    async function goToStep(step) {
       if (selectedRole.value === 'driver') {
-        if (step === 'driverAddress' && signupStep.value === 'driverPersonal') {
+        if (step === 'driverVerifyEmail' && signupStep.value === 'driverPersonal') {
           if (!validateDriverPersonal()) return;
+          signupStep.value = step;
+          resetMessages();
+          sendSignupVerificationCode();
+          return;
+        }
+        if (step === 'driverAddress' && signupStep.value === 'driverVerifyEmail') {
+          const verified = await verifySignupCode();
+          if (!verified) return;
+          signupStep.value = step;
+          resetMessages();
+          return;
         }
         if (step === 'driverSecurity' && signupStep.value === 'driverAddress') {
           if (!validateDriverAddressFields()) return;
@@ -893,8 +1454,19 @@ const App = {
           if (!validateDriverSecurityFields()) return;
         }
       } else if (!isLogisticsSignup.value) {
-        if (step === 'address' && signupStep.value === 'personal') {
+        if (step === 'verifyEmail' && signupStep.value === 'personal') {
           if (!validatePersonalFields()) return;
+          signupStep.value = step;
+          resetMessages();
+          sendSignupVerificationCode();
+          return;
+        }
+        if (step === 'address' && signupStep.value === 'verifyEmail') {
+          const verified = await verifySignupCode();
+          if (!verified) return;
+          signupStep.value = step;
+          resetMessages();
+          return;
         }
         if (step === 'security' && signupStep.value === 'address') {
           if (!validateAddressFields()) return;
@@ -903,8 +1475,19 @@ const App = {
           if (!validateSecurityFields()) return;
         }
       } else {
-        if (step === 'owner' && signupStep.value === 'company') {
+        if (step === 'companyVerifyEmail' && signupStep.value === 'company') {
           if (!validateCompany()) return;
+          signupStep.value = step;
+          resetMessages();
+          sendSignupVerificationCode();
+          return;
+        }
+        if (step === 'owner' && signupStep.value === 'companyVerifyEmail') {
+          const verified = await verifySignupCode();
+          if (!verified) return;
+          signupStep.value = step;
+          resetMessages();
+          return;
         }
         if (step === 'address' && signupStep.value === 'owner') {
           if (!validateOwner()) return;
@@ -928,23 +1511,6 @@ const App = {
       }
     }
 
-    function submitRegistration() {
-      resetMessages();
-      
-      if (selectedRole.value === 'driver') {
-        if (!validateDriverPersonal() || !validateDriverSecurityFields() || !validateDocuments()) return;
-        successMsg.value = 'Driver registration submitted! Please wait for administrator approval.';
-      } else if (isLogisticsSignup.value) {
-        if (!validateLogisticsDocuments()) return;
-        successMsg.value = 'Logistics company registration submitted! Please wait for administrator approval.';
-      } else {
-        if (!validateDocuments()) return;
-        successMsg.value = 'Registration submitted! Please wait for administrator approval.';
-      }
-      
-      signupStep.value = 'complete';
-    }
-
     // ---------- Login Functions ----------
     async function handleLogin() {
       resetMessages();
@@ -962,10 +1528,10 @@ const App = {
 
       const user = data.user;
 
-      // Get user profile
+      // Get user profile with status
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('role, first_name, last_name, email')
+        .select('role, first_name, last_name, email, account_status, status')
         .eq('id', user.id)
         .single();
 
@@ -975,11 +1541,37 @@ const App = {
         return;
       }
 
+      // Check account status
+      if (profile.account_status === 'suspended') {
+        errorMsg.value = 'Your account has been suspended. Please contact support.';
+        await supabase.auth.signOut();
+        return;
+      }
+      
+      if (profile.account_status === 'deactivated') {
+        errorMsg.value = 'Your account has been deactivated. Please contact support.';
+        await supabase.auth.signOut();
+        return;
+      }
+      
+      if (profile.account_status === 'pending' || profile.status === 'pending') {
+        errorMsg.value = 'Your account is pending approval. Please wait for the administrator to approve your account.';
+        await supabase.auth.signOut();
+        return;
+      }
+
+      if (profile.status === 'rejected') {
+        errorMsg.value = 'Your account has been rejected. Please contact support.';
+        await supabase.auth.signOut();
+        return;
+      }
+
       const userRole = profile?.role || user.user_metadata?.role || 'buyer';
 
       loggedInUser.value = {
         email: user.email,
-        role: userRole
+        role: userRole,
+        status: profile.account_status || profile.status
       };
 
       setCookie(
@@ -996,7 +1588,7 @@ const App = {
       }
     }
 
-    // ---------- Password Reset Functions (Step-by-Step Wizard) ----------
+    // ---------- Password Reset Functions ----------
     async function handleSendCode() {
       resetMessages();
 
@@ -1112,7 +1704,6 @@ const App = {
           throw new Error(data.message || 'Failed to reset password.');
         }
 
-        // Reset all fields
         resetCode.value = '';
         newPassword.value = '';
         newConfirmPassword.value = '';
@@ -1175,9 +1766,10 @@ const App = {
       loggedInUser.value = null;
       deleteCookie('nexmart_session');
       resetMessages();
+      supabase.auth.signOut();
     }
 
-    // Input handlers for contact number (only digits)
+    // Input handlers
     function formatContactNumber(event, field) {
       let value = event.target.value;
       value = value.replace(/\D/g, '');
@@ -1190,7 +1782,6 @@ const App = {
       }
     }
 
-    // Input handlers for name (only letters and spaces)
     function formatName(event, field) {
       let value = event.target.value;
       value = value.replace(/[^A-Za-z\s\-]/g, '');
@@ -1200,13 +1791,13 @@ const App = {
       }
     }
 
-    // Input handler for middle initial (only 1 letter)
     function formatMiddleInitial(event, field) {
       let value = event.target.value;
       value = value.replace(/[^A-Za-z]/g, '');
       if (value.length > 1) {
         value = value.slice(0, 1);
       }
+      value = value.toUpperCase();
       event.target.value = value;
       if (field) {
         form.value[field] = value;
@@ -1234,7 +1825,10 @@ const App = {
       companyProvinceOptions, companyMunicipalityOptions, companyBarangayOptions,
       loadingProvinces, loadingMunicipalities, loadingBarangays,
       loadingCompanyProvinces, loadingCompanyMunicipalities, loadingCompanyBarangays,
-      addressApiError, validationErrors,
+      addressApiError, validationErrors, isSubmitting,
+      signupVerifyCode, isSendingSignupCode, isVerifyingSignupCode, signupEmailVerified,
+      resendSignupVerificationCode,
+      stepKeys, driverStepKeys, logisticsStepKeys,
       onProvinceChange, onMunicipalityChange, onCompanyProvinceChange, onCompanyMunicipalityChange,
       retryAddressLoad,
       switchMode, handleLogin, continueAsGuest, selectRole, goToStep,
@@ -1243,7 +1837,6 @@ const App = {
       validatePersonalFields, validateDriverPersonal, validateSecurityFields,
       validateDriverSecurityFields, validateAddressFields, validateDocuments,
       showAdminSignup, adminForm, adminSignupLoading, handleAdminSignup,
-      // Password Reset Wizard
       resetStep, resetEmail, resetCode, newPassword, newConfirmPassword, isVerifying,
       handleSendCode, handleVerifyCode, handleResetPassword, handleResendCode, goToResetStep
     };
@@ -1477,7 +2070,7 @@ const App = {
 
               <div class="flex items-center justify-between mb-2">
                 <p class="text-sm text-slate-500">Driver Registration</p>
-                <span class="text-sm font-medium text-orange-600">Step {{ currentStepIndex + 1 }} of 4</span>
+                <span class="text-sm font-medium text-orange-600">Step {{ currentStepIndex + 1 }} of 5</span>
               </div>
               <h3 class="display-font text-xl font-bold text-slate-900 mb-3">{{ driverSteps[currentStepIndex] }}</h3>
 
@@ -1522,6 +2115,19 @@ const App = {
                       <span v-if="validationErrors.driverEmail" class="text-xs text-red-500">{{ validationErrors.driverEmail }}</span>
                     </div>
                   </div>
+                </div>
+
+                <!-- DRIVER VERIFY EMAIL -->
+                <div v-if="signupStep === 'driverVerifyEmail'">
+                  <p class="text-sm text-slate-600 mb-3">We sent a 6-digit code to <strong>{{ form.driverEmail }}</strong>.</p>
+                  <p v-if="successMsg" class="text-xs text-green-600 mb-2">{{ successMsg }}</p>
+                  <label class="field-label">Verification Code <span class="text-orange-500">*</span></label>
+                  <input v-model="signupVerifyCode" type="text" placeholder="6-digit code" maxlength="6" class="field-input" />
+                  <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
+                  <div class="flex items-center justify-between mt-3">
+                    <a href="#" @click.prevent="resendSignupVerificationCode" class="text-orange-600 font-semibold text-sm hover:underline">Resend code</a>
+                  </div>
+                  <span v-if="errorMsg" class="text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
 
                 <!-- DRIVER ADDRESS -->
@@ -1590,6 +2196,7 @@ const App = {
                       </select>
                     </div>
                     <div class="full-width"><label class="field-label">Plate Number <span class="text-orange-500">*</span></label><input v-model="form.driverPlateNumber" placeholder="ABC-1234" class="field-input" /></div>
+                    <div class="full-width"><label class="field-label">License Number</label><input v-model="form.driverLicenseNumber" placeholder="Driver's License #" class="field-input" /></div>
                     <div class="full-width"><label class="field-label">Upload Valid ID <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'driverIdFile')" class="field-input text-sm p-1" /></div>
                     <div class="full-width"><label class="field-label">Upload Driver's License <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'driverLicenseFile')" class="field-input text-sm p-1" /></div>
                     <div class="full-width"><label class="field-label">Upload OR/CR <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'driverOrcrFile')" class="field-input text-sm p-1" /></div>
@@ -1603,9 +2210,9 @@ const App = {
               <!-- Navigation -->
               <div class="nav-container">
                 <div class="flex gap-3">
-                  <button v-if="currentStepIndex > 0" @click="goToStep(['driverPersonal', 'driverAddress', 'driverSecurity', 'driverDocuments'][currentStepIndex - 1])" class="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-lg hover:bg-slate-50">Back</button>
-                  <button v-if="currentStepIndex < 3" @click="goToStep(['driverPersonal', 'driverAddress', 'driverSecurity', 'driverDocuments'][currentStepIndex + 1])" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Next</button>
-                  <button v-if="currentStepIndex === 3" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Submit</button>
+                  <button v-if="currentStepIndex > 0" @click="goToStep(driverStepKeys[currentStepIndex - 1])" class="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-lg hover:bg-slate-50">Back</button>
+                  <button v-if="currentStepIndex < 4" @click="goToStep(driverStepKeys[currentStepIndex + 1])" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Next</button>
+                  <button v-if="currentStepIndex === 4" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg" :disabled="isSubmitting">Submit</button>
                 </div>
               </div>
             </div>
@@ -1622,7 +2229,7 @@ const App = {
 
               <div class="flex items-center justify-between mb-2">
                 <p class="text-sm text-slate-500">Logistics Company Registration</p>
-                <span class="text-sm font-medium text-orange-600">Step {{ currentStepIndex + 1 }} of 5</span>
+                <span class="text-sm font-medium text-orange-600">Step {{ currentStepIndex + 1 }} of 6</span>
               </div>
               <h3 class="display-font text-xl font-bold text-slate-900 mb-3">{{ logisticsSteps[currentStepIndex] }}</h3>
 
@@ -1637,6 +2244,19 @@ const App = {
                     <div class="full-width"><label class="field-label">SEC Registration #</label><input v-model="form.companySECReg" placeholder="SEC Reg. No. (if applicable)" class="field-input" /></div>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
+                </div>
+
+                <!-- COMPANY VERIFY EMAIL -->
+                <div v-if="signupStep === 'companyVerifyEmail'">
+                  <p class="text-sm text-slate-600 mb-3">We sent a 6-digit code to <strong>{{ form.companyEmail }}</strong>.</p>
+                  <p v-if="successMsg" class="text-xs text-green-600 mb-2">{{ successMsg }}</p>
+                  <label class="field-label">Verification Code <span class="text-orange-500">*</span></label>
+                  <input v-model="signupVerifyCode" type="text" placeholder="6-digit code" maxlength="6" class="field-input" />
+                  <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
+                  <div class="flex items-center justify-between mt-3">
+                    <a href="#" @click.prevent="resendSignupVerificationCode" class="text-orange-600 font-semibold text-sm hover:underline">Resend code</a>
+                  </div>
+                  <span v-if="errorMsg" class="text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
 
                 <!-- OWNER DETAILS -->
@@ -1726,9 +2346,9 @@ const App = {
               <!-- Navigation -->
               <div class="nav-container">
                 <div class="flex gap-3">
-                  <button v-if="currentStepIndex > 0" @click="goToStep(['company', 'owner', 'address', 'security', 'documents'][currentStepIndex - 1])" class="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-lg hover:bg-slate-50">Back</button>
-                  <button v-if="currentStepIndex < 4" @click="goToStep(['company', 'owner', 'address', 'security', 'documents'][currentStepIndex + 1])" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Next</button>
-                  <button v-if="currentStepIndex === 4" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Submit</button>
+                  <button v-if="currentStepIndex > 0" @click="goToStep(logisticsStepKeys[currentStepIndex - 1])" class="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-lg hover:bg-slate-50">Back</button>
+                  <button v-if="currentStepIndex < 5" @click="goToStep(logisticsStepKeys[currentStepIndex + 1])" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Next</button>
+                  <button v-if="currentStepIndex === 5" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg" :disabled="isSubmitting">Submit</button>
                 </div>
               </div>
             </div>
@@ -1745,7 +2365,7 @@ const App = {
 
               <div class="flex items-center justify-between mb-2">
                 <p class="text-sm text-slate-500">Register as <span class="font-semibold text-slate-800 capitalize">{{ selectedRole }}</span></p>
-                <span class="text-sm font-medium text-orange-600">Step {{ currentStepIndex + 1 }} of 4</span>
+                <span class="text-sm font-medium text-orange-600">Step {{ currentStepIndex + 1 }} of 5</span>
               </div>
               <h3 class="display-font text-xl font-bold text-slate-900 mb-3">{{ steps[currentStepIndex] }} Info</h3>
 
@@ -1790,6 +2410,19 @@ const App = {
                       <span v-if="validationErrors.email" class="text-xs text-red-500">{{ validationErrors.email }}</span>
                     </div>
                   </div>
+                </div>
+
+                <!-- VERIFY EMAIL -->
+                <div v-if="signupStep === 'verifyEmail'">
+                  <p class="text-sm text-slate-600 mb-3">We sent a 6-digit code to <strong>{{ email }}</strong>.</p>
+                  <p v-if="successMsg" class="text-xs text-green-600 mb-2">{{ successMsg }}</p>
+                  <label class="field-label">Verification Code <span class="text-orange-500">*</span></label>
+                  <input v-model="signupVerifyCode" type="text" placeholder="6-digit code" maxlength="6" class="field-input" />
+                  <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
+                  <div class="flex items-center justify-between mt-3">
+                    <a href="#" @click.prevent="resendSignupVerificationCode" class="text-orange-600 font-semibold text-sm hover:underline">Resend code</a>
+                  </div>
+                  <span v-if="errorMsg" class="text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
 
                 <!-- ADDRESS -->
@@ -1857,7 +2490,20 @@ const App = {
                     </template>
                     <template v-if="selectedRole === 'seller'">
                       <div class="full-width"><label class="field-label">Business Name <span class="text-orange-500">*</span></label><input v-model="form.businessName" placeholder="My Store" class="field-input" /></div>
-                      <div class="full-width"><label class="field-label">Line of Business <span class="text-orange-500">*</span></label><input v-model="form.lineOfBusiness" placeholder="Retail, Food" class="field-input" /></div>
+                      <div class="full-width">
+                        <label class="field-label">Line of Business <span class="text-orange-500">*</span></label>
+                        <select v-model="form.lineOfBusiness" class="field-input" required>
+                          <option value="">Select Line of Business</option>
+                          <option value="Pet Supplies">Pet Supplies</option>
+                          <option value="Kids and Baby">Kids and Baby</option>
+                          <option value="Electronics and Gadgets">Electronics and Gadgets</option>
+                          <option value="House and Garden">House and Garden</option>
+                          <option value="Woman's Apparel">Woman's Apparel</option>
+                          <option value="Men's Apparel">Men's Apparel</option>
+                          <option value="Sports and Outdoors">Sports and Outdoors</option>
+                          <option value="Health and Beauty">Health and Beauty</option>
+                        </select>
+                      </div>
                       <div class="full-width"><label class="field-label">Upload ID <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'idFile')" class="field-input text-sm p-1" /></div>
                       <div class="full-width"><label class="field-label">Upload Business Permit <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'businessPermit')" class="field-input text-sm p-1" /></div>
                     </template>
@@ -1881,9 +2527,9 @@ const App = {
               <!-- Navigation -->
               <div class="nav-container">
                 <div class="flex gap-3">
-                  <button v-if="currentStepIndex > 0" @click="goToStep(steps[currentStepIndex - 1].toLowerCase())" class="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-lg hover:bg-slate-50">Back</button>
-                  <button v-if="currentStepIndex < 3" @click="goToStep(steps[currentStepIndex + 1].toLowerCase())" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Next</button>
-                  <button v-if="currentStepIndex === 3" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Submit</button>
+                  <button v-if="currentStepIndex > 0" @click="goToStep(stepKeys[currentStepIndex - 1])" class="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-lg hover:bg-slate-50">Back</button>
+                  <button v-if="currentStepIndex < 4" @click="goToStep(stepKeys[currentStepIndex + 1])" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Next</button>
+                  <button v-if="currentStepIndex === 4" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg" :disabled="isSubmitting">Submit</button>
                 </div>
               </div>
             </div>
@@ -1901,7 +2547,7 @@ const App = {
     </div>
   </div>
 
-  <!-- ADMIN SIGNUP MODAL -->
+  <!-- ADMIN SIGNUP MODAL (Temporary) -->
   <div v-if="showAdminSignup" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
     <div class="bg-white rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between mb-4">

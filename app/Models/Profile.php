@@ -6,10 +6,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-/**
- * Maps to public.profiles (1:1 with auth.users).
- * Note: id is a uuid coming from Supabase auth.users, not an auto-increment.
- */
 class Profile extends Model
 {
     protected $table = 'profiles';
@@ -27,7 +23,7 @@ class Profile extends Model
     ];
 
     // Roles that go through the registration/approval workflow.
-    public const REGISTRABLE_ROLES = ['buyer', 'seller', 'courier', 'driver', 'logistics'];
+    public const REGISTRABLE_ROLES = ['buyer', 'seller', 'courier'];
 
     public function address(): HasOne
     {
@@ -42,21 +38,6 @@ class Profile extends Model
     public function courierDetail(): HasOne
     {
         return $this->hasOne(CourierDetail::class, 'profile_id');
-    }
-
-    public function driverDetail(): HasOne
-    {
-        return $this->hasOne(DriverDetail::class, 'profile_id');
-    }
-
-    public function logisticsCompany(): HasOne
-    {
-        return $this->hasOne(LogisticsCompany::class, 'owner_profile_id');
-    }
-
-    public function logisticsAdminDetail(): HasOne
-    {
-        return $this->hasOne(LogisticsAdminDetail::class, 'profile_id');
     }
 
     public function documents(): HasMany
