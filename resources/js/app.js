@@ -4,15 +4,23 @@ const { createApp, ref, computed, onMounted } = Vue;
 // ---------- Configuration ----------
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
 console.log('✅ Supabase URL:', SUPABASE_URL);
 console.log('✅ Supabase Key:', SUPABASE_ANON_KEY ? 'Loaded' : '❌ Missing');
+console.log('✅ Service Role Key:', SUPABASE_SERVICE_ROLE_KEY ? 'Loaded' : '❌ Missing');
 
 // ---------- Initialize Supabase ----------
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// Admin client with service role key (bypasses RLS)
+const supabaseAdmin = window.supabase.createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
 // ---------- PSGC API Base ----------
 const PSGC_BASE = '/api/psgc';
+
+// ---------- Cookie Helpers ----------
+// ... rest of your code
 
 // ---------- Cookie Helpers ----------
 function setCookie(name, value, days = 7) {
@@ -812,297 +820,372 @@ const App = {
     }
 
     // ---------- Document Upload Functions ----------
-    async function uploadDocuments(userId, role) {
-      const files = [];
+    // ---------- Document Upload Functions ----------
+// ---------- Document Upload Functions ----------
+async function uploadDocuments(userId, role) {
+  const files = [];
+  
+  if (role === 'buyer' && form.value.idFile) {
+    files.push({ type: 'valid_id', file: form.value.idFile });
+  } else if (role === 'seller') {
+    if (form.value.idFile) files.push({ type: 'valid_id', file: form.value.idFile });
+    if (form.value.businessPermit) files.push({ type: 'business_permit', file: form.value.businessPermit });
+  } else if (role === 'courier') {
+    if (form.value.orcrFile) files.push({ type: 'orcr', file: form.value.orcrFile });
+    if (form.value.licenseFile) files.push({ type: 'drivers_license', file: form.value.licenseFile });
+  } else if (role === 'driver') {
+    if (form.value.driverIdFile) files.push({ type: 'valid_id', file: form.value.driverIdFile });
+    if (form.value.driverLicenseFile) files.push({ type: 'drivers_license', file: form.value.driverLicenseFile });
+    if (form.value.driverOrcrFile) files.push({ type: 'orcr', file: form.value.driverOrcrFile });
+  }
+
+  for (const fileData of files) {
+    try {
+      // ✅ FIX: Keep the original file extension
+      const file = fileData.file;
+      const fileName = file.name || 'file';
+      const extension = fileName.split('.').pop() || '';
+      const baseName = fileName.split('.').slice(0, -1).join('.') || fileData.type;
       
-      if (role === 'buyer' && form.value.idFile) {
-        files.push({ type: 'valid_id', file: form.value.idFile });
-      } else if (role === 'seller') {
-        if (form.value.idFile) files.push({ type: 'valid_id', file: form.value.idFile });
-        if (form.value.businessPermit) files.push({ type: 'business_permit', file: form.value.businessPermit });
-      } else if (role === 'courier') {
-        if (form.value.orcrFile) files.push({ type: 'orcr', file: form.value.orcrFile });
-        if (form.value.licenseFile) files.push({ type: 'drivers_license', file: form.value.licenseFile });
-      } else if (role === 'driver') {
-        if (form.value.driverIdFile) files.push({ type: 'valid_id', file: form.value.driverIdFile });
-        if (form.value.driverLicenseFile) files.push({ type: 'drivers_license', file: form.value.driverLicenseFile });
-        if (form.value.driverOrcrFile) files.push({ type: 'orcr', file: form.value.driverOrcrFile });
+      // Get the MIME type from the file
+      const mimeType = file.type || 'application/octet-stream';
+      
+      // Build path with extension
+      const timestamp = Date.now();
+      const filePath = extension 
+        ? `profile/${userId}/${fileData.type}_${timestamp}.${extension}`
+        : `profile/${userId}/${fileData.type}_${timestamp}`;
+      
+      // Upload to Supabase Storage using admin client
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from('documents')
+        .upload(filePath, file, {
+          contentType: mimeType,
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        console.error('File upload error:', uploadError);
+        continue;
       }
 
-      for (const fileData of files) {
-        try {
-          const filePath = `profile/${userId}/${fileData.type}_${Date.now()}`;
-          
-          const { error: uploadError } = await supabase.storage
-            .from('documents')
-            .upload(filePath, fileData.file);
+      // Create document record with mime_type
+      const { error: docError } = await supabaseAdmin
+        .from('documents')
+        .insert({
+          owner_kind: 'profile',
+          profile_id: userId,
+          doc_type: fileData.type,
+          storage_path: filePath,
+          mime_type: mimeType,  // ✅ Store the MIME type
+          status: 'pending'
+        });
 
-          if (uploadError) {
-            console.error('File upload error:', uploadError);
-            continue;
-          }
-
-          const { error: docError } = await supabase
-            .from('documents')
-            .insert({
-              owner_kind: 'profile',
-              profile_id: userId,
-              doc_type: fileData.type,
-              storage_path: filePath,
-              status: 'pending'
-            });
-
-          if (docError) console.error('Document record error:', docError);
-          
-        } catch (err) {
-          console.error('Upload failed:', err);
-        }
+      if (docError) {
+        console.error('Document record error:', docError);
       }
+      
+    } catch (err) {
+      console.error('Upload failed:', err);
     }
+  }
+}
 
-    async function uploadLogisticsDocuments(userId, companyId) {
-      const files = [
-        { type: 'valid_id', file: form.value.ownerIdFile },
-        { type: 'business_permit', file: form.value.businessPermitFile },
-        { type: 'mayors_permit', file: form.value.mayorPermitFile },
-        { type: 'dti_sec_registration', file: form.value.dtiRegFile }
-      ];
+async function uploadLogisticsDocuments(userId, companyId) {
+  const files = [
+    { type: 'valid_id', file: form.value.ownerIdFile },
+    { type: 'business_permit', file: form.value.businessPermitFile },
+    { type: 'mayors_permit', file: form.value.mayorPermitFile },
+    { type: 'dti_sec_registration', file: form.value.dtiRegFile }
+  ];
 
-      for (const fileData of files) {
-        if (!fileData.file) continue;
-        
-        try {
-          const filePath = `logistics_company/${companyId}/${fileData.type}_${Date.now()}`;
-          
-          const { error: uploadError } = await supabase.storage
-            .from('documents')
-            .upload(filePath, fileData.file);
+  for (const fileData of files) {
+    if (!fileData.file) continue;
+    
+    try {
+      const file = fileData.file;
+      const fileName = file.name || 'file';
+      const extension = fileName.split('.').pop() || '';
+      const mimeType = file.type || 'application/octet-stream';
+      
+      // Build path with extension
+      const timestamp = Date.now();
+      const filePath = extension 
+        ? `logistics_company/${companyId}/${fileData.type}_${timestamp}.${extension}`
+        : `logistics_company/${companyId}/${fileData.type}_${timestamp}`;
+      
+      // Upload to Supabase Storage using admin client
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from('documents')
+        .upload(filePath, file, {
+          contentType: mimeType,
+          cacheControl: '3600',
+          upsert: false
+        });
 
-          if (uploadError) {
-            console.error('File upload error:', uploadError);
-            continue;
-          }
-
-          const { error: docError } = await supabase
-            .from('documents')
-            .insert({
-              owner_kind: 'logistics_company',
-              logistics_company_id: companyId,
-              doc_type: fileData.type,
-              storage_path: filePath,
-              status: 'pending'
-            });
-
-          if (docError) console.error('Document record error:', docError);
-          
-        } catch (err) {
-          console.error('Upload failed:', err);
-        }
+      if (uploadError) {
+        console.error('File upload error:', uploadError);
+        continue;
       }
+
+      // Create document record with mime_type
+      const { error: docError } = await supabaseAdmin
+        .from('documents')
+        .insert({
+          owner_kind: 'logistics_company',
+          logistics_company_id: companyId,
+          doc_type: fileData.type,
+          storage_path: filePath,
+          mime_type: mimeType,  // ✅ Store the MIME type
+          status: 'pending'
+        });
+
+      if (docError) {
+        console.error('Document record error:', docError);
+      }
+      
+    } catch (err) {
+      console.error('Upload failed:', err);
     }
+  }
+}
 
     // ---------- Registration Functions ----------
-    async function submitUserRegistration() {
-      try {
-        // Determine email and password based on role
-        const userEmail = selectedRole.value === 'driver' 
-          ? form.value.driverEmail 
-          : email.value;
-        const userPassword = selectedRole.value === 'driver' 
-          ? form.value.driverPassword 
-          : password.value;
-        
-        const userRole = selectedRole.value || 'buyer';
-        
-        // Get name based on role
-        let firstName, lastName, middleInitial, sex, contactNo, birthday;
-        if (selectedRole.value === 'driver') {
-          firstName = form.value.driverFirstName;
-          lastName = form.value.driverLastName;
-          middleInitial = form.value.driverMiddleInitial || '';
-          sex = form.value.driverSex;
-          contactNo = form.value.driverContactNo;
-          birthday = form.value.driverBirthday;
-        } else {
-          firstName = form.value.firstName;
-          lastName = form.value.lastName;
-          middleInitial = form.value.middleInitial || '';
-          sex = form.value.sex;
-          contactNo = form.value.contactNo;
-          birthday = form.value.birthday;
-        }
-        
-        // Step 1: Create auth user with metadata
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: userEmail.trim().toLowerCase(),
-          password: userPassword,
-          options: {
-            data: {
-              role: userRole,
-              first_name: firstName,
-              last_name: lastName,
-              middle_initial: middleInitial,
-              sex: sex,
-              contact_no: contactNo,
-              birthday: birthday,
-              status: 'pending'
-            }
-          }
+ async function submitUserRegistration() {
+  try {
+    // Determine email and password based on role
+    const userEmail = selectedRole.value === 'driver' 
+      ? form.value.driverEmail 
+      : email.value;
+    const userPassword = selectedRole.value === 'driver' 
+      ? form.value.driverPassword 
+      : password.value;
+    
+    const userRole = selectedRole.value || 'buyer';
+    
+    // Get name based on role
+    let firstName, lastName, middleInitial, sex, contactNo, birthday;
+    if (selectedRole.value === 'driver') {
+      firstName = form.value.driverFirstName;
+      lastName = form.value.driverLastName;
+      middleInitial = form.value.driverMiddleInitial || '';
+      sex = form.value.driverSex;
+      contactNo = form.value.driverContactNo;
+      birthday = form.value.driverBirthday;
+    } else {
+      firstName = form.value.firstName;
+      lastName = form.value.lastName;
+      middleInitial = form.value.middleInitial || '';
+      sex = form.value.sex;
+      contactNo = form.value.contactNo;
+      birthday = form.value.birthday;
+    }
+    
+    // ✅ FIX: Use supabaseAdmin to create user (bypasses rate limits)
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email: userEmail.trim().toLowerCase(),
+      password: userPassword,
+      email_confirm: true,
+      user_metadata: {
+        role: userRole,
+        first_name: firstName,
+        last_name: lastName,
+        middle_initial: middleInitial,
+        sex: sex,
+        contact_no: contactNo,
+        birthday: birthday,
+        status: 'pending'
+      }
+    });
+
+    if (authError) {
+      console.error('Auth error:', authError);
+      if (authError.message && authError.message.includes('already exists')) {
+        errorMsg.value = 'This email is already registered. Please login instead.';
+        return;
+      }
+      throw authError;
+    }
+
+    if (!authData?.user) throw new Error('Failed to create user');
+
+    const userId = authData.user.id;
+    console.log('✅ User created via admin API:', userId);
+
+    // Wait for the trigger to create the profile
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // Step 2: Save address using admin client (bypasses RLS)
+    if (form.value.provinceCode && form.value.municipalityCode && form.value.barangay) {
+      const { error: addressError } = await supabaseAdmin
+        .from('addresses')
+        .insert({
+          owner_kind: 'profile',
+          profile_id: userId,
+          province_code: form.value.provinceCode,
+          province_name: form.value.province,
+          municipality_code: form.value.municipalityCode,
+          municipality_name: form.value.municipality,
+          barangay: form.value.barangay,
+          street: form.value.street || '',
+          house_no: form.value.houseNo || null
         });
 
-        if (authError) throw authError;
-        if (!authData?.user) throw new Error('Failed to create user');
-
-        const userId = authData.user.id;
-        console.log('✅ User created:', userId);
-
-        // Profile is automatically created by the Supabase trigger
-
-        // Step 2: Save address (if provided)
-        if (form.value.provinceCode && form.value.municipalityCode && form.value.barangay) {
-          const { error: addressError } = await supabase
-            .from('addresses')
-            .insert({
-              owner_kind: 'profile',
-              profile_id: userId,
-              province_code: form.value.provinceCode,
-              province_name: form.value.province,
-              municipality_code: form.value.municipalityCode,
-              municipality_name: form.value.municipality,
-              barangay: form.value.barangay,
-              street: form.value.street || '',
-              house_no: form.value.houseNo || null
-            });
-
-          if (addressError) {
-            console.error('Address save error:', addressError);
-          }
-        }
-
-        // Step 3: Role-specific data
-        if (userRole === 'seller') {
-          const { error: sellerError } = await supabase
-            .from('seller_details')
-            .insert({
-              profile_id: userId,
-              business_name: form.value.businessName,
-              line_of_business: form.value.lineOfBusiness
-            });
-
-          if (sellerError) throw sellerError;
-          
-        } else if (userRole === 'courier') {
-          const { error: courierError } = await supabase
-            .from('courier_details')
-            .insert({
-              profile_id: userId,
-              vehicle: form.value.vehicle,
-              plate_number: form.value.plateNumber
-            });
-
-          if (courierError) throw courierError;
-          
-        } else if (userRole === 'driver') {
-          const { error: driverError } = await supabase
-            .from('driver_details')
-            .insert({
-              profile_id: userId,
-              logistics_company_id: null,
-              vehicle: form.value.driverVehicle,
-              plate_number: form.value.driverPlateNumber,
-              license_number: form.value.driverLicenseNumber || null
-            });
-
-          if (driverError) throw driverError;
-        }
-
-        // Step 4: Upload documents
-        await uploadDocuments(userId, userRole);
-
-        successMsg.value = 'Registration submitted! Please wait for administrator approval.';
-        signupStep.value = 'complete';
-
-      } catch (error) {
-        console.error('Registration error:', error);
-        errorMsg.value = error.message || 'Registration failed. Please try again.';
+      if (addressError) {
+        console.error('Address save error:', addressError);
       }
     }
+
+    // Step 3: Role-specific data using admin client (bypasses RLS)
+    if (userRole === 'seller') {
+      const { error: sellerError } = await supabaseAdmin
+        .from('seller_details')
+        .insert({
+          profile_id: userId,
+          business_name: form.value.businessName,
+          line_of_business: form.value.lineOfBusiness
+        });
+
+      if (sellerError) {
+        console.error('Seller details error:', sellerError);
+        throw sellerError;
+      }
+      
+    } else if (userRole === 'courier') {
+      const { error: courierError } = await supabaseAdmin
+        .from('courier_details')
+        .insert({
+          profile_id: userId,
+          vehicle: form.value.vehicle,
+          plate_number: form.value.plateNumber
+        });
+
+      if (courierError) {
+        console.error('Courier details error:', courierError);
+        throw courierError;
+      }
+      
+    } else if (userRole === 'driver') {
+      const { error: driverError } = await supabaseAdmin
+        .from('driver_details')
+        .insert({
+          profile_id: userId,
+          logistics_company_id: null,
+          vehicle: form.value.driverVehicle,
+          plate_number: form.value.driverPlateNumber,
+          license_number: form.value.driverLicenseNumber || null
+        });
+
+      if (driverError) {
+        console.error('Driver details error:', driverError);
+        throw driverError;
+      }
+    }
+
+    // Step 4: Upload documents (NOW USING supabaseAdmin)
+    await uploadDocuments(userId, userRole);
+
+    successMsg.value = 'Registration submitted! Please wait for administrator approval.';
+    signupStep.value = 'complete';
+
+  } catch (error) {
+    console.error('Registration error:', error);
+    errorMsg.value = error.message || 'Registration failed. Please try again.';
+  }
+}
 
     async function submitLogisticsRegistration() {
-      try {
-        // Create auth user for logistics company
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: form.value.companyEmail.trim().toLowerCase(),
-          password: password.value,
-          options: {
-            data: {
-              role: 'logistics',
-              company_name: form.value.companyName,
-              first_name: form.value.ownerFirstName,
-              last_name: form.value.ownerLastName,
-              middle_initial: form.value.ownerMiddleInitial || '',
-              sex: form.value.ownerSex,
-              contact_no: form.value.ownerContactNo,
-              birthday: form.value.ownerBirthday,
-              status: 'pending'
-            }
-          }
+  try {
+    // ✅ FIX: Use supabaseAdmin to create user
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email: form.value.companyEmail.trim().toLowerCase(),
+      password: password.value,
+      email_confirm: true,
+      user_metadata: {
+        role: 'logistics',
+        company_name: form.value.companyName,
+        first_name: form.value.ownerFirstName,
+        last_name: form.value.ownerLastName,
+        middle_initial: form.value.ownerMiddleInitial || '',
+        sex: form.value.ownerSex,
+        contact_no: form.value.ownerContactNo,
+        birthday: form.value.ownerBirthday,
+        status: 'pending'
+      }
+    });
+
+    if (authError) {
+      console.error('Auth error:', authError);
+      if (authError.message && authError.message.includes('already exists')) {
+        errorMsg.value = 'This email is already registered. Please login instead.';
+        return;
+      }
+      throw authError;
+    }
+
+    if (!authData?.user) throw new Error('Failed to create user');
+
+    const userId = authData.user.id;
+    console.log('✅ Logistics user created via admin API:', userId);
+
+    // Wait for profile trigger
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // Step 1: Create logistics company using admin client
+    const { data: companyData, error: companyError } = await supabaseAdmin
+      .from('logistics_companies')
+      .insert({
+        owner_profile_id: userId,
+        company_name: form.value.companyName,
+        company_email: form.value.companyEmail,
+        company_contact_no: form.value.companyContactNo,
+        tin: form.value.companyTIN,
+        sec_registration: form.value.companySECReg || null,
+        status: 'pending'
+      })
+      .select()
+      .single();
+
+    if (companyError) {
+      console.error('Company error:', companyError);
+      throw companyError;
+    }
+
+    const companyId = companyData.id;
+
+    // Step 2: Save company address using admin client
+    if (form.value.companyProvinceCode) {
+      const { error: addressError } = await supabaseAdmin
+        .from('addresses')
+        .insert({
+          owner_kind: 'logistics_company',
+          logistics_company_id: companyId,
+          province_code: form.value.companyProvinceCode,
+          province_name: form.value.companyProvince,
+          municipality_code: form.value.companyMunicipalityCode,
+          municipality_name: form.value.companyMunicipality,
+          barangay: form.value.companyBarangay,
+          street: form.value.companyStreet || '',
+          house_no: form.value.companyHouseNo || null
         });
 
-        if (authError) throw authError;
-        if (!authData?.user) throw new Error('Failed to create user');
-
-        const userId = authData.user.id;
-
-        // Step 1: Create logistics company
-        const { data: companyData, error: companyError } = await supabase
-          .from('logistics_companies')
-          .insert({
-            owner_profile_id: userId,
-            company_name: form.value.companyName,
-            company_email: form.value.companyEmail,
-            company_contact_no: form.value.companyContactNo,
-            tin: form.value.companyTIN,
-            sec_registration: form.value.companySECReg || null,
-            status: 'pending'
-          })
-          .select()
-          .single();
-
-        if (companyError) throw companyError;
-
-        const companyId = companyData.id;
-
-        // Step 2: Save company address
-        if (form.value.companyProvinceCode) {
-          const { error: addressError } = await supabase
-            .from('addresses')
-            .insert({
-              owner_kind: 'logistics_company',
-              logistics_company_id: companyId,
-              province_code: form.value.companyProvinceCode,
-              province_name: form.value.companyProvince,
-              municipality_code: form.value.companyMunicipalityCode,
-              municipality_name: form.value.companyMunicipality,
-              barangay: form.value.companyBarangay,
-              street: form.value.companyStreet || '',
-              house_no: form.value.companyHouseNo || null
-            });
-
-          if (addressError) console.error('Address save error:', addressError);
-        }
-
-        // Step 3: Upload documents
-        await uploadLogisticsDocuments(userId, companyId);
-
-        successMsg.value = 'Logistics company registration submitted! Please wait for administrator approval.';
-        signupStep.value = 'complete';
-
-      } catch (error) {
-        console.error('Logistics registration error:', error);
-        errorMsg.value = error.message || 'Registration failed. Please try again.';
+      if (addressError) {
+        console.error('Address save error:', addressError);
       }
     }
+
+    // Step 3: Upload documents (NOW USING supabaseAdmin)
+    await uploadLogisticsDocuments(userId, companyId);
+
+    successMsg.value = 'Logistics company registration submitted! Please wait for administrator approval.';
+    signupStep.value = 'complete';
+
+  } catch (error) {
+    console.error('Logistics registration error:', error);
+    errorMsg.value = error.message || 'Registration failed. Please try again.';
+  }
+}
 
     function submitRegistration() {
       resetMessages();
@@ -1265,59 +1348,132 @@ const App = {
     }
 
     async function fetchBarangays(municipalityCode, isCompany = false) {
-      if (isCompany) {
-        companyBarangayOptions.value = [];
-        form.value.companyBarangay = '';
-      } else {
-        barangayOptions.value = [];
-        form.value.barangay = '';
-      }
-      
-      if (!municipalityCode) return;
-      
-      if (isCompany) {
-        loadingCompanyBarangays.value = true;
-      } else {
-        loadingBarangays.value = true;
-      }
-      addressApiError.value = '';
-      
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
-        
-        const res = await fetch(`${PSGC_BASE}/barangays?municipality_code=${municipalityCode}&limit=500`, {
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        
-        if (!res.ok) {
-          let detail = '';
-          try { detail = await res.text(); } catch (e) {}
-          throw new Error('Request failed: ' + res.status + (detail ? ' — ' + detail : ''));
-        }
-        const json = await res.json();
-        const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  if (isCompany) {
+    companyBarangayOptions.value = [];
+    form.value.companyBarangay = '';
+  } else {
+    barangayOptions.value = [];
+    form.value.barangay = '';
+  }
+  
+  if (!municipalityCode) return;
+  
+  if (isCompany) {
+    loadingCompanyBarangays.value = true;
+  } else {
+    loadingBarangays.value = true;
+  }
+  addressApiError.value = '';
+  
+  try {
+    const controller = new AbortController();
+    // Increase timeout to 15 seconds
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    
+    // ✅ FIX: Use city_municipality_code instead of municipality_code
+    const res = await fetch(`${PSGC_BASE}/barangays?city_municipality_code=${municipalityCode}&limit=500`, {
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) {
+      let detail = '';
+      try { detail = await res.text(); } catch (e) {}
+      throw new Error('Request failed: ' + res.status + (detail ? ' — ' + detail : ''));
+    }
+    const json = await res.json();
+    const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
 
-        if (isCompany) {
-          companyBarangayOptions.value = data;
-        } else {
-          barangayOptions.value = data;
-        }
-      } catch (err) {
-        if (err.name === 'AbortError') {
-          addressApiError.value = 'Request timed out. Please try again.';
-        } else {
-          addressApiError.value = 'Could not load barangays. Please try again.';
-        }
-      } finally {
-        if (isCompany) {
-          loadingCompanyBarangays.value = false;
-        } else {
-          loadingBarangays.value = false;
-        }
+    if (isCompany) {
+      companyBarangayOptions.value = data;
+    } else {
+      barangayOptions.value = data;
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      addressApiError.value = 'Request timed out. Please try again.';
+    } else {
+      addressApiError.value = 'Could not load barangays. Please try again.';
+    }
+  } finally {
+    if (isCompany) {
+      loadingCompanyBarangays.value = false;
+    } else {
+      loadingBarangays.value = false;
+    }
+  }
+}
+
+async function fetchWithRetry(url, options = {}, maxRetries = 2) {
+  let lastError;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return response;
+    } catch (err) {
+      lastError = err;
+      if (i < maxRetries - 1) {
+        // Wait 1 second before retry
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
+  }
+  throw lastError;
+}
+
+async function fetchBarangays(municipalityCode, isCompany = false) {
+  if (isCompany) {
+    companyBarangayOptions.value = [];
+    form.value.companyBarangay = '';
+  } else {
+    barangayOptions.value = [];
+    form.value.barangay = '';
+  }
+  
+  if (!municipalityCode) return;
+  
+  if (isCompany) {
+    loadingCompanyBarangays.value = true;
+  } else {
+    loadingBarangays.value = true;
+  }
+  addressApiError.value = '';
+  
+  try {
+    const res = await fetchWithRetry(`${PSGC_BASE}/barangays?city_municipality_code=${municipalityCode}&limit=500`);
+    const json = await res.json();
+    const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+
+    if (isCompany) {
+      companyBarangayOptions.value = data;
+    } else {
+      barangayOptions.value = data;
+    }
+  } catch (err) {
+    if (err.name === 'AbortError' || err.message.includes('timed out')) {
+      addressApiError.value = 'Request timed out. Please try again.';
+    } else {
+      addressApiError.value = 'Could not load barangays. Please try again.';
+    }
+  } finally {
+    if (isCompany) {
+      loadingCompanyBarangays.value = false;
+    } else {
+      loadingBarangays.value = false;
+    }
+  }
+}
 
     // Address Change Handlers
     function onProvinceChange() {

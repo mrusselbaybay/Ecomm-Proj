@@ -11,31 +11,45 @@ use Illuminate\Support\Facades\Log;
 class PsgcProxyController extends Controller
 {
     private const BASE = 'https://psgc.gitlab.io/api';
-    private const CACHE_TTL_SECONDS = 60 * 60 * 24;
+    private const CACHE_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 
+    /**
+     * Get all regions
+     */
     public function regions(Request $request): JsonResponse
     {
         return $this->proxy('/regions', $request->only(['limit']));
     }
 
+    /**
+     * Get provinces by region code
+     */
     public function provinces(Request $request): JsonResponse
     {
         return $this->proxy('/provinces', $request->only(['region_code']));
     }
 
+    /**
+     * Get cities/municipalities by province code
+     */
     public function citiesMunicipalities(Request $request): JsonResponse
     {
         return $this->proxy('/cities-municipalities', $request->only(['province_code']));
     }
 
+    /**
+     * Get barangays by city/municipality code
+     * Supports both 'city_municipality_code' and 'municipality_code' parameters
+     */
     public function barangays(Request $request): JsonResponse
     {
         // Support both parameter names for compatibility
         $params = [];
-        if ($request->has('municipality_code')) {
-            $params['city_municipality_code'] = $request->input('municipality_code');
-        } elseif ($request->has('city_municipality_code')) {
+        
+        if ($request->has('city_municipality_code')) {
             $params['city_municipality_code'] = $request->input('city_municipality_code');
+        } elseif ($request->has('municipality_code')) {
+            $params['city_municipality_code'] = $request->input('municipality_code');
         }
         
         if ($request->has('limit')) {
@@ -45,16 +59,20 @@ class PsgcProxyController extends Controller
         return $this->proxy('/barangays', $params);
     }
 
+    /**
+     * Proxy request to PSGC API with caching
+     */
     private function proxy(string $path, array $query): JsonResponse
     {
         $cacheKey = 'psgc:' . $path . ':' . http_build_query($query);
+        $cacheKey = str_replace(['[', ']'], '', $cacheKey); // Clean cache key
 
         try {
             $payload = Cache::remember($cacheKey, self::CACHE_TTL_SECONDS, function () use ($path, $query) {
                 $url = self::BASE . $path;
                 Log::info('PSGC Proxy Request', ['url' => $url, 'query' => $query]);
 
-                $response = Http::timeout(20)->get($url, $query);
+                $response = Http::timeout(30)->get($url, $query);
 
                 Log::info('PSGC Proxy Response', [
                     'status' => $response->status(),
@@ -72,20 +90,30 @@ class PsgcProxyController extends Controller
 
                 $responseData = $response->json();
 
-                $filtered = $this->filterPayloadByQuery($responseData, $query);
-
-                if (is_array($filtered) && array_is_list($filtered)) {
+                // If the response is already in our expected format, return it
+                if (isset($responseData['data']) && is_array($responseData['data'])) {
+                    // Filter the data if needed
+                    $filtered = $this->filterPayloadByQuery($responseData['data'], $query);
                     return ['data' => $filtered];
                 }
 
-                if (is_array($filtered) && isset($filtered['data'])) {
-                    return $filtered;
+                // If response is a list, wrap it in our format
+                if (is_array($responseData) && array_is_list($responseData)) {
+                    $filtered = $this->filterPayloadByQuery($responseData, $query);
+                    return ['data' => $filtered];
                 }
 
-                return ['data' => $filtered];
+                // If response is an object with data property, use it directly
+                if (is_array($responseData) && isset($responseData['data'])) {
+                    $filtered = $this->filterPayloadByQuery($responseData['data'], $query);
+                    return ['data' => $filtered];
+                }
+
+                return ['data' => $responseData];
             });
 
             return response()->json($payload);
+
         } catch (\Throwable $e) {
             Log::error('PSGC Proxy Error', [
                 'message' => $e->getMessage(),
@@ -99,6 +127,9 @@ class PsgcProxyController extends Controller
         }
     }
 
+    /**
+     * Filter payload by query parameters (client-side filtering fallback)
+     */
     private function filterPayloadByQuery(mixed $payload, array $query): mixed
     {
         if (! is_array($payload)) {
@@ -107,14 +138,17 @@ class PsgcProxyController extends Controller
 
         $items = $payload;
 
+        // If payload has a data key, use that as the items array
         if (isset($payload['data']) && is_array($payload['data'])) {
             $items = $payload['data'];
         }
 
+        // If items is not a list, return as-is
         if (! array_is_list($items)) {
             return $payload;
         }
 
+        // Filter by province_code
         if (isset($query['province_code'])) {
             $provinceCode = (string) $query['province_code'];
             $items = array_values(array_filter($items, function ($item) use ($provinceCode) {
@@ -123,11 +157,11 @@ class PsgcProxyController extends Controller
                 }
 
                 $itemProvinceCode = (string) ($item['provinceCode'] ?? $item['province_code'] ?? '');
-
                 return $itemProvinceCode === $provinceCode;
             }));
         }
 
+        // Filter by city_municipality_code
         if (isset($query['city_municipality_code'])) {
             $municipalityCode = (string) $query['city_municipality_code'];
             $items = array_values(array_filter($items, function ($item) use ($municipalityCode) {
@@ -135,15 +169,20 @@ class PsgcProxyController extends Controller
                     return false;
                 }
 
-                $itemMunicipalityCode = (string) ($item['municipalityCode'] ?? $item['cityCode'] ?? $item['city_municipality_code'] ?? $item['municipality_code'] ?? '');
+                $itemMunicipalityCode = (string) ($item['municipalityCode'] ?? 
+                    $item['cityCode'] ?? 
+                    $item['city_municipality_code'] ?? 
+                    $item['municipality_code'] ?? 
+                    '');
+                
                 $itemCode = (string) ($item['code'] ?? '');
 
-                return $itemMunicipalityCode === $municipalityCode || str_starts_with($itemCode, substr($municipalityCode, 0, 7));
+                return $itemMunicipalityCode === $municipalityCode || 
+                       str_starts_with($itemCode, substr($municipalityCode, 0, 7));
             }));
         }
 
-        $items = $this->deduplicateByCodeOrName($items);
-
+        // Return in the same format we received
         if (isset($payload['data']) && is_array($payload['data'])) {
             return ['data' => $items];
         }
@@ -151,38 +190,25 @@ class PsgcProxyController extends Controller
         return $items;
     }
 
-    private function deduplicateByCodeOrName(array $items): array
+    /**
+     * Clear the cache for a specific path or all PSGC cache
+     */
+    public function clearCache(Request $request): JsonResponse
     {
-        $seen = [];
-        $unique = [];
-
-        foreach ($items as $item) {
-            if (! is_array($item)) {
-                continue;
-            }
-
-            $code = (string) ($item['code'] ?? $item['provinceCode'] ?? $item['cityCode'] ?? $item['municipalityCode'] ?? '');
-            $name = (string) ($item['name'] ?? '');
-
-            $key = $code !== ''
-                ? 'code:' . $code
-                : 'name:' . strtolower(preg_replace('/\s+/', ' ', trim($name)) ?? '');
-
-            if (isset($seen[$key])) {
-                continue;
-            }
-
-            $seen[$key] = true;
-            $unique[] = $item;
+        $path = $request->input('path');
+        
+        if ($path) {
+            $cacheKey = 'psgc:' . $path;
+            Cache::forget($cacheKey);
+            return response()->json(['message' => "Cache cleared for: {$path}"]);
         }
 
-        usort($unique, function ($a, $b) {
-            $nameA = (string) ($a['name'] ?? '');
-            $nameB = (string) ($b['name'] ?? '');
-
-            return strcasecmp($nameA, $nameB);
-        });
-
-        return $unique;
+        // Clear all PSGC cache (be careful with this)
+        $keys = ['psgc:/regions', 'psgc:/provinces', 'psgc:/cities-municipalities', 'psgc:/barangays'];
+        foreach ($keys as $key) {
+            Cache::forget($key);
+        }
+        
+        return response()->json(['message' => 'All PSGC cache cleared']);
     }
 }

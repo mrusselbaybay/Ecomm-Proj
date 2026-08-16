@@ -13,16 +13,23 @@ class RegistrationRejected extends Mailable
 
     public $name;
     public $reason;
+    public $appUrl;
 
     public function __construct($name, $reason)
     {
         $this->name = $name;
         $this->reason = $reason;
+        $this->appUrl = config('app.url');
     }
 
     public function build()
     {
         return $this->subject('Your NEXMART Account Application')
-                    ->markdown('emails.registration-rejected');
+                    ->view('emails.registration-rejected')
+                    ->with([
+                        'name' => $this->name,
+                        'reason' => $this->reason,
+                        'appUrl' => $this->appUrl
+                    ]);
     }
 }

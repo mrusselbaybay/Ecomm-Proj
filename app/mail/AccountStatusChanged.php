@@ -13,24 +13,29 @@ class AccountStatusChanged extends Mailable
 
     public $name;
     public $status;
+    public $statusLabel;
+    public $reason;
+    public $appUrl;
 
-    public function __construct($name, $status)
+    public function __construct($name, $status, $reason = null)
     {
         $this->name = $name;
         $this->status = $status;
+        $this->reason = $reason ?? 'No specific reason provided.';
+        $this->appUrl = config('app.url');
+        
+        $statusLabels = [
+            'active' => 'Activated',
+            'suspended' => 'Suspended',
+            'deactivated' => 'Deactivated'
+        ];
+        
+        $this->statusLabel = $statusLabels[$status] ?? $status;
     }
 
     public function build()
     {
-        $statusLabels = [
-            'active' => 'activated',
-            'suspended' => 'suspended',
-            'deactivated' => 'deactivated'
-        ];
-        
-        $label = $statusLabels[$this->status] ?? $this->status;
-        
-        return $this->subject("Your NEXMART Account Has Been {$label}")
-                    ->markdown('emails.account-status-changed');
+        return $this->subject("Your NEXMART Account Has Been {$this->statusLabel}")
+                    ->view('emails.account-status-changed');
     }
 }
