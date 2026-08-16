@@ -98,13 +98,13 @@
               <div class="loading-spinner"></div>
             </td>
           </tr>
-          <tr v-else-if="accounts.length === 0">
+          <tr v-else-if="paginatedUsers.length === 0">
             <td colspan="6" class="empty-state">
               <svg class="icon-lg" viewBox="0 0 24 24" fill="none"><path d="M4 20c0-3.3 3.6-6 8-6s8 2.7 8 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.5"/></svg>
               <p>No users match these filters.</p>
             </td>
           </tr>
-          <tr v-for="user in accounts" :key="user.id">
+          <tr v-for="user in paginatedUsers" :key="user.id">
             <td>
               <div class="flex items-center gap-3">
                 <div class="avatar">{{ initials(user) }}</div>
@@ -134,7 +134,7 @@
               </button>
             </td>
             <td>
-              <div class="flex gap-2 flex-wrap justify-end items-center">
+              <div class="action-buttons">
                 <!-- PENDING USERS -->
                 <template v-if="user.status === 'pending'">
                   <button @click="approveUser(user)" class="btn-sm-primary">Approve</button>
@@ -143,7 +143,7 @@
 
                 <!-- REJECTED USERS -->
                 <template v-if="user.status === 'rejected'">
-                  <div class="flex items-center gap-2">
+                  <div class="flex">
                     <button @click="reapproveUser(user)" class="btn-sm-primary">Re-approve</button>
                     <button 
                       v-if="user.rejection_reason" 
@@ -186,7 +186,40 @@
           </tr>
         </tbody>
       </table>
-      <div v-if="!loading && accounts.length" class="table-footer">Showing {{ accounts.length }} user{{ accounts.length === 1 ? '' : 's' }}</div>
+      
+      <!-- Pagination -->
+      <div v-if="!loading && accounts.length > 0" class="table-footer pagination-footer">
+        <div class="flex items-center justify-between">
+          <span class="text-sm text-slate-500">
+            Showing {{ ((currentPage - 1) * pageSize) + 1 }} to {{ Math.min(currentPage * pageSize, accounts.length) }} of {{ accounts.length }} users
+          </span>
+          <div class="flex gap-1">
+            <button 
+              @click="currentPage = Math.max(1, currentPage - 1)"
+              :disabled="currentPage === 1"
+              class="pagination-btn"
+            >
+              <svg class="icon-xs" viewBox="0 0 16 16" fill="none"><path d="M10 4l-4 4 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button 
+              v-for="page in visiblePages" 
+              :key="page"
+              @click="currentPage = page"
+              class="pagination-btn"
+              :class="{ active: page === currentPage }"
+            >
+              {{ page }}
+            </button>
+            <button 
+              @click="currentPage = Math.min(totalPages, currentPage + 1)"
+              :disabled="currentPage === totalPages"
+              class="pagination-btn"
+            >
+              <svg class="icon-xs" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ============================================================ -->
@@ -237,10 +270,10 @@
           </div>
 
           <div class="modal-actions">
-            <button @click="closeRejectModal" class="btn-outline flex-1 py-2">Cancel</button>
+            <button @click="closeRejectModal" class="btn-outline">Cancel</button>
             <button
               @click="submitRejection"
-              class="btn-danger flex-1 py-2"
+              class="btn-danger"
               :disabled="!selectedReason || (selectedReason === 'others' && !customReason.trim())"
             >
               Reject Application
@@ -265,7 +298,7 @@
           <p class="modal-desc">Reason for rejecting <strong>{{ displayName(reasonUser) }}</strong>:</p>
           <div class="callout-red">{{ reasonUser?.rejection_reason }}</div>
           <div class="modal-actions">
-            <button @click="showReasonModal = false" class="btn-outline flex-1 py-2">Close</button>
+            <button @click="showReasonModal = false" class="btn-outline">Close</button>
           </div>
         </div>
       </div>
@@ -322,10 +355,10 @@
           </div>
 
           <div class="modal-actions">
-            <button @click="closeStatusChangeModal" class="btn-outline flex-1 py-2">Cancel</button>
+            <button @click="closeStatusChangeModal" class="btn-outline">Cancel</button>
             <button
               @click="submitStatusChange"
-              class="btn-danger flex-1 py-2"
+              class="btn-danger"
               :disabled="!selectedStatusReason || (selectedStatusReason === 'others' && !customStatusReason.trim())"
             >
               {{ statusChangeAction === 'suspended' ? 'Suspend Account' : 'Deactivate Account' }}
@@ -387,7 +420,7 @@
                 <svg class="icon" viewBox="0 0 20 20" fill="none"><path d="M2.5 6.5h8v6h-8z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M10.5 9h2.7l2.3 2.6v1.9h-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="5.5" cy="14.5" r="1.4" stroke="currentColor" stroke-width="1.4"/><circle cx="13" cy="14.5" r="1.4" stroke="currentColor" stroke-width="1.4"/></svg>
               </div>
               <p class="role-card-title">Logistics Admin</p>
-              <p class="role-card-desc">Manages drivers and orders. Assign a company after creation.</p>
+              <p class="role-card-desc">Manages drivers and orders for a logistics company.</p>
             </button>
           </div>
 
@@ -429,8 +462,8 @@
           </div>
 
           <div class="modal-actions">
-            <button @click="closeCreateStaffModal" class="btn-outline flex-1 py-2">Cancel</button>
-            <button @click="submitCreateStaff" class="btn-primary flex-1 py-2 justify-center" :disabled="creatingStaff">
+            <button @click="closeCreateStaffModal" class="btn-outline">Cancel</button>
+            <button @click="submitCreateStaff" class="btn-primary" :disabled="creatingStaff">
               {{ creatingStaff ? 'Creating...' : 'Create Account' }}
             </button>
           </div>
@@ -478,7 +511,7 @@
           </div>
 
           <div class="modal-actions">
-            <button @click="closeDocuments" class="btn-outline flex-1 py-2">Close</button>
+            <button @click="closeDocuments" class="btn-outline">Close</button>
           </div>
         </div>
       </div>
@@ -521,16 +554,22 @@
       <div v-if="confirmModal.show" class="modal-overlay confirm-overlay" @click.self="resolveConfirm(false)">
         <div class="modal-panel modal-sm">
           <div class="confirm-icon" :class="confirmModal.variant">
-            <svg v-if="confirmModal.variant === 'danger'" class="icon-lg" viewBox="0 0 24 24" fill="none"><path d="M12 8v5M12 16.5h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="9.25" stroke="currentColor" stroke-width="1.6"/></svg>
-            <svg v-else class="icon-lg" viewBox="0 0 24 24" fill="none"><path d="M7 12.5l3.2 3.2L17 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9.25" stroke="currentColor" stroke-width="1.6"/></svg>
+            <svg v-if="confirmModal.variant === 'danger'" class="icon-lg" viewBox="0 0 24 24" fill="none">
+              <path d="M12 8v5M12 16.5h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="12" cy="12" r="9.25" stroke="currentColor" stroke-width="1.6"/>
+            </svg>
+            <svg v-else class="icon-lg" viewBox="0 0 24 24" fill="none">
+              <path d="M7 12.5l3.2 3.2L17 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="12" cy="12" r="9.25" stroke="currentColor" stroke-width="1.6"/>
+            </svg>
           </div>
           <h3 class="confirm-title">{{ confirmModal.title }}</h3>
-          <p class="modal-desc text-center">{{ confirmModal.message }}</p>
-          <div class="modal-actions">
-            <button @click="resolveConfirm(false)" class="btn-outline flex-1 py-2">Cancel</button>
+          <p class="confirm-message">{{ confirmModal.message }}</p>
+          <div class="confirm-actions">
+            <button @click="resolveConfirm(false)" class="btn-outline confirm-cancel">Cancel</button>
             <button
               @click="resolveConfirm(true)"
-              class="flex-1 py-2"
+              class="confirm-confirm"
               :class="confirmModal.variant === 'danger' ? 'btn-danger' : 'btn-primary'"
             >
               {{ confirmModal.confirmLabel }}
@@ -550,7 +589,8 @@ import { useAdmin } from '../composables/useAdmin';
 const {
   accounts,
   pendingCount,
-  supabase
+  supabase,
+  supabaseAdmin
 } = useAdmin();
 
 const search = ref('');
@@ -559,6 +599,37 @@ const statusFilter = ref('');
 const accountFilter = ref('');
 const loading = ref(false);
 const currentAdminId = ref(null);
+
+// Pagination
+const currentPage = ref(1);
+const pageSize = ref(10);
+
+const totalPages = computed(() => Math.ceil(accounts.value.length / pageSize.value));
+
+const paginatedUsers = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  const end = start + pageSize.value;
+  return accounts.value.slice(start, end);
+});
+
+const visiblePages = computed(() => {
+  const pages = [];
+  const total = totalPages.value;
+  const current = currentPage.value;
+  
+  if (total <= 7) {
+    for (let i = 1; i <= total; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (current > 3) pages.push('...');
+    for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) {
+      pages.push(i);
+    }
+    if (current < total - 2) pages.push('...');
+    pages.push(total);
+  }
+  return pages;
+});
 
 let searchDebounce = null;
 function debouncedLoad() {
@@ -725,6 +796,9 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+// ============================================================
+// SUBMIT CREATE STAFF
+// ============================================================
 async function submitCreateStaff() {
   if (!newStaff.first_name.trim() || !newStaff.last_name.trim()) {
     showToast('Please enter a first and last name.', 'error');
@@ -740,8 +814,10 @@ async function submitCreateStaff() {
   }
 
   creatingStaff.value = true;
+  closeCreateStaffModal();
+  
   try {
-    const { data, error } = await supabase.auth.admin.createUser({
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email: newStaff.email,
       password: newStaff.password,
       email_confirm: true,
@@ -756,7 +832,7 @@ async function submitCreateStaff() {
 
     const newUserId = data.user.id;
 
-    const { error: profileError } = await supabase
+    const { error: profileError } = await supabaseAdmin
       .from('profiles')
       .update({ status: 'approved', account_status: 'active' })
       .eq('id', newUserId);
@@ -770,7 +846,7 @@ async function submitCreateStaff() {
     });
 
     showToast(`${formatRole(newStaff.role)} account created for ${newStaff.email}.`, 'success');
-    closeCreateStaffModal();
+    resetNewStaff();
     await loadData();
   } catch (error) {
     console.error('Error creating staff account:', error);
@@ -945,6 +1021,8 @@ async function loadData() {
     accounts.value = data || [];
 
     pendingCount.value = accounts.value.filter(u => u.status === 'pending').length;
+    
+    currentPage.value = 1;
   } catch (error) {
     console.error('Error loading accounts:', error);
     showToast('Failed to load users: ' + error.message, 'error');
@@ -980,14 +1058,14 @@ async function sendEmail(endpoint, data) {
 }
 
 // ============================================================
-// APPROVAL ACTIONS (WITH EMAIL)
+// APPROVAL ACTIONS (WITH EMAIL - Modal closes immediately)
 // ============================================================
 async function approveUser(user) {
   const ok = await askConfirm('Approve application', `Approve ${displayName(user)}? They will be able to log in immediately.`, { confirmLabel: 'Approve' });
   if (!ok) return;
 
   try {
-    const { error: confirmError } = await supabase.auth.admin.updateUserById(user.id, { email_confirm: true });
+    const { error: confirmError } = await supabaseAdmin.auth.admin.updateUserById(user.id, { email_confirm: true });
     if (confirmError) console.warn('Could not auto-confirm email:', confirmError);
 
     const { error } = await supabase
@@ -996,16 +1074,14 @@ async function approveUser(user) {
       .eq('id', user.id);
     if (error) throw error;
 
-    const emailSent = await sendEmail('/api/admin/notify-approval', {
+    // Send email in background - don't wait
+    sendEmail('/api/admin/notify-approval', {
       email: user.email,
       name: displayName(user),
       user_id: user.id
     });
 
-    showToast(
-      `${displayName(user)} approved.${emailSent ? ' An email notification has been sent.' : ' (Email failed to send)'}`,
-      emailSent ? 'success' : 'error'
-    );
+    showToast(`${displayName(user)} approved successfully!`, 'success');
     await loadData();
   } catch (error) {
     console.error('Error approving user:', error);
@@ -1024,16 +1100,13 @@ async function reapproveUser(user) {
       .eq('id', user.id);
     if (error) throw error;
 
-    const emailSent = await sendEmail('/api/admin/notify-approval', {
+    sendEmail('/api/admin/notify-approval', {
       email: user.email,
       name: displayName(user),
       user_id: user.id
     });
 
-    showToast(
-      `${displayName(user)} re-approved.${emailSent ? ' An email notification has been sent.' : ' (Email failed to send)'}`,
-      emailSent ? 'success' : 'error'
-    );
+    showToast(`${displayName(user)} re-approved successfully!`, 'success');
     await loadData();
   } catch (error) {
     console.error('Error re-approving user:', error);
@@ -1073,24 +1146,23 @@ async function submitRejection() {
     rejectionMessage = reason ? `${reason.label} — ${reason.description}` : selectedReason.value;
   }
 
+  const userData = { ...rejectUserData.value };
+  closeRejectModal();
+
   try {
     const { error } = await supabase
       .from('profiles')
       .update({ status: 'rejected', account_status: 'deactivated', rejection_reason: rejectionMessage })
-      .eq('id', rejectUserData.value.id);
+      .eq('id', userData.id);
     if (error) throw error;
 
-    const emailSent = await sendEmail('/api/admin/notify-rejection', {
-      email: rejectUserData.value.email,
-      name: displayName(rejectUserData.value),
+    sendEmail('/api/admin/notify-rejection', {
+      email: userData.email,
+      name: displayName(userData),
       reason: rejectionMessage
     });
 
-    showToast(
-      `${displayName(rejectUserData.value)} rejected.${emailSent ? ' An email notification has been sent.' : ' (Email failed to send)'}`,
-      emailSent ? 'success' : 'error'
-    );
-    closeRejectModal();
+    showToast(`${displayName(userData)} rejected successfully.`, 'success');
     await loadData();
   } catch (error) {
     console.error('Error rejecting user:', error);
@@ -1102,7 +1174,6 @@ async function submitRejection() {
 // ACCOUNT STATUS ACTIONS
 // ============================================================
 
-// Activate user (simple confirmation, no reason needed)
 async function activateUser(user) {
   const ok = await askConfirm(
     'Activate account',
@@ -1115,16 +1186,13 @@ async function activateUser(user) {
     const { error } = await supabase.from('profiles').update({ account_status: 'active' }).eq('id', user.id);
     if (error) throw error;
 
-    const emailSent = await sendEmail('/api/admin/notify-status-change', {
+    sendEmail('/api/admin/notify-status-change', {
       email: user.email,
       name: displayName(user),
       status: 'active'
     });
 
-    showToast(
-      `${displayName(user)} has been activated.${emailSent ? ' An email notification has been sent.' : ' (Email failed to send)'}`,
-      emailSent ? 'success' : 'error'
-    );
+    showToast(`${displayName(user)} has been activated.`, 'success');
     await loadData();
   } catch (error) {
     console.error('Error activating user:', error);
@@ -1132,7 +1200,6 @@ async function activateUser(user) {
   }
 }
 
-// Open status change modal (for suspension/deactivation)
 function openStatusChangeModal(user, action) {
   statusChangeUser.value = user;
   statusChangeAction.value = action;
@@ -1163,7 +1230,6 @@ async function submitStatusChange() {
       return;
     }
   } else {
-    // Find the reason from either suspension or deactivation lists
     const allReasons = [...suspensionReasons, ...deactivationReasons];
     const reason = allReasons.find(r => r.value === selectedStatusReason.value);
     reasonMessage = reason ? `${reason.label} — ${reason.description}` : selectedStatusReason.value;
@@ -1175,31 +1241,24 @@ async function submitStatusChange() {
   };
   
   const status = statusChangeAction.value;
+  const userData = { ...statusChangeUser.value };
+  closeStatusChangeModal();
 
   try {
     const { error } = await supabase
       .from('profiles')
-      .update({ 
-        account_status: status
-      })
-      .eq('id', statusChangeUser.value.id);
-
+      .update({ account_status: status })
+      .eq('id', userData.id);
     if (error) throw error;
 
-    // Send status change email with reason
-    const emailSent = await sendEmail('/api/admin/notify-status-change', {
-      email: statusChangeUser.value.email,
-      name: displayName(statusChangeUser.value),
+    sendEmail('/api/admin/notify-status-change', {
+      email: userData.email,
+      name: displayName(userData),
       status: status,
       reason: reasonMessage
     });
 
-    showToast(
-      `${displayName(statusChangeUser.value)} has been ${labels[status]}d.${emailSent ? ' An email notification has been sent.' : ' (Email failed to send)'}`,
-      emailSent ? 'success' : 'error'
-    );
-    
-    closeStatusChangeModal();
+    showToast(`${displayName(userData)} has been ${labels[status]}d.`, 'success');
     await loadData();
   } catch (error) {
     console.error(`Error ${status}ing user:`, error);

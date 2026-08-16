@@ -148,6 +148,7 @@
   border-radius: 0.5rem;
   border: none;
   cursor: pointer;
+  white-space: nowrap;
 }
 .btn-sm-primary:hover { filter: brightness(1.06); }
 
@@ -163,6 +164,7 @@
   padding: 0.35rem 0.7rem;
   border-radius: 0.5rem;
   cursor: pointer;
+  white-space: nowrap;
 }
 .btn-sm-outline:hover { background: var(--teal-100); }
 
@@ -201,6 +203,7 @@
   padding: 0.35rem 0.7rem;
   border-radius: 0.5rem;
   cursor: pointer;
+  white-space: nowrap;
 }
 .btn-sm-danger-outline:hover { background: #fef2f2; }
 
@@ -216,6 +219,7 @@
   padding: 0.4rem 0.75rem;
   border-radius: 0.5rem;
   cursor: pointer;
+  white-space: nowrap;
 }
 .btn-doc:hover { background: var(--teal-100); }
 
@@ -229,6 +233,7 @@
   background: white;
   cursor: pointer;
   transition: background 0.15s ease;
+  white-space: nowrap;
 }
 .btn-outline:hover:not(:disabled) { background: #f8fafc; }
 .btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -253,6 +258,7 @@
   border-radius: 0.5rem;
   background: white;
   cursor: pointer;
+  white-space: nowrap;
 }
 .btn-danger-outline:hover:not(:disabled) { background: #fef2f2; }
 .btn-danger-outline:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -268,6 +274,15 @@
 }
 .btn-danger:hover:not(:disabled) { background: #b91c1c; }
 .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* --- Action Buttons Container --- */
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
 
 /* --- Table --- */
 .admin-table {
@@ -286,14 +301,18 @@
   border-bottom: 1px solid #e2e8f0;
   background: var(--teal-50);
 }
-.admin-table th.text-right { text-align: right; }
+.admin-table th.text-right {
+  text-align: right;
+}
 .admin-table td {
   padding: 0.75rem 0.9rem;
   border-bottom: 1px solid #f1f5f9;
   color: #334155;
   vertical-align: middle;
 }
-.admin-table tr:hover td { background: #f8fdfc; }
+.admin-table tr:hover td {
+  background: #f8fdfc;
+}
 .table-footer {
   padding: 0.65rem 0.9rem;
   font-size: 0.75rem;
@@ -301,18 +320,26 @@
   border-top: 1px solid #f1f5f9;
 }
 
-/* --- Ensure action buttons are aligned --- */
-.admin-table td .flex {
+/* --- Ensure action buttons are properly aligned --- */
+.admin-table td .action-buttons {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.4rem;
 }
-.admin-table td .flex .btn-sm-primary,
-.admin-table td .flex .btn-danger-outline,
-.admin-table td .flex .btn-outline,
-.admin-table td .flex .btn-sm-outline {
+
+.admin-table td .action-buttons .btn-sm-primary,
+.admin-table td .action-buttons .btn-danger-outline,
+.admin-table td .action-buttons .btn-outline,
+.admin-table td .action-buttons .btn-sm-outline {
   white-space: nowrap;
+}
+
+.admin-table td .action-buttons .flex {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 /* --- Avatar --- */
@@ -521,6 +548,59 @@
   display: flex;
   gap: 0.6rem;
   margin-top: 1.25rem;
+  justify-content: flex-end;
+}
+
+.modal-actions .btn-outline {
+  min-width: 6rem;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.85rem;
+  border: 1px solid #d1d5db;
+  color: #334155;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  background: white;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.modal-actions .btn-outline:hover {
+  background: #f8fafc;
+}
+
+.modal-actions .btn-danger {
+  min-width: 6rem;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.85rem;
+  background: #dc2626;
+  color: white;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.modal-actions .btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+.modal-actions .btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal-actions .btn-primary {
+  min-width: 6rem;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.85rem;
+  background: linear-gradient(135deg, var(--teal-600), var(--teal-500));
+  color: white;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  border: none;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.modal-actions .btn-primary:hover {
+  filter: brightness(1.06);
 }
 
 .section-label {
@@ -685,9 +765,10 @@
 
 /* --- Confirm Modal --- */
 .confirm-overlay { z-index: 60; }
+
 .confirm-icon {
-  width: 3rem;
-  height: 3rem;
+  width: 3.5rem;
+  height: 3.5rem;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -702,14 +783,80 @@
   background: #fee2e2;
   color: #dc2626;
 }
+
+.confirm-icon .icon-lg {
+  width: 1.8rem;
+  height: 1.8rem;
+}
+
 .confirm-title {
   text-align: center;
   font-weight: 800;
   color: #1e293b;
-  font-size: 1rem;
-  margin-bottom: 0.4rem;
+  font-size: 1.1rem;
+  margin: 0 0 0.5rem 0;
 }
-.text-center { text-align: center; }
+
+.confirm-message {
+  text-align: center;
+  font-size: 0.9rem;
+  color: #64748b;
+  line-height: 1.5;
+  margin: 0 0 1.25rem 0;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+  margin-top: 0.25rem;
+}
+
+.confirm-actions .btn-outline {
+  min-width: 6rem;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.85rem;
+  border: 1px solid #d1d5db;
+  color: #334155;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  background: white;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.confirm-actions .btn-outline:hover {
+  background: #f8fafc;
+}
+
+.confirm-actions .confirm-confirm {
+  min-width: 6rem;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  border: none;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.confirm-actions .confirm-confirm:hover {
+  filter: brightness(1.05);
+}
+
+.confirm-actions .btn-danger {
+  background: #dc2626;
+  color: white;
+}
+.confirm-actions .btn-danger:hover {
+  background: #b91c1c;
+}
+
+.confirm-actions .btn-primary {
+  background: linear-gradient(135deg, var(--teal-600), var(--teal-500));
+  color: white;
+}
+.confirm-actions .btn-primary:hover {
+  filter: brightness(1.06);
+}
 
 /* --- Documents List --- */
 .doc-list {
@@ -793,4 +940,43 @@
 .modal-enter-from .modal-panel,
 .modal-enter-from .preview-panel {
   transform: translateY(10px) scale(0.98);
+}
+
+/* --- Pagination --- */
+.pagination-footer {
+  padding: 0.75rem 0.9rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.pagination-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.375rem;
+  background: white;
+  color: #475569;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.pagination-btn:hover:not(:disabled) {
+  background: var(--teal-50);
+  border-color: var(--teal-300);
+}
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pagination-btn.active {
+  background: var(--teal-600);
+  border-color: var(--teal-600);
+  color: white;
+}
+.pagination-btn .icon-xs {
+  width: 0.85rem;
+  height: 0.85rem;
 }

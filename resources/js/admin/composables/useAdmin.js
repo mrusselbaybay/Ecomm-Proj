@@ -3,7 +3,13 @@ import { ref } from 'vue';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+
+// Regular client for normal operations
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Admin client with service role key (bypasses RLS and auth checks)
+const supabaseAdmin = window.supabase.createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 export function useAdmin() {
   const isLoading = ref(true);
@@ -21,8 +27,8 @@ export function useAdmin() {
   const stats = ref([
     { label: 'Total Users', value: '0', delta: 'Loading...' },
     { label: 'Active Sellers', value: '0', delta: 'Loading...' },
-    { label: 'Pending Registrations', value: '0', delta: 'Loading...' },
-    { label: 'Open Complaints', value: '0', delta: 'Loading...' },
+    { label: 'Pending Registrations', value: '0', delta: 'Awaiting review' },
+    { label: 'Open Complaints', value: '0', delta: 'No open complaints' },
   ]);
   const notifications = ref([]);
 
@@ -137,5 +143,6 @@ export function useAdmin() {
     statusBadgeClass,
     formatDate,
     supabase,
+    supabaseAdmin  // ← This is now properly defined above
   };
 }
