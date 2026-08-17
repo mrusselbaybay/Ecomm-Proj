@@ -1,20 +1,23 @@
+import '../css/app.css';
+
 // resources/js/app.js
 const { createApp, ref, computed, onMounted } = Vue;
 
 // ---------- Configuration ----------
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const SUPABASE_SERVICE_ROLE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
 console.log('✅ Supabase URL:', SUPABASE_URL);
-console.log('✅ Supabase Key:', SUPABASE_ANON_KEY ? 'Loaded' : '❌ Missing');
-console.log('✅ Service Role Key:', SUPABASE_SERVICE_ROLE_KEY ? 'Loaded' : '❌ Missing');
+console.log(
+    '✅ Supabase Key:',
+    SUPABASE_ANON_KEY ? 'Loaded' : '❌ Missing'
+);
 
 // ---------- Initialize Supabase ----------
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-// Admin client with service role key (bypasses RLS)
-const supabaseAdmin = window.supabase.createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const supabase = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY
+);
 
 // ---------- PSGC API Base ----------
 const PSGC_BASE = '/api/psgc';

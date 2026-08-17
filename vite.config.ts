@@ -1,17 +1,18 @@
-// vite.config.js
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
 import vue from '@vitejs/plugin-vue';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
     plugins: [
         laravel({
             input: [
-                'resources/js/app.js',           // Your existing auth app
-                'resources/js/admin/admin.js',   // Admin dashboard entry
+                'resources/js/app.js',
+                'resources/js/admin/admin.js',
             ],
             refresh: true,
         }),
         vue(),
+        tailwindcss(),
     ],
 });
