@@ -11,5 +11,15 @@ class CourierDetail extends Model
     public $incrementing = false;
     protected $keyType = 'string';
 
-    protected $fillable = ['profile_id', 'vehicle', 'plate_number'];
+    protected $fillable = [
+        'profile_id', 
+        'vehicle', 
+        'plate_number',
+        'logistics_company_id'
+    ];
+
+    public function logisticsCompany()
+    {
+        return $this->belongsTo(LogisticsCompany::class, 'logistics_company_id');
+    }
 }

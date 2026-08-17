@@ -20,9 +20,6 @@ const supabaseAdmin = window.supabase.createClient(SUPABASE_URL, SUPABASE_SERVIC
 const PSGC_BASE = '/api/psgc';
 
 // ---------- Cookie Helpers ----------
-// ... rest of your code
-
-// ---------- Cookie Helpers ----------
 function setCookie(name, value, days = 7) {
   const d = new Date();
   d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
@@ -87,18 +84,6 @@ const App = {
     const isLogisticsSignup = ref(false);
     const isSubmitting = ref(false);
 
-    // Admin Signup - Temporary
-    const showAdminSignup = ref(false);
-    const adminSignupLoading = ref(false);
-    const adminForm = ref({
-      email: '',
-      password: '',
-      confirmPassword: '',
-      firstName: '',
-      lastName: '',
-      role: 'admin'
-    });
-
     // Signup Email Verification
     const signupVerifyCode = ref('');
     const isSendingSignupCode = ref(false);
@@ -130,8 +115,6 @@ const App = {
       ownerFirstName: '',
       ownerLastName: '',
       ownerMiddleInitial: '',
-      ownerEmail: '',
-      ownerContactNo: '',
       ownerBirthday: '',
       driverFirstName: '',
       driverLastName: '',
@@ -168,6 +151,7 @@ const App = {
       licenseFile: null,
       companyName: '',
       companyAddress: '',
+      companyRegion: '',
       companyProvinceCode: '',
       companyProvince: '',
       companyMunicipalityCode: '',
@@ -184,8 +168,6 @@ const App = {
       ownerMiddleInitial: '',
       ownerSex: '',
       ownerBirthday: '',
-      ownerContactNo: '',
-      ownerEmail: '',
       ownerIdFile: null,
       businessPermitFile: null,
       mayorPermitFile: null,
@@ -515,8 +497,8 @@ const App = {
 
     // Logistics validations
     function validateCompany() {
-      const { companyName, companyContactNo, companyEmail, companyTIN } = form.value;
-      if (!companyName || !companyContactNo || !companyEmail || !companyTIN) {
+      const { companyName, companyContactNo, companyEmail, companyTIN, companyRegion } = form.value;
+      if (!companyName || !companyContactNo || !companyEmail || !companyTIN || !companyRegion) {
         errorMsg.value = 'Please fill in all required company fields.';
         return false;
       }
@@ -532,21 +514,13 @@ const App = {
     }
 
     function validateOwner() {
-      const { ownerLastName, ownerFirstName, ownerSex, ownerBirthday, ownerContactNo, ownerEmail } = form.value;
-      if (!ownerLastName || !ownerFirstName || !ownerSex || !ownerBirthday || !ownerContactNo || !ownerEmail) {
+      const { ownerLastName, ownerFirstName, ownerSex, ownerBirthday } = form.value;
+      if (!ownerLastName || !ownerFirstName || !ownerSex || !ownerBirthday) {
         errorMsg.value = 'Please fill in all required owner details.';
         return false;
       }
       if (!validateName(ownerFirstName) || !validateName(ownerLastName)) {
         errorMsg.value = 'Names should only contain letters.';
-        return false;
-      }
-      if (!validateEmail(ownerEmail)) {
-        errorMsg.value = 'Invalid owner email format.';
-        return false;
-      }
-      if (!validateContactNumber(ownerContactNo)) {
-        errorMsg.value = 'Owner contact number must start with 09 and be 11 digits.';
         return false;
       }
       if (!validateBirthday(ownerBirthday)) {
@@ -583,92 +557,6 @@ const App = {
         return false;
       }
       return true;
-    }
-
-    // ---------- Admin Signup Function (Temporary) ----------
-    async function handleAdminSignup() {
-      adminSignupLoading.value = true;
-      resetMessages();
-
-      if (!adminForm.value.firstName || !validateName(adminForm.value.firstName)) {
-        errorMsg.value = 'Please enter a valid first name (letters only).';
-        adminSignupLoading.value = false;
-        return;
-      }
-      if (!adminForm.value.lastName || !validateName(adminForm.value.lastName)) {
-        errorMsg.value = 'Please enter a valid last name (letters only).';
-        adminSignupLoading.value = false;
-        return;
-      }
-      if (!adminForm.value.email || !validateEmail(adminForm.value.email)) {
-        errorMsg.value = 'Please enter a valid email address.';
-        adminSignupLoading.value = false;
-        return;
-      }
-      if (!adminForm.value.password || adminForm.value.password.length < 8) {
-        errorMsg.value = 'Password must be at least 8 characters.';
-        adminSignupLoading.value = false;
-        return;
-      }
-      if (adminForm.value.password !== adminForm.value.confirmPassword) {
-        errorMsg.value = 'Passwords do not match.';
-        adminSignupLoading.value = false;
-        return;
-      }
-
-      try {
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: adminForm.value.email.trim().toLowerCase(),
-          password: adminForm.value.password,
-          options: {
-            data: {
-              role: 'admin',
-              first_name: adminForm.value.firstName,
-              last_name: adminForm.value.lastName,
-              status: 'approved'
-            }
-          }
-        });
-
-        if (authError) throw authError;
-        if (!authData?.user) throw new Error('User creation failed');
-
-        // Profile is auto-created by trigger, update it
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ 
-            role: 'admin', 
-            status: 'approved',
-            account_status: 'active',
-            first_name: adminForm.value.firstName,
-            last_name: adminForm.value.lastName
-          })
-          .eq('id', authData.user.id);
-
-        if (updateError) throw updateError;
-
-        successMsg.value = 'Admin account created successfully!';
-        
-        adminForm.value = {
-          email: '',
-          password: '',
-          confirmPassword: '',
-          firstName: '',
-          lastName: '',
-          role: 'admin'
-        };
-        
-        setTimeout(() => {
-          showAdminSignup.value = false;
-          successMsg.value = '';
-        }, 2000);
-
-      } catch (error) {
-        console.error('Admin signup error:', error);
-        errorMsg.value = error.message || 'Failed to create admin account.';
-      } finally {
-        adminSignupLoading.value = false;
-      }
     }
 
     // ---------- Signup Email Verification Functions ----------
@@ -714,9 +602,7 @@ const App = {
         const data = await response.json();
         signupVerifyCode.value = '';
         signupEmailVerified.value = false;
-        if (!successMsg.value) {
-          successMsg.value = 'A verification code has been sent to your email.';
-        }
+        successMsg.value = 'A verification code has been sent to your email.';
         return true;
       } catch (err) {
         console.error('Failed to send verification code:', err);
@@ -820,372 +706,348 @@ const App = {
     }
 
     // ---------- Document Upload Functions ----------
-    // ---------- Document Upload Functions ----------
-// ---------- Document Upload Functions ----------
-async function uploadDocuments(userId, role) {
-  const files = [];
-  
-  if (role === 'buyer' && form.value.idFile) {
-    files.push({ type: 'valid_id', file: form.value.idFile });
-  } else if (role === 'seller') {
-    if (form.value.idFile) files.push({ type: 'valid_id', file: form.value.idFile });
-    if (form.value.businessPermit) files.push({ type: 'business_permit', file: form.value.businessPermit });
-  } else if (role === 'courier') {
-    if (form.value.orcrFile) files.push({ type: 'orcr', file: form.value.orcrFile });
-    if (form.value.licenseFile) files.push({ type: 'drivers_license', file: form.value.licenseFile });
-  } else if (role === 'driver') {
-    if (form.value.driverIdFile) files.push({ type: 'valid_id', file: form.value.driverIdFile });
-    if (form.value.driverLicenseFile) files.push({ type: 'drivers_license', file: form.value.driverLicenseFile });
-    if (form.value.driverOrcrFile) files.push({ type: 'orcr', file: form.value.driverOrcrFile });
-  }
-
-  for (const fileData of files) {
-    try {
-      // ✅ FIX: Keep the original file extension
-      const file = fileData.file;
-      const fileName = file.name || 'file';
-      const extension = fileName.split('.').pop() || '';
-      const baseName = fileName.split('.').slice(0, -1).join('.') || fileData.type;
+    async function uploadDocuments(userId, role) {
+      const files = [];
       
-      // Get the MIME type from the file
-      const mimeType = file.type || 'application/octet-stream';
-      
-      // Build path with extension
-      const timestamp = Date.now();
-      const filePath = extension 
-        ? `profile/${userId}/${fileData.type}_${timestamp}.${extension}`
-        : `profile/${userId}/${fileData.type}_${timestamp}`;
-      
-      // Upload to Supabase Storage using admin client
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from('documents')
-        .upload(filePath, file, {
-          contentType: mimeType,
-          cacheControl: '3600',
-          upsert: false
-        });
-
-      if (uploadError) {
-        console.error('File upload error:', uploadError);
-        continue;
+      if (role === 'buyer' && form.value.idFile) {
+        files.push({ type: 'valid_id', file: form.value.idFile });
+      } else if (role === 'seller') {
+        if (form.value.idFile) files.push({ type: 'valid_id', file: form.value.idFile });
+        if (form.value.businessPermit) files.push({ type: 'business_permit', file: form.value.businessPermit });
+      } else if (role === 'courier') {
+        if (form.value.orcrFile) files.push({ type: 'orcr', file: form.value.orcrFile });
+        if (form.value.licenseFile) files.push({ type: 'drivers_license', file: form.value.licenseFile });
+      } else if (role === 'driver') {
+        if (form.value.driverIdFile) files.push({ type: 'valid_id', file: form.value.driverIdFile });
+        if (form.value.driverLicenseFile) files.push({ type: 'drivers_license', file: form.value.driverLicenseFile });
+        if (form.value.driverOrcrFile) files.push({ type: 'orcr', file: form.value.driverOrcrFile });
       }
 
-      // Create document record with mime_type
-      const { error: docError } = await supabaseAdmin
-        .from('documents')
-        .insert({
-          owner_kind: 'profile',
-          profile_id: userId,
-          doc_type: fileData.type,
-          storage_path: filePath,
-          mime_type: mimeType,  // ✅ Store the MIME type
-          status: 'pending'
-        });
+      for (const fileData of files) {
+        try {
+          const file = fileData.file;
+          const fileName = file.name || 'file';
+          const extension = fileName.split('.').pop() || '';
+          const mimeType = file.type || 'application/octet-stream';
+          
+          const timestamp = Date.now();
+          const filePath = extension 
+            ? `profile/${userId}/${fileData.type}_${timestamp}.${extension}`
+            : `profile/${userId}/${fileData.type}_${timestamp}`;
+          
+          const { error: uploadError } = await supabaseAdmin.storage
+            .from('documents')
+            .upload(filePath, file, {
+              contentType: mimeType,
+              cacheControl: '3600',
+              upsert: false
+            });
 
-      if (docError) {
-        console.error('Document record error:', docError);
+          if (uploadError) {
+            console.error('File upload error:', uploadError);
+            continue;
+          }
+
+          const { error: docError } = await supabaseAdmin
+            .from('documents')
+            .insert({
+              owner_kind: 'profile',
+              profile_id: userId,
+              doc_type: fileData.type,
+              storage_path: filePath,
+              mime_type: mimeType,
+              status: 'pending'
+            });
+
+          if (docError) {
+            console.error('Document record error:', docError);
+          }
+          
+        } catch (err) {
+          console.error('Upload failed:', err);
+        }
       }
-      
-    } catch (err) {
-      console.error('Upload failed:', err);
     }
-  }
-}
 
-async function uploadLogisticsDocuments(userId, companyId) {
-  const files = [
-    { type: 'valid_id', file: form.value.ownerIdFile },
-    { type: 'business_permit', file: form.value.businessPermitFile },
-    { type: 'mayors_permit', file: form.value.mayorPermitFile },
-    { type: 'dti_sec_registration', file: form.value.dtiRegFile }
-  ];
+    async function uploadLogisticsDocuments(userId, companyId) {
+      const files = [
+        { type: 'valid_id', file: form.value.ownerIdFile },
+        { type: 'business_permit', file: form.value.businessPermitFile },
+        { type: 'mayors_permit', file: form.value.mayorPermitFile },
+        { type: 'dti_sec_registration', file: form.value.dtiRegFile }
+      ];
 
-  for (const fileData of files) {
-    if (!fileData.file) continue;
-    
-    try {
-      const file = fileData.file;
-      const fileName = file.name || 'file';
-      const extension = fileName.split('.').pop() || '';
-      const mimeType = file.type || 'application/octet-stream';
-      
-      // Build path with extension
-      const timestamp = Date.now();
-      const filePath = extension 
-        ? `logistics_company/${companyId}/${fileData.type}_${timestamp}.${extension}`
-        : `logistics_company/${companyId}/${fileData.type}_${timestamp}`;
-      
-      // Upload to Supabase Storage using admin client
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from('documents')
-        .upload(filePath, file, {
-          contentType: mimeType,
-          cacheControl: '3600',
-          upsert: false
-        });
+      for (const fileData of files) {
+        if (!fileData.file) continue;
+        
+        try {
+          const file = fileData.file;
+          const fileName = file.name || 'file';
+          const extension = fileName.split('.').pop() || '';
+          const mimeType = file.type || 'application/octet-stream';
+          
+          const timestamp = Date.now();
+          const filePath = extension 
+            ? `logistics_company/${companyId}/${fileData.type}_${timestamp}.${extension}`
+            : `logistics_company/${companyId}/${fileData.type}_${timestamp}`;
+          
+          const { error: uploadError } = await supabaseAdmin.storage
+            .from('documents')
+            .upload(filePath, file, {
+              contentType: mimeType,
+              cacheControl: '3600',
+              upsert: false
+            });
 
-      if (uploadError) {
-        console.error('File upload error:', uploadError);
-        continue;
+          if (uploadError) {
+            console.error('File upload error:', uploadError);
+            continue;
+          }
+
+          const { error: docError } = await supabaseAdmin
+            .from('documents')
+            .insert({
+              owner_kind: 'logistics_company',
+              logistics_company_id: companyId,
+              doc_type: fileData.type,
+              storage_path: filePath,
+              mime_type: mimeType,
+              status: 'pending'
+            });
+
+          if (docError) {
+            console.error('Document record error:', docError);
+          }
+          
+        } catch (err) {
+          console.error('Upload failed:', err);
+        }
       }
-
-      // Create document record with mime_type
-      const { error: docError } = await supabaseAdmin
-        .from('documents')
-        .insert({
-          owner_kind: 'logistics_company',
-          logistics_company_id: companyId,
-          doc_type: fileData.type,
-          storage_path: filePath,
-          mime_type: mimeType,  // ✅ Store the MIME type
-          status: 'pending'
-        });
-
-      if (docError) {
-        console.error('Document record error:', docError);
-      }
-      
-    } catch (err) {
-      console.error('Upload failed:', err);
     }
-  }
-}
 
     // ---------- Registration Functions ----------
- async function submitUserRegistration() {
-  try {
-    // Determine email and password based on role
-    const userEmail = selectedRole.value === 'driver' 
-      ? form.value.driverEmail 
-      : email.value;
-    const userPassword = selectedRole.value === 'driver' 
-      ? form.value.driverPassword 
-      : password.value;
-    
-    const userRole = selectedRole.value || 'buyer';
-    
-    // Get name based on role
-    let firstName, lastName, middleInitial, sex, contactNo, birthday;
-    if (selectedRole.value === 'driver') {
-      firstName = form.value.driverFirstName;
-      lastName = form.value.driverLastName;
-      middleInitial = form.value.driverMiddleInitial || '';
-      sex = form.value.driverSex;
-      contactNo = form.value.driverContactNo;
-      birthday = form.value.driverBirthday;
-    } else {
-      firstName = form.value.firstName;
-      lastName = form.value.lastName;
-      middleInitial = form.value.middleInitial || '';
-      sex = form.value.sex;
-      contactNo = form.value.contactNo;
-      birthday = form.value.birthday;
-    }
-    
-    // ✅ FIX: Use supabaseAdmin to create user (bypasses rate limits)
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email: userEmail.trim().toLowerCase(),
-      password: userPassword,
-      email_confirm: true,
-      user_metadata: {
-        role: userRole,
-        first_name: firstName,
-        last_name: lastName,
-        middle_initial: middleInitial,
-        sex: sex,
-        contact_no: contactNo,
-        birthday: birthday,
-        status: 'pending'
-      }
-    });
-
-    if (authError) {
-      console.error('Auth error:', authError);
-      if (authError.message && authError.message.includes('already exists')) {
-        errorMsg.value = 'This email is already registered. Please login instead.';
-        return;
-      }
-      throw authError;
-    }
-
-    if (!authData?.user) throw new Error('Failed to create user');
-
-    const userId = authData.user.id;
-    console.log('✅ User created via admin API:', userId);
-
-    // Wait for the trigger to create the profile
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    // Step 2: Save address using admin client (bypasses RLS)
-    if (form.value.provinceCode && form.value.municipalityCode && form.value.barangay) {
-      const { error: addressError } = await supabaseAdmin
-        .from('addresses')
-        .insert({
-          owner_kind: 'profile',
-          profile_id: userId,
-          province_code: form.value.provinceCode,
-          province_name: form.value.province,
-          municipality_code: form.value.municipalityCode,
-          municipality_name: form.value.municipality,
-          barangay: form.value.barangay,
-          street: form.value.street || '',
-          house_no: form.value.houseNo || null
+    async function submitUserRegistration() {
+      try {
+        const userEmail = selectedRole.value === 'driver' 
+          ? form.value.driverEmail 
+          : email.value;
+        const userPassword = selectedRole.value === 'driver' 
+          ? form.value.driverPassword 
+          : password.value;
+        
+        const userRole = selectedRole.value || 'buyer';
+        
+        let firstName, lastName, middleInitial, sex, contactNo, birthday;
+        if (selectedRole.value === 'driver') {
+          firstName = form.value.driverFirstName;
+          lastName = form.value.driverLastName;
+          middleInitial = form.value.driverMiddleInitial || '';
+          sex = form.value.driverSex;
+          contactNo = form.value.driverContactNo;
+          birthday = form.value.driverBirthday;
+        } else {
+          firstName = form.value.firstName;
+          lastName = form.value.lastName;
+          middleInitial = form.value.middleInitial || '';
+          sex = form.value.sex;
+          contactNo = form.value.contactNo;
+          birthday = form.value.birthday;
+        }
+        
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+          email: userEmail.trim().toLowerCase(),
+          password: userPassword,
+          email_confirm: true,
+          user_metadata: {
+            role: userRole,
+            first_name: firstName,
+            last_name: lastName,
+            middle_initial: middleInitial,
+            sex: sex,
+            contact_no: contactNo,
+            birthday: birthday,
+            status: 'pending'
+          }
         });
 
-      if (addressError) {
-        console.error('Address save error:', addressError);
+        if (authError) {
+          console.error('Auth error:', authError);
+          if (authError.message && authError.message.includes('already exists')) {
+            errorMsg.value = 'This email is already registered. Please login instead.';
+            return;
+          }
+          throw authError;
+        }
+
+        if (!authData?.user) throw new Error('Failed to create user');
+
+        const userId = authData.user.id;
+        console.log('✅ User created via admin API:', userId);
+
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        if (form.value.provinceCode && form.value.municipalityCode && form.value.barangay) {
+          const { error: addressError } = await supabaseAdmin
+            .from('addresses')
+            .insert({
+              owner_kind: 'profile',
+              profile_id: userId,
+              province_code: form.value.provinceCode,
+              province_name: form.value.province,
+              municipality_code: form.value.municipalityCode,
+              municipality_name: form.value.municipality,
+              barangay: form.value.barangay,
+              street: form.value.street || '',
+              house_no: form.value.houseNo || null
+            });
+
+          if (addressError) {
+            console.error('Address save error:', addressError);
+          }
+        }
+
+        if (userRole === 'seller') {
+          const { error: sellerError } = await supabaseAdmin
+            .from('seller_details')
+            .insert({
+              profile_id: userId,
+              business_name: form.value.businessName,
+              line_of_business: form.value.lineOfBusiness
+            });
+
+          if (sellerError) {
+            console.error('Seller details error:', sellerError);
+            throw sellerError;
+          }
+          
+        } else if (userRole === 'courier') {
+          const { error: courierError } = await supabaseAdmin
+            .from('courier_details')
+            .insert({
+              profile_id: userId,
+              vehicle: form.value.vehicle,
+              plate_number: form.value.plateNumber
+            });
+
+          if (courierError) {
+            console.error('Courier details error:', courierError);
+            throw courierError;
+          }
+          
+        } else if (userRole === 'driver') {
+          const { error: driverError } = await supabaseAdmin
+            .from('driver_details')
+            .insert({
+              profile_id: userId,
+              logistics_company_id: null,
+              vehicle: form.value.driverVehicle,
+              plate_number: form.value.driverPlateNumber,
+              license_number: form.value.driverLicenseNumber || null
+            });
+
+          if (driverError) {
+            console.error('Driver details error:', driverError);
+            throw driverError;
+          }
+        }
+
+        await uploadDocuments(userId, userRole);
+
+        successMsg.value = 'Registration submitted! Please wait for administrator approval.';
+        signupStep.value = 'complete';
+
+      } catch (error) {
+        console.error('Registration error:', error);
+        errorMsg.value = error.message || 'Registration failed. Please try again.';
       }
     }
-
-    // Step 3: Role-specific data using admin client (bypasses RLS)
-    if (userRole === 'seller') {
-      const { error: sellerError } = await supabaseAdmin
-        .from('seller_details')
-        .insert({
-          profile_id: userId,
-          business_name: form.value.businessName,
-          line_of_business: form.value.lineOfBusiness
-        });
-
-      if (sellerError) {
-        console.error('Seller details error:', sellerError);
-        throw sellerError;
-      }
-      
-    } else if (userRole === 'courier') {
-      const { error: courierError } = await supabaseAdmin
-        .from('courier_details')
-        .insert({
-          profile_id: userId,
-          vehicle: form.value.vehicle,
-          plate_number: form.value.plateNumber
-        });
-
-      if (courierError) {
-        console.error('Courier details error:', courierError);
-        throw courierError;
-      }
-      
-    } else if (userRole === 'driver') {
-      const { error: driverError } = await supabaseAdmin
-        .from('driver_details')
-        .insert({
-          profile_id: userId,
-          logistics_company_id: null,
-          vehicle: form.value.driverVehicle,
-          plate_number: form.value.driverPlateNumber,
-          license_number: form.value.driverLicenseNumber || null
-        });
-
-      if (driverError) {
-        console.error('Driver details error:', driverError);
-        throw driverError;
-      }
-    }
-
-    // Step 4: Upload documents (NOW USING supabaseAdmin)
-    await uploadDocuments(userId, userRole);
-
-    successMsg.value = 'Registration submitted! Please wait for administrator approval.';
-    signupStep.value = 'complete';
-
-  } catch (error) {
-    console.error('Registration error:', error);
-    errorMsg.value = error.message || 'Registration failed. Please try again.';
-  }
-}
 
     async function submitLogisticsRegistration() {
-  try {
-    // ✅ FIX: Use supabaseAdmin to create user
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email: form.value.companyEmail.trim().toLowerCase(),
-      password: password.value,
-      email_confirm: true,
-      user_metadata: {
-        role: 'logistics',
-        company_name: form.value.companyName,
-        first_name: form.value.ownerFirstName,
-        last_name: form.value.ownerLastName,
-        middle_initial: form.value.ownerMiddleInitial || '',
-        sex: form.value.ownerSex,
-        contact_no: form.value.ownerContactNo,
-        birthday: form.value.ownerBirthday,
-        status: 'pending'
-      }
-    });
-
-    if (authError) {
-      console.error('Auth error:', authError);
-      if (authError.message && authError.message.includes('already exists')) {
-        errorMsg.value = 'This email is already registered. Please login instead.';
-        return;
-      }
-      throw authError;
-    }
-
-    if (!authData?.user) throw new Error('Failed to create user');
-
-    const userId = authData.user.id;
-    console.log('✅ Logistics user created via admin API:', userId);
-
-    // Wait for profile trigger
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    // Step 1: Create logistics company using admin client
-    const { data: companyData, error: companyError } = await supabaseAdmin
-      .from('logistics_companies')
-      .insert({
-        owner_profile_id: userId,
-        company_name: form.value.companyName,
-        company_email: form.value.companyEmail,
-        company_contact_no: form.value.companyContactNo,
-        tin: form.value.companyTIN,
-        sec_registration: form.value.companySECReg || null,
-        status: 'pending'
-      })
-      .select()
-      .single();
-
-    if (companyError) {
-      console.error('Company error:', companyError);
-      throw companyError;
-    }
-
-    const companyId = companyData.id;
-
-    // Step 2: Save company address using admin client
-    if (form.value.companyProvinceCode) {
-      const { error: addressError } = await supabaseAdmin
-        .from('addresses')
-        .insert({
-          owner_kind: 'logistics_company',
-          logistics_company_id: companyId,
-          province_code: form.value.companyProvinceCode,
-          province_name: form.value.companyProvince,
-          municipality_code: form.value.companyMunicipalityCode,
-          municipality_name: form.value.companyMunicipality,
-          barangay: form.value.companyBarangay,
-          street: form.value.companyStreet || '',
-          house_no: form.value.companyHouseNo || null
+      try {
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+          email: form.value.companyEmail.trim().toLowerCase(),
+          password: password.value,
+          email_confirm: true,
+          user_metadata: {
+            role: 'logistics',
+            company_name: form.value.companyName,
+            first_name: form.value.ownerFirstName,
+            last_name: form.value.ownerLastName,
+            middle_initial: form.value.ownerMiddleInitial || '',
+            sex: form.value.ownerSex,
+            birthday: form.value.ownerBirthday,
+            status: 'pending'
+          }
         });
 
-      if (addressError) {
-        console.error('Address save error:', addressError);
+        if (authError) {
+          console.error('Auth error:', authError);
+          if (authError.message && authError.message.includes('already exists')) {
+            errorMsg.value = 'This email is already registered. Please login instead.';
+            return;
+          }
+          throw authError;
+        }
+
+        if (!authData?.user) throw new Error('Failed to create user');
+
+        const userId = authData.user.id;
+        console.log('✅ Logistics user created via admin API:', userId);
+
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        const { data: companyData, error: companyError } = await supabaseAdmin
+          .from('logistics_companies')
+          .insert({
+            owner_profile_id: userId,
+            company_name: form.value.companyName,
+            company_email: form.value.companyEmail,
+            company_contact_no: form.value.companyContactNo,
+            tin: form.value.companyTIN,
+            sec_registration: form.value.companySECReg || null,
+            region: form.value.companyRegion,
+            status: 'pending'
+          })
+          .select()
+          .single();
+
+        if (companyError) {
+          console.error('Company error:', companyError);
+          throw companyError;
+        }
+
+        const companyId = companyData.id;
+
+        if (form.value.companyProvinceCode) {
+          const { error: addressError } = await supabaseAdmin
+            .from('addresses')
+            .insert({
+              owner_kind: 'logistics_company',
+              logistics_company_id: companyId,
+              province_code: form.value.companyProvinceCode,
+              province_name: form.value.companyProvince,
+              municipality_code: form.value.companyMunicipalityCode,
+              municipality_name: form.value.companyMunicipality,
+              barangay: form.value.companyBarangay,
+              street: form.value.companyStreet || '',
+              house_no: form.value.companyHouseNo || null
+            });
+
+          if (addressError) {
+            console.error('Address save error:', addressError);
+          }
+        }
+
+        await uploadLogisticsDocuments(userId, companyId);
+
+        successMsg.value = 'Logistics company registration submitted! Please wait for administrator approval.';
+        signupStep.value = 'complete';
+
+      } catch (error) {
+        console.error('Logistics registration error:', error);
+        errorMsg.value = error.message || 'Registration failed. Please try again.';
       }
     }
-
-    // Step 3: Upload documents (NOW USING supabaseAdmin)
-    await uploadLogisticsDocuments(userId, companyId);
-
-    successMsg.value = 'Logistics company registration submitted! Please wait for administrator approval.';
-    signupStep.value = 'complete';
-
-  } catch (error) {
-    console.error('Logistics registration error:', error);
-    errorMsg.value = error.message || 'Registration failed. Please try again.';
-  }
-}
 
     function submitRegistration() {
       resetMessages();
@@ -1204,7 +1066,6 @@ async function uploadLogisticsDocuments(userId, companyId) {
           return;
         }
         
-        // Validate based on role
         if (selectedRole.value === 'driver') {
           if (!validateDriverPersonal() || !validateDriverSecurityFields() || !validateDocuments()) {
             isSubmitting.value = false;
@@ -1217,7 +1078,6 @@ async function uploadLogisticsDocuments(userId, companyId) {
           }
         }
         
-        // Handle other roles (buyer, seller, courier)
         submitUserRegistration();
         
       } catch (error) {
@@ -1348,132 +1208,59 @@ async function uploadLogisticsDocuments(userId, companyId) {
     }
 
     async function fetchBarangays(municipalityCode, isCompany = false) {
-  if (isCompany) {
-    companyBarangayOptions.value = [];
-    form.value.companyBarangay = '';
-  } else {
-    barangayOptions.value = [];
-    form.value.barangay = '';
-  }
-  
-  if (!municipalityCode) return;
-  
-  if (isCompany) {
-    loadingCompanyBarangays.value = true;
-  } else {
-    loadingBarangays.value = true;
-  }
-  addressApiError.value = '';
-  
-  try {
-    const controller = new AbortController();
-    // Increase timeout to 15 seconds
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-    
-    // ✅ FIX: Use city_municipality_code instead of municipality_code
-    const res = await fetch(`${PSGC_BASE}/barangays?city_municipality_code=${municipalityCode}&limit=500`, {
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    
-    if (!res.ok) {
-      let detail = '';
-      try { detail = await res.text(); } catch (e) {}
-      throw new Error('Request failed: ' + res.status + (detail ? ' — ' + detail : ''));
-    }
-    const json = await res.json();
-    const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
-
-    if (isCompany) {
-      companyBarangayOptions.value = data;
-    } else {
-      barangayOptions.value = data;
-    }
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      addressApiError.value = 'Request timed out. Please try again.';
-    } else {
-      addressApiError.value = 'Could not load barangays. Please try again.';
-    }
-  } finally {
-    if (isCompany) {
-      loadingCompanyBarangays.value = false;
-    } else {
-      loadingBarangays.value = false;
-    }
-  }
-}
-
-async function fetchWithRetry(url, options = {}, maxRetries = 2) {
-  let lastError;
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-      
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      if (isCompany) {
+        companyBarangayOptions.value = [];
+        form.value.companyBarangay = '';
+      } else {
+        barangayOptions.value = [];
+        form.value.barangay = '';
       }
-      return response;
-    } catch (err) {
-      lastError = err;
-      if (i < maxRetries - 1) {
-        // Wait 1 second before retry
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      if (!municipalityCode) return;
+      
+      if (isCompany) {
+        loadingCompanyBarangays.value = true;
+      } else {
+        loadingBarangays.value = true;
+      }
+      addressApiError.value = '';
+      
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        
+        const res = await fetch(`${PSGC_BASE}/barangays?city_municipality_code=${municipalityCode}&limit=500`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) {
+          let detail = '';
+          try { detail = await res.text(); } catch (e) {}
+          throw new Error('Request failed: ' + res.status + (detail ? ' — ' + detail : ''));
+        }
+        const json = await res.json();
+        const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+
+        if (isCompany) {
+          companyBarangayOptions.value = data;
+        } else {
+          barangayOptions.value = data;
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          addressApiError.value = 'Request timed out. Please try again.';
+        } else {
+          addressApiError.value = 'Could not load barangays. Please try again.';
+        }
+      } finally {
+        if (isCompany) {
+          loadingCompanyBarangays.value = false;
+        } else {
+          loadingBarangays.value = false;
+        }
       }
     }
-  }
-  throw lastError;
-}
-
-async function fetchBarangays(municipalityCode, isCompany = false) {
-  if (isCompany) {
-    companyBarangayOptions.value = [];
-    form.value.companyBarangay = '';
-  } else {
-    barangayOptions.value = [];
-    form.value.barangay = '';
-  }
-  
-  if (!municipalityCode) return;
-  
-  if (isCompany) {
-    loadingCompanyBarangays.value = true;
-  } else {
-    loadingBarangays.value = true;
-  }
-  addressApiError.value = '';
-  
-  try {
-    const res = await fetchWithRetry(`${PSGC_BASE}/barangays?city_municipality_code=${municipalityCode}&limit=500`);
-    const json = await res.json();
-    const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
-
-    if (isCompany) {
-      companyBarangayOptions.value = data;
-    } else {
-      barangayOptions.value = data;
-    }
-  } catch (err) {
-    if (err.name === 'AbortError' || err.message.includes('timed out')) {
-      addressApiError.value = 'Request timed out. Please try again.';
-    } else {
-      addressApiError.value = 'Could not load barangays. Please try again.';
-    }
-  } finally {
-    if (isCompany) {
-      loadingCompanyBarangays.value = false;
-    } else {
-      loadingBarangays.value = false;
-    }
-  }
-}
 
     // Address Change Handlers
     function onProvinceChange() {
@@ -1539,12 +1326,12 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
         provinceCode:'', province:'', municipalityCode:'', municipality:'', barangay:'', street:'', houseNo:'', 
         idFile:null, businessName:'', lineOfBusiness:'', businessPermit:null, 
         vehicle:'', plateNumber:'', orcrFile:null, licenseFile:null,
-        companyName:'', companyAddress:'', companyProvinceCode:'', companyProvince:'', 
+        companyName:'', companyAddress:'', companyRegion:'', companyProvinceCode:'', companyProvince:'', 
         companyMunicipalityCode:'', companyMunicipality:'', companyBarangay:'', 
         companyStreet:'', companyHouseNo:'', companyContactNo:'', companyEmail:'', 
         companyTIN:'', companySECReg:'', ownerLastName:'', ownerFirstName:'', 
-        ownerMiddleInitial:'', ownerSex:'', ownerBirthday:'', ownerContactNo:'', 
-        ownerEmail:'', ownerIdFile:null, businessPermitFile:null, mayorPermitFile:null, 
+        ownerMiddleInitial:'', ownerSex:'', ownerBirthday:'', 
+        ownerIdFile:null, businessPermitFile:null, mayorPermitFile:null, 
         dtiRegFile:null,
         driverFirstName:'', driverLastName:'', driverMiddleInitial:'', driverSex:'', 
         driverBirthday:'', driverContactNo:'', driverEmail:'', driverPassword:'', 
@@ -1668,81 +1455,94 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
     }
 
     // ---------- Login Functions ----------
-    async function handleLogin() {
-      resetMessages();
+    // ---------- Login Functions ----------
+async function handleLogin() {
+  resetMessages();
 
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.value.trim().toLowerCase(),
-        password: password.value
-      });
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.value.trim().toLowerCase(),
+    password: password.value
+  });
 
-      if (error) {
-        console.log('Supabase auth error:', error);
-        errorMsg.value = 'Email or password is incorrect.';
-        return;
-      }
+  if (error) {
+    console.log('Supabase auth error:', error);
+    errorMsg.value = 'Email or password is incorrect.';
+    return;
+  }
 
-      const user = data.user;
+  const user = data.user;
 
-      // Get user profile with status
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('role, first_name, last_name, email, account_status, status')
-        .eq('id', user.id)
-        .single();
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('role, first_name, last_name, email, account_status, status')
+    .eq('id', user.id)
+    .single();
 
-      if (profileError) {
-        console.log('Profile error:', profileError);
-        errorMsg.value = 'Could not fetch user profile.';
-        return;
-      }
+  if (profileError) {
+    console.log('Profile error:', profileError);
+    errorMsg.value = 'Could not fetch user profile.';
+    return;
+  }
 
-      // Check account status
-      if (profile.account_status === 'suspended') {
-        errorMsg.value = 'Your account has been suspended. Please contact support.';
-        await supabase.auth.signOut();
-        return;
-      }
-      
-      if (profile.account_status === 'deactivated') {
-        errorMsg.value = 'Your account has been deactivated. Please contact support.';
-        await supabase.auth.signOut();
-        return;
-      }
-      
-      if (profile.account_status === 'pending' || profile.status === 'pending') {
-        errorMsg.value = 'Your account is pending approval. Please wait for the administrator to approve your account.';
-        await supabase.auth.signOut();
-        return;
-      }
+  // Check account status
+  if (profile.account_status === 'suspended') {
+    errorMsg.value = 'Your account has been suspended. Please contact support.';
+    await supabase.auth.signOut();
+    return;
+  }
+  
+  if (profile.account_status === 'deactivated') {
+    errorMsg.value = 'Your account has been deactivated. Please contact support.';
+    await supabase.auth.signOut();
+    return;
+  }
+  
+  if (profile.account_status === 'pending' || profile.status === 'pending') {
+    errorMsg.value = 'Your account is pending approval. Please wait for the administrator to approve your account.';
+    await supabase.auth.signOut();
+    return;
+  }
 
-      if (profile.status === 'rejected') {
-        errorMsg.value = 'Your account has been rejected. Please contact support.';
-        await supabase.auth.signOut();
-        return;
-      }
+  if (profile.status === 'rejected') {
+    errorMsg.value = 'Your account has been rejected. Please contact support.';
+    await supabase.auth.signOut();
+    return;
+  }
 
-      const userRole = profile?.role || user.user_metadata?.role || 'buyer';
+  const userRole = profile?.role || user.user_metadata?.role || 'buyer';
 
-      loggedInUser.value = {
-        email: user.email,
-        role: userRole,
-        status: profile.account_status || profile.status
-      };
+  loggedInUser.value = {
+    email: user.email,
+    role: userRole,
+    status: profile.account_status || profile.status
+  };
 
-      setCookie(
-        'nexmart_session',
-        JSON.stringify(loggedInUser.value),
-        rememberMe.value ? 30 : 1
-      );
+  setCookie(
+    'nexmart_session',
+    JSON.stringify(loggedInUser.value),
+    rememberMe.value ? 30 : 1
+  );
 
-      // Redirect admins to dashboard
-      if (userRole === 'admin') {
-        window.location.href = '/admin/dashboard';
-      } else {
-        successMsg.value = `Welcome back! Logged in as ${userRole}.`;
-      }
-    }
+  // Redirect based on role
+  switch (userRole) {
+    case 'admin':
+      window.location.href = '/admin/dashboard';
+      break;
+    case 'logistics':
+    case 'logistics_admin':
+      window.location.href = '/logistics/dashboard';
+      break;
+    case 'seller':
+      window.location.href = '/seller/dashboard';
+      break;
+    case 'courier':
+    case 'driver':
+      window.location.href = '/';
+      break;
+    default: // buyer
+      window.location.href = '/';
+  }
+}
 
     // ---------- Password Reset Functions ----------
     async function handleSendCode() {
@@ -1913,11 +1713,6 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
       resetMessages();
     }
 
-    function continueAsGuest() {
-      loggedInUser.value = { email: null, role: 'guest' };
-      setCookie('nexmart_session', JSON.stringify(loggedInUser.value), 1);
-    }
-
     function logout() {
       loggedInUser.value = null;
       deleteCookie('nexmart_session');
@@ -1987,12 +1782,11 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
       stepKeys, driverStepKeys, logisticsStepKeys,
       onProvinceChange, onMunicipalityChange, onCompanyProvinceChange, onCompanyMunicipalityChange,
       retryAddressLoad,
-      switchMode, handleLogin, continueAsGuest, selectRole, goToStep,
+      switchMode, handleLogin, selectRole, goToStep,
       handleFileUpload, submitRegistration, logout, startLogisticsSignup,
       formatContactNumber, formatName, formatMiddleInitial,
       validatePersonalFields, validateDriverPersonal, validateSecurityFields,
       validateDriverSecurityFields, validateAddressFields, validateDocuments,
-      showAdminSignup, adminForm, adminSignupLoading, handleAdminSignup,
       resetStep, resetEmail, resetCode, newPassword, newConfirmPassword, isVerifying,
       handleSendCode, handleVerifyCode, handleResetPassword, handleResendCode, goToResetStep
     };
@@ -2006,15 +1800,15 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
     <div class="side-panel md:w-[42%] w-full text-white px-8 py-10 md:px-12 md:py-14 flex flex-col justify-between" style="height:100vh;overflow:hidden;">
       <div>
         <div class="flex items-center gap-3 mb-10">
-          <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
           </div>
           <span class="text-lg font-bold tracking-wide">NEXMART</span>
         </div>
-        <p class="text-orange-400 text-xs font-bold tracking-widest uppercase mb-4">Philippines' Trusted Marketplace</p>
+        <p class="text-teal-400 text-xs font-bold tracking-widest uppercase mb-4">Philippines' Trusted Marketplace</p>
         <h1 class="display-font text-4xl md:text-[2.6rem] leading-tight font-extrabold mb-5">
           One platform.<br/>
-          <span class="text-orange-500">Every</span> role.
+          <span class="text-teal-400">Every</span> role.
         </h1>
         <p class="text-slate-400 text-sm leading-relaxed mb-10 max-w-sm">
           Whether you're shopping, running a store, or delivering parcels — NEXMART is built to grow with you.
@@ -2022,7 +1816,7 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
 
         <div class="space-y-3">
           <div v-for="r in roles" :key="r.id" class="role-card rounded-xl px-4 py-3 flex items-center gap-3">
-            <div class="w-9 h-9 rounded-lg bg-orange-500/15 flex items-center justify-center shrink-0 text-orange-400">
+            <div class="w-9 h-9 rounded-lg bg-teal-500/15 flex items-center justify-center shrink-0 text-teal-400">
               <svg v-if="r.icon === 'bag'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
               <svg v-if="r.icon === 'house'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/></svg>
               <svg v-if="r.icon === 'truck'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h1"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
@@ -2061,12 +1855,6 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
             <h2 class="display-font text-3xl font-bold text-slate-900">
               {{ mode === 'login' ? 'Welcome back' : mode === 'forgot' || mode === 'reset' ? 'Reset Password' : 'Create an account' }}
             </h2>
-            <div class="flex items-center gap-3">
-              <button @click="showAdminSignup = true" class="text-xs text-orange-500 hover:text-orange-600 font-semibold hover:underline whitespace-nowrap">
-                👑 Admin Sign Up
-              </button>
-              <span v-if="errorMsg" class="text-xs text-red-600 font-medium max-w-[150px] text-right">{{ errorMsg }}</span>
-            </div>
           </div>
           <p class="text-slate-500 text-sm mb-4">
             {{ mode === 'login' ? 'Sign in to your NEXMART account.' : mode === 'forgot' || mode === 'reset' ? 'Reset your password securely.' : (isLogisticsSignup ? 'Register your logistics company.' : (selectedRole === 'driver' ? 'Register as a driver.' : 'Select your role to get started.')) }}
@@ -2074,8 +1862,8 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
 
           <!-- TABS -->
           <div v-if="mode === 'login' || mode === 'signup'" class="flex bg-slate-100 rounded-lg p-1 mb-4">
-            <button @click="switchMode('login')" class="tab-pill flex-1 py-2 rounded-md text-sm font-semibold" :class="mode === 'login' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500'">Log In</button>
-            <button @click="switchMode('signup')" class="tab-pill flex-1 py-2 rounded-md text-sm font-semibold" :class="mode === 'signup' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500'">Sign Up</button>
+            <button @click="switchMode('login')" class="tab-pill flex-1 py-2 rounded-md text-sm font-semibold" :class="mode === 'login' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500'">Log In</button>
+            <button @click="switchMode('signup')" class="tab-pill flex-1 py-2 rounded-md text-sm font-semibold" :class="mode === 'signup' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500'">Sign Up</button>
           </div>
 
           <!-- FORGOT PASSWORD / RESET WIZARD -->
@@ -2083,15 +1871,15 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
             <!-- Progress Steps -->
             <div class="flex items-center gap-2 mb-4">
               <div class="flex items-center flex-1">
-                <div class="step-dot" :class="{ 'bg-orange-500 text-white': resetStep >= 1, 'bg-slate-200 text-slate-500': resetStep < 1 }">1</div>
+                <div class="step-dot" :class="{ 'bg-teal-500 text-white': resetStep >= 1, 'bg-slate-200 text-slate-500': resetStep < 1 }">1</div>
                 <div class="step-line" :class="{ 'active': resetStep > 1 }"></div>
               </div>
               <div class="flex items-center flex-1">
-                <div class="step-dot" :class="{ 'bg-orange-500 text-white': resetStep >= 2, 'bg-slate-200 text-slate-500': resetStep < 2 }">2</div>
+                <div class="step-dot" :class="{ 'bg-teal-500 text-white': resetStep >= 2, 'bg-slate-200 text-slate-500': resetStep < 2 }">2</div>
                 <div class="step-line" :class="{ 'active': resetStep > 2 }"></div>
               </div>
               <div class="flex items-center flex-1">
-                <div class="step-dot" :class="{ 'bg-orange-500 text-white': resetStep >= 3, 'bg-slate-200 text-slate-500': resetStep < 3 }">3</div>
+                <div class="step-dot" :class="{ 'bg-teal-500 text-white': resetStep >= 3, 'bg-slate-200 text-slate-500': resetStep < 3 }">3</div>
               </div>
             </div>
 
@@ -2099,14 +1887,14 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
             <div v-if="resetStep === 1">
               <p class="text-sm text-slate-500 mb-3">Enter your email to receive a verification code.</p>
               <div>
-                <label class="field-label">Email Address <span class="text-orange-500">*</span></label>
+                <label class="field-label">Email Address <span class="text-teal-500">*</span></label>
                 <input v-model="forgotEmail" type="email" placeholder="juan@email.com" class="field-input" />
               </div>
               <p v-if="errorMsg" class="text-sm text-red-600 mt-2">{{ errorMsg }}</p>
               <p v-if="successMsg" class="text-sm text-green-600 mt-2">{{ successMsg }}</p>
               <button @click="handleSendCode" class="btn-gradient w-full text-white font-semibold py-2.5 rounded-lg mt-3">Send Verification Code</button>
               <p class="text-center text-sm text-slate-500 mt-3">
-                Remembered it? <a href="#" @click.prevent="switchMode('login')" class="text-orange-600 font-semibold hover:underline">Back to login</a>
+                Remembered it? <a href="#" @click.prevent="switchMode('login')" class="text-teal-600 font-semibold hover:underline">Back to login</a>
               </p>
             </div>
 
@@ -2114,7 +1902,7 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
             <div v-if="resetStep === 2">
               <p class="text-sm text-slate-500 mb-3">Enter the 6-digit code sent to your email.</p>
               <div>
-                <label class="field-label">Verification Code <span class="text-orange-500">*</span></label>
+                <label class="field-label">Verification Code <span class="text-teal-500">*</span></label>
                 <input v-model="resetCode" type="text" placeholder="6-digit code" maxlength="6" class="field-input" />
                 <p class="text-xs text-slate-400 mt-1">Check your email for the code. Expires in 15 minutes.</p>
               </div>
@@ -2125,10 +1913,10 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
               </button>
               <div class="flex items-center justify-between mt-3">
                 <p class="text-sm text-slate-500">
-                  <a href="#" @click.prevent="handleResendCode" class="text-orange-600 font-semibold hover:underline">Resend code</a>
+                  <a href="#" @click.prevent="handleResendCode" class="text-teal-600 font-semibold hover:underline">Resend code</a>
                 </p>
                 <p class="text-sm text-slate-500">
-                  <a href="#" @click.prevent="goToResetStep(1)" class="text-orange-600 font-semibold hover:underline">Change email</a>
+                  <a href="#" @click.prevent="goToResetStep(1)" class="text-teal-600 font-semibold hover:underline">Change email</a>
                 </p>
               </div>
             </div>
@@ -2137,7 +1925,7 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
             <div v-if="resetStep === 3">
               <p class="text-sm text-slate-500 mb-3">Create a new password for your account.</p>
               <div>
-                <label class="field-label">New Password <span class="text-orange-500">*</span></label>
+                <label class="field-label">New Password <span class="text-teal-500">*</span></label>
                 <div class="relative">
                   <input :type="showPassword ? 'text' : 'password'" v-model="newPassword" placeholder="Min 8 characters" class="field-input pr-10" />
                   <button type="button" @click="showPassword = !showPassword" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -2147,7 +1935,7 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 </div>
               </div>
               <div class="mt-2">
-                <label class="field-label">Confirm New Password <span class="text-orange-500">*</span></label>
+                <label class="field-label">Confirm New Password <span class="text-teal-500">*</span></label>
                 <input :type="showPassword ? 'text' : 'password'" v-model="newConfirmPassword" placeholder="Re-enter password" class="field-input" />
               </div>
               <p v-if="errorMsg" class="text-sm text-red-600 mt-2">{{ errorMsg }}</p>
@@ -2159,11 +1947,11 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
           <!-- LOGIN FORM -->
           <div v-if="mode === 'login'" class="space-y-3">
             <div>
-              <label class="field-label">Email Address <span class="text-orange-500">*</span></label>
+              <label class="field-label">Email Address <span class="text-teal-500">*</span></label>
               <input v-model="email" type="email" placeholder="juan@email.com" class="field-input" />
             </div>
             <div>
-              <label class="field-label">Password <span class="text-orange-500">*</span></label>
+              <label class="field-label">Password <span class="text-teal-500">*</span></label>
               <div class="relative">
                 <input :type="showPassword ? 'text' : 'password'" v-model="password" placeholder="Enter your password" class="field-input pr-10" />
                 <button type="button" @click="showPassword = !showPassword" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -2173,15 +1961,13 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
               </div>
             </div>
             <div class="flex items-center justify-between text-sm">
-              <label class="flex items-center gap-2 text-slate-600"><input type="checkbox" v-model="rememberMe" class="rounded border-slate-300 text-orange-500 focus:ring-orange-400" /> Remember me</label>
-              <a href="#" @click.prevent="switchMode('forgot')" class="text-orange-600 font-medium hover:underline">Forgot password?</a>
+              <label class="flex items-center gap-2 text-slate-600"><input type="checkbox" v-model="rememberMe" class="rounded border-slate-300 text-teal-500 focus:ring-teal-400" /> Remember me</label>
+              <a href="#" @click.prevent="switchMode('forgot')" class="text-teal-600 font-medium hover:underline">Forgot password?</a>
             </div>
             <p v-if="errorMsg" class="text-sm text-red-600">{{ errorMsg }}</p>
             <p v-if="successMsg" class="text-sm text-green-600">{{ successMsg }}</p>
             <button @click="handleLogin" class="btn-gradient w-full text-white font-semibold py-2.5 rounded-lg">Sign In</button>
-            <div class="flex items-center gap-3"><div class="flex-1 h-px bg-slate-200"></div><span class="text-xs text-slate-400">or</span><div class="flex-1 h-px bg-slate-200"></div></div>
-            <button @click="continueAsGuest" class="w-full border border-slate-300 text-slate-700 font-semibold py-2.5 rounded-lg hover:bg-slate-50">Continue as Guest</button>
-            <p class="text-center text-sm text-slate-500">Don't have an account? <a href="#" @click.prevent="switchMode('signup')" class="text-orange-600 font-semibold hover:underline">Sign up</a></p>
+            <p class="text-center text-sm text-slate-500 mt-2">Don't have an account? <a href="#" @click.prevent="switchMode('signup')" class="text-teal-600 font-semibold hover:underline">Sign up</a></p>
             <p class="text-center text-xs text-slate-400">Try: juan@email.com / password123</p>
           </div>
 
@@ -2211,7 +1997,7 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 </p>
               </div>
               
-              <p class="text-center text-sm text-slate-500">Already have an account? <a href="#" @click.prevent="switchMode('login')" class="text-orange-600 font-semibold hover:underline">Log in</a></p>
+              <p class="text-center text-sm text-slate-500">Already have an account? <a href="#" @click.prevent="switchMode('login')" class="text-teal-600 font-semibold hover:underline">Log in</a></p>
             </div>
 
             <!-- DRIVER SIGNUP FLOW -->
@@ -2219,14 +2005,14 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
               <!-- Step indicator -->
               <div class="flex items-center gap-1 mb-3">
                 <div v-for="(s, idx) in driverSteps" :key="idx" class="flex items-center flex-1">
-                  <div class="step-dot" :class="{ 'bg-orange-500 text-white': currentStepIndex >= idx, 'bg-slate-200 text-slate-500': currentStepIndex < idx }">{{ idx + 1 }}</div>
+                  <div class="step-dot" :class="{ 'bg-teal-500 text-white': currentStepIndex >= idx, 'bg-slate-200 text-slate-500': currentStepIndex < idx }">{{ idx + 1 }}</div>
                   <div v-if="idx < driverSteps.length - 1" class="step-line" :class="{ 'active': currentStepIndex > idx }"></div>
                 </div>
               </div>
 
               <div class="flex items-center justify-between mb-2">
                 <p class="text-sm text-slate-500">Driver Registration</p>
-                <span class="text-sm font-medium text-orange-600">Step {{ currentStepIndex + 1 }} of 5</span>
+                <span class="text-sm font-medium text-teal-600">Step {{ currentStepIndex + 1 }} of 5</span>
               </div>
               <h3 class="display-font text-xl font-bold text-slate-900 mb-3">{{ driverSteps[currentStepIndex] }}</h3>
 
@@ -2235,12 +2021,12 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <div v-if="signupStep === 'driverPersonal'">
                   <div class="form-grid">
                     <div>
-                      <label class="field-label">Last Name <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Last Name <span class="text-teal-500">*</span></label>
                       <input v-model="form.driverLastName" @input="formatName($event, 'driverLastName')" placeholder="Dela Cruz" class="field-input" :class="{ 'border-red-500': validationErrors.driverLastName }" />
                       <span v-if="validationErrors.driverLastName" class="text-xs text-red-500">{{ validationErrors.driverLastName }}</span>
                     </div>
                     <div>
-                      <label class="field-label">First Name <span class="text-orange-500">*</span></label>
+                      <label class="field-label">First Name <span class="text-teal-500">*</span></label>
                       <input v-model="form.driverFirstName" @input="formatName($event, 'driverFirstName')" placeholder="Juan" class="field-input" :class="{ 'border-red-500': validationErrors.driverFirstName }" />
                       <span v-if="validationErrors.driverFirstName" class="text-xs text-red-500">{{ validationErrors.driverFirstName }}</span>
                     </div>
@@ -2250,23 +2036,23 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                       <span v-if="validationErrors.driverMiddleInitial" class="text-xs text-red-500">{{ validationErrors.driverMiddleInitial }}</span>
                     </div>
                     <div>
-                      <label class="field-label">Sex <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Sex <span class="text-teal-500">*</span></label>
                       <select v-model="form.driverSex" class="field-input" :class="{ 'border-red-500': !form.driverSex && errorMsg }">
                         <option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option>
                       </select>
                     </div>
                     <div>
-                      <label class="field-label">Birthday <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Birthday <span class="text-teal-500">*</span></label>
                       <input v-model="form.driverBirthday" type="date" class="field-input" :class="{ 'border-red-500': validationErrors.driverBirthday }" />
                       <span v-if="validationErrors.driverBirthday" class="text-xs text-red-500">{{ validationErrors.driverBirthday }}</span>
                     </div>
                     <div>
-                      <label class="field-label">Contact No. <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Contact No. <span class="text-teal-500">*</span></label>
                       <input v-model="form.driverContactNo" @input="formatContactNumber($event, 'driverContactNo')" placeholder="09XXXXXXXXX" class="field-input" :class="{ 'border-red-500': validationErrors.driverContactNo }" />
                       <span v-if="validationErrors.driverContactNo" class="text-xs text-red-500">{{ validationErrors.driverContactNo }}</span>
                     </div>
                     <div class="full-width">
-                      <label class="field-label">Email <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Email <span class="text-teal-500">*</span></label>
                       <input v-model="form.driverEmail" type="email" placeholder="driver@email.com" class="field-input" :class="{ 'border-red-500': validationErrors.driverEmail }" />
                       <span v-if="validationErrors.driverEmail" class="text-xs text-red-500">{{ validationErrors.driverEmail }}</span>
                     </div>
@@ -2277,11 +2063,11 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <div v-if="signupStep === 'driverVerifyEmail'">
                   <p class="text-sm text-slate-600 mb-3">We sent a 6-digit code to <strong>{{ form.driverEmail }}</strong>.</p>
                   <p v-if="successMsg" class="text-xs text-green-600 mb-2">{{ successMsg }}</p>
-                  <label class="field-label">Verification Code <span class="text-orange-500">*</span></label>
+                  <label class="field-label">Verification Code <span class="text-teal-500">*</span></label>
                   <input v-model="signupVerifyCode" type="text" placeholder="6-digit code" maxlength="6" class="field-input" />
                   <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
                   <div class="flex items-center justify-between mt-3">
-                    <a href="#" @click.prevent="resendSignupVerificationCode" class="text-orange-600 font-semibold text-sm hover:underline">Resend code</a>
+                    <a href="#" @click.prevent="resendSignupVerificationCode" class="text-teal-600 font-semibold text-sm hover:underline">Resend code</a>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
@@ -2290,27 +2076,27 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <div v-if="signupStep === 'driverAddress'">
                   <div class="form-grid">
                     <div class="full-width">
-                      <label class="field-label">Province <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Province <span class="text-teal-500">*</span></label>
                       <select v-model="form.provinceCode" @change="onProvinceChange" class="field-input" :disabled="loadingProvinces">
                         <option value="">{{ loadingProvinces ? 'Loading provinces…' : 'Select province' }}</option>
                         <option v-for="p in provinceOptions" :key="p.code" :value="p.code">{{ p.name }}</option>
                       </select>
                     </div>
                     <div class="full-width">
-                      <label class="field-label">Municipality / City <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Municipality / City <span class="text-teal-500">*</span></label>
                       <select v-model="form.municipalityCode" @change="onMunicipalityChange" class="field-input" :disabled="!form.provinceCode || loadingMunicipalities">
                         <option value="">{{ loadingMunicipalities ? 'Loading…' : (form.provinceCode ? 'Select municipality/city' : 'Select a province first') }}</option>
                         <option v-for="m in municipalityOptions" :key="m.code" :value="m.code">{{ m.name }}</option>
                       </select>
                     </div>
                     <div class="full-width">
-                      <label class="field-label">Barangay <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Barangay <span class="text-teal-500">*</span></label>
                       <select v-model="form.barangay" class="field-input" :disabled="!form.municipalityCode || loadingBarangays">
                         <option value="">{{ loadingBarangays ? 'Loading…' : (form.municipalityCode ? 'Select barangay' : 'Select a municipality/city first') }}</option>
                         <option v-for="b in barangayOptions" :key="b.code" :value="b.name">{{ b.name }}</option>
                       </select>
                     </div>
-                    <div><label class="field-label">Street <span class="text-orange-500">*</span></label><input v-model="form.street" placeholder="Street name" class="field-input" /></div>
+                    <div><label class="field-label">Street <span class="text-teal-500">*</span></label><input v-model="form.street" placeholder="Street name" class="field-input" /></div>
                     <div><label class="field-label">House / Unit #</label><input v-model="form.houseNo" placeholder="123, Unit B" class="field-input" /></div>
                   </div>
                   <p v-if="addressApiError" class="text-sm text-red-600 mt-2">
@@ -2324,7 +2110,7 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <div v-if="signupStep === 'driverSecurity'">
                   <div class="form-grid">
                     <div class="full-width">
-                      <label class="field-label">Password <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Password <span class="text-teal-500">*</span></label>
                       <div class="relative">
                         <input :type="showPassword ? 'text' : 'password'" v-model="form.driverPassword" placeholder="Min 8 characters" class="field-input pr-10" :class="{ 'border-red-500': validationErrors.driverPassword }" />
                         <button type="button" @click="showPassword = !showPassword" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -2335,7 +2121,7 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                       <span v-if="validationErrors.driverPassword" class="text-xs text-red-500">{{ validationErrors.driverPassword }}</span>
                     </div>
                     <div class="full-width">
-                      <label class="field-label">Confirm Password <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Confirm Password <span class="text-teal-500">*</span></label>
                       <input :type="showPassword ? 'text' : 'password'" v-model="form.driverConfirmPassword" placeholder="Re-enter password" class="field-input" :class="{ 'border-red-500': validationErrors.driverConfirmPassword }" />
                       <span v-if="validationErrors.driverConfirmPassword" class="text-xs text-red-500">{{ validationErrors.driverConfirmPassword }}</span>
                     </div>
@@ -2346,21 +2132,21 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <!-- DRIVER DOCUMENTS -->
                 <div v-if="signupStep === 'driverDocuments'">
                   <div class="form-grid">
-                    <div class="full-width"><label class="field-label">Vehicle Type <span class="text-orange-500">*</span></label>
+                    <div class="full-width"><label class="field-label">Vehicle Type <span class="text-teal-500">*</span></label>
                       <select v-model="form.driverVehicle" class="field-input">
                         <option value="">Select</option><option value="Motorcycle">Motorcycle</option><option value="Car">Car</option><option value="Van">Van</option><option value="Truck">Truck</option>
                       </select>
                     </div>
-                    <div class="full-width"><label class="field-label">Plate Number <span class="text-orange-500">*</span></label><input v-model="form.driverPlateNumber" placeholder="ABC-1234" class="field-input" /></div>
+                    <div class="full-width"><label class="field-label">Plate Number <span class="text-teal-500">*</span></label><input v-model="form.driverPlateNumber" placeholder="ABC-1234" class="field-input" /></div>
                     <div class="full-width"><label class="field-label">License Number</label><input v-model="form.driverLicenseNumber" placeholder="Driver's License #" class="field-input" /></div>
-                    <div class="full-width"><label class="field-label">Upload Valid ID <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'driverIdFile')" class="field-input text-sm p-1" /></div>
-                    <div class="full-width"><label class="field-label">Upload Driver's License <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'driverLicenseFile')" class="field-input text-sm p-1" /></div>
-                    <div class="full-width"><label class="field-label">Upload OR/CR <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'driverOrcrFile')" class="field-input text-sm p-1" /></div>
+                    <div class="full-width"><label class="field-label">Upload Valid ID <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'driverIdFile')" class="field-input text-sm p-1" /></div>
+                    <div class="full-width"><label class="field-label">Upload Driver's License <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'driverLicenseFile')" class="field-input text-sm p-1" /></div>
+                    <div class="full-width"><label class="field-label">Upload OR/CR <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'driverOrcrFile')" class="field-input text-sm p-1" /></div>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
 
-                <p v-if="successMsg" class="text-sm text-green-600 mt-2">{{ successMsg }}</p>
+                
               </div>
 
               <!-- Navigation -->
@@ -2378,14 +2164,14 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
               <!-- Step indicator -->
               <div class="flex items-center gap-1 mb-3">
                 <div v-for="(s, idx) in logisticsSteps" :key="idx" class="flex items-center flex-1">
-                  <div class="step-dot" :class="{ 'bg-orange-500 text-white': currentStepIndex >= idx, 'bg-slate-200 text-slate-500': currentStepIndex < idx }">{{ idx + 1 }}</div>
+                  <div class="step-dot" :class="{ 'bg-teal-500 text-white': currentStepIndex >= idx, 'bg-slate-200 text-slate-500': currentStepIndex < idx }">{{ idx + 1 }}</div>
                   <div v-if="idx < logisticsSteps.length - 1" class="step-line" :class="{ 'active': currentStepIndex > idx }"></div>
                 </div>
               </div>
 
               <div class="flex items-center justify-between mb-2">
                 <p class="text-sm text-slate-500">Logistics Company Registration</p>
-                <span class="text-sm font-medium text-orange-600">Step {{ currentStepIndex + 1 }} of 6</span>
+                <span class="text-sm font-medium text-teal-600">Step {{ currentStepIndex + 1 }} of 6</span>
               </div>
               <h3 class="display-font text-xl font-bold text-slate-900 mb-3">{{ logisticsSteps[currentStepIndex] }}</h3>
 
@@ -2393,10 +2179,22 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <!-- COMPANY INFO -->
                 <div v-if="signupStep === 'company'">
                   <div class="form-grid">
-                    <div class="full-width"><label class="field-label">Company Name <span class="text-orange-500">*</span></label><input v-model="form.companyName" placeholder="ABC Logistics Inc." class="field-input" /></div>
-                    <div class="full-width"><label class="field-label">Company Email <span class="text-orange-500">*</span></label><input v-model="form.companyEmail" type="email" placeholder="info@abclogistics.com" class="field-input" /></div>
-                    <div><label class="field-label">Contact No. <span class="text-orange-500">*</span></label><input v-model="form.companyContactNo" @input="formatContactNumber($event, 'companyContactNo')" placeholder="09XXXXXXXXX" class="field-input" /></div>
-                    <div><label class="field-label">TIN <span class="text-orange-500">*</span></label><input v-model="form.companyTIN" placeholder="123-456-789-000" class="field-input" /></div>
+                    <div class="full-width"><label class="field-label">Company Name <span class="text-teal-500">*</span></label><input v-model="form.companyName" placeholder="ABC Logistics Inc." class="field-input" /></div>
+                    <div class="full-width"><label class="field-label">Company Email <span class="text-teal-500">*</span></label><input v-model="form.companyEmail" type="email" placeholder="info@abclogistics.com" class="field-input" /></div>
+                    
+                    <div class="full-width">
+                      <label class="field-label">Region <span class="text-teal-500">*</span></label>
+                      <select v-model="form.companyRegion" class="field-input">
+                        <option value="">Select Region</option>
+                        <option value="Luzon">Luzon</option>
+                        <option value="Visayas">Visayas</option>
+                        <option value="Mindanao">Mindanao</option>
+                      </select>
+                    </div>
+
+                    
+                    <div><label class="field-label">Contact No. <span class="text-teal-500">*</span></label><input v-model="form.companyContactNo" @input="formatContactNumber($event, 'companyContactNo')" placeholder="09XXXXXXXXX" class="field-input" /></div>
+                    <div><label class="field-label">TIN <span class="text-teal-500">*</span></label><input v-model="form.companyTIN" placeholder="123-456-789-000" class="field-input" /></div>
                     <div class="full-width"><label class="field-label">SEC Registration #</label><input v-model="form.companySECReg" placeholder="SEC Reg. No. (if applicable)" class="field-input" /></div>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
@@ -2406,11 +2204,11 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <div v-if="signupStep === 'companyVerifyEmail'">
                   <p class="text-sm text-slate-600 mb-3">We sent a 6-digit code to <strong>{{ form.companyEmail }}</strong>.</p>
                   <p v-if="successMsg" class="text-xs text-green-600 mb-2">{{ successMsg }}</p>
-                  <label class="field-label">Verification Code <span class="text-orange-500">*</span></label>
+                  <label class="field-label">Verification Code <span class="text-teal-500">*</span></label>
                   <input v-model="signupVerifyCode" type="text" placeholder="6-digit code" maxlength="6" class="field-input" />
                   <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
                   <div class="flex items-center justify-between mt-3">
-                    <a href="#" @click.prevent="resendSignupVerificationCode" class="text-orange-600 font-semibold text-sm hover:underline">Resend code</a>
+                    <a href="#" @click.prevent="resendSignupVerificationCode" class="text-teal-600 font-semibold text-sm hover:underline">Resend code</a>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
@@ -2418,17 +2216,15 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <!-- OWNER DETAILS -->
                 <div v-if="signupStep === 'owner'">
                   <div class="form-grid">
-                    <div><label class="field-label">Owner Last Name <span class="text-orange-500">*</span></label><input v-model="form.ownerLastName" @input="formatName($event, 'ownerLastName')" placeholder="Dela Cruz" class="field-input" /></div>
-                    <div><label class="field-label">Owner First Name <span class="text-orange-500">*</span></label><input v-model="form.ownerFirstName" @input="formatName($event, 'ownerFirstName')" placeholder="Juan" class="field-input" /></div>
+                    <div><label class="field-label">Owner Last Name <span class="text-teal-500">*</span></label><input v-model="form.ownerLastName" @input="formatName($event, 'ownerLastName')" placeholder="Dela Cruz" class="field-input" /></div>
+                    <div><label class="field-label">Owner First Name <span class="text-teal-500">*</span></label><input v-model="form.ownerFirstName" @input="formatName($event, 'ownerFirstName')" placeholder="Juan" class="field-input" /></div>
                     <div><label class="field-label">M.I.</label><input v-model="form.ownerMiddleInitial" @input="formatMiddleInitial($event, 'ownerMiddleInitial')" maxlength="1" placeholder="B" class="field-input" /></div>
-                    <div><label class="field-label">Sex <span class="text-orange-500">*</span></label>
+                    <div><label class="field-label">Sex <span class="text-teal-500">*</span></label>
                       <select v-model="form.ownerSex" class="field-input">
                         <option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option>
                       </select>
                     </div>
-                    <div><label class="field-label">Birthday <span class="text-orange-500">*</span></label><input v-model="form.ownerBirthday" type="date" class="field-input" /></div>
-                    <div><label class="field-label">Contact No. <span class="text-orange-500">*</span></label><input v-model="form.ownerContactNo" @input="formatContactNumber($event, 'ownerContactNo')" placeholder="09XXXXXXXXX" class="field-input" /></div>
-                    <div class="full-width"><label class="field-label">Owner Email <span class="text-orange-500">*</span></label><input v-model="form.ownerEmail" type="email" placeholder="juan@email.com" class="field-input" /></div>
+                    <div><label class="field-label">Birthday <span class="text-teal-500">*</span></label><input v-model="form.ownerBirthday" type="date" class="field-input" /></div>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
@@ -2437,27 +2233,27 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <div v-if="signupStep === 'address'">
                   <div class="form-grid">
                     <div class="full-width">
-                      <label class="field-label">Province <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Province <span class="text-teal-500">*</span></label>
                       <select v-model="form.companyProvinceCode" @change="onCompanyProvinceChange" class="field-input" :disabled="loadingCompanyProvinces">
                         <option value="">{{ loadingCompanyProvinces ? 'Loading provinces…' : 'Select province' }}</option>
                         <option v-for="p in companyProvinceOptions" :key="p.code" :value="p.code">{{ p.name }}</option>
                       </select>
                     </div>
                     <div class="full-width">
-                      <label class="field-label">Municipality / City <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Municipality / City <span class="text-teal-500">*</span></label>
                       <select v-model="form.companyMunicipalityCode" @change="onCompanyMunicipalityChange" class="field-input" :disabled="!form.companyProvinceCode || loadingCompanyMunicipalities">
                         <option value="">{{ loadingCompanyMunicipalities ? 'Loading…' : (form.companyProvinceCode ? 'Select municipality/city' : 'Select a province first') }}</option>
                         <option v-for="m in companyMunicipalityOptions" :key="m.code" :value="m.code">{{ m.name }}</option>
                       </select>
                     </div>
                     <div class="full-width">
-                      <label class="field-label">Barangay <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Barangay <span class="text-teal-500">*</span></label>
                       <select v-model="form.companyBarangay" class="field-input" :disabled="!form.companyMunicipalityCode || loadingCompanyBarangays">
                         <option value="">{{ loadingCompanyBarangays ? 'Loading…' : (form.companyMunicipalityCode ? 'Select barangay' : 'Select a municipality/city first') }}</option>
                         <option v-for="b in companyBarangayOptions" :key="b.code" :value="b.name">{{ b.name }}</option>
                       </select>
                     </div>
-                    <div><label class="field-label">Street <span class="text-orange-500">*</span></label><input v-model="form.companyStreet" placeholder="Street name" class="field-input" /></div>
+                    <div><label class="field-label">Street <span class="text-teal-500">*</span></label><input v-model="form.companyStreet" placeholder="Street name" class="field-input" /></div>
                     <div><label class="field-label">House / Unit #</label><input v-model="form.companyHouseNo" placeholder="123, Unit B" class="field-input" /></div>
                   </div>
                   <p v-if="addressApiError" class="text-sm text-red-600 mt-2">
@@ -2470,7 +2266,7 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <!-- SECURITY -->
                 <div v-if="signupStep === 'security'">
                   <div class="form-grid">
-                    <div class="full-width"><label class="field-label">Password <span class="text-orange-500">*</span></label>
+                    <div class="full-width"><label class="field-label">Password <span class="text-teal-500">*</span></label>
                       <div class="relative">
                         <input :type="showPassword ? 'text' : 'password'" v-model="password" placeholder="Min 8 characters" class="field-input pr-10" />
                         <button type="button" @click="showPassword = !showPassword" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -2479,7 +2275,7 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                         </button>
                       </div>
                     </div>
-                    <div class="full-width"><label class="field-label">Confirm Password <span class="text-orange-500">*</span></label><input :type="showPassword ? 'text' : 'password'" v-model="confirmPassword" placeholder="Re-enter password" class="field-input" /></div>
+                    <div class="full-width"><label class="field-label">Confirm Password <span class="text-teal-500">*</span></label><input :type="showPassword ? 'text' : 'password'" v-model="confirmPassword" placeholder="Re-enter password" class="field-input" /></div>
                     <div class="full-width flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" v-model="showPassword" /> Show passwords</div>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
@@ -2488,10 +2284,10 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <!-- DOCUMENTS -->
                 <div v-if="signupStep === 'documents'">
                   <div class="form-grid">
-                    <div class="full-width"><label class="field-label">Owner's Valid ID <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'ownerIdFile')" class="field-input text-sm p-1" /></div>
-                    <div class="full-width"><label class="field-label">Business Permit <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'businessPermitFile')" class="field-input text-sm p-1" /></div>
-                    <div class="full-width"><label class="field-label">Mayor's Permit <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'mayorPermitFile')" class="field-input text-sm p-1" /></div>
-                    <div class="full-width"><label class="field-label">DTI / SEC Registration <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'dtiRegFile')" class="field-input text-sm p-1" /></div>
+                    <div class="full-width"><label class="field-label">Owner's Valid ID <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'ownerIdFile')" class="field-input text-sm p-1" /></div>
+                    <div class="full-width"><label class="field-label">Business Permit <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'businessPermitFile')" class="field-input text-sm p-1" /></div>
+                    <div class="full-width"><label class="field-label">Mayor's Permit <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'mayorPermitFile')" class="field-input text-sm p-1" /></div>
+                    <div class="full-width"><label class="field-label">DTI / SEC Registration <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'dtiRegFile')" class="field-input text-sm p-1" /></div>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
@@ -2514,14 +2310,14 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
               <!-- Step indicator -->
               <div class="flex items-center gap-1 mb-3">
                 <div v-for="(s, idx) in steps" :key="idx" class="flex items-center flex-1">
-                  <div class="step-dot" :class="{ 'bg-orange-500 text-white': currentStepIndex >= idx, 'bg-slate-200 text-slate-500': currentStepIndex < idx }">{{ idx + 1 }}</div>
+                  <div class="step-dot" :class="{ 'bg-teal-500 text-white': currentStepIndex >= idx, 'bg-slate-200 text-slate-500': currentStepIndex < idx }">{{ idx + 1 }}</div>
                   <div v-if="idx < steps.length - 1" class="step-line" :class="{ 'active': currentStepIndex > idx }"></div>
                 </div>
               </div>
 
               <div class="flex items-center justify-between mb-2">
                 <p class="text-sm text-slate-500">Register as <span class="font-semibold text-slate-800 capitalize">{{ selectedRole }}</span></p>
-                <span class="text-sm font-medium text-orange-600">Step {{ currentStepIndex + 1 }} of 5</span>
+                <span class="text-sm font-medium text-teal-600">Step {{ currentStepIndex + 1 }} of 5</span>
               </div>
               <h3 class="display-font text-xl font-bold text-slate-900 mb-3">{{ steps[currentStepIndex] }} Info</h3>
 
@@ -2530,12 +2326,12 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <div v-if="signupStep === 'personal'">
                   <div class="form-grid">
                     <div>
-                      <label class="field-label">Last Name <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Last Name <span class="text-teal-500">*</span></label>
                       <input v-model="form.lastName" @input="formatName($event, 'lastName')" placeholder="Dela Cruz" class="field-input" :class="{ 'border-red-500': validationErrors.lastName }" />
                       <span v-if="validationErrors.lastName" class="text-xs text-red-500">{{ validationErrors.lastName }}</span>
                     </div>
                     <div>
-                      <label class="field-label">First Name <span class="text-orange-500">*</span></label>
+                      <label class="field-label">First Name <span class="text-teal-500">*</span></label>
                       <input v-model="form.firstName" @input="formatName($event, 'firstName')" placeholder="Juan" class="field-input" :class="{ 'border-red-500': validationErrors.firstName }" />
                       <span v-if="validationErrors.firstName" class="text-xs text-red-500">{{ validationErrors.firstName }}</span>
                     </div>
@@ -2545,23 +2341,23 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                       <span v-if="validationErrors.middleInitial" class="text-xs text-red-500">{{ validationErrors.middleInitial }}</span>
                     </div>
                     <div>
-                      <label class="field-label">Sex <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Sex <span class="text-teal-500">*</span></label>
                       <select v-model="form.sex" class="field-input" :class="{ 'border-red-500': !form.sex && errorMsg }">
                         <option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option>
                       </select>
                     </div>
                     <div>
-                      <label class="field-label">Birthday <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Birthday <span class="text-teal-500">*</span></label>
                       <input v-model="form.birthday" type="date" class="field-input" :class="{ 'border-red-500': validationErrors.birthday }" />
                       <span v-if="validationErrors.birthday" class="text-xs text-red-500">{{ validationErrors.birthday }}</span>
                     </div>
                     <div>
-                      <label class="field-label">Contact No. <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Contact No. <span class="text-teal-500">*</span></label>
                       <input v-model="form.contactNo" @input="formatContactNumber($event, 'contactNo')" placeholder="09XXXXXXXXX" class="field-input" :class="{ 'border-red-500': validationErrors.contactNo }" />
                       <span v-if="validationErrors.contactNo" class="text-xs text-red-500">{{ validationErrors.contactNo }}</span>
                     </div>
                     <div class="full-width">
-                      <label class="field-label">Email <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Email <span class="text-teal-500">*</span></label>
                       <input v-model="email" type="email" placeholder="juan@email.com" class="field-input" :class="{ 'border-red-500': validationErrors.email }" />
                       <span v-if="validationErrors.email" class="text-xs text-red-500">{{ validationErrors.email }}</span>
                     </div>
@@ -2572,11 +2368,11 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <div v-if="signupStep === 'verifyEmail'">
                   <p class="text-sm text-slate-600 mb-3">We sent a 6-digit code to <strong>{{ email }}</strong>.</p>
                   <p v-if="successMsg" class="text-xs text-green-600 mb-2">{{ successMsg }}</p>
-                  <label class="field-label">Verification Code <span class="text-orange-500">*</span></label>
+                  <label class="field-label">Verification Code <span class="text-teal-500">*</span></label>
                   <input v-model="signupVerifyCode" type="text" placeholder="6-digit code" maxlength="6" class="field-input" />
                   <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
                   <div class="flex items-center justify-between mt-3">
-                    <a href="#" @click.prevent="resendSignupVerificationCode" class="text-orange-600 font-semibold text-sm hover:underline">Resend code</a>
+                    <a href="#" @click.prevent="resendSignupVerificationCode" class="text-teal-600 font-semibold text-sm hover:underline">Resend code</a>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
@@ -2585,27 +2381,27 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <div v-if="signupStep === 'address'">
                   <div class="form-grid">
                     <div class="full-width">
-                      <label class="field-label">Province <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Province <span class="text-teal-500">*</span></label>
                       <select v-model="form.provinceCode" @change="onProvinceChange" class="field-input" :disabled="loadingProvinces">
                         <option value="">{{ loadingProvinces ? 'Loading provinces…' : 'Select province' }}</option>
                         <option v-for="p in provinceOptions" :key="p.code" :value="p.code">{{ p.name }}</option>
                       </select>
                     </div>
                     <div class="full-width">
-                      <label class="field-label">Municipality / City <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Municipality / City <span class="text-teal-500">*</span></label>
                       <select v-model="form.municipalityCode" @change="onMunicipalityChange" class="field-input" :disabled="!form.provinceCode || loadingMunicipalities">
                         <option value="">{{ loadingMunicipalities ? 'Loading…' : (form.provinceCode ? 'Select municipality/city' : 'Select a province first') }}</option>
                         <option v-for="m in municipalityOptions" :key="m.code" :value="m.code">{{ m.name }}</option>
                       </select>
                     </div>
                     <div class="full-width">
-                      <label class="field-label">Barangay <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Barangay <span class="text-teal-500">*</span></label>
                       <select v-model="form.barangay" class="field-input" :disabled="!form.municipalityCode || loadingBarangays">
                         <option value="">{{ loadingBarangays ? 'Loading…' : (form.municipalityCode ? 'Select barangay' : 'Select a municipality/city first') }}</option>
                         <option v-for="b in barangayOptions" :key="b.code" :value="b.name">{{ b.name }}</option>
                       </select>
                     </div>
-                    <div><label class="field-label">Street <span class="text-orange-500">*</span></label><input v-model="form.street" placeholder="Street name" class="field-input" /></div>
+                    <div><label class="field-label">Street <span class="text-teal-500">*</span></label><input v-model="form.street" placeholder="Street name" class="field-input" /></div>
                     <div><label class="field-label">House / Unit #</label><input v-model="form.houseNo" placeholder="123, Unit B" class="field-input" /></div>
                   </div>
                   <p v-if="addressApiError" class="text-sm text-red-600 mt-2">
@@ -2619,7 +2415,7 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <div v-if="signupStep === 'security'">
                   <div class="form-grid">
                     <div class="full-width">
-                      <label class="field-label">Password <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Password <span class="text-teal-500">*</span></label>
                       <div class="relative">
                         <input :type="showPassword ? 'text' : 'password'" v-model="password" placeholder="Min 8 characters" class="field-input pr-10" :class="{ 'border-red-500': validationErrors.password }" />
                         <button type="button" @click="showPassword = !showPassword" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -2630,7 +2426,7 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                       <span v-if="validationErrors.password" class="text-xs text-red-500">{{ validationErrors.password }}</span>
                     </div>
                     <div class="full-width">
-                      <label class="field-label">Confirm Password <span class="text-orange-500">*</span></label>
+                      <label class="field-label">Confirm Password <span class="text-teal-500">*</span></label>
                       <input :type="showPassword ? 'text' : 'password'" v-model="confirmPassword" placeholder="Re-enter password" class="field-input" :class="{ 'border-red-500': validationErrors.confirmPassword }" />
                       <span v-if="validationErrors.confirmPassword" class="text-xs text-red-500">{{ validationErrors.confirmPassword }}</span>
                     </div>
@@ -2642,12 +2438,12 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                 <div v-if="signupStep === 'documents'">
                   <div class="form-grid">
                     <template v-if="selectedRole === 'buyer'">
-                      <div class="full-width"><label class="field-label">Upload ID <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'idFile')" class="field-input text-sm p-1" /></div>
+                      <div class="full-width"><label class="field-label">Upload ID <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'idFile')" class="field-input text-sm p-1" /></div>
                     </template>
                     <template v-if="selectedRole === 'seller'">
-                      <div class="full-width"><label class="field-label">Business Name <span class="text-orange-500">*</span></label><input v-model="form.businessName" placeholder="My Store" class="field-input" /></div>
+                      <div class="full-width"><label class="field-label">Business Name <span class="text-teal-500">*</span></label><input v-model="form.businessName" placeholder="My Store" class="field-input" /></div>
                       <div class="full-width">
-                        <label class="field-label">Line of Business <span class="text-orange-500">*</span></label>
+                        <label class="field-label">Line of Business <span class="text-teal-500">*</span></label>
                         <select v-model="form.lineOfBusiness" class="field-input" required>
                           <option value="">Select Line of Business</option>
                           <option value="Pet Supplies">Pet Supplies</option>
@@ -2660,18 +2456,18 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
                           <option value="Health and Beauty">Health and Beauty</option>
                         </select>
                       </div>
-                      <div class="full-width"><label class="field-label">Upload ID <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'idFile')" class="field-input text-sm p-1" /></div>
-                      <div class="full-width"><label class="field-label">Upload Business Permit <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'businessPermit')" class="field-input text-sm p-1" /></div>
+                      <div class="full-width"><label class="field-label">Upload ID <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'idFile')" class="field-input text-sm p-1" /></div>
+                      <div class="full-width"><label class="field-label">Upload Business Permit <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'businessPermit')" class="field-input text-sm p-1" /></div>
                     </template>
                     <template v-if="selectedRole === 'courier'">
-                      <div class="full-width"><label class="field-label">Vehicle <span class="text-orange-500">*</span></label>
+                      <div class="full-width"><label class="field-label">Vehicle <span class="text-teal-500">*</span></label>
                         <select v-model="form.vehicle" class="field-input">
                           <option value="">Select</option><option value="Motorcycle">Motorcycle</option><option value="Car">Car</option><option value="Van">Van</option><option value="Bicycle">Bicycle</option>
                         </select>
                       </div>
-                      <div class="full-width"><label class="field-label">Plate Number <span class="text-orange-500">*</span></label><input v-model="form.plateNumber" placeholder="ABC-1234" class="field-input" /></div>
-                      <div class="full-width"><label class="field-label">Upload OR/CR <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'orcrFile')" class="field-input text-sm p-1" /></div>
-                      <div class="full-width"><label class="field-label">Upload ID / Driver's License <span class="text-orange-500">*</span></label><input type="file" @change="handleFileUpload($event, 'licenseFile')" class="field-input text-sm p-1" /></div>
+                      <div class="full-width"><label class="field-label">Plate Number <span class="text-teal-500">*</span></label><input v-model="form.plateNumber" placeholder="ABC-1234" class="field-input" /></div>
+                      <div class="full-width"><label class="field-label">Upload OR/CR <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'orcrFile')" class="field-input text-sm p-1" /></div>
+                      <div class="full-width"><label class="field-label">Upload ID / Driver's License <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'licenseFile')" class="field-input text-sm p-1" /></div>
                     </template>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
@@ -2699,52 +2495,6 @@ async function fetchBarangays(municipalityCode, isCompany = false) {
             </div>
           </div>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ADMIN SIGNUP MODAL (Temporary) -->
-  <div v-if="showAdminSignup" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-    <div class="bg-white rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-xl font-bold text-slate-900">Create Admin Account</h3>
-        <button @click="showAdminSignup = false" class="text-slate-400 hover:text-slate-600 text-xl">&times;</button>
-      </div>
-      
-      <div class="space-y-3">
-        <div>
-          <label class="field-label">First Name <span class="text-orange-500">*</span></label>
-          <input v-model="adminForm.firstName" @input="formatName($event, 'firstName')" placeholder="Juan" class="field-input" />
-        </div>
-        <div>
-          <label class="field-label">Last Name <span class="text-orange-500">*</span></label>
-          <input v-model="adminForm.lastName" @input="formatName($event, 'lastName')" placeholder="Dela Cruz" class="field-input" />
-        </div>
-        <div>
-          <label class="field-label">Email <span class="text-orange-500">*</span></label>
-          <input v-model="adminForm.email" type="email" placeholder="admin@nexmart.com" class="field-input" />
-        </div>
-        <div>
-          <label class="field-label">Password <span class="text-orange-500">*</span></label>
-          <div class="relative">
-            <input :type="showPassword ? 'text' : 'password'" v-model="adminForm.password" placeholder="Min 8 characters" class="field-input pr-10" />
-            <button type="button" @click="showPassword = !showPassword" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-              <svg v-if="!showPassword" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-              <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 8 10 8a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3.5 8 10 8a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
-            </button>
-          </div>
-        </div>
-        <div>
-          <label class="field-label">Confirm Password <span class="text-orange-500">*</span></label>
-          <input :type="showPassword ? 'text' : 'password'" v-model="adminForm.confirmPassword" placeholder="Confirm password" class="field-input" />
-        </div>
-        
-        <p v-if="errorMsg" class="text-sm text-red-600">{{ errorMsg }}</p>
-        <p v-if="successMsg" class="text-sm text-green-600">{{ successMsg }}</p>
-        
-        <button @click="handleAdminSignup" :disabled="adminSignupLoading" class="btn-gradient w-full text-white font-semibold py-2.5 rounded-lg disabled:opacity-50">
-          {{ adminSignupLoading ? 'Creating...' : 'Create Admin Account' }}
-        </button>
       </div>
     </div>
   </div>

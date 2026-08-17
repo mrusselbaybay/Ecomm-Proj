@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PsgcProxyController;
 use App\Http\Controllers\Admin\AdminNotificationController;
+use App\Http\Controllers\Logistics\LogisticsNotificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -79,6 +80,11 @@ Route::prefix('admin')->name('admin.')->group(function () {
     Route::post('/notify-account-created', [AdminNotificationController::class, 'notifyAccountCreated'])
         ->middleware('throttle:10,1')
         ->name('notify-account-created');
+});
+
+    Route::prefix('logistics')->group(function () {
+    Route::post('/notify-application-accepted', [LogisticsNotificationController::class, 'applicationAccepted']);
+    Route::post('/notify-application-rejected', [LogisticsNotificationController::class, 'applicationRejected']);
 });
 
 // ============================================================
