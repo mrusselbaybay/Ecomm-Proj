@@ -8,14 +8,16 @@ return new class extends Migration
 {
     public function up()
     {
-        Schema::create('password_reset_codes', function (Blueprint $table) {
-            $table->id();
-            $table->string('email')->index();
-            $table->string('code', 6);
-            $table->timestamp('expires_at');
-            $table->boolean('used')->default(false);
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('password_reset_codes')) {
+            Schema::create('password_reset_codes', function (Blueprint $table) {
+                $table->id();
+                $table->string('email')->index();
+                $table->string('code', 6);
+                $table->timestamp('expires_at');
+                $table->boolean('used')->default(false);
+                $table->timestamps();
+            });
+        }
     }
 
     public function down()
