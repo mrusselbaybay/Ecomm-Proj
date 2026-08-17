@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AuthController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PsgcProxyController;
 use App\Http\Controllers\Admin\AdminNotificationController;
@@ -11,6 +12,16 @@ use App\Http\Controllers\Logistics\LogisticsNotificationController;
 | API Routes
 |--------------------------------------------------------------------------
 */
+
+// ============================================================
+// AUTH ROUTES
+// ============================================================
+Route::prefix('auth')->group(function () {
+    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/login',    [AuthController::class, 'login']);
+    Route::get('/user',      [AuthController::class, 'user']);
+    Route::post('/logout',   [AuthController::class, 'logout']);
+});
 
 // ============================================================
 // PASSWORD RESET ROUTES
