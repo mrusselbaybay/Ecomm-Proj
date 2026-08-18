@@ -55,6 +55,13 @@ Route::prefix('api/logistics')->name('api.logistics.')->group(function () {
         ->name('notify.rejected');
 });
 
+// ---------- Buyer SPA ----------
+Route::prefix('buyer')->name('buyer.')->group(function () {
+    Route::get('/{any?}', function () {
+        return view('buyer.dashboard');
+    })->where('any', '.*')->name('dashboard');
+});
+
 // ---------- Fallback Route ----------
 Route::get('/{any}', function () {
     return view('app');

@@ -1543,7 +1543,7 @@ async function handleLogin() {
       window.location.href = '/';
       break;
     default: // buyer
-      window.location.href = '/';
+    window.location.href = '/buyer/dashboard';
   }
 }
 

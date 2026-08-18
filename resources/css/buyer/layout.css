@@ -1,0 +1,287 @@
+.buyer-page {
+    min-height: 100vh;
+    background: #f5f6f8;
+    color: #1f2937;
+}
+
+/* =========================
+   HEADER
+========================= */
+
+.buyer-header {
+    height: 72px;
+    background: #ffffff;
+
+    display: flex;
+    align-items: center;
+
+    padding: 0 40px;
+    gap: 30px;
+
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.buyer-logo {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 1px;
+
+    min-width: 150px;
+}
+
+.buyer-search {
+    flex: 1;
+
+    max-width: 650px;
+
+    display: flex;
+
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+
+    overflow: hidden;
+
+    background: #ffffff;
+}
+
+.buyer-search input {
+    flex: 1;
+
+    border: none;
+    outline: none;
+
+    padding: 12px 15px;
+
+    font-size: 14px;
+}
+
+.buyer-search button {
+    width: 50px;
+
+    border: none;
+
+    background: #f3f4f6;
+
+    cursor: pointer;
+}
+
+.buyer-actions {
+    margin-left: auto;
+
+    display: flex;
+    gap: 10px;
+}
+
+.buyer-actions button {
+    width: 42px;
+    height: 42px;
+
+    border: none;
+    border-radius: 8px;
+
+    background: transparent;
+
+    cursor: pointer;
+
+    font-size: 18px;
+}
+
+.buyer-actions button:hover {
+    background: #f3f4f6;
+}
+
+/* =========================
+   MAIN
+========================= */
+
+.buyer-main {
+    max-width: 1400px;
+
+    margin: 0 auto;
+
+    padding: 35px 40px;
+}
+
+/* =========================
+   WELCOME
+========================= */
+
+.welcome-section {
+    background: #ffffff;
+
+    border-radius: 12px;
+
+    padding: 30px;
+
+    margin-bottom: 30px;
+
+    border: 1px solid #e5e7eb;
+}
+
+.welcome-section h1 {
+    margin: 0 0 8px;
+
+    font-size: 28px;
+}
+
+.welcome-section p {
+    margin: 0;
+
+    color: #6b7280;
+}
+
+/* =========================
+   SECTIONS
+========================= */
+
+.buyer-section {
+    margin-bottom: 35px;
+}
+
+.section-header {
+    margin-bottom: 15px;
+}
+
+.section-header h2 {
+    margin: 0;
+
+    font-size: 20px;
+}
+
+/* =========================
+   CATEGORIES
+========================= */
+
+.category-list {
+    display: flex;
+
+    gap: 10px;
+
+    flex-wrap: wrap;
+}
+
+.category-button {
+    padding: 10px 18px;
+
+    border: 1px solid #d1d5db;
+
+    border-radius: 8px;
+
+    background: #ffffff;
+
+    cursor: pointer;
+
+    font-size: 14px;
+}
+
+.category-button:hover {
+    background: #f3f4f6;
+}
+
+/* =========================
+   PRODUCTS
+========================= */
+
+.product-grid {
+    display: grid;
+
+    grid-template-columns:
+        repeat(auto-fill, minmax(230px, 1fr));
+
+    gap: 20px;
+}
+
+.product-card {
+    background: #ffffff;
+
+    border: 1px solid #e5e7eb;
+
+    border-radius: 12px;
+
+    overflow: hidden;
+}
+
+.product-image {
+    height: 200px;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    background: #f3f4f6;
+
+    color: #9ca3af;
+}
+
+.product-info {
+    padding: 18px;
+}
+
+.product-category {
+    font-size: 12px;
+
+    color: #6b7280;
+}
+
+.product-info h3 {
+    margin: 7px 0;
+
+    font-size: 16px;
+}
+
+.product-price {
+    margin: 10px 0;
+
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.view-product-button {
+    width: 100%;
+
+    padding: 10px;
+
+    border: none;
+
+    border-radius: 7px;
+
+    background: #111827;
+    color: #ffffff;
+
+    cursor: pointer;
+}
+
+.view-product-button:hover {
+    opacity: 0.9;
+}
+
+/* =========================
+   RESPONSIVE
+========================= */
+
+@media (max-width: 768px) {
+
+    .buyer-header {
+        padding: 0 15px;
+
+        gap: 10px;
+    }
+
+    .buyer-logo {
+        min-width: auto;
+    }
+
+    .buyer-search {
+        display: none;
+    }
+
+    .buyer-main {
+        padding: 20px 15px;
+    }
+
+    .product-grid {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+}
