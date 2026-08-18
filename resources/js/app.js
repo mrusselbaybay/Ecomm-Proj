@@ -708,255 +708,91 @@ const App = {
       }
     }
 
-    // ---------- Document Upload Functions ----------
-    async function uploadDocuments(userId, role) {
-      const files = [];
-      
-      if (role === 'buyer' && form.value.idFile) {
-        files.push({ type: 'valid_id', file: form.value.idFile });
-      } else if (role === 'seller') {
-        if (form.value.idFile) files.push({ type: 'valid_id', file: form.value.idFile });
-        if (form.value.businessPermit) files.push({ type: 'business_permit', file: form.value.businessPermit });
-      } else if (role === 'courier') {
-        if (form.value.orcrFile) files.push({ type: 'orcr', file: form.value.orcrFile });
-        if (form.value.licenseFile) files.push({ type: 'drivers_license', file: form.value.licenseFile });
-      } else if (role === 'driver') {
-        if (form.value.driverIdFile) files.push({ type: 'valid_id', file: form.value.driverIdFile });
-        if (form.value.driverLicenseFile) files.push({ type: 'drivers_license', file: form.value.driverLicenseFile });
-        if (form.value.driverOrcrFile) files.push({ type: 'orcr', file: form.value.driverOrcrFile });
-      }
-
-      for (const fileData of files) {
-        try {
-          const file = fileData.file;
-          const fileName = file.name || 'file';
-          const extension = fileName.split('.').pop() || '';
-          const mimeType = file.type || 'application/octet-stream';
-          
-          const timestamp = Date.now();
-          const filePath = extension 
-            ? `profile/${userId}/${fileData.type}_${timestamp}.${extension}`
-            : `profile/${userId}/${fileData.type}_${timestamp}`;
-          
-          const { error: uploadError } = await supabaseAdmin.storage
-            .from('documents')
-            .upload(filePath, file, {
-              contentType: mimeType,
-              cacheControl: '3600',
-              upsert: false
-            });
-
-          if (uploadError) {
-            console.error('File upload error:', uploadError);
-            continue;
-          }
-
-          const { error: docError } = await supabaseAdmin
-            .from('documents')
-            .insert({
-              owner_kind: 'profile',
-              profile_id: userId,
-              doc_type: fileData.type,
-              storage_path: filePath,
-              mime_type: mimeType,
-              status: 'pending'
-            });
-
-          if (docError) {
-            console.error('Document record error:', docError);
-          }
-          
-        } catch (err) {
-          console.error('Upload failed:', err);
-        }
-      }
-    }
-
-    async function uploadLogisticsDocuments(userId, companyId) {
-      const files = [
-        { type: 'valid_id', file: form.value.ownerIdFile },
-        { type: 'business_permit', file: form.value.businessPermitFile },
-        { type: 'mayors_permit', file: form.value.mayorPermitFile },
-        { type: 'dti_sec_registration', file: form.value.dtiRegFile }
-      ];
-
-      for (const fileData of files) {
-        if (!fileData.file) continue;
-        
-        try {
-          const file = fileData.file;
-          const fileName = file.name || 'file';
-          const extension = fileName.split('.').pop() || '';
-          const mimeType = file.type || 'application/octet-stream';
-          
-          const timestamp = Date.now();
-          const filePath = extension 
-            ? `logistics_company/${companyId}/${fileData.type}_${timestamp}.${extension}`
-            : `logistics_company/${companyId}/${fileData.type}_${timestamp}`;
-          
-          const { error: uploadError } = await supabaseAdmin.storage
-            .from('documents')
-            .upload(filePath, file, {
-              contentType: mimeType,
-              cacheControl: '3600',
-              upsert: false
-            });
-
-          if (uploadError) {
-            console.error('File upload error:', uploadError);
-            continue;
-          }
-
-          const { error: docError } = await supabaseAdmin
-            .from('documents')
-            .insert({
-              owner_kind: 'logistics_company',
-              logistics_company_id: companyId,
-              doc_type: fileData.type,
-              storage_path: filePath,
-              mime_type: mimeType,
-              status: 'pending'
-            });
-
-          if (docError) {
-            console.error('Document record error:', docError);
-          }
-          
-        } catch (err) {
-          console.error('Upload failed:', err);
-        }
-      }
-    }
-
     // ---------- Registration Functions ----------
+    // Both functions below post to Laravel endpoints that use the Supabase
+    // service role key server-side (see AuthController@registerUser /
+    // registerLogistics). No admin-privileged Supabase call happens in the
+    // browser anymore.
     async function submitUserRegistration() {
       try {
-        const userEmail = selectedRole.value === 'driver' 
-          ? form.value.driverEmail 
-          : email.value;
-        const userPassword = selectedRole.value === 'driver' 
-          ? form.value.driverPassword 
-          : password.value;
-        
+        const isDriver = selectedRole.value === 'driver';
+        const userEmail = isDriver ? form.value.driverEmail : email.value;
+        const userPassword = isDriver ? form.value.driverPassword : password.value;
         const userRole = selectedRole.value || 'buyer';
-        
-        let firstName, lastName, middleInitial, sex, contactNo, birthday;
-        if (selectedRole.value === 'driver') {
-          firstName = form.value.driverFirstName;
-          lastName = form.value.driverLastName;
-          middleInitial = form.value.driverMiddleInitial || '';
-          sex = form.value.driverSex;
-          contactNo = form.value.driverContactNo;
-          birthday = form.value.driverBirthday;
+
+        const fd = new FormData();
+        fd.append('email', (userEmail || '').trim().toLowerCase());
+        fd.append('password', userPassword || '');
+        fd.append('role', userRole);
+
+        if (isDriver) {
+          fd.append('first_name', form.value.driverFirstName || '');
+          fd.append('last_name', form.value.driverLastName || '');
+          fd.append('middle_initial', form.value.driverMiddleInitial || '');
+          fd.append('sex', form.value.driverSex || '');
+          fd.append('contact_no', form.value.driverContactNo || '');
+          fd.append('birthday', form.value.driverBirthday || '');
         } else {
-          firstName = form.value.firstName;
-          lastName = form.value.lastName;
-          middleInitial = form.value.middleInitial || '';
-          sex = form.value.sex;
-          contactNo = form.value.contactNo;
-          birthday = form.value.birthday;
+          fd.append('first_name', form.value.firstName || '');
+          fd.append('last_name', form.value.lastName || '');
+          fd.append('middle_initial', form.value.middleInitial || '');
+          fd.append('sex', form.value.sex || '');
+          fd.append('contact_no', form.value.contactNo || '');
+          fd.append('birthday', form.value.birthday || '');
         }
-        
-        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-          email: userEmail.trim().toLowerCase(),
-          password: userPassword,
-          email_confirm: true,
-          user_metadata: {
-            role: userRole,
-            first_name: firstName,
-            last_name: lastName,
-            middle_initial: middleInitial,
-            sex: sex,
-            contact_no: contactNo,
-            birthday: birthday,
-            status: 'pending'
-          }
-        });
-
-        if (authError) {
-          console.error('Auth error:', authError);
-          if (authError.message && authError.message.includes('already exists')) {
-            errorMsg.value = 'This email is already registered. Please login instead.';
-            return;
-          }
-          throw authError;
-        }
-
-        if (!authData?.user) throw new Error('Failed to create user');
-
-        const userId = authData.user.id;
-        console.log('✅ User created via admin API:', userId);
-
-        await new Promise(resolve => setTimeout(resolve, 1500));
 
         if (form.value.provinceCode && form.value.municipalityCode && form.value.barangay) {
-          const { error: addressError } = await supabaseAdmin
-            .from('addresses')
-            .insert({
-              owner_kind: 'profile',
-              profile_id: userId,
-              province_code: form.value.provinceCode,
-              province_name: form.value.province,
-              municipality_code: form.value.municipalityCode,
-              municipality_name: form.value.municipality,
-              barangay: form.value.barangay,
-              street: form.value.street || '',
-              house_no: form.value.houseNo || null
-            });
-
-          if (addressError) {
-            console.error('Address save error:', addressError);
-          }
+          fd.append('province_code', form.value.provinceCode);
+          fd.append('province_name', form.value.province || '');
+          fd.append('municipality_code', form.value.municipalityCode);
+          fd.append('municipality_name', form.value.municipality || '');
+          fd.append('barangay', form.value.barangay);
+          fd.append('street', form.value.street || '');
+          if (form.value.houseNo) fd.append('house_no', form.value.houseNo);
         }
 
         if (userRole === 'seller') {
-          const { error: sellerError } = await supabaseAdmin
-            .from('seller_details')
-            .insert({
-              profile_id: userId,
-              business_name: form.value.businessName,
-              line_of_business: form.value.lineOfBusiness
-            });
-
-          if (sellerError) {
-            console.error('Seller details error:', sellerError);
-            throw sellerError;
-          }
-          
+          fd.append('business_name', form.value.businessName || '');
+          fd.append('line_of_business', form.value.lineOfBusiness || '');
         } else if (userRole === 'courier') {
-          const { error: courierError } = await supabaseAdmin
-            .from('courier_details')
-            .insert({
-              profile_id: userId,
-              vehicle: form.value.vehicle,
-              plate_number: form.value.plateNumber
-            });
-
-          if (courierError) {
-            console.error('Courier details error:', courierError);
-            throw courierError;
-          }
-          
+          fd.append('vehicle', form.value.vehicle || '');
+          fd.append('plate_number', form.value.plateNumber || '');
         } else if (userRole === 'driver') {
-          const { error: driverError } = await supabaseAdmin
-            .from('driver_details')
-            .insert({
-              profile_id: userId,
-              logistics_company_id: null,
-              vehicle: form.value.driverVehicle,
-              plate_number: form.value.driverPlateNumber,
-              license_number: form.value.driverLicenseNumber || null
-            });
-
-          if (driverError) {
-            console.error('Driver details error:', driverError);
-            throw driverError;
-          }
+          fd.append('driver_vehicle', form.value.driverVehicle || '');
+          fd.append('driver_plate_number', form.value.driverPlateNumber || '');
+          if (form.value.driverLicenseNumber) fd.append('driver_license_number', form.value.driverLicenseNumber);
         }
 
-        await uploadDocuments(userId, userRole);
+        // Files — field names match AuthController::fileMapForRole()
+        if (userRole === 'driver') {
+          if (form.value.driverIdFile) fd.append('id_file', form.value.driverIdFile);
+          if (form.value.driverLicenseFile) fd.append('license_file', form.value.driverLicenseFile);
+          if (form.value.driverOrcrFile) fd.append('orcr_file', form.value.driverOrcrFile);
+        } else {
+          if (form.value.idFile) fd.append('id_file', form.value.idFile);
+          if (form.value.businessPermit) fd.append('business_permit', form.value.businessPermit);
+          if (form.value.orcrFile) fd.append('orcr_file', form.value.orcrFile);
+          if (form.value.licenseFile) fd.append('license_file', form.value.licenseFile);
+        }
 
-        successMsg.value = 'Registration submitted! Please wait for administrator approval.';
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const response = await fetch('/api/signup/register', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'X-CSRF-TOKEN': csrfToken
+          },
+          body: fd
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(result.message || 'Registration failed. Please try again.');
+        }
+
+        console.log('✅ User registered:', result.user_id);
+        successMsg.value = result.message || 'Registration submitted! Please wait for administrator approval.';
         signupStep.value = 'complete';
 
       } catch (error) {
@@ -967,83 +803,54 @@ const App = {
 
     async function submitLogisticsRegistration() {
       try {
-        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-          email: form.value.companyEmail.trim().toLowerCase(),
-          password: password.value,
-          email_confirm: true,
-          user_metadata: {
-            role: 'logistics',
-            company_name: form.value.companyName,
-            first_name: form.value.ownerFirstName,
-            last_name: form.value.ownerLastName,
-            middle_initial: form.value.ownerMiddleInitial || '',
-            sex: form.value.ownerSex,
-            birthday: form.value.ownerBirthday,
-            status: 'pending'
-          }
-        });
+        const fd = new FormData();
+        fd.append('company_email', (form.value.companyEmail || '').trim().toLowerCase());
+        fd.append('password', password.value || '');
+        fd.append('company_name', form.value.companyName || '');
+        fd.append('company_contact_no', form.value.companyContactNo || '');
+        fd.append('company_tin', form.value.companyTIN || '');
+        if (form.value.companySECReg) fd.append('company_sec_registration', form.value.companySECReg);
+        if (form.value.companyRegion) fd.append('company_region', form.value.companyRegion);
 
-        if (authError) {
-          console.error('Auth error:', authError);
-          if (authError.message && authError.message.includes('already exists')) {
-            errorMsg.value = 'This email is already registered. Please login instead.';
-            return;
-          }
-          throw authError;
-        }
-
-        if (!authData?.user) throw new Error('Failed to create user');
-
-        const userId = authData.user.id;
-        console.log('✅ Logistics user created via admin API:', userId);
-
-        await new Promise(resolve => setTimeout(resolve, 1500));
-
-        const { data: companyData, error: companyError } = await supabaseAdmin
-          .from('logistics_companies')
-          .insert({
-            owner_profile_id: userId,
-            company_name: form.value.companyName,
-            company_email: form.value.companyEmail,
-            company_contact_no: form.value.companyContactNo,
-            tin: form.value.companyTIN,
-            sec_registration: form.value.companySECReg || null,
-            region: form.value.companyRegion,
-            status: 'pending'
-          })
-          .select()
-          .single();
-
-        if (companyError) {
-          console.error('Company error:', companyError);
-          throw companyError;
-        }
-
-        const companyId = companyData.id;
+        fd.append('owner_first_name', form.value.ownerFirstName || '');
+        fd.append('owner_last_name', form.value.ownerLastName || '');
+        fd.append('owner_middle_initial', form.value.ownerMiddleInitial || '');
+        fd.append('owner_sex', form.value.ownerSex || '');
+        fd.append('owner_birthday', form.value.ownerBirthday || '');
 
         if (form.value.companyProvinceCode) {
-          const { error: addressError } = await supabaseAdmin
-            .from('addresses')
-            .insert({
-              owner_kind: 'logistics_company',
-              logistics_company_id: companyId,
-              province_code: form.value.companyProvinceCode,
-              province_name: form.value.companyProvince,
-              municipality_code: form.value.companyMunicipalityCode,
-              municipality_name: form.value.companyMunicipality,
-              barangay: form.value.companyBarangay,
-              street: form.value.companyStreet || '',
-              house_no: form.value.companyHouseNo || null
-            });
-
-          if (addressError) {
-            console.error('Address save error:', addressError);
-          }
+          fd.append('company_province_code', form.value.companyProvinceCode);
+          fd.append('company_province_name', form.value.companyProvince || '');
+          fd.append('company_municipality_code', form.value.companyMunicipalityCode || '');
+          fd.append('company_municipality_name', form.value.companyMunicipality || '');
+          fd.append('company_barangay', form.value.companyBarangay || '');
+          fd.append('company_street', form.value.companyStreet || '');
+          if (form.value.companyHouseNo) fd.append('company_house_no', form.value.companyHouseNo);
         }
 
-        await uploadLogisticsDocuments(userId, companyId);
+        if (form.value.ownerIdFile) fd.append('owner_id_file', form.value.ownerIdFile);
+        if (form.value.businessPermitFile) fd.append('business_permit_file', form.value.businessPermitFile);
+        if (form.value.mayorPermitFile) fd.append('mayor_permit_file', form.value.mayorPermitFile);
+        if (form.value.dtiRegFile) fd.append('dti_reg_file', form.value.dtiRegFile);
 
-        successMsg.value = 'Logistics company registration submitted! Please wait for administrator approval.';
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const response = await fetch('/api/signup/register-logistics', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'X-CSRF-TOKEN': csrfToken
+          },
+          body: fd
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(result.message || 'Registration failed. Please try again.');
+        }
+
+        console.log('✅ Logistics company registered:', result.company_id);
+        successMsg.value = result.message || 'Logistics company registration submitted! Please wait for administrator approval.';
         signupStep.value = 'complete';
 
       } catch (error) {

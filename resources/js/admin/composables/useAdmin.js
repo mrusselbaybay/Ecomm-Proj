@@ -3,13 +3,22 @@ import { ref } from 'vue';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const SUPABASE_SERVICE_ROLE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
-// Regular client for normal operations
+// Regular client for normal operations (RLS-protected, safe for the browser)
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Admin client with service role key (bypasses RLS and auth checks)
-const supabaseAdmin = window.supabase.createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+// NOTE: There is intentionally no client-side "supabaseAdmin" / service-role
+// client here. The service role key bypasses RLS entirely, so it must never
+// ship to the browser. Any action that needs elevated privileges (approving
+// registrations, updating account status, etc.) should call the existing
+// Laravel endpoints instead, e.g.:
+//   GET  /api/admin/registrations
+//   POST /api/admin/registrations/{profile}/approve
+//   POST /api/admin/registrations/{profile}/reject
+//   GET  /api/admin/accounts
+//   PUT  /api/admin/accounts/{profile}/status
+// (see App\Http\Controllers\Admin\AccountRegistrationController and
+// App\Http\Controllers\Admin\UserAccountController)
 
 export function useAdmin() {
   const isLoading = ref(true);
@@ -143,6 +152,5 @@ export function useAdmin() {
     statusBadgeClass,
     formatDate,
     supabase,
-    supabaseAdmin  // ← This is now properly defined above
   };
 }
