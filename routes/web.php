@@ -34,7 +34,7 @@ Route::prefix('logistics')->name('logistics.')->group(function () {
 // ---------- Seller SPA ----------
 Route::prefix('seller')->name('seller.')->group(function () {
     Route::get('/{any?}', function () {
-        return view('seller.dashboard');
+        return view('seller');
     })->where('any', '.*')->name('dashboard');
 });
 

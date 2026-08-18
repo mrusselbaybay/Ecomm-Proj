@@ -9,6 +9,7 @@ export default defineConfig({
             input: [
                 'resources/js/app.js',
                 'resources/js/admin/admin.js',
+                'resources/js/seller/seller.js',
             ],
             refresh: true,
         }),

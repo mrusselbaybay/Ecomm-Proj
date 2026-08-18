@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Models\Profile;
 
 class AuthController extends Controller
 {
@@ -18,22 +19,52 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Generic self-registration endpoint (public, unauthenticated).
+     *
+     * SECURITY: `role` is validated against Profile::REGISTRABLE_ROLES,
+     * which never includes 'admin'. Admin accounts are provisioned
+     * out-of-band (console/seeder) and must never be creatable through
+     * this or any other HTTP-facing endpoint.
+     *
+     * user_metadata is built from an explicit allow-list rather than
+     * `$request->except(['email', 'password'])` — forwarding the raw
+     * request body previously let a caller inject arbitrary metadata
+     * (e.g. role=admin), which a downstream Postgres trigger reads to
+     * populate profiles.role, effectively self-granting admin access.
+     */
     public function register(Request $request)
     {
-        $request->validate([
+        $data = $request->validate([
             'email'    => 'required|email',
             'password' => 'required|string|min:8',
+            'role'     => 'sometimes|string|in:' . implode(',', Profile::REGISTRABLE_ROLES),
+
+            'first_name'     => 'nullable|string',
+            'last_name'      => 'nullable|string',
+            'middle_initial' => 'nullable|string',
+            'sex'            => 'nullable|string',
+            'contact_no'     => 'nullable|string',
+            'birthday'       => 'nullable|date',
         ]);
+
+        $metadata = collect($data)
+            ->except(['email', 'password', 'role'])
+            ->merge([
+                'role'   => $data['role'] ?? 'buyer',
+                'status' => 'pending',
+            ])
+            ->all();
 
         $response = Http::withHeaders([
             'apikey'        => config('services.supabase.service_role_key'),
             'Authorization' => 'Bearer ' . config('services.supabase.service_role_key'),
             'Content-Type'  => 'application/json',
         ])->post(config('services.supabase.url') . '/auth/v1/admin/users', [
-            'email'            => strtolower(trim($request->email)),
-            'password'         => $request->password,
+            'email'            => strtolower(trim($data['email'])),
+            'password'         => $data['password'],
             'email_confirm'    => true,
-            'user_metadata'    => $request->except(['email', 'password']),
+            'user_metadata'    => $metadata,
         ]);
 
         if (!$response->successful()) {
