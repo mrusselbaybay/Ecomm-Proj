@@ -1,8 +1,10 @@
 <script setup>
 import { ref, computed } from 'vue';
+import ProductDetails from './ProductDetails.vue';
 
 const searchQuery = ref('');
 const selectedCategory = ref('All');
+const selectedProduct = ref(null);
 
 const categories = [
     'All',
@@ -75,24 +77,51 @@ function selectCategory(category) {
 */
 
 function viewProduct(product) {
-    console.log('Viewing product:', product);
+    selectedProduct.value = product;
+}
 
-    // Product details will be implemented in the next step.
+function backToProducts() {
+    selectedProduct.value = null;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Clear Filters
+|--------------------------------------------------------------------------
+*/
+
+function clearFilters() {
+    searchQuery.value = '';
+    selectedCategory.value = 'All';
 }
 </script>
 
 <template>
-    <div class="buyer-page">
+
+    <!-- Product Details -->
+    <ProductDetails
+        v-if="selectedProduct"
+        :product="selectedProduct"
+        @back="backToProducts"
+    />
+
+    <!-- Buyer Dashboard -->
+    <div
+        v-else
+        class="buyer-page"
+    >
 
         <!-- Header -->
         <header class="buyer-header">
 
+            <!-- Logo -->
             <div class="buyer-logo">
                 NEXMART
             </div>
 
             <!-- Search -->
             <div class="buyer-search">
+
                 <input
                     v-model="searchQuery"
                     type="text"
@@ -105,6 +134,7 @@ function viewProduct(product) {
                 >
                     🔍
                 </button>
+
             </div>
 
             <!-- Buyer Actions -->
@@ -155,7 +185,9 @@ function viewProduct(product) {
             <section class="buyer-section">
 
                 <div class="section-header">
-                    <h2>Categories</h2>
+                    <h2>
+                        Categories
+                    </h2>
                 </div>
 
                 <div class="category-list">
@@ -193,16 +225,18 @@ function viewProduct(product) {
                     v-if="filteredProducts.length === 0"
                     class="empty-products"
                 >
+
                     <p>
                         No products found.
                     </p>
 
                     <button
                         type="button"
-                        @click="searchQuery = ''; selectedCategory = 'All'"
+                        @click="clearFilters"
                     >
                         Clear Filters
                     </button>
+
                 </div>
 
                 <!-- Product Grid -->
@@ -217,10 +251,12 @@ function viewProduct(product) {
                         class="product-card"
                     >
 
+                        <!-- Product Image -->
                         <div class="product-image">
                             Product Image
                         </div>
 
+                        <!-- Product Information -->
                         <div class="product-info">
 
                             <span class="product-category">
@@ -254,4 +290,5 @@ function viewProduct(product) {
         </main>
 
     </div>
+
 </template>
