@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue';
+import { useBuyer } from '../composables/useBuyer';
 
 const props = defineProps({
     product: {
@@ -8,10 +9,21 @@ const props = defineProps({
     }
 });
 
-const emit = defineEmits(['back']);
+const emit = defineEmits([
+    'back',
+    'buy-now'
+]);
+
+const { addToCart } = useBuyer();
 
 const quantity = ref(1);
 const selectedVariation = ref('');
+
+/*
+|--------------------------------------------------------------------------
+| Variations
+|--------------------------------------------------------------------------
+*/
 
 const variations = computed(() => {
     if (!props.product) {
@@ -19,15 +31,31 @@ const variations = computed(() => {
     }
 
     if (props.product.category === 'Fashion') {
-        return ['Small', 'Medium', 'Large', 'XL'];
+        return [
+            'Small',
+            'Medium',
+            'Large',
+            'XL'
+        ];
     }
 
     if (props.product.category === 'Electronics') {
-        return ['Black', 'White'];
+        return [
+            'Black',
+            'White'
+        ];
     }
 
-    return ['Default'];
+    return [
+        'Default'
+    ];
 });
+
+/*
+|--------------------------------------------------------------------------
+| Quantity
+|--------------------------------------------------------------------------
+*/
 
 function increaseQuantity() {
     quantity.value++;
@@ -39,11 +67,41 @@ function decreaseQuantity() {
     }
 }
 
-function addToCart() {
+/*
+|--------------------------------------------------------------------------
+| Validation
+|--------------------------------------------------------------------------
+*/
+
+function validateSelection() {
+    if (!props.product) {
+        return false;
+    }
+
     if (!selectedVariation.value) {
         alert('Please select a variation.');
+        return false;
+    }
+
+    return true;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Add To Cart
+|--------------------------------------------------------------------------
+*/
+
+function handleAddToCart() {
+    if (!validateSelection()) {
         return;
     }
+
+    addToCart(
+        props.product,
+        selectedVariation.value,
+        quantity.value
+    );
 
     alert(
         `${props.product.name} added to cart!\n` +
@@ -51,22 +109,58 @@ function addToCart() {
         `Variation: ${selectedVariation.value}`
     );
 }
+
+/*
+|--------------------------------------------------------------------------
+| Buy Now
+|--------------------------------------------------------------------------
+*/
+
+function handleBuyNow() {
+    if (!validateSelection()) {
+        return;
+    }
+
+    emit('buy-now', {
+        product: props.product,
+        variation: selectedVariation.value,
+        quantity: quantity.value
+    });
+}
+
+/*
+|--------------------------------------------------------------------------
+| Back
+|--------------------------------------------------------------------------
+*/
+
+function goBack() {
+    emit('back');
+}
 </script>
 
 <template>
+
     <div
         v-if="product"
         class="product-details-page"
     >
 
-        <!-- Back -->
+        <!-- ============================================================ -->
+        <!-- BACK -->
+        <!-- ============================================================ -->
+
         <button
             type="button"
             class="back-button"
-            @click="emit('back')"
+            @click="goBack"
         >
-            ← Back to Products
+            Back to Products
         </button>
+
+        <!-- ============================================================ -->
+        <!-- PRODUCT DETAILS -->
+        <!-- ============================================================ -->
 
         <div class="product-details-card">
 
@@ -78,39 +172,48 @@ function addToCart() {
             <!-- Product Information -->
             <div class="product-details-info">
 
+                <!-- Category -->
                 <span class="product-category">
                     {{ product.category }}
                 </span>
 
+                <!-- Product Name -->
                 <h1>
                     {{ product.name }}
                 </h1>
 
+                <!-- Price -->
                 <p class="product-details-price">
-                    ₱{{ product.price.toFixed(2) }}
+                    ₱{{ Number(product.price).toFixed(2) }}
                 </p>
 
+                <!-- Description -->
                 <p class="product-description">
-                    This is a sample product description.
-                    Product information, seller details,
-                    variations, and other product information
-                    will be connected to the actual product
-                    database later.
+                    Select your preferred variation and quantity
+                    before adding this product to your cart or
+                    purchasing it immediately.
                 </p>
 
-                <!-- Variation -->
+                <!-- ==================================================== -->
+                <!-- VARIATION -->
+                <!-- ==================================================== -->
+
                 <div class="variation-section">
 
-                    <label>
-                        Select Variation
+                    <label for="product-variation">
+                        Variation
                     </label>
 
-                    <select v-model="selectedVariation">
+                    <select
+                        id="product-variation"
+                        v-model="selectedVariation"
+                    >
+
                         <option
                             value=""
                             disabled
                         >
-                            Choose a variation
+                            Select a variation
                         </option>
 
                         <option
@@ -120,11 +223,15 @@ function addToCart() {
                         >
                             {{ variation }}
                         </option>
+
                     </select>
 
                 </div>
 
-                <!-- Quantity -->
+                <!-- ==================================================== -->
+                <!-- QUANTITY -->
+                <!-- ==================================================== -->
+
                 <div class="quantity-section">
 
                     <label>
@@ -137,7 +244,7 @@ function addToCart() {
                             type="button"
                             @click="decreaseQuantity"
                         >
-                            −
+                            -
                         </button>
 
                         <span>
@@ -155,14 +262,29 @@ function addToCart() {
 
                 </div>
 
-                <!-- Add To Cart -->
-                <button
-                    type="button"
-                    class="add-to-cart-button"
-                    @click="addToCart"
-                >
-                    Add to Cart
-                </button>
+                <!-- ==================================================== -->
+                <!-- ACTIONS -->
+                <!-- ==================================================== -->
+
+                <div class="product-actions">
+
+                    <button
+                        type="button"
+                        class="add-to-cart-button"
+                        @click="handleAddToCart"
+                    >
+                        Add to Cart
+                    </button>
+
+                    <button
+                        type="button"
+                        class="buy-now-button"
+                        @click="handleBuyNow"
+                    >
+                        Buy Now
+                    </button>
+
+                </div>
 
             </div>
 
@@ -170,19 +292,27 @@ function addToCart() {
 
     </div>
 
+    <!-- ================================================================ -->
+    <!-- PRODUCT NOT FOUND -->
+    <!-- ================================================================ -->
+
     <div
         v-else
         class="product-not-found"
     >
+
         <h2>
-            Product not found
+            Product not found.
         </h2>
 
         <button
             type="button"
-            @click="emit('back')"
+            class="back-button"
+            @click="goBack"
         >
             Back to Products
         </button>
+
     </div>
+
 </template>

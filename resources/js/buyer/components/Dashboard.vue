@@ -1,10 +1,42 @@
 <script setup>
 import { ref, computed } from 'vue';
+
 import ProductDetails from './ProductDetails.vue';
+import Cart from './Cart.vue';
+import Checkout from './Checkout.vue';
+
+import { useBuyer } from '../composables/useBuyer';
+
+/*
+|--------------------------------------------------------------------------
+| Shared Buyer State
+|--------------------------------------------------------------------------
+*/
+
+const {
+    cartItemCount,
+    removeFromCart
+} = useBuyer();
+
+/*
+|--------------------------------------------------------------------------
+| Dashboard State
+|--------------------------------------------------------------------------
+*/
 
 const searchQuery = ref('');
 const selectedCategory = ref('All');
+
 const selectedProduct = ref(null);
+const showCart = ref(false);
+const checkoutItems = ref([]);
+const checkoutSource = ref(null);
+
+/*
+|--------------------------------------------------------------------------
+| Categories
+|--------------------------------------------------------------------------
+*/
 
 const categories = [
     'All',
@@ -16,24 +48,33 @@ const categories = [
     'Groceries'
 ];
 
+/*
+|--------------------------------------------------------------------------
+| Sample Products
+|--------------------------------------------------------------------------
+*/
+
 const products = [
     {
         id: 1,
         name: 'Sample Product 1',
         price: 299,
-        category: 'Electronics'
+        category: 'Electronics',
+        seller: 'NEXMART Electronics'
     },
     {
         id: 2,
         name: 'Sample Product 2',
         price: 499,
-        category: 'Fashion'
+        category: 'Fashion',
+        seller: 'NEXMART Fashion'
     },
     {
         id: 3,
         name: 'Sample Product 3',
         price: 799,
-        category: 'Home & Living'
+        category: 'Home & Living',
+        seller: 'NEXMART Home'
     }
 ];
 
@@ -44,7 +85,9 @@ const products = [
 */
 
 const filteredProducts = computed(() => {
-    const search = searchQuery.value.trim().toLowerCase();
+    const search = searchQuery.value
+        .trim()
+        .toLowerCase();
 
     return products.filter(product => {
         const matchesCategory =
@@ -62,6 +105,16 @@ const filteredProducts = computed(() => {
 
 /*
 |--------------------------------------------------------------------------
+| Cart Count
+|--------------------------------------------------------------------------
+*/
+
+const cartCount = computed(() => {
+    return cartItemCount.value;
+});
+
+/*
+|--------------------------------------------------------------------------
 | Category
 |--------------------------------------------------------------------------
 */
@@ -72,16 +125,146 @@ function selectCategory(category) {
 
 /*
 |--------------------------------------------------------------------------
-| Product
+| Product Details
 |--------------------------------------------------------------------------
 */
 
 function viewProduct(product) {
     selectedProduct.value = product;
+    showCart.value = false;
+    checkoutItems.value = [];
 }
 
 function backToProducts() {
     selectedProduct.value = null;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Cart
+|--------------------------------------------------------------------------
+*/
+
+function openCart() {
+    selectedProduct.value = null;
+    checkoutItems.value = [];
+    showCart.value = true;
+}
+
+function closeCart() {
+    showCart.value = false;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Buy Now
+|--------------------------------------------------------------------------
+|
+| IMPORTANT:
+| Buy Now DOES NOT add the product to the cart.
+|--------------------------------------------------------------------------
+*/
+
+function buyNow(item) {
+    if (!item || !item.product) {
+        return;
+    }
+
+    checkoutItems.value = [
+        {
+            cartId: null,
+            productId: item.product.id,
+            name: item.product.name,
+            price: Number(item.product.price),
+            category: item.product.category,
+            seller:
+                item.product.seller ||
+                'NEXMART Seller',
+            variation: item.variation,
+            quantity: Number(item.quantity)
+        }
+    ];
+
+    checkoutSource.value = 'buy-now';
+
+    showCart.value = false;
+}
+/*
+|--------------------------------------------------------------------------
+| Checkout From Cart
+|--------------------------------------------------------------------------
+*/
+
+function checkoutFromCart(items) {
+    if (
+        !Array.isArray(items) ||
+        items.length === 0
+    ) {
+        return;
+    }
+
+    checkoutItems.value = items.map(
+        item => ({
+            cartId: item.cartId,
+            productId: item.productId,
+            name: item.name,
+            price: Number(item.price),
+            category: item.category,
+            seller:
+                item.seller ||
+                'NEXMART Seller',
+            variation: item.variation,
+            quantity: Number(item.quantity)
+        })
+    );
+
+    checkoutSource.value = 'cart';
+
+    showCart.value = false;
+    selectedProduct.value = null;
+}
+
+
+function handleOrderPlaced() {
+    /*
+    |--------------------------------------------------------------------------
+    | Remove purchased cart items
+    |--------------------------------------------------------------------------
+    |
+    | Only remove products when checkout came from the cart.
+    | Buy Now does not affect the existing cart.
+    |
+    */
+
+    if (checkoutSource.value === 'cart') {
+        checkoutItems.value.forEach(item => {
+            if (item.cartId) {
+                removeFromCart(item.cartId);
+            }
+        });
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Reset Checkout
+    |--------------------------------------------------------------------------
+    */
+
+    checkoutItems.value = [];
+    checkoutSource.value = null;
+
+    showCart.value = false;
+    selectedProduct.value = null;
+}
+/*
+|--------------------------------------------------------------------------
+| Checkout Back
+|--------------------------------------------------------------------------
+*/
+
+function backFromCheckout() {
+    checkoutItems.value = [];
+    checkoutSource.value = null;
 }
 
 /*
@@ -98,14 +281,42 @@ function clearFilters() {
 
 <template>
 
-    <!-- Product Details -->
-    <ProductDetails
-        v-if="selectedProduct"
-        :product="selectedProduct"
-        @back="backToProducts"
+    <!-- ================================================================ -->
+    <!-- CHECKOUT -->
+    <!-- ================================================================ -->
+
+    <Checkout
+    v-if="checkoutItems.length > 0"
+    :items="checkoutItems"
+    @back="backFromCheckout"
+    @place-order="handleOrderPlaced"
     />
 
-    <!-- Buyer Dashboard -->
+    <!-- ================================================================ -->
+    <!-- CART -->
+    <!-- ================================================================ -->
+
+    <Cart
+    v-else-if="showCart"
+    @back="closeCart"
+    @checkout="checkoutFromCart"
+    />
+
+    <!-- ================================================================ -->
+    <!-- PRODUCT DETAILS -->
+    <!-- ================================================================ -->
+
+    <ProductDetails
+        v-else-if="selectedProduct"
+        :product="selectedProduct"
+        @back="backToProducts"
+        @buy-now="buyNow"
+    />
+
+    <!-- ================================================================ -->
+    <!-- BUYER DASHBOARD -->
+    <!-- ================================================================ -->
+
     <div
         v-else
         class="buyer-page"
@@ -114,7 +325,6 @@ function clearFilters() {
         <!-- Header -->
         <header class="buyer-header">
 
-            <!-- Logo -->
             <div class="buyer-logo">
                 NEXMART
             </div>
@@ -150,8 +360,17 @@ function clearFilters() {
                 <button
                     type="button"
                     title="Cart"
+                    class="cart-button"
+                    @click="openCart"
                 >
                     🛒
+
+                    <span
+                        v-if="cartCount > 0"
+                        class="cart-count"
+                    >
+                        {{ cartCount }}
+                    </span>
                 </button>
 
                 <button
@@ -213,11 +432,9 @@ function clearFilters() {
             <section class="buyer-section">
 
                 <div class="section-header">
-
                     <h2>
                         Products
                     </h2>
-
                 </div>
 
                 <!-- No Products -->
@@ -239,7 +456,7 @@ function clearFilters() {
 
                 </div>
 
-                <!-- Product Grid -->
+                <!-- Products -->
                 <div
                     v-else
                     class="product-grid"
@@ -251,12 +468,10 @@ function clearFilters() {
                         class="product-card"
                     >
 
-                        <!-- Product Image -->
                         <div class="product-image">
                             Product Image
                         </div>
 
-                        <!-- Product Information -->
                         <div class="product-info">
 
                             <span class="product-category">
@@ -268,7 +483,7 @@ function clearFilters() {
                             </h3>
 
                             <p class="product-price">
-                                ₱{{ product.price.toFixed(2) }}
+                                ₱{{ Number(product.price).toFixed(2) }}
                             </p>
 
                             <button
