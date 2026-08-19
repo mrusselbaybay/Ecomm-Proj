@@ -342,6 +342,7 @@ const isRefreshing = ref(false);
 
 async function refresh() {
   isRefreshing.value = true;
+
   try {
     await refreshAll();
   } finally {
@@ -381,7 +382,9 @@ const mockSalesRecords = ref([
 // Log" only clears what's on screen — it never mutates the underlying
 // composable state or deletes anything server-side.
 const visibleActivityLog = ref([]);
-watch(activityLog, (val) => { visibleActivityLog.value = [...val]; }, { immediate: true });
+watch(activityLog, (val) => {
+ visibleActivityLog.value = [...val]; 
+}, { immediate: true });
 
 const hasProfileInfo = computed(() =>
   Boolean(profile.value?.first_name && profile.value?.last_name && profile.value?.birthday && profile.value?.contact_no)
@@ -402,10 +405,12 @@ const donutSegments = computed(() => {
   ].filter(p => p.value > 0);
 
   let offsetAcc = 0;
+
   return parts.map(p => {
     const dash = (p.value / total) * circumference;
     const seg = { color: p.color, dash, offset: -offsetAcc };
     offsetAcc += dash;
+
     return seg;
   });
 });

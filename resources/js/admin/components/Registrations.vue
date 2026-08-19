@@ -172,6 +172,7 @@ const rejectionReasons = [
 
 async function loadData() {
   loading.value = true;
+
   try {
     let query = supabase
       .from('profiles')
@@ -183,11 +184,21 @@ async function loadData() {
     if (search.value) {
       query = query.or(`first_name.ilike.%${search.value}%,last_name.ilike.%${search.value}%,email.ilike.%${search.value}%`);
     }
-    if (roleFilter.value) query = query.eq('role', roleFilter.value);
-    if (statusFilter.value) query = query.eq('status', statusFilter.value);
+
+    if (roleFilter.value) {
+query = query.eq('role', roleFilter.value);
+}
+
+    if (statusFilter.value) {
+query = query.eq('status', statusFilter.value);
+}
 
     const { data, error } = await query;
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
+
     registrations.value = data || [];
 
     // Update pending count
@@ -206,7 +217,9 @@ async function loadData() {
 }
 
 async function approveUser(user) {
-  if (!confirm(`Approve ${user.full_name || user.first_name || user.email}?`)) return;
+  if (!confirm(`Approve ${user.full_name || user.first_name || user.email}?`)) {
+return;
+}
   
   try {
     const { error } = await supabase
@@ -214,7 +227,10 @@ async function approveUser(user) {
       .update({ status: 'approved', account_status: 'active' })
       .eq('id', user.id);
 
-    if (error) throw error;
+    if (error) {
+throw error;
+}
+
     alert(`✅ ${user.full_name || user.first_name || user.email} approved!`);
     await loadData();
   } catch (error) {
@@ -240,15 +256,19 @@ function closeRejectModal() {
 async function submitRejection() {
   if (!selectedReason.value) {
     alert('Please select a reason for rejection.');
+
     return;
   }
 
   // Get the rejection message
   let rejectionMessage = '';
+
   if (selectedReason.value === 'others') {
     rejectionMessage = customReason.value.trim();
+
     if (!rejectionMessage) {
       alert('Please specify the reason for rejection.');
+
       return;
     }
   } else {
@@ -266,7 +286,10 @@ async function submitRejection() {
       })
       .eq('id', rejectUserData.value.id);
 
-    if (error) throw error;
+    if (error) {
+throw error;
+}
+
     alert(`❌ ${rejectUserData.value.full_name || rejectUserData.value.first_name || rejectUserData.value.email} rejected.`);
     closeRejectModal();
     await loadData();

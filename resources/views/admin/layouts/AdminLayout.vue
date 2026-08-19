@@ -83,11 +83,16 @@ const props = defineProps({
 });
 
 const adminInitials = computed(() => {
-  if (!props.adminProfile?.name) return 'AU';
+  if (!props.adminProfile?.name) {
+return 'AU';
+}
+
   const parts = props.adminProfile.name.split(' ');
+
   if (parts.length >= 2) {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
+
   return parts[0].substring(0, 2).toUpperCase();
 });
 
@@ -104,6 +109,7 @@ const getIcon = (iconName) => {
     chat: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></svg>`,
     userCog: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h3"/><circle cx="18" cy="17" r="3"/><path d="M18 14.5v0M18 19.5v0M20.6 15.5l0 0M15.4 18.5l0 0M20.6 18.5l0 0M15.4 15.5l0 0"/></svg>`,
   };
+
   return icons[iconName] || '';
 };
 

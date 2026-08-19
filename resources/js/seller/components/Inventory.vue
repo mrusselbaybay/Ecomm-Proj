@@ -393,10 +393,14 @@ const stockStatusOptions = [
 // low handle can't pass the high handle. Avoids pulling in a slider
 // dependency for a single dual-thumb control.
 function clampMin() {
-  if (priceMin.value > priceMax.value) priceMin.value = priceMax.value;
+  if (priceMin.value > priceMax.value) {
+priceMin.value = priceMax.value;
+}
 }
 function clampMax() {
-  if (priceMax.value < priceMin.value) priceMax.value = priceMin.value;
+  if (priceMax.value < priceMin.value) {
+priceMax.value = priceMin.value;
+}
 }
 const priceMinPct = computed(() => (priceMin.value / 1500) * 100);
 const priceMaxPct = computed(() => (priceMax.value / 1500) * 100);
@@ -410,13 +414,18 @@ function clearFilters() {
 }
 
 // Reset to page 1 whenever the result set changes underneath the user.
-watch(filteredProducts, () => { currentPage.value = 1; });
+watch(filteredProducts, () => {
+ currentPage.value = 1; 
+});
 
 // ---- bulk select ----
 const bulkSelectMode = ref(false);
 function toggleBulkSelectMode() {
   bulkSelectMode.value = !bulkSelectMode.value;
-  if (!bulkSelectMode.value) clearSelection();
+
+  if (!bulkSelectMode.value) {
+clearSelection();
+}
 }
 
 // ---- delete modal ----
@@ -496,6 +505,7 @@ function closeSheet() {
 
 function handleImageUpload(e) {
   const files = Array.from(e.target.files || []);
+
   for (const file of files) {
     const reader = new FileReader();
     reader.onload = () => {
@@ -503,18 +513,24 @@ function handleImageUpload(e) {
     };
     reader.readAsDataURL(file);
   }
+
   e.target.value = '';
 }
 
 async function handleSave() {
-  if (!formIsValid.value) return;
+  if (!formIsValid.value) {
+return;
+}
+
   const payload = { ...form };
+
   try {
     if (isNewProduct.value) {
       await createProduct(payload);
     } else {
       await updateProduct(activeProductId.value, payload);
     }
+
     closeSheet();
   } catch {
     // saveError is already set by the composable; keep the sheet open

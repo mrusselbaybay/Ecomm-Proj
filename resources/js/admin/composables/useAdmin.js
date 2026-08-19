@@ -43,10 +43,13 @@ export function useAdmin() {
 
   async function checkAuth() {
     isLoading.value = true;
+
     try {
       const { data: { user }, error } = await supabase.auth.getUser();
+
       if (error || !user) {
         window.location.href = '/';
+
         return;
       }
 
@@ -58,6 +61,7 @@ export function useAdmin() {
 
       if (profileError || !profile || profile.role !== 'admin') {
         window.location.href = '/';
+
         return;
       }
 
@@ -84,7 +88,9 @@ export function useAdmin() {
         .from('profiles')
         .select('role, account_status, status');
 
-      if (error) throw error;
+      if (error) {
+throw error;
+}
 
       const totalUsers = profiles?.length || 0;
       const activeSellers = profiles?.filter(p => p.role === 'seller' && p.account_status === 'active').length || 0;
@@ -122,15 +128,29 @@ export function useAdmin() {
 
   function statusBadgeClass(status) {
     const s = status?.toLowerCase() || '';
-    if (['active', 'approved', 'resolved', 'clear'].includes(s)) return 'badge-green';
-    if (['pending', 'in review', 'warning', 'suspended'].includes(s)) return 'badge-amber';
-    if (['deactivated', 'escalated', 'rejected'].includes(s)) return 'badge-red';
+
+    if (['active', 'approved', 'resolved', 'clear'].includes(s)) {
+return 'badge-green';
+}
+
+    if (['pending', 'in review', 'warning', 'suspended'].includes(s)) {
+return 'badge-amber';
+}
+
+    if (['deactivated', 'escalated', 'rejected'].includes(s)) {
+return 'badge-red';
+}
+
     return 'badge-slate';
   }
 
   function formatDate(date) {
-    if (!date) return 'N/A';
+    if (!date) {
+return 'N/A';
+}
+
     const d = new Date(date);
+
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
 

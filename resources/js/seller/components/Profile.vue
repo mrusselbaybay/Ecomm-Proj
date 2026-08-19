@@ -214,6 +214,7 @@ function populateFormFromState() {
     formData.birthday = profile.value.birthday || '';
     formData.contact_no = profile.value.contact_no || '';
   }
+
   if (address.value) {
     formData.province_code = address.value.province_code || '';
     formData.province_name = address.value.province_name || '';
@@ -223,6 +224,7 @@ function populateFormFromState() {
     formData.street = address.value.street || '';
     formData.house_no = address.value.house_no || '';
   }
+
   if (sellerDetails.value) {
     formData.business_name = sellerDetails.value.business_name || '';
     formData.line_of_business = sellerDetails.value.line_of_business || '';
@@ -237,27 +239,46 @@ function resetForm() {
 // ---------- PSGC address lookups (mirrors resources/js/app.js signup form) ----------
 function dedupeByCodeOrName(items = []) {
   const seen = new Map();
+
   for (const item of items) {
-    if (!item || typeof item !== 'object') continue;
+    if (!item || typeof item !== 'object') {
+continue;
+}
+
     const code = String(item.code ?? '').trim();
     const name = String(item.name ?? '').trim();
-    if (!code && !name) continue;
+
+    if (!code && !name) {
+continue;
+}
+
     const key = code || name.toLowerCase().replace(/\s+/g, ' ');
-    if (!seen.has(key)) seen.set(key, item);
+
+    if (!seen.has(key)) {
+seen.set(key, item);
+}
   }
+
   return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 async function fetchProvinces() {
   if (provinceCache.value.length > 0) {
     provinceOptions.value = provinceCache.value;
+
     return;
   }
+
   loadingProvinces.value = true;
   addressApiError.value = '';
+
   try {
     const regionsRes = await fetch(`${PSGC_BASE}/regions?limit=100`);
-    if (!regionsRes.ok) throw new Error('Request failed: ' + regionsRes.status);
+
+    if (!regionsRes.ok) {
+throw new Error('Request failed: ' + regionsRes.status);
+}
+
     const regionsJson = await regionsRes.json();
     const regions = regionsJson.data || [];
 
@@ -265,8 +286,13 @@ async function fetchProvinces() {
       regions.map(async (r) => {
         try {
           const res = await fetch(`${PSGC_BASE}/provinces?region_code=${r.code}`);
-          if (!res.ok) return [];
+
+          if (!res.ok) {
+return [];
+}
+
           const json = await res.json();
+
           return json.data || [];
         } catch {
           return [];
@@ -275,7 +301,10 @@ async function fetchProvinces() {
     );
 
     const allProvinces = dedupeByCodeOrName(provinceResults.flat());
-    if (allProvinces.length === 0) throw new Error('No provinces returned');
+
+    if (allProvinces.length === 0) {
+throw new Error('No provinces returned');
+}
 
     provinceCache.value = allProvinces;
     provinceOptions.value = allProvinces;
@@ -300,15 +329,24 @@ async function fetchMunicipalities(provinceCode, { preserveSelection = false } =
     formData.municipality_name = '';
     formData.barangay = '';
   }
-  if (!provinceCode) return;
+
+  if (!provinceCode) {
+return;
+}
 
   loadingMunicipalities.value = true;
   addressApiError.value = '';
+
   try {
     const res = await fetch(`${PSGC_BASE}/cities-municipalities?province_code=${provinceCode}`);
-    if (!res.ok) throw new Error('Request failed: ' + res.status);
+
+    if (!res.ok) {
+throw new Error('Request failed: ' + res.status);
+}
+
     const json = await res.json();
     const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+
     if (preserveSelection && formData.municipality_code && !data.some(m => m.code === formData.municipality_code)) {
       municipalityOptions.value = [{ code: formData.municipality_code, name: formData.municipality_name }, ...data];
     } else {
@@ -326,15 +364,24 @@ async function fetchBarangays(municipalityCode, { preserveSelection = false } = 
     barangayOptions.value = [];
     formData.barangay = '';
   }
-  if (!municipalityCode) return;
+
+  if (!municipalityCode) {
+return;
+}
 
   loadingBarangays.value = true;
   addressApiError.value = '';
+
   try {
     const res = await fetch(`${PSGC_BASE}/barangays?city_municipality_code=${municipalityCode}&limit=500`);
-    if (!res.ok) throw new Error('Request failed: ' + res.status);
+
+    if (!res.ok) {
+throw new Error('Request failed: ' + res.status);
+}
+
     const json = await res.json();
     const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+
     if (preserveSelection && formData.barangay && !data.some(b => b.name === formData.barangay)) {
       barangayOptions.value = [{ code: 'current', name: formData.barangay }, ...data];
     } else {
@@ -397,16 +444,21 @@ function validate() {
 }
 
 async function handleSave() {
-  if (!validate()) return;
+  if (!validate()) {
+return;
+}
+
   await saveProfile({ ...formData });
 }
 
 onMounted(async () => {
   populateFormFromState();
   await fetchProvinces();
+
   if (formData.province_code) {
     await fetchMunicipalities(formData.province_code, { preserveSelection: true });
   }
+
   if (formData.municipality_code) {
     await fetchBarangays(formData.municipality_code, { preserveSelection: true });
   }

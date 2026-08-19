@@ -23,9 +23,11 @@ async function authHeaders() {
   const supabase = getSupabase();
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
+
   if (!token) {
     throw new Error('Not signed in.');
   }
+
   return {
     Accept: 'application/json',
     'Content-Type': 'application/json',
@@ -37,15 +39,18 @@ async function apiFetch(path, options = {}) {
   const headers = await authHeaders();
   const response = await fetch(`/api/seller${path}`, { ...options, headers });
   const body = await response.json().catch(() => ({}));
+
   if (!response.ok) {
     throw new Error(body.message || 'Request failed.');
   }
+
   return body.data;
 }
 
 async function loadOrders() {
   isLoadingOrders.value = true;
   loadError.value = '';
+
   try {
     orders.value = await apiFetch('/orders');
   } catch (err) {
@@ -65,12 +70,14 @@ async function getOrderById(id) {
     return await apiFetch(`/orders/${encodeURIComponent(id)}`);
   } catch (err) {
     console.error('Error loading order:', err);
+
     return null;
   }
 }
 
 function replaceInList(updatedOrder) {
   const idx = orders.value.findIndex(o => o.id === updatedOrder.id);
+
   if (idx !== -1) {
     // Keep the list entry's shape (it doesn't carry address/timeline).
     orders.value[idx] = { ...orders.value[idx], ...updatedOrder };
@@ -80,16 +87,19 @@ function replaceInList(updatedOrder) {
 async function updateOrderStatus(id, status, extra = {}) {
   isUpdatingStatus.value = true;
   updateError.value = '';
+
   try {
     const updated = await apiFetch(`/orders/${encodeURIComponent(id)}/status`, {
       method: 'PUT',
       body: JSON.stringify({ status, ...extra }),
     });
     replaceInList(updated);
+
     return updated;
   } catch (err) {
     console.error('Error updating order status:', err);
     updateError.value = err?.message || 'Could not update the order status.';
+
     throw err;
   } finally {
     isUpdatingStatus.value = false;
@@ -124,6 +134,7 @@ function statusBadgeClass(status) {
     Delivered: 'badge-emerald',
     Cancelled: 'badge-red',
   };
+
   return map[status] || 'badge-slate';
 }
 

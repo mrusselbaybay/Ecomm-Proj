@@ -60,11 +60,15 @@ const recentApplications = computed(() => applications.value.slice(0, 5));
 
 function initials(app) {
   const n = `${app.courier?.first_name || ''} ${app.courier?.last_name || ''}`.trim();
+
   return n.split(' ').filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase() || '?';
 }
 
 function formatDate(dateStr) {
-  if (!dateStr) return '';
+  if (!dateStr) {
+return '';
+}
+
   return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 

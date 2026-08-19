@@ -125,15 +125,15 @@ import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 
 // Regular imports
-import Dashboard from './Dashboard.vue';
-import Users from './Users.vue';
-import Compliance from './Compliance.vue';
-import Complaints from './Complaints.vue';
+import Chat from './Chat.vue';
 import Commission from './Commission.vue';
+import Complaints from './Complaints.vue';
+import Compliance from './Compliance.vue';
+import Dashboard from './Dashboard.vue';
+import Profile from './Profile.vue';
 import Reports from './Reports.vue';
 import Settings from './Settings.vue';
-import Chat from './Chat.vue';
-import Profile from './Profile.vue';
+import Users from './Users.vue';
 
 // State
 const currentSection = ref('dashboard');
@@ -205,6 +205,7 @@ const sectionLabel = computed(() => {
     chat: 'Chat / Messaging',
     profile: 'Account Management',
   };
+
   return labels[currentSection.value] || 'Dashboard';
 });
 
@@ -221,11 +222,16 @@ const navItems = computed(() => [
 ]);
 
 const adminInitials = computed(() => {
-  if (!adminProfile.value?.name) return 'AU';
+  if (!adminProfile.value?.name) {
+return 'AU';
+}
+
   const parts = adminProfile.value.name.split(' ');
+
   if (parts.length >= 2) {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
+
   return parts[0].substring(0, 2).toUpperCase();
 });
 
@@ -241,13 +247,17 @@ function getIcon(iconName) {
     chat: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></svg>`,
     userCog: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h3"/><circle cx="18" cy="17" r="3"/><path d="M18 14.5v0M18 19.5v0M20.6 15.5l0 0M15.4 18.5l0 0M20.6 18.5l0 0M15.4 15.5l0 0"/></svg>`,
   };
+
   return icons[iconName] || '';
 }
 
 // Navigation with URL sync
 function navigateTo(sectionId) {
   const path = sectionToPath[sectionId];
-  if (!path) return;
+
+  if (!path) {
+return;
+}
   
   currentSection.value = sectionId;
   
@@ -256,7 +266,7 @@ function navigateTo(sectionId) {
   }
 }
 
-function handlePopState(event) {
+function handlePopState() {
   const path = window.location.pathname;
   const section = pathToSection[path] || 'dashboard';
   
@@ -269,6 +279,7 @@ watch(
   () => window.location.pathname,
   (newPath) => {
     const section = pathToSection[newPath] || 'dashboard';
+
     if (currentSection.value !== section) {
       currentSection.value = section;
     }

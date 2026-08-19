@@ -609,6 +609,7 @@ const totalPages = computed(() => Math.ceil(accounts.value.length / pageSize.val
 const paginatedUsers = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value;
   const end = start + pageSize.value;
+
   return accounts.value.slice(start, end);
 });
 
@@ -618,16 +619,27 @@ const visiblePages = computed(() => {
   const current = currentPage.value;
   
   if (total <= 7) {
-    for (let i = 1; i <= total; i++) pages.push(i);
+    for (let i = 1; i <= total; i++) {
+pages.push(i);
+}
   } else {
     pages.push(1);
-    if (current > 3) pages.push('...');
+
+    if (current > 3) {
+pages.push('...');
+}
+
     for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) {
       pages.push(i);
     }
-    if (current < total - 2) pages.push('...');
+
+    if (current < total - 2) {
+pages.push('...');
+}
+
     pages.push(total);
   }
+
   return pages;
 });
 
@@ -674,7 +686,11 @@ function askConfirm(title, message, opts = {}) {
 
 function resolveConfirm(result) {
   confirmModal.show = false;
-  if (confirmModal.resolve) confirmModal.resolve(result);
+
+  if (confirmModal.resolve) {
+confirmModal.resolve(result);
+}
+
   confirmModal.resolve = null;
 }
 
@@ -778,7 +794,11 @@ function resetNewStaff() {
 function generatePassword() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
   let pwd = '';
-  for (let i = 0; i < 12; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
+
+  for (let i = 0; i < 12; i++) {
+pwd += chars[Math.floor(Math.random() * chars.length)];
+}
+
   newStaff.password = pwd;
   showPassword.value = true;
 }
@@ -802,14 +822,19 @@ function isValidEmail(email) {
 async function submitCreateStaff() {
   if (!newStaff.first_name.trim() || !newStaff.last_name.trim()) {
     showToast('Please enter a first and last name.', 'error');
+
     return;
   }
+
   if (!isValidEmail(newStaff.email)) {
     showToast('Please enter a valid email address.', 'error');
+
     return;
   }
+
   if (!newStaff.password || newStaff.password.length < 8) {
     showToast('Password must be at least 8 characters. Use the generate button if needed.', 'error');
+
     return;
   }
 
@@ -828,7 +853,10 @@ async function submitCreateStaff() {
         middle_initial: newStaff.middle_initial || ''
       }
     });
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
 
     const newUserId = data.user.id;
 
@@ -836,7 +864,10 @@ async function submitCreateStaff() {
       .from('profiles')
       .update({ status: 'approved', account_status: 'active' })
       .eq('id', newUserId);
-    if (profileError) throw profileError;
+
+    if (profileError) {
+throw profileError;
+}
 
     await sendEmail('/api/admin/notify-account-created', {
       email: newStaff.email,
@@ -868,6 +899,7 @@ async function openDocuments(user) {
   docsUser.value = user;
   showDocsModal.value = true;
   docsLoading.value = true;
+
   try {
     const { data, error } = await supabase
       .from('documents')
@@ -875,7 +907,11 @@ async function openDocuments(user) {
       .eq('owner_kind', 'profile')
       .eq('profile_id', user.id)
       .order('created_at', { ascending: false });
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
+
     userDocuments.value = data || [];
   } catch (error) {
     console.error('Error loading documents:', error);
@@ -902,9 +938,14 @@ async function viewDocument(doc) {
   previewUrl.value = '';
   previewContentType.value = '';
   previewLoading.value = true;
+
   try {
     const { data, error } = await supabase.storage.from('documents').createSignedUrl(doc.storage_path, 300);
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
+
     previewUrl.value = data.signedUrl;
 
     try {
@@ -930,12 +971,24 @@ function closePreview() {
 
 function previewKind() {
   const mime = previewContentType.value || previewDoc.value?.mime_type || '';
-  if (mime.startsWith('image/')) return 'image';
-  if (mime === 'application/pdf') return 'pdf';
+
+  if (mime.startsWith('image/')) {
+return 'image';
+}
+
+  if (mime === 'application/pdf') {
+return 'pdf';
+}
 
   const path = previewDoc.value?.storage_path || '';
-  if (/\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(path)) return 'image';
-  if (/\.pdf$/i.test(path)) return 'pdf';
+
+  if (/\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(path)) {
+return 'image';
+}
+
+  if (/\.pdf$/i.test(path)) {
+return 'pdf';
+}
 
   return 'other';
 }
@@ -944,22 +997,32 @@ function previewKind() {
 // DISPLAY HELPERS
 // ============================================================
 function displayName(user) {
-  if (!user) return '';
+  if (!user) {
+return '';
+}
+
   return user.full_name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email;
 }
 
 function initials(user) {
   const name = displayName(user);
+
   return name.split(' ').filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase() || '?';
 }
 
 function formatRole(value) {
-  if (!value) return '';
+  if (!value) {
+return '';
+}
+
   return value.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 function formatDate(dateStr) {
-  if (!dateStr) return '';
+  if (!dateStr) {
+return '';
+}
+
   return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
@@ -984,17 +1047,37 @@ const deactivatedCount = computed(() => accounts.value.filter(u => u.account_sta
 // Badge classes
 function approvalBadgeClass(status) {
   const s = status?.toLowerCase() || '';
-  if (s === 'approved') return 'badge-teal';
-  if (s === 'pending') return 'badge-amber';
-  if (s === 'rejected') return 'badge-red';
+
+  if (s === 'approved') {
+return 'badge-teal';
+}
+
+  if (s === 'pending') {
+return 'badge-amber';
+}
+
+  if (s === 'rejected') {
+return 'badge-red';
+}
+
   return 'badge-slate';
 }
 
 function accountBadgeClass(status) {
   const s = status?.toLowerCase() || '';
-  if (s === 'active') return 'badge-teal';
-  if (s === 'suspended') return 'badge-amber';
-  if (s === 'deactivated') return 'badge-red';
+
+  if (s === 'active') {
+return 'badge-teal';
+}
+
+  if (s === 'suspended') {
+return 'badge-amber';
+}
+
+  if (s === 'deactivated') {
+return 'badge-red';
+}
+
   return 'badge-slate';
 }
 
@@ -1003,6 +1086,7 @@ function accountBadgeClass(status) {
 // ============================================================
 async function loadData() {
   loading.value = true;
+
   try {
     let query = supabase
       .from('profiles')
@@ -1012,12 +1096,25 @@ async function loadData() {
     if (search.value) {
       query = query.or(`first_name.ilike.%${search.value}%,last_name.ilike.%${search.value}%,email.ilike.%${search.value}%`);
     }
-    if (roleFilter.value) query = query.eq('role', roleFilter.value);
-    if (statusFilter.value) query = query.eq('status', statusFilter.value);
-    if (accountFilter.value) query = query.eq('account_status', accountFilter.value);
+
+    if (roleFilter.value) {
+query = query.eq('role', roleFilter.value);
+}
+
+    if (statusFilter.value) {
+query = query.eq('status', statusFilter.value);
+}
+
+    if (accountFilter.value) {
+query = query.eq('account_status', accountFilter.value);
+}
 
     const { data, error } = await query;
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
+
     accounts.value = data || [];
 
     pendingCount.value = accounts.value.filter(u => u.status === 'pending').length;
@@ -1046,13 +1143,17 @@ async function sendEmail(endpoint, data) {
     });
 
     const result = await response.json();
+
     if (!response.ok) {
       console.error('Email error:', result);
+
       return false;
     }
+
     return true;
   } catch (error) {
     console.error('Failed to send email:', error);
+
     return false;
   }
 }
@@ -1062,17 +1163,26 @@ async function sendEmail(endpoint, data) {
 // ============================================================
 async function approveUser(user) {
   const ok = await askConfirm('Approve application', `Approve ${displayName(user)}? They will be able to log in immediately.`, { confirmLabel: 'Approve' });
-  if (!ok) return;
+
+  if (!ok) {
+return;
+}
 
   try {
     const { error: confirmError } = await supabaseAdmin.auth.admin.updateUserById(user.id, { email_confirm: true });
-    if (confirmError) console.warn('Could not auto-confirm email:', confirmError);
+
+    if (confirmError) {
+console.warn('Could not auto-confirm email:', confirmError);
+}
 
     const { error } = await supabase
       .from('profiles')
       .update({ status: 'approved', account_status: 'active' })
       .eq('id', user.id);
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
 
     // Send email in background - don't wait
     sendEmail('/api/admin/notify-approval', {
@@ -1091,14 +1201,20 @@ async function approveUser(user) {
 
 async function reapproveUser(user) {
   const ok = await askConfirm('Re-approve application', `Re-approve ${displayName(user)}? This will allow them to log in again.`, { confirmLabel: 'Re-approve' });
-  if (!ok) return;
+
+  if (!ok) {
+return;
+}
 
   try {
     const { error } = await supabase
       .from('profiles')
       .update({ status: 'approved', account_status: 'active', rejection_reason: null })
       .eq('id', user.id);
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
 
     sendEmail('/api/admin/notify-approval', {
       email: user.email,
@@ -1131,14 +1247,18 @@ function closeRejectModal() {
 async function submitRejection() {
   if (!selectedReason.value) {
     showToast('Please select a reason for rejection.', 'error');
+
     return;
   }
 
   let rejectionMessage = '';
+
   if (selectedReason.value === 'others') {
     rejectionMessage = customReason.value.trim();
+
     if (!rejectionMessage) {
       showToast('Please specify the reason for rejection.', 'error');
+
       return;
     }
   } else {
@@ -1154,7 +1274,10 @@ async function submitRejection() {
       .from('profiles')
       .update({ status: 'rejected', account_status: 'deactivated', rejection_reason: rejectionMessage })
       .eq('id', userData.id);
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
 
     sendEmail('/api/admin/notify-rejection', {
       email: userData.email,
@@ -1180,11 +1303,17 @@ async function activateUser(user) {
     `Are you sure you want to activate ${displayName(user)}?`,
     { confirmLabel: 'Activate', variant: 'primary' }
   );
-  if (!ok) return;
+
+  if (!ok) {
+return;
+}
 
   try {
     const { error } = await supabase.from('profiles').update({ account_status: 'active' }).eq('id', user.id);
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
 
     sendEmail('/api/admin/notify-status-change', {
       email: user.email,
@@ -1219,14 +1348,18 @@ function closeStatusChangeModal() {
 async function submitStatusChange() {
   if (!selectedStatusReason.value) {
     showToast('Please select a reason.', 'error');
+
     return;
   }
 
   let reasonMessage = '';
+
   if (selectedStatusReason.value === 'others') {
     reasonMessage = customStatusReason.value.trim();
+
     if (!reasonMessage) {
       showToast('Please specify the reason.', 'error');
+
       return;
     }
   } else {
@@ -1249,7 +1382,10 @@ async function submitStatusChange() {
       .from('profiles')
       .update({ account_status: status })
       .eq('id', userData.id);
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
 
     sendEmail('/api/admin/notify-status-change', {
       email: userData.email,
@@ -1279,6 +1415,7 @@ function showRejectionReason(user) {
 // ============================================================
 onMounted(async () => {
   loadData();
+
   try {
     const { data } = await supabase.auth.getUser();
     currentAdminId.value = data?.user?.id || null;

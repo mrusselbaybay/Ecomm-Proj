@@ -65,8 +65,7 @@ const {
   loading, 
   loadUsers, 
   updateUserStatus,
-  statusBadgeClass,
-  formatDate
+  statusBadgeClass
 } = useAdmin();
 
 const search = ref('');

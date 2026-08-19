@@ -35,10 +35,10 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import Dashboard from './Dashboard.vue';
+import { useLogistics } from '../composables/useLogistics';
 import Applications from './Applications.vue';
 import Couriers from './Couriers.vue';
-import { useLogistics } from '../composables/useLogistics';
+import Dashboard from './Dashboard.vue';
 
 const { companyName, pendingCount, resolveCompany, loadApplications } = useLogistics();
 

@@ -1,10 +1,6 @@
 // resources/js/admin/composables/useAdmin.js
 import { ref } from 'vue';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
 // Get CSRF token for Laravel
 function getCsrfToken() {
     return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
@@ -18,31 +14,57 @@ export function useAdmin() {
 
     function statusBadgeClass(status) {
         const s = status?.toLowerCase() || '';
-        if (['active', 'approved', 'resolved', 'clear'].includes(s)) return 'badge-green';
-        if (['pending', 'in review', 'warning', 'suspended'].includes(s)) return 'badge-amber';
-        if (['deactivated', 'escalated', 'rejected'].includes(s)) return 'badge-red';
+
+        if (['active', 'approved', 'resolved', 'clear'].includes(s)) {
+return 'badge-green';
+}
+
+        if (['pending', 'in review', 'warning', 'suspended'].includes(s)) {
+return 'badge-amber';
+}
+
+        if (['deactivated', 'escalated', 'rejected'].includes(s)) {
+return 'badge-red';
+}
+
         return 'badge-slate';
     }
 
     function formatDate(date) {
-        if (!date) return 'N/A';
+        if (!date) {
+return 'N/A';
+}
+
         const d = new Date(date);
+
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     }
 
     // ---------- Account Registrations ----------
     async function loadRegistrations(search = '', role = '', status = '') {
         loading.value = true;
+
         try {
             const params = new URLSearchParams();
-            if (search) params.append('search', search);
-            if (role) params.append('role', role);
-            if (status) params.append('status', status);
+
+            if (search) {
+params.append('search', search);
+}
+
+            if (role) {
+params.append('role', role);
+}
+
+            if (status) {
+params.append('status', status);
+}
             
             const response = await fetch(`/api/admin/registrations?${params.toString()}`);
             const data = await response.json();
             
-            if (!response.ok) throw new Error(data.message || 'Failed to load registrations');
+            if (!response.ok) {
+throw new Error(data.message || 'Failed to load registrations');
+}
             
             registrations.value = data.data || [];
         } catch (err) {
@@ -54,9 +76,15 @@ export function useAdmin() {
     }
 
     async function approveUser(user) {
-        if (!user) return;
+        if (!user) {
+return;
+}
+
         const userName = user.full_name || user.name || user.email || 'this user';
-        if (!confirm(`Approve ${userName}?`)) return;
+
+        if (!confirm(`Approve ${userName}?`)) {
+return;
+}
         
         try {
             const response = await fetch(`/api/admin/registrations/${user.id}/approve`, {
@@ -68,7 +96,10 @@ export function useAdmin() {
             });
             
             const data = await response.json();
-            if (!response.ok) throw new Error(data.message || 'Failed to approve user');
+
+            if (!response.ok) {
+throw new Error(data.message || 'Failed to approve user');
+}
             
             alert(`✅ ${userName} approved successfully!`);
             await loadRegistrations();
@@ -79,9 +110,15 @@ export function useAdmin() {
     }
 
     async function rejectUser(user, reason = '') {
-        if (!user) return;
+        if (!user) {
+return;
+}
+
         const userName = user.full_name || user.name || user.email || 'this user';
-        if (!reason && !confirm(`Reject ${userName}?`)) return;
+
+        if (!reason && !confirm(`Reject ${userName}?`)) {
+return;
+}
         
         try {
             const response = await fetch(`/api/admin/registrations/${user.id}/reject`, {
@@ -94,7 +131,10 @@ export function useAdmin() {
             });
             
             const data = await response.json();
-            if (!response.ok) throw new Error(data.message || 'Failed to reject user');
+
+            if (!response.ok) {
+throw new Error(data.message || 'Failed to reject user');
+}
             
             alert(`❌ ${userName} rejected.`);
             await loadRegistrations();
@@ -112,16 +152,28 @@ export function useAdmin() {
     // ---------- User Accounts ----------
     async function loadUsers(search = '', role = '', status = '') {
         loading.value = true;
+
         try {
             const params = new URLSearchParams();
-            if (search) params.append('search', search);
-            if (role) params.append('role', role);
-            if (status) params.append('status', status);
+
+            if (search) {
+params.append('search', search);
+}
+
+            if (role) {
+params.append('role', role);
+}
+
+            if (status) {
+params.append('status', status);
+}
             
             const response = await fetch(`/api/admin/accounts?${params.toString()}`);
             const data = await response.json();
             
-            if (!response.ok) throw new Error(data.message || 'Failed to load users');
+            if (!response.ok) {
+throw new Error(data.message || 'Failed to load users');
+}
             
             users.value = data.data || [];
         } catch (err) {
@@ -133,7 +185,9 @@ export function useAdmin() {
     }
 
     async function updateUserStatus(user, status) {
-        if (!user) return;
+        if (!user) {
+return;
+}
         
         const statusLabels = {
             active: 'activate',
@@ -142,7 +196,10 @@ export function useAdmin() {
         };
         
         const userName = user.full_name || user.name || user.email || 'this user';
-        if (!confirm(`Are you sure you want to ${statusLabels[status] || status} ${userName}?`)) return;
+
+        if (!confirm(`Are you sure you want to ${statusLabels[status] || status} ${userName}?`)) {
+return;
+}
         
         try {
             const response = await fetch(`/api/admin/accounts/${user.id}/status`, {
@@ -155,7 +212,10 @@ export function useAdmin() {
             });
             
             const data = await response.json();
-            if (!response.ok) throw new Error(data.message || 'Failed to update user status');
+
+            if (!response.ok) {
+throw new Error(data.message || 'Failed to update user status');
+}
             
             alert(`✅ ${userName} has been ${statusLabels[status] || status}d.`);
             await loadUsers();

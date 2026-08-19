@@ -236,7 +236,10 @@ async function loadOrder() {
 onMounted(loadOrder);
 
 const customerInitials = computed(() => {
-  if (!order.value?.customer) return '?';
+  if (!order.value?.customer) {
+return '?';
+}
+
   return order.value.customer
     .split(' ')
     .map(p => p[0])
@@ -255,7 +258,10 @@ const canPrepare = computed(() =>
 );
 
 function formatAddress(addr) {
-  if (!addr) return '—';
+  if (!addr) {
+return '—';
+}
+
   return [addr.street, [addr.barangay, addr.municipality].filter(Boolean).join(', '), addr.province, addr.country]
     .filter(Boolean)
     .join(', ');
@@ -277,8 +283,14 @@ function contactBuyer() {
 }
 
 async function handleCancel() {
-  if (!order.value) return;
-  if (!window.confirm(`Cancel order ${order.value.id}? This cannot be undone.`)) return;
+  if (!order.value) {
+return;
+}
+
+  if (!window.confirm(`Cancel order ${order.value.id}? This cannot be undone.`)) {
+return;
+}
+
   await cancelOrder(order.value.id);
   await loadOrder();
 }

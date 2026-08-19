@@ -16,8 +16,10 @@ function getSupabase() {
         'is present in the <head> of dashboard.blade.php, before @vite(...).'
       );
     }
+
     _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   }
+
   return _supabase;
 }
 
@@ -32,10 +34,14 @@ const loadingCompany = ref(true);
 async function resolveCompany() {
   const supabase = getSupabase();
   loadingCompany.value = true;
+
   try {
     const { data: userData } = await supabase.auth.getUser();
     const uid = userData?.user?.id;
-    if (!uid) return null;
+
+    if (!uid) {
+return null;
+}
 
     const { data: owned } = await supabase
       .from('logistics_companies')
@@ -46,6 +52,7 @@ async function resolveCompany() {
     if (owned) {
       companyId.value = owned.id;
       companyName.value = owned.company_name;
+
       return owned.id;
     }
 
@@ -58,6 +65,7 @@ async function resolveCompany() {
     if (staff) {
       companyId.value = staff.logistics_company_id;
       companyName.value = staff.logistics_companies?.company_name || '';
+
       return staff.logistics_company_id;
     }
 
@@ -69,8 +77,14 @@ async function resolveCompany() {
 
 async function loadApplications(filters = {}) {
   const supabase = getSupabase();
-  if (!companyId.value) await resolveCompany();
-  if (!companyId.value) return;
+
+  if (!companyId.value) {
+await resolveCompany();
+}
+
+  if (!companyId.value) {
+return;
+}
 
   let query = supabase
     .from('courier_applications')
@@ -84,31 +98,48 @@ async function loadApplications(filters = {}) {
     .eq('logistics_company_id', companyId.value)
     .order('applied_at', { ascending: false });
 
-  if (filters.status) query = query.eq('status', filters.status);
+  if (filters.status) {
+query = query.eq('status', filters.status);
+}
+
   if (filters.search) {
     query = query.or(`courier.first_name.ilike.%${filters.search}%,courier.last_name.ilike.%${filters.search}%,courier.email.ilike.%${filters.search}%`);
   }
 
   const { data, error } = await query;
-  if (error) throw error;
+
+  if (error) {
+throw error;
+}
 
   applications.value = data || [];
   pendingCount.value = applications.value.filter(a => a.status === 'pending').length;
+
   return applications.value;
 }
 
 async function loadCouriers() {
   const supabase = getSupabase();
-  if (!companyId.value) await resolveCompany();
-  if (!companyId.value) return;
+
+  if (!companyId.value) {
+await resolveCompany();
+}
+
+  if (!companyId.value) {
+return;
+}
 
   const { data, error } = await supabase
     .from('courier_details')
     .select('*, profile:profiles!courier_details_profile_id_fkey(id, first_name, last_name, email, contact_no)')
     .eq('logistics_company_id', companyId.value);
 
-  if (error) throw error;
+  if (error) {
+throw error;
+}
+
   couriers.value = data || [];
+
   return couriers.value;
 }
 

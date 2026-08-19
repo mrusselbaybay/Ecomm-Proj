@@ -57,7 +57,7 @@
     <div v-if="showRejectModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div class="card p-6 w-96">
         <h3 class="font-bold text-slate-900 mb-2">Reject Application</h3>
-        <p class="text-sm text-slate-500 mb-4">Please provide a reason for rejecting {{ rejectUser?.full_name || rejectUser?.name }}'s application.</p>
+        <p class="text-sm text-slate-500 mb-4">Please provide a reason for rejecting {{ userToReject?.full_name || userToReject?.name }}'s application.</p>
         <div>
           <label class="field-label">Reason <span class="text-orange-500">*</span></label>
           <textarea v-model="rejectReason" rows="3" placeholder="Explain why this application is being rejected..." class="field-input"></textarea>
@@ -90,7 +90,7 @@ const search = ref('');
 const roleFilter = ref('');
 const statusFilter = ref('');
 const showRejectModal = ref(false);
-const rejectUser = ref(null);
+const userToReject = ref(null);
 const rejectReason = ref('');
 
 const loadData = () => {
@@ -100,11 +100,13 @@ const loadData = () => {
 const submitRejection = async () => {
   if (!rejectReason.value.trim()) {
     alert('Please provide a reason for rejection.');
+
     return;
   }
-  await rejectUser(rejectUser.value, rejectReason.value);
+
+  await rejectUser(userToReject.value, rejectReason.value);
   showRejectModal.value = false;
-  rejectUser.value = null;
+  userToReject.value = null;
   rejectReason.value = '';
   loadData();
 };

@@ -183,7 +183,6 @@ import { useOrders } from '../composables/useOrders';
 
 const {
   orders: mockOrders,
-  isLoadingOrders,
   loadError,
   newOrdersCount,
   loadOrders,
@@ -212,10 +211,15 @@ watch(mockOrders, (list) => {
 
 const filterTabs = computed(() => {
   const counts = { new: 0, processing: 0, 'in transit': 0, delivered: 0, cancelled: 0 };
+
   for (const o of mockOrders.value) {
     const key = o.status.toLowerCase();
-    if (key in counts) counts[key] += 1;
+
+    if (key in counts) {
+counts[key] += 1;
+}
   }
+
   return [
     { id: 'all', label: 'All', count: null },
     { id: 'new', label: 'New', count: counts.new },
@@ -236,16 +240,20 @@ const statusFilterMap = {
 
 const filteredOrders = computed(() => {
   let list = mockOrders.value;
+
   if (activeFilter.value !== 'all') {
     const target = statusFilterMap[activeFilter.value];
     list = list.filter(o => o.status === target);
   }
+
   const q = searchQuery.value.trim().toLowerCase();
+
   if (q) {
     list = list.filter(o =>
       o.id.toLowerCase().includes(q) || o.customer.toLowerCase().includes(q)
     );
   }
+
   return list;
 });
 
@@ -254,7 +262,10 @@ const selectedOrder = computed(() =>
 );
 
 function formatAddress(addr) {
-  if (!addr) return '—';
+  if (!addr) {
+return '—';
+}
+
   return [addr.street, [addr.barangay, addr.municipality].filter(Boolean).join(', '), addr.province, addr.country]
     .filter(Boolean)
     .join(', ');

@@ -46,13 +46,19 @@ const { supabase, companyName, couriers, loadCouriers } = useLogistics();
 const loading = ref(false);
 
 async function removeCourier(c) {
-  if (!confirm(`Remove ${c.profile?.first_name} from ${companyName.value}?`)) return;
+  if (!confirm(`Remove ${c.profile?.first_name} from ${companyName.value}?`)) {
+return;
+}
+
   try {
     const { error: e1 } = await supabase
       .from('courier_details')
       .update({ logistics_company_id: null })
       .eq('profile_id', c.profile_id);
-    if (e1) throw e1;
+
+    if (e1) {
+throw e1;
+}
 
     await supabase
       .from('courier_applications')
@@ -68,6 +74,7 @@ async function removeCourier(c) {
 
 function initials(c) {
   const n = `${c.profile?.first_name || ''} ${c.profile?.last_name || ''}`.trim();
+
   return n.split(' ').filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase() || '?';
 }
 

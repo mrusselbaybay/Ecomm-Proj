@@ -31,6 +31,7 @@ function setCookie(name, value, days = 7) {
 
 function getCookie(name) {
   const match = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+
   return match ? decodeURIComponent(match.pop()) : null;
 }
 
@@ -44,7 +45,10 @@ function validateName(name) {
 }
 
 function validateMiddleInitial(mi) {
-  if (mi === '') return true;
+  if (mi === '') {
+return true;
+}
+
   return /^[A-Za-z]$/.test(mi);
 }
 
@@ -57,10 +61,14 @@ function validateContactNumber(contact) {
 }
 
 function validateBirthday(birthday) {
-  if (!birthday) return false;
+  if (!birthday) {
+return false;
+}
+
   const selected = new Date(birthday);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
   return selected <= today;
 }
 
@@ -224,18 +232,21 @@ const App = {
           'company': 0, 'companyVerifyEmail': 1, 'owner': 2,
           'address': 3, 'security': 4, 'documents': 5
         };
+
         return stepMap[signupStep.value] !== undefined ? stepMap[signupStep.value] : -1;
       } else if (selectedRole.value === 'driver') {
         const stepMap = {
           'driverPersonal': 0, 'driverVerifyEmail': 1, 'driverAddress': 2,
           'driverSecurity': 3, 'driverDocuments': 4
         };
+
         return stepMap[signupStep.value] !== undefined ? stepMap[signupStep.value] : -1;
       } else {
         const stepMap = {
           'personal': 0, 'verifyEmail': 1, 'address': 2,
           'security': 3, 'documents': 4
         };
+
         return stepMap[signupStep.value] !== undefined ? stepMap[signupStep.value] : -1;
       }
     });
@@ -395,19 +406,25 @@ const App = {
 
     function validateAddressFields() {
       const { province, municipality, barangay, street } = form.value;
+
       if (!province || !municipality || !barangay || !street) {
         errorMsg.value = 'Please fill in all address fields.';
+
         return false;
       }
+
       return true;
     }
 
     function validateDriverAddressFields() {
       const { province, municipality, barangay, street } = form.value;
+
       if (!province || !municipality || !barangay || !street) {
         errorMsg.value = 'Please fill in all address fields.';
+
         return false;
       }
+
       return true;
     }
 
@@ -466,116 +483,158 @@ const App = {
     function validateDocuments() {
       if (selectedRole.value === 'buyer' && !form.value.idFile) {
         errorMsg.value = 'Please upload an ID.';
+
         return false;
       }
+
       if (selectedRole.value === 'seller') {
         if (!form.value.idFile || !form.value.businessPermit || !form.value.businessName || !form.value.lineOfBusiness) {
           errorMsg.value = 'Please fill in all seller documents and business info.';
+
           return false;
         }
+
         const allowedLines = [
           'Pet Supplies', 'Kids and Baby', 'Electronics and Gadgets', 
           'House and Garden', "Woman's Apparel", "Men's Apparel", 
           'Sports and Outdoors', 'Health and Beauty'
         ];
+
         if (!allowedLines.includes(form.value.lineOfBusiness)) {
           errorMsg.value = 'Please select a valid line of business.';
+
           return false;
         }
       }
+
       if (selectedRole.value === 'courier') {
         if (!form.value.vehicle || !form.value.plateNumber || !form.value.orcrFile || !form.value.licenseFile) {
           errorMsg.value = 'Please fill in all courier documents and vehicle info.';
+
           return false;
         }
       }
+
       if (selectedRole.value === 'driver') {
         if (!form.value.driverVehicle || !form.value.driverPlateNumber || !form.value.driverOrcrFile || !form.value.driverLicenseFile || !form.value.driverIdFile) {
           errorMsg.value = 'Please fill in all driver documents and vehicle info.';
+
           return false;
         }
       }
+
       return true;
     }
 
     // Logistics validations
     function validateCompany() {
       const { companyName, companyContactNo, companyEmail, companyTIN, companyRegion } = form.value;
+
       if (!companyName || !companyContactNo || !companyEmail || !companyTIN || !companyRegion) {
         errorMsg.value = 'Please fill in all required company fields.';
+
         return false;
       }
+
       if (!validateEmail(companyEmail)) {
         errorMsg.value = 'Invalid company email format.';
+
         return false;
       }
+
       if (!validateContactNumber(companyContactNo)) {
         errorMsg.value = 'Contact number must start with 09 and be 11 digits.';
+
         return false;
       }
+
       return true;
     }
 
     function validateOwner() {
       const { ownerLastName, ownerFirstName, ownerSex, ownerBirthday } = form.value;
+
       if (!ownerLastName || !ownerFirstName || !ownerSex || !ownerBirthday) {
         errorMsg.value = 'Please fill in all required owner details.';
+
         return false;
       }
+
       if (!validateName(ownerFirstName) || !validateName(ownerLastName)) {
         errorMsg.value = 'Names should only contain letters.';
+
         return false;
       }
+
       if (!validateBirthday(ownerBirthday)) {
         errorMsg.value = 'Cannot select future date for birthday.';
+
         return false;
       }
+
       return true;
     }
 
     function validateLogisticsAddress() {
       const { companyProvince, companyMunicipality, companyBarangay, companyStreet } = form.value;
+
       if (!companyProvince || !companyMunicipality || !companyBarangay || !companyStreet) {
         errorMsg.value = 'Please fill in all address fields.';
+
         return false;
       }
+
       return true;
     }
 
     function validateLogisticsSecurity() {
       if (password.value.length < 8) {
         errorMsg.value = 'Password must be at least 8 characters.';
+
         return false;
       }
+
       if (password.value !== confirmPassword.value) {
         errorMsg.value = 'Passwords do not match.';
+
         return false;
       }
+
       return true;
     }
 
     function validateLogisticsDocuments() {
       if (!form.value.ownerIdFile || !form.value.businessPermitFile || !form.value.mayorPermitFile || !form.value.dtiRegFile) {
         errorMsg.value = 'Please upload all required documents.';
+
         return false;
       }
+
       return true;
     }
 
     // ---------- Signup Email Verification Functions ----------
     function getSignupEmailForVerification() {
-      if (isLogisticsSignup.value) return form.value.companyEmail;
-      if (selectedRole.value === 'driver') return form.value.driverEmail;
+      if (isLogisticsSignup.value) {
+return form.value.companyEmail;
+}
+
+      if (selectedRole.value === 'driver') {
+return form.value.driverEmail;
+}
+
       return email.value;
     }
 
     async function sendSignupVerificationCode() {
       const targetEmail = getSignupEmailForVerification();
+
       if (!targetEmail || !validateEmail(targetEmail)) {
         return false;
       }
 
       isSendingSignupCode.value = true;
+
       try {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
         const response = await fetch('/api/signup/send-code', {
@@ -593,23 +652,26 @@ const App = {
         if (!response.ok) {
           const text = await response.text();
           let errorMessage = 'Could not send verification code.';
+
           try {
             const data = JSON.parse(text);
             errorMessage = data.message || data.error || errorMessage;
-          } catch (e) {
+          } catch {
             errorMessage = `Server error: ${response.status} ${response.statusText}`;
           }
+
           throw new Error(errorMessage);
         }
         
-        const data = await response.json();
         signupVerifyCode.value = '';
         signupEmailVerified.value = false;
         successMsg.value = 'A verification code has been sent to your email.';
+
         return true;
       } catch (err) {
         console.error('Failed to send verification code:', err);
         errorMsg.value = err.message || 'Could not send code. Please try again.';
+
         return false;
       } finally {
         isSendingSignupCode.value = false;
@@ -619,10 +681,12 @@ const App = {
     async function verifySignupCode() {
       if (!signupVerifyCode.value || signupVerifyCode.value.length !== 6) {
         errorMsg.value = 'Please enter the 6-digit verification code.';
+
         return false;
       }
 
       isVerifyingSignupCode.value = true;
+
       try {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
         const targetEmail = getSignupEmailForVerification();
@@ -643,22 +707,25 @@ const App = {
         if (!response.ok) {
           const text = await response.text();
           let errorMessage = 'Invalid code. Please try again.';
+
           try {
             const data = JSON.parse(text);
             errorMessage = data.message || data.error || errorMessage;
-          } catch (e) {
+          } catch {
             errorMessage = `Server error: ${response.status} ${response.statusText}`;
           }
+
           throw new Error(errorMessage);
         }
         
-        const data = await response.json();
         signupEmailVerified.value = true;
         successMsg.value = 'Email verified!';
+
         return true;
       } catch (err) {
         console.error('Verification error:', err);
         errorMsg.value = err.message || 'Invalid or expired code.';
+
         return false;
       } finally {
         isVerifyingSignupCode.value = false;
@@ -667,8 +734,10 @@ const App = {
 
     async function resendSignupVerificationCode() {
       const targetEmail = getSignupEmailForVerification();
+
       if (!targetEmail || !validateEmail(targetEmail)) {
         errorMsg.value = 'Please enter a valid email address.';
+
         return;
       }
       
@@ -689,16 +758,17 @@ const App = {
         if (!response.ok) {
           const text = await response.text();
           let errorMessage = 'Could not resend code.';
+
           try {
             const data = JSON.parse(text);
             errorMessage = data.message || data.error || errorMessage;
-          } catch (e) {
+          } catch {
             errorMessage = `Server error: ${response.status} ${response.statusText}`;
           }
+
           throw new Error(errorMessage);
         }
         
-        const data = await response.json();
         signupVerifyCode.value = '';
         signupEmailVerified.value = false;
         successMsg.value = 'New verification code sent to your email.';
@@ -748,7 +818,10 @@ const App = {
           fd.append('municipality_name', form.value.municipality || '');
           fd.append('barangay', form.value.barangay);
           fd.append('street', form.value.street || '');
-          if (form.value.houseNo) fd.append('house_no', form.value.houseNo);
+
+          if (form.value.houseNo) {
+fd.append('house_no', form.value.houseNo);
+}
         }
 
         if (userRole === 'seller') {
@@ -760,19 +833,41 @@ const App = {
         } else if (userRole === 'driver') {
           fd.append('driver_vehicle', form.value.driverVehicle || '');
           fd.append('driver_plate_number', form.value.driverPlateNumber || '');
-          if (form.value.driverLicenseNumber) fd.append('driver_license_number', form.value.driverLicenseNumber);
+
+          if (form.value.driverLicenseNumber) {
+fd.append('driver_license_number', form.value.driverLicenseNumber);
+}
         }
 
         // Files — field names match AuthController::fileMapForRole()
         if (userRole === 'driver') {
-          if (form.value.driverIdFile) fd.append('id_file', form.value.driverIdFile);
-          if (form.value.driverLicenseFile) fd.append('license_file', form.value.driverLicenseFile);
-          if (form.value.driverOrcrFile) fd.append('orcr_file', form.value.driverOrcrFile);
+          if (form.value.driverIdFile) {
+fd.append('id_file', form.value.driverIdFile);
+}
+
+          if (form.value.driverLicenseFile) {
+fd.append('license_file', form.value.driverLicenseFile);
+}
+
+          if (form.value.driverOrcrFile) {
+fd.append('orcr_file', form.value.driverOrcrFile);
+}
         } else {
-          if (form.value.idFile) fd.append('id_file', form.value.idFile);
-          if (form.value.businessPermit) fd.append('business_permit', form.value.businessPermit);
-          if (form.value.orcrFile) fd.append('orcr_file', form.value.orcrFile);
-          if (form.value.licenseFile) fd.append('license_file', form.value.licenseFile);
+          if (form.value.idFile) {
+fd.append('id_file', form.value.idFile);
+}
+
+          if (form.value.businessPermit) {
+fd.append('business_permit', form.value.businessPermit);
+}
+
+          if (form.value.orcrFile) {
+fd.append('orcr_file', form.value.orcrFile);
+}
+
+          if (form.value.licenseFile) {
+fd.append('license_file', form.value.licenseFile);
+}
         }
 
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
@@ -809,8 +904,14 @@ const App = {
         fd.append('company_name', form.value.companyName || '');
         fd.append('company_contact_no', form.value.companyContactNo || '');
         fd.append('company_tin', form.value.companyTIN || '');
-        if (form.value.companySECReg) fd.append('company_sec_registration', form.value.companySECReg);
-        if (form.value.companyRegion) fd.append('company_region', form.value.companyRegion);
+
+        if (form.value.companySECReg) {
+fd.append('company_sec_registration', form.value.companySECReg);
+}
+
+        if (form.value.companyRegion) {
+fd.append('company_region', form.value.companyRegion);
+}
 
         fd.append('owner_first_name', form.value.ownerFirstName || '');
         fd.append('owner_last_name', form.value.ownerLastName || '');
@@ -825,13 +926,27 @@ const App = {
           fd.append('company_municipality_name', form.value.companyMunicipality || '');
           fd.append('company_barangay', form.value.companyBarangay || '');
           fd.append('company_street', form.value.companyStreet || '');
-          if (form.value.companyHouseNo) fd.append('company_house_no', form.value.companyHouseNo);
+
+          if (form.value.companyHouseNo) {
+fd.append('company_house_no', form.value.companyHouseNo);
+}
         }
 
-        if (form.value.ownerIdFile) fd.append('owner_id_file', form.value.ownerIdFile);
-        if (form.value.businessPermitFile) fd.append('business_permit_file', form.value.businessPermitFile);
-        if (form.value.mayorPermitFile) fd.append('mayor_permit_file', form.value.mayorPermitFile);
-        if (form.value.dtiRegFile) fd.append('dti_reg_file', form.value.dtiRegFile);
+        if (form.value.ownerIdFile) {
+fd.append('owner_id_file', form.value.ownerIdFile);
+}
+
+        if (form.value.businessPermitFile) {
+fd.append('business_permit_file', form.value.businessPermitFile);
+}
+
+        if (form.value.mayorPermitFile) {
+fd.append('mayor_permit_file', form.value.mayorPermitFile);
+}
+
+        if (form.value.dtiRegFile) {
+fd.append('dti_reg_file', form.value.dtiRegFile);
+}
 
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
         const response = await fetch('/api/signup/register-logistics', {
@@ -862,28 +977,36 @@ const App = {
     function submitRegistration() {
       resetMessages();
       
-      if (isSubmitting.value) return;
+      if (isSubmitting.value) {
+return;
+}
+
       isSubmitting.value = true;
       
       try {
         if (isLogisticsSignup.value) {
           if (!validateLogisticsDocuments()) {
             isSubmitting.value = false;
+
             return;
           }
+
           submitLogisticsRegistration();
           isSubmitting.value = false;
+
           return;
         }
         
         if (selectedRole.value === 'driver') {
           if (!validateDriverPersonal() || !validateDriverSecurityFields() || !validateDocuments()) {
             isSubmitting.value = false;
+
             return;
           }
         } else {
           if (!validateDocuments()) {
             isSubmitting.value = false;
+
             return;
           }
         }
@@ -903,16 +1026,26 @@ const App = {
 
     function dedupeByCodeOrName(items = []) {
       const seen = new Map();
+
       for (const item of items) {
-        if (!item || typeof item !== 'object') continue;
+        if (!item || typeof item !== 'object') {
+continue;
+}
+
         const code = String(item.code ?? '').trim();
         const name = String(item.name ?? '').trim();
-        if (!code && !name) continue;
+
+        if (!code && !name) {
+continue;
+}
+
         const key = code || name.toLowerCase().replace(/\s+/g, ' ');
+
         if (!seen.has(key)) {
           seen.set(key, item);
         }
       }
+
       return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
     }
 
@@ -920,6 +1053,7 @@ const App = {
       if (provinceCache.value.length > 0) {
         provinceOptions.value = provinceCache.value;
         companyProvinceOptions.value = provinceCache.value;
+
         return;
       }
 
@@ -929,7 +1063,11 @@ const App = {
 
       try {
         const regionsRes = await fetch(`${PSGC_BASE}/regions?limit=100`);
-        if (!regionsRes.ok) throw new Error('Request failed: ' + regionsRes.status);
+
+        if (!regionsRes.ok) {
+throw new Error('Request failed: ' + regionsRes.status);
+}
+
         const regionsJson = await regionsRes.json();
         const regions = regionsJson.data || [];
 
@@ -937,22 +1075,30 @@ const App = {
           regions.map(async (r) => {
             try {
               const res = await fetch(`${PSGC_BASE}/provinces?region_code=${r.code}`);
-              if (!res.ok) return [];
+
+              if (!res.ok) {
+return [];
+}
+
               const json = await res.json();
+
               return json.data || [];
-            } catch (e) {
+            } catch {
               return [];
             }
           })
         );
 
         const allProvinces = dedupeByCodeOrName(provinceResults.flat());
-        if (allProvinces.length === 0) throw new Error('No provinces returned');
+
+        if (allProvinces.length === 0) {
+throw new Error('No provinces returned');
+}
 
         provinceCache.value = allProvinces;
         provinceOptions.value = allProvinces;
         companyProvinceOptions.value = allProvinces;
-      } catch (err) {
+      } catch {
         addressApiError.value = 'Could not load provinces from the PSGC API. Check your connection and retry.';
       } finally {
         loadingProvinces.value = false;
@@ -975,13 +1121,16 @@ const App = {
         form.value.barangay = '';
       }
       
-      if (!provinceCode) return;
+      if (!provinceCode) {
+return;
+}
       
       if (isCompany) {
         loadingCompanyMunicipalities.value = true;
       } else {
         loadingMunicipalities.value = true;
       }
+
       addressApiError.value = '';
       
       try {
@@ -993,7 +1142,10 @@ const App = {
         });
         clearTimeout(timeoutId);
         
-        if (!res.ok) throw new Error('Request failed: ' + res.status);
+        if (!res.ok) {
+throw new Error('Request failed: ' + res.status);
+}
+
         const json = await res.json();
         const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
 
@@ -1026,13 +1178,16 @@ const App = {
         form.value.barangay = '';
       }
       
-      if (!municipalityCode) return;
+      if (!municipalityCode) {
+return;
+}
       
       if (isCompany) {
         loadingCompanyBarangays.value = true;
       } else {
         loadingBarangays.value = true;
       }
+
       addressApiError.value = '';
       
       try {
@@ -1046,9 +1201,14 @@ const App = {
         
         if (!res.ok) {
           let detail = '';
-          try { detail = await res.text(); } catch (e) {}
+
+          try {
+ detail = await res.text(); 
+} catch {}
+
           throw new Error('Request failed: ' + res.status + (detail ? ' — ' + detail : ''));
         }
+
         const json = await res.json();
         const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
 
@@ -1187,69 +1347,120 @@ const App = {
     async function goToStep(step) {
       if (selectedRole.value === 'driver') {
         if (step === 'driverVerifyEmail' && signupStep.value === 'driverPersonal') {
-          if (!validateDriverPersonal()) return;
+          if (!validateDriverPersonal()) {
+return;
+}
+
           signupStep.value = step;
           resetMessages();
           sendSignupVerificationCode();
+
           return;
         }
+
         if (step === 'driverAddress' && signupStep.value === 'driverVerifyEmail') {
           const verified = await verifySignupCode();
-          if (!verified) return;
+
+          if (!verified) {
+return;
+}
+
           signupStep.value = step;
           resetMessages();
+
           return;
         }
+
         if (step === 'driverSecurity' && signupStep.value === 'driverAddress') {
-          if (!validateDriverAddressFields()) return;
+          if (!validateDriverAddressFields()) {
+return;
+}
         }
+
         if (step === 'driverDocuments' && signupStep.value === 'driverSecurity') {
-          if (!validateDriverSecurityFields()) return;
+          if (!validateDriverSecurityFields()) {
+return;
+}
         }
       } else if (!isLogisticsSignup.value) {
         if (step === 'verifyEmail' && signupStep.value === 'personal') {
-          if (!validatePersonalFields()) return;
+          if (!validatePersonalFields()) {
+return;
+}
+
           signupStep.value = step;
           resetMessages();
           sendSignupVerificationCode();
+
           return;
         }
+
         if (step === 'address' && signupStep.value === 'verifyEmail') {
           const verified = await verifySignupCode();
-          if (!verified) return;
+
+          if (!verified) {
+return;
+}
+
           signupStep.value = step;
           resetMessages();
+
           return;
         }
+
         if (step === 'security' && signupStep.value === 'address') {
-          if (!validateAddressFields()) return;
+          if (!validateAddressFields()) {
+return;
+}
         }
+
         if (step === 'documents' && signupStep.value === 'security') {
-          if (!validateSecurityFields()) return;
+          if (!validateSecurityFields()) {
+return;
+}
         }
       } else {
         if (step === 'companyVerifyEmail' && signupStep.value === 'company') {
-          if (!validateCompany()) return;
+          if (!validateCompany()) {
+return;
+}
+
           signupStep.value = step;
           resetMessages();
           sendSignupVerificationCode();
+
           return;
         }
+
         if (step === 'owner' && signupStep.value === 'companyVerifyEmail') {
           const verified = await verifySignupCode();
-          if (!verified) return;
+
+          if (!verified) {
+return;
+}
+
           signupStep.value = step;
           resetMessages();
+
           return;
         }
+
         if (step === 'address' && signupStep.value === 'owner') {
-          if (!validateOwner()) return;
+          if (!validateOwner()) {
+return;
+}
         }
+
         if (step === 'security' && signupStep.value === 'address') {
-          if (!validateLogisticsAddress()) return;
+          if (!validateLogisticsAddress()) {
+return;
+}
         }
+
         if (step === 'documents' && signupStep.value === 'security') {
-          if (!validateLogisticsSecurity()) return;
+          if (!validateLogisticsSecurity()) {
+return;
+}
         }
       }
       
@@ -1259,6 +1470,7 @@ const App = {
 
     function handleFileUpload(event, field) {
       const file = event.target.files[0];
+
       if (file) {
         form.value[field] = file;
       }
@@ -1277,6 +1489,7 @@ async function handleLogin() {
   if (error) {
     console.log('Supabase auth error:', error);
     errorMsg.value = 'Email or password is incorrect.';
+
     return;
   }
 
@@ -1291,6 +1504,7 @@ async function handleLogin() {
   if (profileError) {
     console.log('Profile error:', profileError);
     errorMsg.value = 'Could not fetch user profile.';
+
     return;
   }
 
@@ -1298,24 +1512,28 @@ async function handleLogin() {
   if (profile.account_status === 'suspended') {
     errorMsg.value = 'Your account has been suspended. Please contact support.';
     await supabase.auth.signOut();
+
     return;
   }
   
   if (profile.account_status === 'deactivated') {
     errorMsg.value = 'Your account has been deactivated. Please contact support.';
     await supabase.auth.signOut();
+
     return;
   }
   
   if (profile.account_status === 'pending' || profile.status === 'pending') {
     errorMsg.value = 'Your account is pending approval. Please wait for the administrator to approve your account.';
     await supabase.auth.signOut();
+
     return;
   }
 
   if (profile.status === 'rejected') {
     errorMsg.value = 'Your account has been rejected. Please contact support.';
     await supabase.auth.signOut();
+
     return;
   }
 
@@ -1360,6 +1578,7 @@ async function handleLogin() {
 
       if (!forgotEmail.value) {
         errorMsg.value = 'Please enter your email address.';
+
         return;
       }
 
@@ -1398,6 +1617,7 @@ async function handleLogin() {
 
       if (!resetCode.value || resetCode.value.length !== 6) {
         errorMsg.value = 'Please enter the 6-digit verification code.';
+
         return;
       }
 
@@ -1439,10 +1659,13 @@ async function handleLogin() {
 
       if (!newPassword.value || newPassword.value.length < 8) {
         errorMsg.value = 'Password must be at least 8 characters.';
+
         return;
       }
+
       if (newPassword.value !== newConfirmPassword.value) {
         errorMsg.value = 'Passwords do not match.';
+
         return;
       }
 
@@ -1488,6 +1711,7 @@ async function handleLogin() {
       if (!resetEmail.value) {
         errorMsg.value = 'Email address not found. Please start over.';
         resetStep.value = 1;
+
         return;
       }
 
@@ -1534,10 +1758,13 @@ async function handleLogin() {
     function formatContactNumber(event, field) {
       let value = event.target.value;
       value = value.replace(/\D/g, '');
+
       if (value.length > 11) {
         value = value.slice(0, 11);
       }
+
       event.target.value = value;
+
       if (field) {
         form.value[field] = value;
       }
@@ -1547,6 +1774,7 @@ async function handleLogin() {
       let value = event.target.value;
       value = value.replace(/[^A-Za-z\s\-]/g, '');
       event.target.value = value;
+
       if (field) {
         form.value[field] = value;
       }
@@ -1555,11 +1783,14 @@ async function handleLogin() {
     function formatMiddleInitial(event, field) {
       let value = event.target.value;
       value = value.replace(/[^A-Za-z]/g, '');
+
       if (value.length > 1) {
         value = value.slice(0, 1);
       }
+
       value = value.toUpperCase();
       event.target.value = value;
+
       if (field) {
         form.value[field] = value;
       }

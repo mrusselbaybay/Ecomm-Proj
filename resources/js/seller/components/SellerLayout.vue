@@ -166,17 +166,17 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useSeller } from '../composables/useSeller';
 
-import Dashboard from './Dashboard.vue';
-import Profile from './Profile.vue';
-import Inventory from './Inventory.vue';
-import Orders from './Orders.vue';
-import OrderDetails from './OrderDetails.vue';
-import PrepareOrders from './PrepareOrders.vue';
 import CourierHandover from './CourierHandover.vue';
+import Dashboard from './Dashboard.vue';
 import Delivery from './Delivery.vue';
 import Feedback from './Feedback.vue';
-import Reports from './Reports.vue';
+import Inventory from './Inventory.vue';
 import Messages from './Messages.vue';
+import OrderDetails from './OrderDetails.vue';
+import Orders from './Orders.vue';
+import PrepareOrders from './PrepareOrders.vue';
+import Profile from './Profile.vue';
+import Reports from './Reports.vue';
 
 const showLogoutConfirm = ref(false);
 const currentSection = ref('dashboard');
@@ -248,6 +248,7 @@ const currentComponentProps = computed(() => {
   if (currentSection.value === 'orderDetails') {
     return { orderId: selectedOrderId.value };
   }
+
   return {};
 });
 
@@ -271,6 +272,7 @@ const sectionLabel = computed(() => {
     messages: 'Messages',
     account: 'My Account',
   };
+
   return labels[currentSection.value] || 'Dashboard';
 });
 
@@ -300,24 +302,35 @@ function getIcon(iconName) {
     mail: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>`,
     user: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>`,
   };
+
   return icons[iconName] || '';
 }
 
 function navigateTo(sectionId, orderId = null) {
   if (sectionId === 'orderDetails') {
-    if (!orderId) return;
+    if (!orderId) {
+return;
+}
+
     selectedOrderId.value = orderId;
     currentSection.value = 'orderDetails';
     const path = `/seller/orders/${orderId}`;
+
     if (window.location.pathname !== path) {
       window.history.pushState({ section: sectionId, orderId }, '', path);
     }
+
     return;
   }
 
   const path = sectionToPath[sectionId];
-  if (!path) return;
+
+  if (!path) {
+return;
+}
+
   currentSection.value = sectionId;
+
   if (window.location.pathname !== path) {
     window.history.pushState({ section: sectionId }, '', path);
   }
@@ -327,9 +340,11 @@ function navigateTo(sectionId, orderId = null) {
 // 1:1 routes (pathToSection) and the dynamic /seller/orders/{id} route.
 function resolveSection(path) {
   const orderMatch = path.match(ORDER_DETAILS_PATH);
+
   if (orderMatch) {
     return { section: 'orderDetails', orderId: decodeURIComponent(orderMatch[1]) };
   }
+
   return { section: pathToSection[path] || 'dashboard', orderId: null };
 }
 
@@ -345,6 +360,7 @@ function handlePopState() {
 // section string (legacy) or { section, orderId }.
 function handleSellerNav(event) {
   const detail = event.detail;
+
   if (typeof detail === 'string') {
     navigateTo(detail);
   } else if (detail && typeof detail === 'object') {
@@ -358,6 +374,7 @@ onMounted(async () => {
   selectedOrderId.value = initial.orderId;
 
   await checkAuth();
+
   if (isSeller.value) {
     await refreshAll();
   }

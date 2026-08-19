@@ -17,8 +17,10 @@ function getSupabase() {
         'is present in the <head> of seller/dashboard.blade.php, before @vite(...).'
       );
     }
+
     _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   }
+
   return _supabase;
 }
 
@@ -54,28 +56,43 @@ const LINE_OF_BUSINESS_OPTIONS = [
 ];
 
 const fullName = computed(() => {
-  if (!profile.value) return 'Seller';
+  if (!profile.value) {
+return 'Seller';
+}
+
   const mi = profile.value.middle_initial ? ` ${profile.value.middle_initial}.` : '';
+
   return `${profile.value.first_name || ''}${mi} ${profile.value.last_name || ''}`.trim() || 'Seller';
 });
 
 const initials = computed(() => {
   const f = profile.value?.first_name?.[0] || '';
   const l = profile.value?.last_name?.[0] || '';
+
   return (f + l).toUpperCase() || 'SE';
 });
 
 const age = computed(() => {
   const bday = profile.value?.birthday;
-  if (!bday) return null;
+
+  if (!bday) {
+return null;
+}
+
   const b = new Date(bday);
-  if (Number.isNaN(b.getTime())) return null;
+
+  if (Number.isNaN(b.getTime())) {
+return null;
+}
+
   const today = new Date();
   let years = today.getFullYear() - b.getFullYear();
   const monthDiff = today.getMonth() - b.getMonth();
+
   if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < b.getDate())) {
     years--;
   }
+
   return years;
 });
 
@@ -85,11 +102,14 @@ const totalDocsCount = computed(() => documents.value.length);
 
 async function checkAuth() {
   isLoading.value = true;
+
   try {
     const supabase = getSupabase();
     const { data: { user }, error } = await supabase.auth.getUser();
+
     if (error || !user) {
       window.location.href = '/';
+
       return;
     }
 
@@ -101,6 +121,7 @@ async function checkAuth() {
 
     if (profileError || !prof || prof.role !== 'seller') {
       window.location.href = '/';
+
       return;
     }
 
@@ -117,7 +138,10 @@ async function checkAuth() {
 }
 
 async function loadProfileData() {
-  if (!sellerUser.value) return;
+  if (!sellerUser.value) {
+return;
+}
+
   const supabase = getSupabase();
   const uid = sellerUser.value.id;
 
@@ -133,7 +157,10 @@ async function loadProfileData() {
 }
 
 async function loadActivityLog() {
-  if (!sellerUser.value) return;
+  if (!sellerUser.value) {
+return;
+}
+
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from('status_audit_log')
@@ -156,6 +183,7 @@ async function saveProfile(payload) {
   savingProfile.value = true;
   saveError.value = '';
   saveSuccess.value = '';
+
   try {
     const supabase = getSupabase();
     const uid = sellerUser.value.id;
@@ -172,7 +200,10 @@ async function saveProfile(payload) {
         updated_at: new Date().toISOString(),
       })
       .eq('id', uid);
-    if (profileErr) throw profileErr;
+
+    if (profileErr) {
+throw profileErr;
+}
 
     if (address.value?.id) {
       const { error: addrErr } = await supabase
@@ -188,7 +219,10 @@ async function saveProfile(payload) {
           updated_at: new Date().toISOString(),
         })
         .eq('id', address.value.id);
-      if (addrErr) throw addrErr;
+
+      if (addrErr) {
+throw addrErr;
+}
     } else {
       const { error: addrInsertErr } = await supabase
         .from('addresses')
@@ -203,7 +237,10 @@ async function saveProfile(payload) {
           street: payload.street,
           house_no: payload.house_no,
         });
-      if (addrInsertErr) throw addrInsertErr;
+
+      if (addrInsertErr) {
+throw addrInsertErr;
+}
     }
 
     const { error: detailsErr } = await supabase
@@ -214,11 +251,17 @@ async function saveProfile(payload) {
         updated_at: new Date().toISOString(),
       })
       .eq('profile_id', uid);
-    if (detailsErr) throw detailsErr;
+
+    if (detailsErr) {
+throw detailsErr;
+}
 
     await refreshAll();
     const { data: prof } = await supabase.from('profiles').select('*').eq('id', uid).single();
-    if (prof) profile.value = prof;
+
+    if (prof) {
+profile.value = prof;
+}
 
     saveSuccess.value = 'Profile updated successfully.';
   } catch (err) {
@@ -241,16 +284,30 @@ async function confirmLogout() {
 }
 
 function formatDate(date) {
-  if (!date) return 'N/A';
+  if (!date) {
+return 'N/A';
+}
+
   const d = new Date(date);
-  if (Number.isNaN(d.getTime())) return 'N/A';
+
+  if (Number.isNaN(d.getTime())) {
+return 'N/A';
+}
+
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function formatDateTime(date) {
-  if (!date) return 'N/A';
+  if (!date) {
+return 'N/A';
+}
+
   const d = new Date(date);
-  if (Number.isNaN(d.getTime())) return 'N/A';
+
+  if (Number.isNaN(d.getTime())) {
+return 'N/A';
+}
+
   return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
@@ -261,14 +318,25 @@ function docTypeLabel(type) {
     drivers_license: "Driver's License",
     orcr: 'OR/CR',
   };
+
   return labels[type] || type;
 }
 
 function statusBadgeClass(status) {
   const s = (status || '').toLowerCase();
-  if (['active', 'approved'].includes(s)) return 'badge-teal';
-  if (['pending'].includes(s)) return 'badge-amber';
-  if (['deactivated', 'rejected', 'suspended'].includes(s)) return 'badge-red';
+
+  if (['active', 'approved'].includes(s)) {
+return 'badge-teal';
+}
+
+  if (['pending'].includes(s)) {
+return 'badge-amber';
+}
+
+  if (['deactivated', 'rejected', 'suspended'].includes(s)) {
+return 'badge-red';
+}
+
   return 'badge-slate';
 }
 

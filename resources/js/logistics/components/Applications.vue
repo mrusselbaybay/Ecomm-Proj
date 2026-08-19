@@ -265,6 +265,7 @@ function debouncedLoad() {
 
 async function load() {
   loading.value = true;
+
   try {
     await loadApplications({ status: statusFilter.value, search: search.value });
   } catch (e) {
@@ -279,7 +280,9 @@ const toasts = ref([]);
 function showToast(message, type = 'success') {
   const id = Date.now() + Math.random();
   toasts.value.push({ id, message, type });
-  setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, 4000);
+  setTimeout(() => {
+ toasts.value = toasts.value.filter(t => t.id !== id); 
+}, 4000);
 }
 
 // CONFIRM
@@ -291,7 +294,11 @@ function askConfirm(title, message, confirmLabel = 'Confirm') {
 }
 function resolveConfirm(result) {
   confirmModal.show = false;
-  if (confirmModal.resolve) confirmModal.resolve(result);
+
+  if (confirmModal.resolve) {
+confirmModal.resolve(result);
+}
+
   confirmModal.resolve = null;
 }
 
@@ -321,9 +328,15 @@ function closeRejectModal() {
 
 async function submitRejection() {
   let message = '';
+
   if (selectedReason.value === 'others') {
     message = customReason.value.trim();
-    if (!message) { showToast('Please specify the reason.', 'error'); return; }
+
+    if (!message) {
+ showToast('Please specify the reason.', 'error');
+
+ return; 
+}
   } else {
     const r = rejectionReasons.find(r => r.value === selectedReason.value);
     message = r ? `${r.label} — ${r.description}` : selectedReason.value;
@@ -337,7 +350,10 @@ async function submitRejection() {
       .from('courier_applications')
       .update({ status: 'rejected', rejection_reason: message })
       .eq('id', app.id);
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
 
     sendEmail('/api/logistics/notify-application-rejected', {
       email: app.courier.email,
@@ -355,14 +371,20 @@ async function submitRejection() {
 
 async function acceptApplication(app) {
   const ok = await askConfirm('Accept application', `Accept ${app.courier.first_name} ${app.courier.last_name} into ${companyName.value}?`, 'Accept');
-  if (!ok) return;
+
+  if (!ok) {
+return;
+}
 
   try {
     const { error } = await supabase
       .from('courier_applications')
       .update({ status: 'accepted' })
       .eq('id', app.id);
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
 
     sendEmail('/api/logistics/notify-application-accepted', {
       email: app.courier.email,
@@ -395,6 +417,7 @@ async function openDocuments(app) {
   docsApp.value = app;
   showDocsModal.value = true;
   docsLoading.value = true;
+
   try {
     const { data, error } = await supabase
       .from('documents')
@@ -402,7 +425,11 @@ async function openDocuments(app) {
       .eq('owner_kind', 'profile')
       .eq('profile_id', app.courier.id)
       .order('created_at', { ascending: false });
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
+
     userDocuments.value = data || [];
   } catch (e) {
     showToast('Failed to load documents: ' + e.message, 'error');
@@ -424,9 +451,14 @@ async function viewDocument(doc) {
   previewDoc.value = doc;
   previewUrl.value = '';
   previewLoading.value = true;
+
   try {
     const { data, error } = await supabase.storage.from('documents').createSignedUrl(doc.storage_path, 300);
-    if (error) throw error;
+
+    if (error) {
+throw error;
+}
+
     previewUrl.value = data.signedUrl;
   } catch (e) {
     showToast('Failed to open document: ' + e.message, 'error');
@@ -443,21 +475,38 @@ function closePreview() {
 // HELPERS
 function initials(app) {
   const n = `${app.courier?.first_name || ''} ${app.courier?.last_name || ''}`.trim();
+
   return n.split(' ').filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase() || '?';
 }
 function formatDate(dateStr) {
-  if (!dateStr) return '';
+  if (!dateStr) {
+return '';
+}
+
   return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 function formatRole(value) {
-  if (!value) return '';
+  if (!value) {
+return '';
+}
+
   return value.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 function badgeClass(status) {
   const s = status?.toLowerCase() || '';
-  if (s === 'accepted' || s === 'approved') return 'badge-teal';
-  if (s === 'pending') return 'badge-amber';
-  if (s === 'rejected' || s === 'withdrawn') return 'badge-red';
+
+  if (s === 'accepted' || s === 'approved') {
+return 'badge-teal';
+}
+
+  if (s === 'pending') {
+return 'badge-amber';
+}
+
+  if (s === 'rejected' || s === 'withdrawn') {
+return 'badge-red';
+}
+
   return 'badge-slate';
 }
 
