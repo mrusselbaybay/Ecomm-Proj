@@ -1,6 +1,10 @@
 <script setup>
+<<<<<<< HEAD
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 
+=======
+import { computed, ref } from 'vue';
+>>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
 import ProductDetails from './ProductDetails.vue';
 import Cart from './Cart.vue';
 import Checkout from './Checkout.vue';
@@ -10,8 +14,12 @@ import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
 =======
 import Orders from './Orders.vue';
+<<<<<<< HEAD
 >>>>>>> 87c29c1 (feat: add buyer checkout orders tracking and cancellation)
 
+=======
+import Account from './Account.vue';
+>>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
 import { useBuyer } from '../composables/useBuyer';
 import {
     categories,
@@ -35,6 +43,7 @@ const {
     addOrder
 >>>>>>> 87c29c1 (feat: add buyer checkout orders tracking and cancellation)
 } = useBuyer();
+
 /*
 |--------------------------------------------------------------------------
 | Dashboard State
@@ -43,11 +52,10 @@ const {
 
 const searchQuery = ref('');
 const selectedCategory = ref('All');
-
 const selectedProduct = ref(null);
 const showCart = ref(false);
 const showOrders = ref(false);
-
+const showAccount = ref(false);
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
 
@@ -206,12 +214,17 @@ const filteredProducts = computed(() => {
     return products.filter(product => {
         const matchesCategory =
             selectedCategory.value === 'All' ||
-            product.category === selectedCategory.value;
+            product.category ===
+                selectedCategory.value;
 
         const matchesSearch =
             !search ||
-            product.name.toLowerCase().includes(search) ||
-            product.category.toLowerCase().includes(search);
+            product.name
+                .toLowerCase()
+                .includes(search) ||
+            product.category
+                .toLowerCase()
+                .includes(search);
 
         return matchesCategory && matchesSearch;
     });
@@ -311,10 +324,9 @@ function selectCategory(category) {
 
 function viewProduct(product) {
     selectedProduct.value = product;
-
     showCart.value = false;
     showOrders.value = false;
-
+    showAccount.value = false;
     checkoutItems.value = [];
 }
 
@@ -330,16 +342,16 @@ function backToProducts() {
 
 function openCart() {
     selectedProduct.value = null;
-
     showOrders.value = false;
+    showAccount.value = false;
     showCart.value = true;
-
     checkoutItems.value = [];
 }
 
 function closeCart() {
     showCart.value = false;
 }
+
 /*
 |--------------------------------------------------------------------------
 | Orders
@@ -348,10 +360,9 @@ function closeCart() {
 
 function openOrders() {
     selectedProduct.value = null;
-
     showCart.value = false;
+    showAccount.value = false;
     showOrders.value = true;
-
     checkoutItems.value = [];
     checkoutSource.value = null;
 }
@@ -359,6 +370,26 @@ function openOrders() {
 function closeOrders() {
     showOrders.value = false;
 }
+
+/*
+|--------------------------------------------------------------------------
+| Account
+|--------------------------------------------------------------------------
+*/
+
+function openAccount() {
+    selectedProduct.value = null;
+    showCart.value = false;
+    showOrders.value = false;
+    showAccount.value = true;
+    checkoutItems.value = [];
+    checkoutSource.value = null;
+}
+
+function closeAccount() {
+    showAccount.value = false;
+}
+
 /*
 |--------------------------------------------------------------------------
 | Buy Now
@@ -366,7 +397,7 @@ function closeOrders() {
 |
 | IMPORTANT:
 | Buy Now DOES NOT add the product to the cart.
-|--------------------------------------------------------------------------
+|
 */
 
 function buyNow(item) {
@@ -390,9 +421,10 @@ function buyNow(item) {
     ];
 
     checkoutSource.value = 'buy-now';
-
     showCart.value = false;
+    showAccount.value = false;
 }
+
 /*
 |--------------------------------------------------------------------------
 | Checkout From Cart
@@ -407,35 +439,32 @@ function checkoutFromCart(items) {
         return;
     }
 
-    checkoutItems.value = items.map(
-        item => ({
-            cartId: item.cartId,
-            productId: item.productId,
-            name: item.name,
-            price: Number(item.price),
-            category: item.category,
-            seller:
-                item.seller ||
-                'NEXMART Seller',
-            variation: item.variation,
-            quantity: Number(item.quantity)
-        })
-    );
+    checkoutItems.value = items.map(item => ({
+        cartId: item.cartId,
+        productId: item.productId,
+        name: item.name,
+        price: Number(item.price),
+        category: item.category,
+        seller:
+            item.seller ||
+            'NEXMART Seller',
+        variation: item.variation,
+        quantity: Number(item.quantity)
+    }));
 
     checkoutSource.value = 'cart';
-
     showCart.value = false;
+    showAccount.value = false;
     selectedProduct.value = null;
 }
 
+/*
+|--------------------------------------------------------------------------
+| Place Order
+|--------------------------------------------------------------------------
+*/
 
 function handleOrderPlaced(orderPayload) {
-    /*
-    |--------------------------------------------------------------------------
-    | Save Order
-    |--------------------------------------------------------------------------
-    */
-
     const savedOrder = addOrder(orderPayload);
 
     if (!savedOrder) {
@@ -446,11 +475,8 @@ function handleOrderPlaced(orderPayload) {
     console.log('Order saved:', savedOrder);
 
     /*
-    |--------------------------------------------------------------------------
-    | Remove Purchased Cart Items
-    |--------------------------------------------------------------------------
-    */
-
+     * Remove only the purchased cart items.
+     */
     if (checkoutSource.value === 'cart') {
         checkoutItems.value.forEach(item => {
             if (item.cartId) {
@@ -459,22 +485,16 @@ function handleOrderPlaced(orderPayload) {
         });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Reset Checkout
-    |--------------------------------------------------------------------------
-    */
     checkoutItems.value = [];
     checkoutSource.value = null;
-
     showCart.value = false;
+    showAccount.value = false;
     selectedProduct.value = null;
 
-    /*
-    * Show the newly created order.
-    */
+    /* Show the newly created order. */
     showOrders.value = true;
 }
+
 /*
 |--------------------------------------------------------------------------
 | Checkout Back
@@ -551,28 +571,23 @@ function handleBrowseAll() {
 </script>
 
 <template>
-
-    <!-- ================================================================ -->
-    <!-- CHECKOUT -->
-    <!-- ================================================================ -->
-
     <Checkout
         v-if="checkoutItems.length > 0"
         :items="checkoutItems"
         @back="backFromCheckout"
         @place-order="handleOrderPlaced"
+<<<<<<< HEAD
         @search="handleSearch"
         @select-category="handleSelectCategory"
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
+=======
+>>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
     />
-
-    <!-- ================================================================ -->
-    <!-- CART -->
-    <!-- ================================================================ -->
 
     <Cart
         v-else-if="showCart"
+<<<<<<< HEAD
         :recommended-products="bestSellers"
         @back="closeCart"
         @checkout="checkoutFromCart"
@@ -581,11 +596,11 @@ function handleBrowseAll() {
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
         @select-product="viewProduct"
+=======
+        @back="closeCart"
+        @checkout="checkoutFromCart"
+>>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
     />
-
-    <!-- ================================================================ -->
-    <!-- PRODUCT DETAILS -->
-    <!-- ================================================================ -->
 
     <ProductDetails
         v-else-if="selectedProduct"
@@ -601,20 +616,21 @@ function handleBrowseAll() {
         @browse-categories="handleBrowseAll"
     />
 
-    <!-- ORDERS -->
     <Orders
         v-else-if="showOrders"
         @back="closeOrders"
     />
 
-    <!-- ================================================================ -->
-    <!-- BUYER DASHBOARD -->
-    <!-- ================================================================ -->
+    <Account
+        v-else-if="showAccount"
+        @back="closeAccount"
+    />
 
     <div
         v-else
         class="buyer-page"
     >
+<<<<<<< HEAD
 
 <<<<<<< HEAD
         <Header
@@ -625,33 +641,28 @@ function handleBrowseAll() {
         />
 =======
         <!-- Header -->
+=======
+>>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
         <header class="buyer-header">
-
             <div class="buyer-logo">
                 NEXMART
             </div>
 
-            <!-- Search -->
             <div class="buyer-search">
-
                 <input
                     v-model="searchQuery"
                     type="text"
                     placeholder="Search products..."
-                />
-
+                >
                 <button
                     type="button"
                     title="Search"
                 >
                     🔍
                 </button>
-
             </div>
 
-            <!-- Buyer Actions -->
             <nav class="buyer-actions">
-
                 <button
                     type="button"
                     title="Messages"
@@ -659,14 +670,14 @@ function handleBrowseAll() {
                     💬
                 </button>
 
-                    <button
-                        type="button"
-                        title="Orders"
-                        @click="openOrders"
-                    >
-                        Orders
-                    </button>
-                    
+                <button
+                    type="button"
+                    title="Orders"
+                    @click="openOrders"
+                >
+                    Orders
+                </button>
+
                 <button
                     type="button"
                     title="Cart"
@@ -674,7 +685,6 @@ function handleBrowseAll() {
                     @click="openCart"
                 >
                     🛒
-
                     <span
                         v-if="cartCount > 0"
                         class="cart-count"
@@ -686,17 +696,17 @@ function handleBrowseAll() {
                 <button
                     type="button"
                     title="Account"
+                    aria-label="Open Buyer account"
+                    @click="openAccount"
                 >
                     👤
                 </button>
-
             </nav>
-
         </header>
 >>>>>>> 87c29c1 (feat: add buyer checkout orders tracking and cancellation)
 
-        <!-- Main -->
         <main class="buyer-main">
+<<<<<<< HEAD
 
             <!-- Hero -->
             <section class="buyer-hero">
@@ -747,15 +757,38 @@ function handleBrowseAll() {
 
                 <div class="category-grid">
 
+=======
+            <section class="welcome-section">
+                <h1>Welcome to NEXMART!</h1>
+                <p>
+                    Discover products from verified local sellers.
+                </p>
+            </section>
+
+            <section class="buyer-section">
+                <div class="section-header">
+                    <h2>Categories</h2>
+                </div>
+
+                <div class="category-list">
+>>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
                     <button
                         v-for="category in categories"
                         :key="category"
                         type="button"
+<<<<<<< HEAD
                         class="category-card"
                         :class="[
                             'accent-' + metaFor(category).accent,
                             { active: selectedCategory === category }
                         ]"
+=======
+                        class="category-button"
+                        :class="{
+                            active:
+                                selectedCategory === category
+                        }"
+>>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
                         @click="selectCategory(category)"
                     >
                         <span
@@ -767,11 +800,10 @@ function handleBrowseAll() {
                             {{ category }}
                         </span>
                     </button>
-
                 </div>
-
             </section>
 
+<<<<<<< HEAD
             <!-- Flash Deals -->
             <section v-if="flashDeals.length > 0">
 
@@ -947,10 +979,18 @@ function handleBrowseAll() {
                 </div>
 
                 <!-- No Products -->
+=======
+            <section class="buyer-section">
+                <div class="section-header">
+                    <h2>Products</h2>
+                </div>
+
+>>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
                 <div
                     v-if="filteredProducts.length === 0"
                     class="empty-products"
                 >
+<<<<<<< HEAD
 
                     <span
                         class="empty-products-icon"
@@ -963,6 +1003,9 @@ function handleBrowseAll() {
                         No products found.
                     </p>
 
+=======
+                    <p>No products found.</p>
+>>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
                     <button
                         type="button"
                         class="clear-filters-button"
@@ -970,14 +1013,13 @@ function handleBrowseAll() {
                     >
                         Clear Filters
                     </button>
-
                 </div>
 
-                <!-- Products -->
                 <div
                     v-else
                     class="product-grid"
                 >
+<<<<<<< HEAD
 
                     <ProductCard
                         v-for="product in filteredProducts"
@@ -986,17 +1028,47 @@ function handleBrowseAll() {
                         @view="viewProduct"
                     />
 
+=======
+                    <article
+                        v-for="product in filteredProducts"
+                        :key="product.id"
+                        class="product-card"
+                    >
+                        <div class="product-image">
+                            Product Image
+                        </div>
+
+                        <div class="product-info">
+                            <span class="product-category">
+                                {{ product.category }}
+                            </span>
+                            <h3>{{ product.name }}</h3>
+                            <p class="product-price">
+                                ₱{{
+                                    Number(product.price).toFixed(2)
+                                }}
+                            </p>
+                            <button
+                                type="button"
+                                class="view-product-button"
+                                @click="viewProduct(product)"
+                            >
+                                View Product
+                            </button>
+                        </div>
+                    </article>
+>>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
                 </div>
-
             </section>
-
         </main>
+<<<<<<< HEAD
 
         <Footer
             @browse-categories="selectCategory('All')"
             @cart-click="openCart"
         />
 
+=======
+>>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
     </div>
-
 </template>

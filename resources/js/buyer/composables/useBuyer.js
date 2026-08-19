@@ -32,6 +32,27 @@ const ORDER_STATUSES = {
     RETURNED: 'Returned'
 };
 
+const RETURN_REQUEST_STATUSES = {
+    PENDING: 'Pending',
+    APPROVED: 'Approved',
+    REJECTED: 'Rejected',
+    COMPLETED: 'Completed'
+};
+
+const RETURN_REQUEST_TYPES = [
+    'return_and_refund',
+    'refund_only'
+];
+
+const RETURN_REQUEST_REASONS = [
+    'damaged',
+    'wrong_item',
+    'incomplete',
+    'not_as_described',
+    'quality_issue',
+    'other'
+];
+
 /*
 |--------------------------------------------------------------------------
 | Favorites
@@ -264,15 +285,27 @@ function addOrder(orderData) {
          * Newly placed orders start as To Ship.
          */
         status:
-            orderData.status ||
-            ORDER_STATUSES.TO_SHIP,
+        orderData.status ||
+        ORDER_STATUSES.DELIVERED,
 
         /*
          * Copy products so changing the cart later
          * does not modify an existing order.
          */
         items: orderData.items.map(item => ({
-            ...item
+            ...item,
+
+            /*
+             * Each purchased item can receive one review.
+             * This remains null until the buyer submits a rating.
+             */
+            review: item.review || null,
+
+            /*
+             * A delivered order item may receive one return/refund request.
+             */
+            returnRequest:
+                item.returnRequest || null
         })),
 
         /*
@@ -423,6 +456,184 @@ function cancelOrder(
 
     return true;
 }
+
+/*
+|--------------------------------------------------------------------------
+| Product Review
+|--------------------------------------------------------------------------
+|
+| A buyer can review each item once, and only after the order is delivered.
+| For now the review is stored on the order item. Later, this function can be
+| replaced with a Laravel API request that inserts into a reviews table.
+|
+*/
+
+function submitReview(
+    orderId,
+    itemIndex,
+    reviewData
+) {
+    const order = findOrderById(orderId);
+
+    if (
+        !order ||
+        order.status !== ORDER_STATUSES.DELIVERED
+    ) {
+        return null;
+    }
+
+    const item = order.items?.[itemIndex];
+
+    /*
+     * Prevent reviews for missing items and duplicate reviews.
+     */
+    if (!item || item.review) {
+        return null;
+    }
+
+    const rating = Number(reviewData?.rating);
+
+    if (
+        !Number.isInteger(rating) ||
+        rating < 1 ||
+        rating > 5
+    ) {
+        return null;
+    }
+
+    const review = {
+        /* Temporary frontend ID until the database creates one. */
+        reviewId: `RV-${Date.now()}`,
+        orderId: order.orderId,
+        productId:
+            item.productId ??
+            item.product_id ??
+            null,
+        rating,
+        comment: String(
+            reviewData?.comment || ''
+        ).trim().slice(0, 500),
+        createdAt: new Date().toISOString()
+    };
+
+    item.review = review;
+
+    return review;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Return / Refund Request
+|--------------------------------------------------------------------------
+|
+| The Buyer can submit one request per delivered order item. For now the
+| request is stored in frontend memory with a Pending status. Later this can
+| post the data and evidence files to a Laravel API using FormData.
+|
+*/
+
+function submitReturnRequest(
+    orderId,
+    itemIndex,
+    requestData
+) {
+    const order = findOrderById(orderId);
+
+    if (
+        !order ||
+        order.status !== ORDER_STATUSES.DELIVERED
+    ) {
+        return null;
+    }
+
+    const item = order.items?.[itemIndex];
+
+    /*
+     * Prevent requests for missing items and duplicate requests.
+     */
+    if (!item || item.returnRequest) {
+        return null;
+    }
+
+    const requestType = String(
+        requestData?.requestType || ''
+    );
+
+    const reason = String(
+        requestData?.reason || ''
+    );
+
+    const quantity = Number(
+        requestData?.quantity
+    );
+
+    const details = String(
+        requestData?.details || ''
+    ).trim().slice(0, 1000);
+
+    const evidenceFiles = Array.isArray(
+        requestData?.evidence
+    )
+        ? requestData.evidence
+        : [];
+
+    const evidenceIsValid = (
+        evidenceFiles.length >= 1 &&
+        evidenceFiles.length <= 3 &&
+        evidenceFiles.every(file =>
+            file &&
+            String(file.type || '').startsWith(
+                'image/'
+            ) &&
+            Number(file.size || 0) <=
+                (5 * 1024 * 1024)
+        )
+    );
+
+    if (
+        !RETURN_REQUEST_TYPES.includes(
+            requestType
+        ) ||
+        !RETURN_REQUEST_REASONS.includes(
+            reason
+        ) ||
+        !Number.isInteger(quantity) ||
+        quantity < 1 ||
+        quantity > Number(item.quantity || 0) ||
+        details.length < 10 ||
+        !evidenceIsValid
+    ) {
+        return null;
+    }
+
+    const returnRequest = {
+        /* Temporary frontend ID until the database creates one. */
+        requestId: `RR-${Date.now()}`,
+        orderId: order.orderId,
+        productId:
+            item.productId ??
+            item.product_id ??
+            null,
+        requestType,
+        reason,
+        quantity,
+        details,
+        evidence: evidenceFiles.map(file => ({
+            name: String(file.name || 'Evidence'),
+            type: String(file.type || ''),
+            size: Number(file.size || 0)
+        })),
+        status:
+            RETURN_REQUEST_STATUSES.PENDING,
+        submittedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+    };
+
+    item.returnRequest = returnRequest;
+
+    return returnRequest;
+}
+
 /*
 |--------------------------------------------------------------------------
 | Order Computed Values
@@ -496,6 +707,7 @@ export function useBuyer() {
         orderCount,
         activeOrderCount,
         ORDER_STATUSES,
+        RETURN_REQUEST_STATUSES,
 
         /*
         |--------------------------------------------------------------------------
@@ -503,11 +715,21 @@ export function useBuyer() {
         |--------------------------------------------------------------------------
         */
 
+<<<<<<< HEAD
       addOrder,
 findOrderById,
 getOrdersByStatus,
 updateOrderStatus,
 cancelOrder
 >>>>>>> 87c29c1 (feat: add buyer checkout orders tracking and cancellation)
+=======
+        addOrder,
+        findOrderById,
+        getOrdersByStatus,
+        updateOrderStatus,
+        cancelOrder,
+        submitReview,
+        submitReturnRequest
+>>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
     };
 }

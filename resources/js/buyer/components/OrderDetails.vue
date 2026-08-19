@@ -1,6 +1,8 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
+import ReviewModal from './ReviewModal.vue';
+import ReturnRequestModal from './ReturnRequestModal.vue';
 
 const props = defineProps({
     order: {
@@ -9,19 +11,14 @@ const props = defineProps({
     }
 });
 
-const emit = defineEmits([
-    'back'
-]);
+const emit = defineEmits(['back']);
 
 const {
     ORDER_STATUSES,
-    cancelOrder
+    cancelOrder,
+    submitReview,
+    submitReturnRequest
 } = useBuyer();
-/*
-|--------------------------------------------------------------------------
-| Tracking Steps
-|--------------------------------------------------------------------------
-*/
 
 const trackingSteps = [
     ORDER_STATUSES.TO_SHIP,
@@ -29,12 +26,6 @@ const trackingSteps = [
     ORDER_STATUSES.OUT_FOR_DELIVERY,
     ORDER_STATUSES.DELIVERED
 ];
-
-/*
-|--------------------------------------------------------------------------
-| Current Tracking Step
-|--------------------------------------------------------------------------
-*/
 
 const currentTrackingIndex = computed(() => {
     if (!props.order) {
@@ -45,11 +36,6 @@ const currentTrackingIndex = computed(() => {
         props.order.status
     );
 });
-/*
-|--------------------------------------------------------------------------
-| Can Cancel Order
-|--------------------------------------------------------------------------
-*/
 
 const canCancelOrder = computed(() => {
     return (
@@ -58,11 +44,19 @@ const canCancelOrder = computed(() => {
     );
 });
 
-/*
-|--------------------------------------------------------------------------
-| Cancelled / Returned
-|--------------------------------------------------------------------------
-*/
+const canReviewOrder = computed(() => {
+    return (
+        props.order?.status ===
+        ORDER_STATUSES.DELIVERED
+    );
+});
+
+const canRequestReturn = computed(() => {
+    return (
+        props.order?.status ===
+        ORDER_STATUSES.DELIVERED
+    );
+});
 
 const isCancelled = computed(() => {
     return (
@@ -78,11 +72,17 @@ const isReturned = computed(() => {
     );
 });
 
-/*
-|--------------------------------------------------------------------------
-| Helpers
-|--------------------------------------------------------------------------
-*/
+const deliveryAddress = computed(() => {
+    return props.order?.delivery_address || {};
+});
+
+const isReviewModalOpen = ref(false);
+const selectedReviewItem = ref(null);
+const selectedReviewItemIndex = ref(-1);
+
+const isReturnModalOpen = ref(false);
+const selectedReturnItem = ref(null);
+const selectedReturnItemIndex = ref(-1);
 
 function formatPrice(price) {
     return `₱${Number(price || 0).toFixed(2)}`;
@@ -132,10 +132,42 @@ function formatShippingMethod(method) {
     return method;
 }
 
+function formatReturnType(type) {
+    if (type === 'return_and_refund') {
+        return 'Return and Refund';
+    }
+
+    if (type === 'refund_only') {
+        return 'Refund Only';
+    }
+
+    return type || 'Not specified';
+}
+
+function formatReturnReason(reason) {
+    const reasonLabels = {
+        damaged: 'Product arrived damaged',
+        wrong_item: 'Wrong product received',
+        incomplete: 'Missing parts or items',
+        not_as_described:
+            'Product is not as described',
+        quality_issue: 'Product quality issue',
+        other: 'Other reason'
+    };
+
+    return reasonLabels[reason] ||
+        reason ||
+        'Not specified';
+}
+
+function returnStatusClass(status) {
+    return `return-status-${String(
+        status || 'pending'
+    ).toLowerCase()}`;
+}
+
 function isTrackingStepCompleted(index) {
-    return (
-        currentTrackingIndex.value >= index
-    );
+    return currentTrackingIndex.value >= index;
 }
 
 function getItemPrice(item) {
@@ -146,25 +178,6 @@ function getItemPrice(item) {
     );
 }
 
-/*
-|--------------------------------------------------------------------------
-| Delivery Address
-|--------------------------------------------------------------------------
-*/
-
-const deliveryAddress = computed(() => {
-    return (
-        props.order?.delivery_address ||
-        {}
-    );
-});
-
-/*
-|--------------------------------------------------------------------------
-| Cancel Order
-|--------------------------------------------------------------------------
-*/
-
 function handleCancelOrder() {
     if (!props.order) {
         return;
@@ -174,7 +187,6 @@ function handleCancelOrder() {
         alert(
             'This order can no longer be cancelled.'
         );
-
         return;
     }
 
@@ -192,36 +204,110 @@ function handleCancelOrder() {
     );
 
     if (!cancelled) {
-        alert(
-            'Unable to cancel this order.'
-        );
-
+        alert('Unable to cancel this order.');
         return;
     }
 
+    alert('Order cancelled successfully.');
+}
+
+function openReviewModal(item, index) {
+    if (
+        !canReviewOrder.value ||
+        item.review
+    ) {
+        return;
+    }
+
+    selectedReviewItem.value = item;
+    selectedReviewItemIndex.value = index;
+    isReviewModalOpen.value = true;
+}
+
+function closeReviewModal() {
+    isReviewModalOpen.value = false;
+    selectedReviewItem.value = null;
+    selectedReviewItemIndex.value = -1;
+}
+
+function handleReviewSubmit(reviewData) {
+    if (
+        !props.order ||
+        selectedReviewItemIndex.value < 0
+    ) {
+        return;
+    }
+
+    const review = submitReview(
+        props.order.orderId,
+        selectedReviewItemIndex.value,
+        reviewData
+    );
+
+    if (!review) {
+        alert(
+            'Unable to submit this review. The product may already be reviewed or the order is not yet delivered.'
+        );
+        return;
+    }
+
+    closeReviewModal();
+    alert('Review submitted successfully.');
+}
+
+function openReturnModal(item, index) {
+    if (
+        !canRequestReturn.value ||
+        item.returnRequest
+    ) {
+        return;
+    }
+
+    selectedReturnItem.value = item;
+    selectedReturnItemIndex.value = index;
+    isReturnModalOpen.value = true;
+}
+
+function closeReturnModal() {
+    isReturnModalOpen.value = false;
+    selectedReturnItem.value = null;
+    selectedReturnItemIndex.value = -1;
+}
+
+function handleReturnSubmit(requestData) {
+    if (
+        !props.order ||
+        selectedReturnItemIndex.value < 0
+    ) {
+        return;
+    }
+
+    const returnRequest = submitReturnRequest(
+        props.order.orderId,
+        selectedReturnItemIndex.value,
+        requestData
+    );
+
+    if (!returnRequest) {
+        alert(
+            'Unable to submit this request. The product may already have a request or the order is not eligible.'
+        );
+        return;
+    }
+
+    closeReturnModal();
     alert(
-        'Order cancelled successfully.'
+        'Return / refund request submitted successfully.'
     );
 }
 </script>
 
 <template>
-
-    <!-- ================================================================ -->
-    <!-- ORDER DETAILS -->
-    <!-- ================================================================ -->
-
     <div
         v-if="order"
         class="order-details-page"
     >
-
-        <!-- ============================================================ -->
-        <!-- HEADER -->
-        <!-- ============================================================ -->
-
         <header class="order-details-header">
-
             <button
                 type="button"
                 class="order-details-back-button"
@@ -231,75 +317,33 @@ function handleCancelOrder() {
             </button>
 
             <div>
-
-                <h1>
-                    Order Details
-                </h1>
-
-                <p>
-                    Order {{ order.orderId }}
-                </p>
-
+                <h1>Order Details</h1>
+                <p>Order {{ order.orderId }}</p>
             </div>
-
         </header>
 
-        <!-- ============================================================ -->
-        <!-- MAIN CONTENT -->
-        <!-- ============================================================ -->
-
         <main class="order-details-content">
-
-            <!-- ======================================================== -->
-            <!-- ORDER STATUS -->
-            <!-- ======================================================== -->
-
             <section class="order-details-section">
-
                 <div class="order-details-heading">
-
                     <div>
-
-                        <span>
-                            Order ID
-                        </span>
-
-                        <h2>
-                            {{ order.orderId }}
-                        </h2>
-
-                        <p>
-                            {{ formatDate(order.createdAt) }}
-                        </p>
-
+                        <span>Order ID</span>
+                        <h2>{{ order.orderId }}</h2>
+                        <p>{{ formatDate(order.createdAt) }}</p>
                     </div>
 
                     <span class="order-details-status">
                         {{ order.status }}
                     </span>
-
                 </div>
-
             </section>
 
-
-            <!-- ======================================================== -->
-            <!-- ORDER TRACKING -->
-            <!-- ======================================================== -->
-
             <section class="order-details-section">
-
-                <h2>
-                    Order Tracking
-                </h2>
-
-                <!-- Normal Order Flow -->
+                <h2>Order Tracking</h2>
 
                 <div
                     v-if="!isCancelled && !isReturned"
                     class="order-tracking"
                 >
-
                     <div
                         v-for="(step, index) in trackingSteps"
                         :key="step"
@@ -309,198 +353,109 @@ function handleCancelOrder() {
                                 isTrackingStepCompleted(index)
                         }"
                     >
-
                         <div class="tracking-marker">
                             {{ index + 1 }}
                         </div>
 
                         <div class="tracking-information">
-
-                            <strong>
-                                {{ step }}
-                            </strong>
-
-                            <span
-                                v-if="order.status === step"
-                            >
+                            <strong>{{ step }}</strong>
+                            <span v-if="order.status === step">
                                 Current status
                             </span>
-
                         </div>
-
                     </div>
-
                 </div>
-
-
-                <!-- Cancelled Order -->
 
                 <div
                     v-else-if="isCancelled"
                     class="order-special-status cancelled-order-status"
                 >
-
-                    <strong>
-                        Order Cancelled
-                    </strong>
-
-                    <p>
-                        This order has been cancelled.
+                    <strong>Order Cancelled</strong>
+                    <p>This order has been cancelled.</p>
+                    <p v-if="order.cancellationReason">
+                        Reason: {{ order.cancellationReason }}
                     </p>
-
-                    <p
-                        v-if="order.cancellationReason"
-                    >
-                        Reason:
-                        {{ order.cancellationReason }}
-                    </p>
-
-                    <p
-                        v-if="order.cancelledAt"
-                    >
+                    <p v-if="order.cancelledAt">
                         Cancelled:
                         {{ formatDate(order.cancelledAt) }}
                     </p>
-
                 </div>
-
-
-                <!-- Returned Order -->
 
                 <div
                     v-else-if="isReturned"
                     class="order-special-status"
                 >
-
-                    <strong>
-                        Order Returned
-                    </strong>
-
-                    <p>
-                        This order has been returned.
-                    </p>
-
+                    <strong>Order Returned</strong>
+                    <p>This order has been returned.</p>
                 </div>
-
             </section>
 
-
-            <!-- ======================================================== -->
-            <!-- DELIVERY ADDRESS -->
-            <!-- ======================================================== -->
-
             <section class="order-details-section">
-
-                <h2>
-                    Delivery Address
-                </h2>
+                <h2>Delivery Address</h2>
 
                 <div class="delivery-details">
-
                     <strong>
                         {{
                             deliveryAddress.recipient_name ||
                             'Recipient not available'
                         }}
                     </strong>
-
                     <p>
                         {{
                             deliveryAddress.contact_number ||
                             'No contact number'
                         }}
                     </p>
-
                     <p>
                         {{
                             deliveryAddress.address ||
                             'No address available'
                         }}
                     </p>
-
                 </div>
-
             </section>
 
-
-            <!-- ======================================================== -->
-            <!-- PRODUCTS -->
-            <!-- ======================================================== -->
-
             <section class="order-details-section">
-
-                <h2>
-                    Products
-                </h2>
+                <h2>Products</h2>
 
                 <div
                     v-for="(item, index) in order.items"
                     :key="`${order.orderId}-${index}`"
                     class="order-details-product"
                 >
-
-                    <!-- Product Image -->
-
                     <div class="order-details-product-image">
                         Product Image
                     </div>
 
-
-                    <!-- Product Info -->
-
                     <div class="order-details-product-info">
-
                         <h3>
                             {{
                                 item.name ||
-                                `Product #${item.product_id || item.productId}`
+                                `Product #${
+                                    item.product_id ||
+                                    item.productId
+                                }`
                             }}
                         </h3>
-
                         <p>
                             Seller:
-                            {{
-                                item.seller ||
-                                'NEXMART Seller'
-                            }}
+                            {{ item.seller || 'NEXMART Seller' }}
                         </p>
-
-                        <p
-                            v-if="item.category"
-                        >
-                            Category:
-                            {{ item.category }}
+                        <p v-if="item.category">
+                            Category: {{ item.category }}
                         </p>
-
                         <p>
                             Variation:
-                            {{
-                                item.variation ||
-                                'Default'
-                            }}
+                            {{ item.variation || 'Default' }}
                         </p>
-
-                        <p>
-                            Quantity:
-                            {{ item.quantity }}
-                        </p>
-
+                        <p>Quantity: {{ item.quantity }}</p>
                     </div>
 
-
-                    <!-- Product Price -->
-
                     <div class="order-details-product-price">
-
                         <span>
                             Unit Price:
-                            {{
-                                formatPrice(
-                                    getItemPrice(item)
-                                )
-                            }}
+                            {{ formatPrice(getItemPrice(item)) }}
                         </span>
-
                         <strong>
                             {{
                                 formatPrice(
@@ -509,34 +464,153 @@ function handleCancelOrder() {
                                 )
                             }}
                         </strong>
-
                     </div>
 
-                </div>
+                    <div
+                        v-if="canReviewOrder"
+                        class="order-product-review"
+                    >
+                        <div
+                            v-if="item.review"
+                            class="submitted-review"
+                        >
+                            <div class="submitted-review-heading">
+                                <strong>Your review</strong>
+                                <div
+                                    class="submitted-review-stars"
+                                    :aria-label="`${item.review.rating} out of 5 stars`"
+                                >
+                                    <span
+                                        v-for="star in 5"
+                                        :key="star"
+                                        :class="{
+                                            active:
+                                                star <= item.review.rating
+                                        }"
+                                    >
+                                        &#9733;
+                                    </span>
+                                </div>
+                            </div>
 
+                            <p v-if="item.review.comment">
+                                {{ item.review.comment }}
+                            </p>
+                            <p v-else class="submitted-review-empty">
+                                No written comment was added.
+                            </p>
+                            <small>
+                                Submitted
+                                {{ formatDate(item.review.createdAt) }}
+                            </small>
+                        </div>
+
+                        <button
+                            v-else
+                            type="button"
+                            class="rate-product-button"
+                            @click="openReviewModal(item, index)"
+                        >
+                            Rate Product
+                        </button>
+                    </div>
+
+                    <div
+                        v-if="
+                            canRequestReturn ||
+                            item.returnRequest
+                        "
+                        class="order-product-return"
+                    >
+                        <article
+                            v-if="item.returnRequest"
+                            class="submitted-return-request"
+                        >
+                            <div class="submitted-return-heading">
+                                <div>
+                                    <span>Return / Refund Request</span>
+                                    <strong>
+                                        {{
+                                            formatReturnType(
+                                                item.returnRequest.requestType
+                                            )
+                                        }}
+                                    </strong>
+                                </div>
+
+                                <span
+                                    class="return-request-status"
+                                    :class="
+                                        returnStatusClass(
+                                            item.returnRequest.status
+                                        )
+                                    "
+                                >
+                                    {{ item.returnRequest.status }}
+                                </span>
+                            </div>
+
+                            <div class="submitted-return-grid">
+                                <div>
+                                    <span>Reason</span>
+                                    <strong>
+                                        {{
+                                            formatReturnReason(
+                                                item.returnRequest.reason
+                                            )
+                                        }}
+                                    </strong>
+                                </div>
+                                <div>
+                                    <span>Quantity</span>
+                                    <strong>
+                                        {{ item.returnRequest.quantity }}
+                                    </strong>
+                                </div>
+                                <div>
+                                    <span>Evidence</span>
+                                    <strong>
+                                        {{
+                                            item.returnRequest.evidence?.length ||
+                                            0
+                                        }}
+                                        image(s)
+                                    </strong>
+                                </div>
+                            </div>
+
+                            <p>
+                                {{ item.returnRequest.details }}
+                            </p>
+
+                            <small>
+                                Submitted
+                                {{
+                                    formatDate(
+                                        item.returnRequest.submittedAt
+                                    )
+                                }}
+                            </small>
+                        </article>
+
+                        <button
+                            v-else
+                            type="button"
+                            class="request-return-button"
+                            @click="openReturnModal(item, index)"
+                        >
+                            Return / Refund
+                        </button>
+                    </div>
+                </div>
             </section>
 
-
-            <!-- ======================================================== -->
-            <!-- PAYMENT & SHIPPING -->
-            <!-- ======================================================== -->
-
             <section class="order-details-section">
-
-                <h2>
-                    Payment & Shipping
-                </h2>
+                <h2>Payment &amp; Shipping</h2>
 
                 <div class="order-details-info-grid">
-
-                    <!-- Payment -->
-
                     <div class="order-details-info">
-
-                        <span>
-                            Payment Method
-                        </span>
-
+                        <span>Payment Method</span>
                         <strong>
                             {{
                                 formatPaymentMethod(
@@ -544,18 +618,10 @@ function handleCancelOrder() {
                                 )
                             }}
                         </strong>
-
                     </div>
 
-
-                    <!-- Shipping -->
-
                     <div class="order-details-info">
-
-                        <span>
-                            Shipping Method
-                        </span>
-
+                        <span>Shipping Method</span>
                         <strong>
                             {{
                                 formatShippingMethod(
@@ -563,147 +629,54 @@ function handleCancelOrder() {
                                 )
                             }}
                         </strong>
-
                     </div>
-
-
-                    <!-- Voucher -->
 
                     <div
                         v-if="order.voucher_code"
                         class="order-details-info"
                     >
-
-                        <span>
-                            Voucher
-                        </span>
-
-                        <strong>
-                            {{ order.voucher_code }}
-                        </strong>
-
+                        <span>Voucher</span>
+                        <strong>{{ order.voucher_code }}</strong>
                     </div>
-
                 </div>
-
             </section>
 
-
-            <!-- ======================================================== -->
-            <!-- PAYMENT SUMMARY -->
-            <!-- ======================================================== -->
-
             <section class="order-details-summary">
-
-                <h2>
-                    Payment Summary
-                </h2>
-
-
-                <!-- Subtotal -->
+                <h2>Payment Summary</h2>
 
                 <div class="order-summary-row">
-
-                    <span>
-                        Merchandise Subtotal
-                    </span>
-
-                    <span>
-                        {{
-                            formatPrice(
-                                order.subtotal
-                            )
-                        }}
-                    </span>
-
+                    <span>Merchandise Subtotal</span>
+                    <span>{{ formatPrice(order.subtotal) }}</span>
                 </div>
-
-
-                <!-- Shipping -->
 
                 <div class="order-summary-row">
-
-                    <span>
-                        Shipping Fee
-                    </span>
-
-                    <span>
-                        {{
-                            formatPrice(
-                                order.shipping_fee
-                            )
-                        }}
-                    </span>
-
+                    <span>Shipping Fee</span>
+                    <span>{{ formatPrice(order.shipping_fee) }}</span>
                 </div>
-
-
-                <!-- Discount -->
 
                 <div
                     v-if="Number(order.discount) > 0"
-                    class="
-                        order-summary-row
-                        order-summary-discount
-                    "
+                    class="order-summary-row order-summary-discount"
                 >
-
-                    <span>
-                        Voucher Discount
-                    </span>
-
-                    <span>
-                        -{{ formatPrice(order.discount) }}
-                    </span>
-
+                    <span>Voucher Discount</span>
+                    <span>-{{ formatPrice(order.discount) }}</span>
                 </div>
 
-
-                <!-- Total -->
-
-                <div
-                    class="
-                        order-summary-row
-                        order-summary-total
-                    "
-                >
-
-                    <span>
-                        Total Payment
-                    </span>
-
-                    <strong>
-                        {{
-                            formatPrice(
-                                order.total
-                            )
-                        }}
-                    </strong>
-
+                <div class="order-summary-row order-summary-total">
+                    <span>Total Payment</span>
+                    <strong>{{ formatPrice(order.total) }}</strong>
                 </div>
-
             </section>
-
-
-            <!-- ======================================================== -->
-            <!-- ORDER ACTIONS -->
-            <!-- ======================================================== -->
 
             <section
                 v-if="canCancelOrder"
                 class="order-details-actions"
             >
-
                 <div class="order-cancel-information">
-
-                    <strong>
-                        Need to cancel this order?
-                    </strong>
-
+                    <strong>Need to cancel this order?</strong>
                     <p>
                         You can cancel the order while it has not yet been shipped.
                     </p>
-
                 </div>
 
                 <button
@@ -713,34 +686,36 @@ function handleCancelOrder() {
                 >
                     Cancel Order
                 </button>
-
             </section>
-
         </main>
 
+        <ReviewModal
+            :show="isReviewModalOpen"
+            :item="selectedReviewItem"
+            :order-id="order.orderId"
+            @close="closeReviewModal"
+            @submit="handleReviewSubmit"
+        />
+
+        <ReturnRequestModal
+            :show="isReturnModalOpen"
+            :item="selectedReturnItem"
+            :order-id="order.orderId"
+            @close="closeReturnModal"
+            @submit="handleReturnSubmit"
+        />
     </div>
-
-
-    <!-- ================================================================ -->
-    <!-- ORDER NOT FOUND -->
-    <!-- ================================================================ -->
 
     <div
         v-else
         class="order-details-empty"
     >
-
-        <h2>
-            Order not found
-        </h2>
-
+        <h2>Order not found</h2>
         <button
             type="button"
             @click="emit('back')"
         >
             Back to Orders
         </button>
-
     </div>
-
 </template>
