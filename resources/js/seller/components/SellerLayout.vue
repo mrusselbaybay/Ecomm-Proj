@@ -52,22 +52,23 @@
             </div>
             <div>
               <p class="logo-text">NEXMART</p>
-              <p class="logo-sub">Seller Center</p>
+              <p class="logo-sub">Seller Portal</p>
             </div>
           </div>
 
           <nav class="sidebar-nav">
-            <div
-              v-for="item in navItems"
-              :key="item.id"
-              @click="navigateTo(item.id)"
-              class="sidebar-link"
-              :class="{ active: currentSection === item.id }"
-            >
-              <span class="icon-wrap" v-html="getIcon(item.icon)"></span>
-              <span class="nav-label">{{ item.label }}</span>
-              <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
-            </div>
+            <template v-for="item in navItems" :key="item.id">
+              <div v-if="item.sectionBefore" class="sidebar-section-label">{{ item.sectionBefore }}</div>
+              <div
+                @click="navigateTo(item.id)"
+                class="sidebar-link"
+                :class="{ active: activeNavId === item.id }"
+              >
+                <span class="icon-wrap" v-html="getIcon(item.icon)"></span>
+                <span class="nav-label">{{ item.label }}</span>
+                <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
+              </div>
+            </template>
           </nav>
         </div>
 
@@ -103,9 +104,32 @@
               <h1 class="header-title">{{ sectionLabel }}</h1>
               <p class="header-breadcrumb">NEXMART Seller Center &gt; {{ sectionLabel }}</p>
             </div>
+
+            <div class="header-actions">
+              <div class="header-search">
+                <span class="search-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
+                </span>
+                <input type="text" placeholder="Search orders, products…" />
+              </div>
+
+              <div class="header-right">
+                <button class="notif-btn" title="Notifications">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+                  <span class="notif-dot"></span>
+                </button>
+                <div class="header-profile">
+                  <div class="header-profile-text">
+                    <p class="header-profile-name">{{ sellerDetails?.business_name || fullName }}</p>
+                    <p class="header-profile-role">Seller Partner</p>
+                  </div>
+                  <div class="header-profile-avatar">{{ initials }}</div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <component :is="currentComponent" />
+          <component :is="currentComponent" v-bind="currentComponentProps" />
         </div>
       </main>
     </div>
@@ -146,6 +170,7 @@ import Dashboard from './Dashboard.vue';
 import Profile from './Profile.vue';
 import Inventory from './Inventory.vue';
 import Orders from './Orders.vue';
+import OrderDetails from './OrderDetails.vue';
 import PrepareOrders from './PrepareOrders.vue';
 import CourierHandover from './CourierHandover.vue';
 import Delivery from './Delivery.vue';
@@ -155,6 +180,12 @@ import Messages from './Messages.vue';
 
 const showLogoutConfirm = ref(false);
 const currentSection = ref('dashboard');
+const selectedOrderId = ref(null);
+
+// /seller/orders/{id} is a dynamic sub-route of Orders that isn't a
+// literal entry in pathToSection/sectionToPath below (those are 1:1
+// static maps). It's matched separately in resolveSection().
+const ORDER_DETAILS_PATH = /^\/seller\/orders\/([^/]+)$/;
 
 const {
   isLoading,
@@ -199,6 +230,7 @@ const componentMap = {
   dashboard: Dashboard,
   inventory: Inventory,
   orders: Orders,
+  orderDetails: OrderDetails,
   prepareOrders: PrepareOrders,
   courierHandover: CourierHandover,
   delivery: Delivery,
@@ -210,11 +242,27 @@ const componentMap = {
 
 const currentComponent = computed(() => componentMap[currentSection.value] || Dashboard);
 
+// Only OrderDetails currently needs props; every other section ignores
+// v-bind="{}" harmlessly.
+const currentComponentProps = computed(() => {
+  if (currentSection.value === 'orderDetails') {
+    return { orderId: selectedOrderId.value };
+  }
+  return {};
+});
+
+// The Orders sidebar link should stay highlighted while viewing a
+// single order's details, since that's conceptually still "Orders".
+const activeNavId = computed(() =>
+  currentSection.value === 'orderDetails' ? 'orders' : currentSection.value
+);
+
 const sectionLabel = computed(() => {
   const labels = {
     dashboard: 'Dashboard',
     inventory: 'Inventory',
     orders: 'Orders',
+    orderDetails: 'Order Details',
     prepareOrders: 'Prepare Orders',
     courierHandover: 'Courier Handover',
     delivery: 'Delivery',
@@ -233,9 +281,9 @@ const navItems = computed(() => [
   { id: 'prepareOrders', label: 'Prepare Orders', icon: 'package' },
   { id: 'courierHandover', label: 'Courier Handover', icon: 'truck' },
   { id: 'delivery', label: 'Delivery', icon: 'pin' },
+  { id: 'reports', label: 'Reports', icon: 'bar', sectionBefore: 'Analysis' },
   { id: 'feedback', label: 'Feedback', icon: 'star' },
-  { id: 'reports', label: 'Reports', icon: 'bar' },
-  { id: 'messages', label: 'Messages', icon: 'mail' },
+  { id: 'messages', label: 'Messages', icon: 'mail', sectionBefore: 'Communication' },
   { id: 'account', label: 'My Account', icon: 'user', badge: pendingDocsCount.value > 0 ? pendingDocsCount.value : null },
 ]);
 
@@ -255,7 +303,18 @@ function getIcon(iconName) {
   return icons[iconName] || '';
 }
 
-function navigateTo(sectionId) {
+function navigateTo(sectionId, orderId = null) {
+  if (sectionId === 'orderDetails') {
+    if (!orderId) return;
+    selectedOrderId.value = orderId;
+    currentSection.value = 'orderDetails';
+    const path = `/seller/orders/${orderId}`;
+    if (window.location.pathname !== path) {
+      window.history.pushState({ section: sectionId, orderId }, '', path);
+    }
+    return;
+  }
+
   const path = sectionToPath[sectionId];
   if (!path) return;
   currentSection.value = sectionId;
@@ -264,23 +323,39 @@ function navigateTo(sectionId) {
   }
 }
 
+// Resolves a URL pathname to { section, orderId } for both the static
+// 1:1 routes (pathToSection) and the dynamic /seller/orders/{id} route.
+function resolveSection(path) {
+  const orderMatch = path.match(ORDER_DETAILS_PATH);
+  if (orderMatch) {
+    return { section: 'orderDetails', orderId: decodeURIComponent(orderMatch[1]) };
+  }
+  return { section: pathToSection[path] || 'dashboard', orderId: null };
+}
+
 function handlePopState() {
-  const path = window.location.pathname;
-  const section = pathToSection[path] || 'dashboard';
-  if (currentSection.value !== section) {
-    currentSection.value = section;
+  const { section, orderId } = resolveSection(window.location.pathname);
+  currentSection.value = section;
+  selectedOrderId.value = orderId;
+}
+
+// Lets nested components (e.g. Dashboard's quick actions, or Orders.vue
+// linking into OrderDetails) request a tab switch without prop-drilling
+// a navigate() function through every level. Accepts either a plain
+// section string (legacy) or { section, orderId }.
+function handleSellerNav(event) {
+  const detail = event.detail;
+  if (typeof detail === 'string') {
+    navigateTo(detail);
+  } else if (detail && typeof detail === 'object') {
+    navigateTo(detail.section, detail.orderId);
   }
 }
 
-// Lets nested components (e.g. Dashboard's quick actions) request a tab
-// switch without prop-drilling a navigate() function through every level.
-function handleSellerNav(event) {
-  navigateTo(event.detail);
-}
-
 onMounted(async () => {
-  const initialPath = window.location.pathname;
-  currentSection.value = pathToSection[initialPath] || 'dashboard';
+  const initial = resolveSection(window.location.pathname);
+  currentSection.value = initial.section;
+  selectedOrderId.value = initial.orderId;
 
   await checkAuth();
   if (isSeller.value) {

@@ -22,6 +22,10 @@ function getSupabase() {
   return _supabase;
 }
 
+// Exported so other seller composables (e.g. useSellerProducts.js) reuse this
+// exact singleton instead of each creating their own Supabase client.
+export { getSupabase };
+
 // ---- shared state across all seller components ----
 const isLoading = ref(true);
 const isAuthenticated = ref(false);

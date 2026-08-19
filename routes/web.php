@@ -62,6 +62,9 @@ Route::prefix('api/logistics')->name('api.logistics.')->group(function () {
         ->name('notify.rejected');
 });
 
+// ---------- API Routes for Seller (Seller Order Page) ----------
+require __DIR__.'/seller.php';
+
 // ---------- Registration (server-side, service-role protected) ----------
 // NOTE: Your project already has /api/signup/send-code, /api/signup/verify-code,
 // and /api/signup/resend-code routes wired to PasswordResetController (referenced
