@@ -273,10 +273,15 @@ function placeOrder() {
      * Database/API-ready order payload.
      */
     const orderPayload = {
-        items: props.items.map(item => ({
+            items: props.items.map(item => ({
             product_id: item.productId,
+
+            name: item.name,
+            category: item.category,
+
             seller: item.seller,
             variation: item.variation,
+
             quantity: Number(item.quantity),
             unit_price: Number(item.price)
         })),

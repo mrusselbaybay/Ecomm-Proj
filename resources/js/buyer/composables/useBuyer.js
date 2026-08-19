@@ -1,6 +1,36 @@
 import { ref, computed } from 'vue';
 
+/*
+|--------------------------------------------------------------------------
+| Shared Buyer State
+|--------------------------------------------------------------------------
+|
+| These refs are outside useBuyer(), which means every Buyer component
+| that calls useBuyer() will share the same cart and orders.
+|
+*/
+
 const cart = ref([]);
+const orders = ref([]);
+
+/*
+|--------------------------------------------------------------------------
+| Order Statuses
+|--------------------------------------------------------------------------
+|
+| Keeping statuses in one place prevents spelling differences later.
+| These can eventually match your database status values.
+|
+*/
+
+const ORDER_STATUSES = {
+    TO_SHIP: 'To Ship',
+    IN_TRANSIT: 'In Transit',
+    OUT_FOR_DELIVERY: 'Out for Delivery',
+    DELIVERED: 'Delivered',
+    CANCELLED: 'Cancelled',
+    RETURNED: 'Returned'
+};
 
 /*
 |--------------------------------------------------------------------------
@@ -71,11 +101,15 @@ function addToCart(product, variation, quantity) {
 }
 
 function removeFromCart(cartId) {
-    cart.value = cart.value.filter(item => item.cartId !== cartId);
+    cart.value = cart.value.filter(
+        item => item.cartId !== cartId
+    );
 }
 
 function increaseCartQuantity(cartId) {
-    const item = cart.value.find(item => item.cartId === cartId);
+    const item = cart.value.find(
+        item => item.cartId === cartId
+    );
 
     if (item) {
         item.quantity++;
@@ -83,7 +117,9 @@ function increaseCartQuantity(cartId) {
 }
 
 function decreaseCartQuantity(cartId) {
-    const item = cart.value.find(item => item.cartId === cartId);
+    const item = cart.value.find(
+        item => item.cartId === cartId
+    );
 
     if (item && item.quantity > 1) {
         item.quantity--;
@@ -91,7 +127,9 @@ function decreaseCartQuantity(cartId) {
 }
 
 function toggleCartItem(cartId) {
-    const item = cart.value.find(item => item.cartId === cartId);
+    const item = cart.value.find(
+        item => item.cartId === cartId
+    );
 
     if (item) {
         item.selected = !item.selected;
@@ -113,32 +151,44 @@ function toggleSellerItems(seller, selected) {
 */
 
 const selectedItems = computed(() => {
-    return cart.value.filter(item => item.selected);
+    return cart.value.filter(
+        item => item.selected
+    );
 });
 
 const selectedItemCount = computed(() => {
     return selectedItems.value.reduce(
-        (total, item) => total + item.quantity,
+        (total, item) =>
+            total + item.quantity,
         0
     );
 });
 
 const cartSubtotal = computed(() => {
     return selectedItems.value.reduce(
-        (total, item) => total + (item.price * item.quantity),
+        (total, item) =>
+            total +
+            (item.price * item.quantity),
         0
     );
 });
 
 const cartItemCount = computed(() => {
     return cart.value.reduce(
-        (total, item) => total + item.quantity,
+        (total, item) =>
+            total + item.quantity,
         0
     );
 });
 
 const sellers = computed(() => {
-    return [...new Set(cart.value.map(item => item.seller))];
+    return [
+        ...new Set(
+            cart.value.map(
+                item => item.seller
+            )
+        )
+    ];
 });
 
 const isCartEmpty = computed(() => {
@@ -152,8 +202,12 @@ const isCartEmpty = computed(() => {
 */
 
 const allItemsSelected = computed(() => {
-    return cart.value.length > 0 &&
-        cart.value.every(item => item.selected);
+    return (
+        cart.value.length > 0 &&
+        cart.value.every(
+            item => item.selected
+        )
+    );
 });
 
 function toggleSelectAll(selected) {
@@ -164,12 +218,246 @@ function toggleSelectAll(selected) {
 
 /*
 |--------------------------------------------------------------------------
+| Orders
+|--------------------------------------------------------------------------
+|
+| addOrder() receives the final order payload from Checkout.vue.
+|
+| For now, orders are stored in frontend memory.
+|
+| Later:
+|
+| Checkout.vue
+|      ↓
+| Laravel API
+|      ↓
+| Supabase/PostgreSQL
+|      ↓
+| API response
+|      ↓
+| addOrder(response)
+|
+| So the UI structure will not need to be completely redesigned later.
+|
+*/
+
+function addOrder(orderData) {
+    if (
+        !orderData ||
+        !Array.isArray(orderData.items) ||
+        orderData.items.length === 0
+    ) {
+        return null;
+    }
+
+    const order = {
+        /*
+         * Temporary frontend order ID.
+         *
+         * Later the database-generated order ID can replace this.
+         */
+        orderId:
+            orderData.orderId ||
+            `NX-${Date.now()}`,
+
+        /*
+         * Newly placed orders start as To Ship.
+         */
+        status:
+            orderData.status ||
+            ORDER_STATUSES.TO_SHIP,
+
+        /*
+         * Copy products so changing the cart later
+         * does not modify an existing order.
+         */
+        items: orderData.items.map(item => ({
+            ...item
+        })),
+
+        /*
+         * Checkout information
+         */
+        delivery_address:
+            orderData.delivery_address || null,
+
+        shipping_method:
+            orderData.shipping_method || null,
+
+        voucher_code:
+            orderData.voucher_code || null,
+
+        payment_method:
+            orderData.payment_method || null,
+
+        /*
+         * Financial summary
+         */
+        subtotal:
+            Number(orderData.subtotal || 0),
+
+        shipping_fee:
+            Number(orderData.shipping_fee || 0),
+
+        discount:
+            Number(orderData.discount || 0),
+
+        total:
+            Number(orderData.total || 0),
+
+        /*
+         * Temporary frontend timestamp.
+         *
+         * Later this can come directly from the database.
+         */
+        createdAt:
+            orderData.createdAt ||
+            new Date().toISOString()
+    };
+
+    /*
+     * Newest orders appear first.
+     */
+    orders.value.unshift(order);
+
+    return order;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Find Order
+|--------------------------------------------------------------------------
+*/
+
+function findOrderById(orderId) {
+    return orders.value.find(
+        order =>
+            order.orderId === orderId
+    ) || null;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Orders By Status
+|--------------------------------------------------------------------------
+*/
+
+function getOrdersByStatus(status) {
+    if (!status || status === 'All') {
+        return orders.value;
+    }
+
+    return orders.value.filter(
+        order =>
+            order.status === status
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Update Order Status
+|--------------------------------------------------------------------------
+|
+| Useful for our frontend prototype.
+|
+| Later the Seller / Logistics side will update the status
+| through the database/API instead.
+|
+*/
+
+function updateOrderStatus(
+    orderId,
+    newStatus
+) {
+    const order = findOrderById(orderId);
+
+    if (!order) {
+        return false;
+    }
+
+    order.status = newStatus;
+
+    return true;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Cancel Order
+|--------------------------------------------------------------------------
+|
+| Buyers can only cancel orders that are still waiting to be shipped.
+|
+| Later this function can be replaced with a Laravel API request.
+|
+*/
+
+function cancelOrder(
+    orderId,
+    reason = 'Cancelled by buyer'
+) {
+    const order = findOrderById(orderId);
+
+    if (!order) {
+        return false;
+    }
+
+    /*
+     * Buyer can only cancel while the order
+     * is still under To Ship.
+     */
+    if (
+        order.status !==
+        ORDER_STATUSES.TO_SHIP
+    ) {
+        return false;
+    }
+
+    order.status =
+        ORDER_STATUSES.CANCELLED;
+
+    order.cancellationReason = reason;
+
+    order.cancelledAt =
+        new Date().toISOString();
+
+    return true;
+}
+/*
+|--------------------------------------------------------------------------
+| Order Computed Values
+|--------------------------------------------------------------------------
+*/
+
+const orderCount = computed(() => {
+    return orders.value.length;
+});
+
+const activeOrderCount = computed(() => {
+    return orders.value.filter(order =>
+        order.status !==
+            ORDER_STATUSES.DELIVERED &&
+        order.status !==
+            ORDER_STATUSES.CANCELLED &&
+        order.status !==
+            ORDER_STATUSES.RETURNED
+    ).length;
+});
+
+/*
+|--------------------------------------------------------------------------
 | Export
 |--------------------------------------------------------------------------
 */
 
 export function useBuyer() {
     return {
+        /*
+        |--------------------------------------------------------------------------
+        | Cart State
+        |--------------------------------------------------------------------------
+        */
+
         cart,
         sellers,
 
@@ -180,6 +468,12 @@ export function useBuyer() {
         isCartEmpty,
         allItemsSelected,
 
+        /*
+        |--------------------------------------------------------------------------
+        | Cart Functions
+        |--------------------------------------------------------------------------
+        */
+
         addToCart,
         removeFromCart,
         increaseCartQuantity,
@@ -188,7 +482,32 @@ export function useBuyer() {
         toggleSellerItems,
         toggleSelectAll,
 
+<<<<<<< HEAD
         toggleFavorite,
         isFavorite
+=======
+        /*
+        |--------------------------------------------------------------------------
+        | Order State
+        |--------------------------------------------------------------------------
+        */
+
+        orders,
+        orderCount,
+        activeOrderCount,
+        ORDER_STATUSES,
+
+        /*
+        |--------------------------------------------------------------------------
+        | Order Functions
+        |--------------------------------------------------------------------------
+        */
+
+      addOrder,
+findOrderById,
+getOrdersByStatus,
+updateOrderStatus,
+cancelOrder
+>>>>>>> 87c29c1 (feat: add buyer checkout orders tracking and cancellation)
     };
 }

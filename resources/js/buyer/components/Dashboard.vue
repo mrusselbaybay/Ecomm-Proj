@@ -4,9 +4,13 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import ProductDetails from './ProductDetails.vue';
 import Cart from './Cart.vue';
 import Checkout from './Checkout.vue';
+<<<<<<< HEAD
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
+=======
+import Orders from './Orders.vue';
+>>>>>>> 87c29c1 (feat: add buyer checkout orders tracking and cancellation)
 
 import { useBuyer } from '../composables/useBuyer';
 import {
@@ -23,9 +27,14 @@ import {
 */
 
 const {
+<<<<<<< HEAD
     removeFromCart
+=======
+    cartItemCount,
+    removeFromCart,
+    addOrder
+>>>>>>> 87c29c1 (feat: add buyer checkout orders tracking and cancellation)
 } = useBuyer();
-
 /*
 |--------------------------------------------------------------------------
 | Dashboard State
@@ -37,6 +46,8 @@ const selectedCategory = ref('All');
 
 const selectedProduct = ref(null);
 const showCart = ref(false);
+const showOrders = ref(false);
+
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
 
@@ -300,7 +311,10 @@ function selectCategory(category) {
 
 function viewProduct(product) {
     selectedProduct.value = product;
+
     showCart.value = false;
+    showOrders.value = false;
+
     checkoutItems.value = [];
 }
 
@@ -316,14 +330,35 @@ function backToProducts() {
 
 function openCart() {
     selectedProduct.value = null;
-    checkoutItems.value = [];
+
+    showOrders.value = false;
     showCart.value = true;
+
+    checkoutItems.value = [];
 }
 
 function closeCart() {
     showCart.value = false;
 }
+/*
+|--------------------------------------------------------------------------
+| Orders
+|--------------------------------------------------------------------------
+*/
 
+function openOrders() {
+    selectedProduct.value = null;
+
+    showCart.value = false;
+    showOrders.value = true;
+
+    checkoutItems.value = [];
+    checkoutSource.value = null;
+}
+
+function closeOrders() {
+    showOrders.value = false;
+}
 /*
 |--------------------------------------------------------------------------
 | Buy Now
@@ -394,15 +429,26 @@ function checkoutFromCart(items) {
 }
 
 
-function handleOrderPlaced() {
+function handleOrderPlaced(orderPayload) {
     /*
     |--------------------------------------------------------------------------
-    | Remove purchased cart items
+    | Save Order
     |--------------------------------------------------------------------------
-    |
-    | Only remove products when checkout came from the cart.
-    | Buy Now does not affect the existing cart.
-    |
+    */
+
+    const savedOrder = addOrder(orderPayload);
+
+    if (!savedOrder) {
+        alert('Unable to save the order.');
+        return;
+    }
+
+    console.log('Order saved:', savedOrder);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Remove Purchased Cart Items
+    |--------------------------------------------------------------------------
     */
 
     if (checkoutSource.value === 'cart') {
@@ -418,12 +464,16 @@ function handleOrderPlaced() {
     | Reset Checkout
     |--------------------------------------------------------------------------
     */
-
     checkoutItems.value = [];
     checkoutSource.value = null;
 
     showCart.value = false;
     selectedProduct.value = null;
+
+    /*
+    * Show the newly created order.
+    */
+    showOrders.value = true;
 }
 /*
 |--------------------------------------------------------------------------
@@ -551,6 +601,12 @@ function handleBrowseAll() {
         @browse-categories="handleBrowseAll"
     />
 
+    <!-- ORDERS -->
+    <Orders
+        v-else-if="showOrders"
+        @back="closeOrders"
+    />
+
     <!-- ================================================================ -->
     <!-- BUYER DASHBOARD -->
     <!-- ================================================================ -->
@@ -560,12 +616,84 @@ function handleBrowseAll() {
         class="buyer-page"
     >
 
+<<<<<<< HEAD
         <Header
             v-model:search-query="searchQuery"
             :active-category="selectedCategory"
             @select-category="selectCategory"
             @cart-click="openCart"
         />
+=======
+        <!-- Header -->
+        <header class="buyer-header">
+
+            <div class="buyer-logo">
+                NEXMART
+            </div>
+
+            <!-- Search -->
+            <div class="buyer-search">
+
+                <input
+                    v-model="searchQuery"
+                    type="text"
+                    placeholder="Search products..."
+                />
+
+                <button
+                    type="button"
+                    title="Search"
+                >
+                    🔍
+                </button>
+
+            </div>
+
+            <!-- Buyer Actions -->
+            <nav class="buyer-actions">
+
+                <button
+                    type="button"
+                    title="Messages"
+                >
+                    💬
+                </button>
+
+                    <button
+                        type="button"
+                        title="Orders"
+                        @click="openOrders"
+                    >
+                        Orders
+                    </button>
+                    
+                <button
+                    type="button"
+                    title="Cart"
+                    class="cart-button"
+                    @click="openCart"
+                >
+                    🛒
+
+                    <span
+                        v-if="cartCount > 0"
+                        class="cart-count"
+                    >
+                        {{ cartCount }}
+                    </span>
+                </button>
+
+                <button
+                    type="button"
+                    title="Account"
+                >
+                    👤
+                </button>
+
+            </nav>
+
+        </header>
+>>>>>>> 87c29c1 (feat: add buyer checkout orders tracking and cancellation)
 
         <!-- Main -->
         <main class="buyer-main">
