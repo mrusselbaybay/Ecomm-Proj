@@ -3,7 +3,11 @@ import { ref } from 'vue';
 
 // Get CSRF token for Laravel
 function getCsrfToken() {
-    return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    return (
+        document
+            .querySelector('meta[name="csrf-token"]')
+            ?.getAttribute('content') || ''
+    );
 }
 
 export function useAdmin() {
@@ -16,28 +20,32 @@ export function useAdmin() {
         const s = status?.toLowerCase() || '';
 
         if (['active', 'approved', 'resolved', 'clear'].includes(s)) {
-return 'badge-green';
-}
+            return 'badge-green';
+        }
 
         if (['pending', 'in review', 'warning', 'suspended'].includes(s)) {
-return 'badge-amber';
-}
+            return 'badge-amber';
+        }
 
         if (['deactivated', 'escalated', 'rejected'].includes(s)) {
-return 'badge-red';
-}
+            return 'badge-red';
+        }
 
         return 'badge-slate';
     }
 
     function formatDate(date) {
         if (!date) {
-return 'N/A';
-}
+            return 'N/A';
+        }
 
         const d = new Date(date);
 
-        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        return d.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+        });
     }
 
     // ---------- Account Registrations ----------
@@ -48,24 +56,26 @@ return 'N/A';
             const params = new URLSearchParams();
 
             if (search) {
-params.append('search', search);
-}
+                params.append('search', search);
+            }
 
             if (role) {
-params.append('role', role);
-}
+                params.append('role', role);
+            }
 
             if (status) {
-params.append('status', status);
-}
-            
-            const response = await fetch(`/api/admin/registrations?${params.toString()}`);
+                params.append('status', status);
+            }
+
+            const response = await fetch(
+                `/api/admin/registrations?${params.toString()}`,
+            );
             const data = await response.json();
-            
+
             if (!response.ok) {
-throw new Error(data.message || 'Failed to load registrations');
-}
-            
+                throw new Error(data.message || 'Failed to load registrations');
+            }
+
             registrations.value = data.data || [];
         } catch (err) {
             error.value = err.message;
@@ -77,30 +87,34 @@ throw new Error(data.message || 'Failed to load registrations');
 
     async function approveUser(user) {
         if (!user) {
-return;
-}
+            return;
+        }
 
-        const userName = user.full_name || user.name || user.email || 'this user';
+        const userName =
+            user.full_name || user.name || user.email || 'this user';
 
         if (!confirm(`Approve ${userName}?`)) {
-return;
-}
-        
+            return;
+        }
+
         try {
-            const response = await fetch(`/api/admin/registrations/${user.id}/approve`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken()
-                }
-            });
-            
+            const response = await fetch(
+                `/api/admin/registrations/${user.id}/approve`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': getCsrfToken(),
+                    },
+                },
+            );
+
             const data = await response.json();
 
             if (!response.ok) {
-throw new Error(data.message || 'Failed to approve user');
-}
-            
+                throw new Error(data.message || 'Failed to approve user');
+            }
+
             alert(`✅ ${userName} approved successfully!`);
             await loadRegistrations();
         } catch (err) {
@@ -111,31 +125,35 @@ throw new Error(data.message || 'Failed to approve user');
 
     async function rejectUser(user, reason = '') {
         if (!user) {
-return;
-}
+            return;
+        }
 
-        const userName = user.full_name || user.name || user.email || 'this user';
+        const userName =
+            user.full_name || user.name || user.email || 'this user';
 
         if (!reason && !confirm(`Reject ${userName}?`)) {
-return;
-}
-        
+            return;
+        }
+
         try {
-            const response = await fetch(`/api/admin/registrations/${user.id}/reject`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken()
+            const response = await fetch(
+                `/api/admin/registrations/${user.id}/reject`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': getCsrfToken(),
+                    },
+                    body: JSON.stringify({ reason }),
                 },
-                body: JSON.stringify({ reason })
-            });
-            
+            );
+
             const data = await response.json();
 
             if (!response.ok) {
-throw new Error(data.message || 'Failed to reject user');
-}
-            
+                throw new Error(data.message || 'Failed to reject user');
+            }
+
             alert(`❌ ${userName} rejected.`);
             await loadRegistrations();
         } catch (err) {
@@ -145,8 +163,11 @@ throw new Error(data.message || 'Failed to reject user');
     }
 
     function viewRegistration(user) {
-        const userName = user.full_name || user.name || user.email || 'this user';
-        alert(`📄 Viewing documents for ${userName}\n\nThis would open a modal with:\n- Valid ID\n- Business Permit (if seller)\n- OR/CR (if courier)\n- Driver's License (if courier/driver)\n\nStatus: ${user.status || 'N/A'}`);
+        const userName =
+            user.full_name || user.name || user.email || 'this user';
+        alert(
+            `📄 Viewing documents for ${userName}\n\nThis would open a modal with:\n- Valid ID\n- Business Permit (if seller)\n- OR/CR (if courier)\n- Driver's License (if courier/driver)\n\nStatus: ${user.status || 'N/A'}`,
+        );
     }
 
     // ---------- User Accounts ----------
@@ -157,24 +178,26 @@ throw new Error(data.message || 'Failed to reject user');
             const params = new URLSearchParams();
 
             if (search) {
-params.append('search', search);
-}
+                params.append('search', search);
+            }
 
             if (role) {
-params.append('role', role);
-}
+                params.append('role', role);
+            }
 
             if (status) {
-params.append('status', status);
-}
-            
-            const response = await fetch(`/api/admin/accounts?${params.toString()}`);
+                params.append('status', status);
+            }
+
+            const response = await fetch(
+                `/api/admin/accounts?${params.toString()}`,
+            );
             const data = await response.json();
-            
+
             if (!response.ok) {
-throw new Error(data.message || 'Failed to load users');
-}
-            
+                throw new Error(data.message || 'Failed to load users');
+            }
+
             users.value = data.data || [];
         } catch (err) {
             error.value = err.message;
@@ -186,38 +209,48 @@ throw new Error(data.message || 'Failed to load users');
 
     async function updateUserStatus(user, status) {
         if (!user) {
-return;
-}
-        
+            return;
+        }
+
         const statusLabels = {
             active: 'activate',
             suspended: 'suspend',
-            deactivated: 'deactivate'
+            deactivated: 'deactivate',
         };
-        
-        const userName = user.full_name || user.name || user.email || 'this user';
 
-        if (!confirm(`Are you sure you want to ${statusLabels[status] || status} ${userName}?`)) {
-return;
-}
-        
+        const userName =
+            user.full_name || user.name || user.email || 'this user';
+
+        if (
+            !confirm(
+                `Are you sure you want to ${statusLabels[status] || status} ${userName}?`,
+            )
+        ) {
+            return;
+        }
+
         try {
-            const response = await fetch(`/api/admin/accounts/${user.id}/status`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken()
+            const response = await fetch(
+                `/api/admin/accounts/${user.id}/status`,
+                {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': getCsrfToken(),
+                    },
+                    body: JSON.stringify({ status }),
                 },
-                body: JSON.stringify({ status })
-            });
-            
+            );
+
             const data = await response.json();
 
             if (!response.ok) {
-throw new Error(data.message || 'Failed to update user status');
-}
-            
-            alert(`✅ ${userName} has been ${statusLabels[status] || status}d.`);
+                throw new Error(data.message || 'Failed to update user status');
+            }
+
+            alert(
+                `✅ ${userName} has been ${statusLabels[status] || status}d.`,
+            );
             await loadUsers();
         } catch (err) {
             console.error('Error updating user status:', err);
@@ -237,6 +270,6 @@ throw new Error(data.message || 'Failed to update user status');
         approveUser,
         rejectUser,
         viewRegistration,
-        updateUserStatus
+        updateUserStatus,
     };
 }
