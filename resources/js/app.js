@@ -109,6 +109,7 @@ const App = {
         const newConfirmPassword = ref('');
         const isVerifying = ref(false);
 
+<<<<<<< HEAD
         // Validation errors for inline display
         const validationErrors = ref({
             firstName: '',
@@ -135,6 +136,424 @@ const App = {
             driverBirthday: '',
             driverPassword: '',
             driverConfirmPassword: '',
+=======
+    async function fetchMunicipalities(provinceCode, isCompany = false) {
+      if (isCompany) {
+        companyMunicipalityOptions.value = [];
+        companyBarangayOptions.value = [];
+        form.value.companyMunicipalityCode = '';
+        form.value.companyMunicipality = '';
+        form.value.companyBarangay = '';
+      } else {
+        municipalityOptions.value = [];
+        barangayOptions.value = [];
+        form.value.municipalityCode = '';
+        form.value.municipality = '';
+        form.value.barangay = '';
+      }
+      
+      if (!provinceCode) return;
+      
+      if (isCompany) {
+        loadingCompanyMunicipalities.value = true;
+      } else {
+        loadingMunicipalities.value = true;
+      }
+      addressApiError.value = '';
+      
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        
+        const res = await fetch(`${PSGC_BASE}/cities-municipalities?province_code=${provinceCode}`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) throw new Error('Request failed: ' + res.status);
+        const json = await res.json();
+        const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+
+        if (isCompany) {
+          companyMunicipalityOptions.value = data;
+        } else {
+          municipalityOptions.value = data;
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          addressApiError.value = 'Request timed out. Please try again.';
+        } else {
+          addressApiError.value = 'Could not load cities/municipalities. Please try again.';
+        }
+      } finally {
+        if (isCompany) {
+          loadingCompanyMunicipalities.value = false;
+        } else {
+          loadingMunicipalities.value = false;
+        }
+      }
+    }
+
+    async function fetchBarangays(municipalityCode, isCompany = false) {
+      if (isCompany) {
+        companyBarangayOptions.value = [];
+        form.value.companyBarangay = '';
+      } else {
+        barangayOptions.value = [];
+        form.value.barangay = '';
+      }
+      
+      if (!municipalityCode) return;
+      
+      if (isCompany) {
+        loadingCompanyBarangays.value = true;
+      } else {
+        loadingBarangays.value = true;
+      }
+      addressApiError.value = '';
+      
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        
+        const res = await fetch(`${PSGC_BASE}/barangays?city_municipality_code=${municipalityCode}&limit=500`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) {
+          let detail = '';
+          try { detail = await res.text(); } catch (e) {}
+          throw new Error('Request failed: ' + res.status + (detail ? ' — ' + detail : ''));
+        }
+        const json = await res.json();
+        const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+
+        if (isCompany) {
+          companyBarangayOptions.value = data;
+        } else {
+          barangayOptions.value = data;
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          addressApiError.value = 'Request timed out. Please try again.';
+        } else {
+          addressApiError.value = 'Could not load barangays. Please try again.';
+        }
+      } finally {
+        if (isCompany) {
+          loadingCompanyBarangays.value = false;
+        } else {
+          loadingBarangays.value = false;
+        }
+      }
+    }
+
+    // Address Change Handlers
+    function onProvinceChange() {
+      const selected = provinceOptions.value.find(p => p.code === form.value.provinceCode);
+      form.value.province = selected ? selected.name : '';
+      fetchMunicipalities(form.value.provinceCode, false);
+    }
+
+    function onMunicipalityChange() {
+      const selected = municipalityOptions.value.find(m => m.code === form.value.municipalityCode);
+      form.value.municipality = selected ? selected.name : '';
+      fetchBarangays(form.value.municipalityCode, false);
+    }
+
+    function onCompanyProvinceChange() {
+      const selected = companyProvinceOptions.value.find(p => p.code === form.value.companyProvinceCode);
+      form.value.companyProvince = selected ? selected.name : '';
+      fetchMunicipalities(form.value.companyProvinceCode, true);
+    }
+
+    function onCompanyMunicipalityChange() {
+      const selected = companyMunicipalityOptions.value.find(m => m.code === form.value.companyMunicipalityCode);
+      form.value.companyMunicipality = selected ? selected.name : '';
+      fetchBarangays(form.value.companyMunicipalityCode, true);
+    }
+
+    function retryAddressLoad() {
+      if (!form.value.provinceCode) {
+        fetchProvinces();
+      } else if (!form.value.municipalityCode) {
+        fetchMunicipalities(form.value.provinceCode, false);
+      } else {
+        fetchBarangays(form.value.municipalityCode, false);
+      }
+    }
+
+    // ---------- Navigation Functions ----------
+    function resetMessages() {
+      errorMsg.value = '';
+      successMsg.value = '';
+    }
+
+    function switchMode(next) {
+      mode.value = next;
+      signupStep.value = 'role';
+      selectedRole.value = null;
+      isLogisticsSignup.value = false;
+      resetMessages();
+      resetStep.value = 1;
+      resetEmail.value = '';
+      resetCode.value = '';
+      newPassword.value = '';
+      newConfirmPassword.value = '';
+      forgotEmail.value = '';
+      isSubmitting.value = false;
+      signupVerifyCode.value = '';
+      signupEmailVerified.value = false;
+      isSendingSignupCode.value = false;
+      isVerifyingSignupCode.value = false;
+      
+      form.value = { 
+        lastName:'', firstName:'', middleInitial:'', sex:'', contactNo:'', birthday:'', 
+        provinceCode:'', province:'', municipalityCode:'', municipality:'', barangay:'', street:'', houseNo:'', 
+        idFile:null, businessName:'', lineOfBusiness:'', businessPermit:null, 
+        vehicle:'', plateNumber:'', orcrFile:null, licenseFile:null,
+        companyName:'', companyAddress:'', companyRegion:'', companyProvinceCode:'', companyProvince:'', 
+        companyMunicipalityCode:'', companyMunicipality:'', companyBarangay:'', 
+        companyStreet:'', companyHouseNo:'', companyContactNo:'', companyEmail:'', 
+        companyTIN:'', companySECReg:'', ownerLastName:'', ownerFirstName:'', 
+        ownerMiddleInitial:'', ownerSex:'', ownerBirthday:'', 
+        ownerIdFile:null, businessPermitFile:null, mayorPermitFile:null, 
+        dtiRegFile:null,
+        driverFirstName:'', driverLastName:'', driverMiddleInitial:'', driverSex:'', 
+        driverBirthday:'', driverContactNo:'', driverEmail:'', driverPassword:'', 
+        driverConfirmPassword:'', driverIdFile:null, driverLicenseFile:null, 
+        driverVehicle:'', driverPlateNumber:'', driverOrcrFile:null, driverLicenseNumber:''
+      };
+      
+      Object.keys(validationErrors.value).forEach(key => {
+        validationErrors.value[key] = '';
+      });
+      
+      municipalityOptions.value = [];
+      barangayOptions.value = [];
+      companyMunicipalityOptions.value = [];
+      companyBarangayOptions.value = [];
+      addressApiError.value = '';
+      email.value = '';
+      password.value = '';
+      confirmPassword.value = '';
+    }
+
+    function startLogisticsSignup() {
+      isLogisticsSignup.value = true;
+      signupStep.value = 'company';
+      resetMessages();
+    }
+
+    function selectRole(role) {
+      selectedRole.value = role;
+      resetMessages();
+      
+      Object.keys(validationErrors.value).forEach(key => {
+        validationErrors.value[key] = '';
+      });
+      
+      if (role === 'driver') {
+        signupStep.value = 'driverPersonal';
+      } else {
+        signupStep.value = 'personal';
+      }
+    }
+
+    async function goToStep(step) {
+      if (selectedRole.value === 'driver') {
+        if (step === 'driverVerifyEmail' && signupStep.value === 'driverPersonal') {
+          if (!validateDriverPersonal()) return;
+          signupStep.value = step;
+          resetMessages();
+          sendSignupVerificationCode();
+          return;
+        }
+        if (step === 'driverAddress' && signupStep.value === 'driverVerifyEmail') {
+          const verified = await verifySignupCode();
+          if (!verified) return;
+          signupStep.value = step;
+          resetMessages();
+          return;
+        }
+        if (step === 'driverSecurity' && signupStep.value === 'driverAddress') {
+          if (!validateDriverAddressFields()) return;
+        }
+        if (step === 'driverDocuments' && signupStep.value === 'driverSecurity') {
+          if (!validateDriverSecurityFields()) return;
+        }
+      } else if (!isLogisticsSignup.value) {
+        if (step === 'verifyEmail' && signupStep.value === 'personal') {
+          if (!validatePersonalFields()) return;
+          signupStep.value = step;
+          resetMessages();
+          sendSignupVerificationCode();
+          return;
+        }
+        if (step === 'address' && signupStep.value === 'verifyEmail') {
+          const verified = await verifySignupCode();
+          if (!verified) return;
+          signupStep.value = step;
+          resetMessages();
+          return;
+        }
+        if (step === 'security' && signupStep.value === 'address') {
+          if (!validateAddressFields()) return;
+        }
+        if (step === 'documents' && signupStep.value === 'security') {
+          if (!validateSecurityFields()) return;
+        }
+      } else {
+        if (step === 'companyVerifyEmail' && signupStep.value === 'company') {
+          if (!validateCompany()) return;
+          signupStep.value = step;
+          resetMessages();
+          sendSignupVerificationCode();
+          return;
+        }
+        if (step === 'owner' && signupStep.value === 'companyVerifyEmail') {
+          const verified = await verifySignupCode();
+          if (!verified) return;
+          signupStep.value = step;
+          resetMessages();
+          return;
+        }
+        if (step === 'address' && signupStep.value === 'owner') {
+          if (!validateOwner()) return;
+        }
+        if (step === 'security' && signupStep.value === 'address') {
+          if (!validateLogisticsAddress()) return;
+        }
+        if (step === 'documents' && signupStep.value === 'security') {
+          if (!validateLogisticsSecurity()) return;
+        }
+      }
+      
+      signupStep.value = step;
+      resetMessages();
+    }
+
+    function handleFileUpload(event, field) {
+      const file = event.target.files[0];
+      if (file) {
+        form.value[field] = file;
+      }
+    }
+
+    // ---------- Login Functions ----------
+    // ---------- Login Functions ----------
+async function handleLogin() {
+  resetMessages();
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.value.trim().toLowerCase(),
+    password: password.value
+  });
+
+  if (error) {
+    console.log('Supabase auth error:', error);
+    errorMsg.value = 'Email or password is incorrect.';
+    return;
+  }
+
+  const user = data.user;
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('role, first_name, last_name, email, account_status, status')
+    .eq('id', user.id)
+    .single();
+
+  if (profileError) {
+    console.log('Profile error:', profileError);
+    errorMsg.value = 'Could not fetch user profile.';
+    return;
+  }
+
+  // Check account status
+  if (profile.account_status === 'suspended') {
+    errorMsg.value = 'Your account has been suspended. Please contact support.';
+    await supabase.auth.signOut();
+    return;
+  }
+  
+  if (profile.account_status === 'deactivated') {
+    errorMsg.value = 'Your account has been deactivated. Please contact support.';
+    await supabase.auth.signOut();
+    return;
+  }
+  
+  if (profile.account_status === 'pending' || profile.status === 'pending') {
+    errorMsg.value = 'Your account is pending approval. Please wait for the administrator to approve your account.';
+    await supabase.auth.signOut();
+    return;
+  }
+
+  if (profile.status === 'rejected') {
+    errorMsg.value = 'Your account has been rejected. Please contact support.';
+    await supabase.auth.signOut();
+    return;
+  }
+
+  const userRole = profile?.role || user.user_metadata?.role || 'buyer';
+
+  loggedInUser.value = {
+    email: user.email,
+    role: userRole,
+    status: profile.account_status || profile.status
+  };
+
+  setCookie(
+    'nexmart_session',
+    JSON.stringify(loggedInUser.value),
+    rememberMe.value ? 30 : 1
+  );
+
+  // Redirect based on role
+  switch (userRole) {
+    case 'admin':
+      window.location.href = '/admin/dashboard';
+      break;
+    case 'logistics':
+    case 'logistics_admin':
+      window.location.href = '/logistics/dashboard';
+      break;
+    case 'seller':
+      window.location.href = '/seller/dashboard';
+      break;
+    case 'courier':
+    case 'driver':
+      window.location.href = '/';
+      break;
+    default: // buyer
+    window.location.href = '/buyer/dashboard';
+  }
+}
+
+    // ---------- Password Reset Functions ----------
+    async function handleSendCode() {
+      resetMessages();
+
+      if (!forgotEmail.value) {
+        errorMsg.value = 'Please enter your email address.';
+        return;
+      }
+
+      try {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+        const response = await fetch('/api/password/send-code', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-CSRF-TOKEN': csrfToken
+          },
+          body: JSON.stringify({
+            email: forgotEmail.value.trim().toLowerCase()
+          })
+>>>>>>> feature/buyer
         });
 
         // Registration Form Fields

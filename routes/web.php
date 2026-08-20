@@ -62,6 +62,7 @@ Route::prefix('api/logistics')->name('api.logistics.')->group(function () {
         ->name('notify.rejected');
 });
 
+
 // ---------- API Routes for Seller (Seller Order Page) ----------
 require __DIR__.'/seller.php';
 
@@ -74,6 +75,12 @@ require __DIR__.'/seller.php';
 Route::prefix('api/signup')->name('api.signup.')->group(function () {
     Route::post('/register', [AuthController::class, 'registerUser'])->name('register');
     Route::post('/register-logistics', [AuthController::class, 'registerLogistics'])->name('register-logistics');
+    });
+// ---------- Buyer SPA ----------
+Route::prefix('buyer')->name('buyer.')->group(function () {
+    Route::get('/{any?}', function () {
+        return view('buyer.dashboard');
+    })->where('any', '.*')->name('dashboard');
 });
 
 // ---------- Fallback Route ----------
