@@ -1,5 +1,8 @@
 <script setup>
 import { computed, reactive, ref } from 'vue';
+import { metaFor } from '../composables/useCategoryMeta';
+import Header from './Header.vue';
+import Footer from './Footer.vue';
 
 const props = defineProps({
     items: {
@@ -10,7 +13,11 @@ const props = defineProps({
 
 const emit = defineEmits([
     'back',
-    'place-order'
+    'place-order',
+    'search',
+    'select-category',
+    'browse-all',
+    'browse-categories'
 ]);
 
 /*
@@ -208,6 +215,20 @@ function removeVoucher() {
 
 /*
 |--------------------------------------------------------------------------
+| Header relay
+|--------------------------------------------------------------------------
+*/
+
+function handleHeaderSearch(query) {
+    emit('search', query);
+}
+
+function handleHeaderSelectCategory(category) {
+    emit('select-category', category);
+}
+
+/*
+|--------------------------------------------------------------------------
 | Place Order
 |--------------------------------------------------------------------------
 |
@@ -297,419 +318,401 @@ function placeOrder() {
 
 <template>
 
-    <div class="buyer-checkout-page">
+    <div class="buyer-page">
 
-        <!-- ============================================================ -->
-        <!-- HEADER -->
-        <!-- ============================================================ -->
+        <Header
+            @select-category="handleHeaderSelectCategory"
+            @cart-click="() => {}"
+            @logo-click="emit('back')"
+            @search="handleHeaderSearch"
+        />
 
-        <header class="checkout-header">
+        <div class="buyer-checkout-page">
 
-            <button
-                type="button"
-                class="checkout-back-button"
-                @click="emit('back')"
-            >
-                ← Back
-            </button>
+            <div class="checkout-page-content">
 
-            <div>
-                <h1>
-                    Checkout
-                </h1>
+                <!-- ======================================================== -->
+                <!-- BREADCRUMB -->
+                <!-- ======================================================== -->
 
-                <p>
-                    Review your order before placing it.
-                </p>
+                <nav class="product-breadcrumb">
+                    <button
+                        type="button"
+                        class="breadcrumb-link"
+                        @click="emit('back')"
+                    >
+                        Home
+                    </button>
+                    <span class="breadcrumb-separator">/</span>
+                    <span class="breadcrumb-current breadcrumb-current--active">
+                        Checkout
+                    </span>
+                </nav>
+
+                <!-- ======================================================== -->
+                <!-- PROGRESS STEPPER -->
+                <!-- ======================================================== -->
+
+                <div class="checkout-stepper">
+
+                    <div class="checkout-step">
+                        <div class="checkout-step-circle done">✓</div>
+                        <span class="checkout-step-label done">Cart</span>
+                    </div>
+
+                    <div class="checkout-step-line done"></div>
+
+                    <div class="checkout-step">
+                        <div class="checkout-step-circle current">2</div>
+                        <span class="checkout-step-label current">Checkout</span>
+                    </div>
+
+                    <div class="checkout-step-line"></div>
+
+                    <div class="checkout-step">
+                        <div class="checkout-step-circle">3</div>
+                        <span class="checkout-step-label">Finished</span>
+                    </div>
+
+                </div>
+
+                <div class="checkout-layout">
+
+                    <!-- ==================================================== -->
+                    <!-- FORM COLUMN -->
+                    <!-- ==================================================== -->
+
+                    <div class="checkout-form-column">
+
+                        <!-- Delivery Address -->
+                        <section class="checkout-section">
+
+                            <div class="checkout-section-title">
+                                <div class="checkout-section-icon">
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" />
+                                        <circle cx="12" cy="10" r="3" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h2>Delivery Address</h2>
+                                    <p>Where should we deliver your order?</p>
+                                </div>
+                            </div>
+
+                            <div class="checkout-form-grid">
+
+                                <div class="checkout-field">
+                                    <label>Recipient Name</label>
+                                    <input
+                                        v-model="checkoutForm.recipientName"
+                                        type="text"
+                                        placeholder="Enter recipient name"
+                                    >
+                                </div>
+
+                                <div class="checkout-field">
+                                    <label>Contact Number</label>
+                                    <input
+                                        v-model="checkoutForm.contactNumber"
+                                        type="text"
+                                        placeholder="09XXXXXXXXX"
+                                    >
+                                </div>
+
+                                <div class="checkout-field checkout-field-full">
+                                    <label>Complete Address</label>
+                                    <textarea
+                                        v-model="checkoutForm.address"
+                                        rows="3"
+                                        placeholder="House number, street, barangay, municipality, province"
+                                    ></textarea>
+                                </div>
+
+                            </div>
+
+                        </section>
+
+                        <!-- Products -->
+                        <section class="checkout-section">
+
+                            <div class="checkout-section-title">
+                                <div class="checkout-section-icon">
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
+                                        <path d="M3 6h18" />
+                                        <path d="M16 10a4 4 0 0 1-8 0" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h2>Products</h2>
+                                    <p>Items included in this order.</p>
+                                </div>
+                            </div>
+
+                            <div
+                                v-for="item in items"
+                                :key="`${item.productId}-${item.variation}`"
+                                class="checkout-item"
+                            >
+
+                                <div
+                                    class="checkout-item-image"
+                                    :class="'accent-' + metaFor(item.category).accent"
+                                >
+                                    <span
+                                        class="product-image-icon"
+                                        v-html="metaFor(item.category).icon"
+                                    ></span>
+                                </div>
+
+                                <div class="checkout-item-info">
+                                    <h3>{{ item.name }}</h3>
+                                    <p>Seller: {{ item.seller }} | Variation: {{ item.variation }}</p>
+                                </div>
+
+                                <div class="checkout-item-quantity">
+                                    x{{ item.quantity }}
+                                </div>
+
+                                <div class="checkout-item-total">
+                                    {{ formatPrice(item.price * item.quantity) }}
+                                </div>
+
+                            </div>
+
+                        </section>
+
+                        <!-- Shipping Option -->
+                        <section class="checkout-section">
+
+                            <div class="checkout-section-title">
+                                <div class="checkout-section-icon">
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" />
+                                        <path d="M15 18H9" />
+                                        <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62L18.3 8.38A1 1 0 0 0 17.52 8H14" />
+                                        <circle cx="17" cy="18" r="2" />
+                                        <circle cx="7" cy="18" r="2" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h2>Shipping Option</h2>
+                                    <p>Choose your preferred delivery service.</p>
+                                </div>
+                            </div>
+
+                            <div class="checkout-option-list">
+
+                                <label
+                                    v-for="option in shippingOptions"
+                                    :key="option.id"
+                                    class="checkout-option"
+                                    :class="{ active: checkoutForm.shippingMethod === option.id }"
+                                >
+
+                                    <input
+                                        v-model="checkoutForm.shippingMethod"
+                                        type="radio"
+                                        name="shipping"
+                                        :value="option.id"
+                                    >
+
+                                    <div class="checkout-option-info">
+                                        <strong>{{ option.name }}</strong>
+                                        <span>{{ option.description }}</span>
+                                    </div>
+
+                                    <strong class="checkout-option-price">
+                                        {{ formatPrice(option.fee) }}
+                                    </strong>
+
+                                </label>
+
+                            </div>
+
+                        </section>
+
+                        <!-- Voucher -->
+                        <section class="checkout-section">
+
+                            <div class="checkout-section-title">
+                                <div class="checkout-section-icon">
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M20.59 13.41 13.42 20.6a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z" />
+                                        <circle cx="7" cy="7" r="1" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h2>Voucher / Discount</h2>
+                                    <p>Enter an available NEXMART voucher.</p>
+                                </div>
+                            </div>
+
+                            <div class="voucher-input-row">
+
+                                <input
+                                    v-model="voucherCode"
+                                    type="text"
+                                    placeholder="Enter voucher code"
+                                    :disabled="Boolean(appliedVoucher)"
+                                >
+
+                                <button
+                                    v-if="!appliedVoucher"
+                                    type="button"
+                                    class="voucher-button"
+                                    @click="applyVoucher"
+                                >
+                                    Apply
+                                </button>
+
+                                <button
+                                    v-else
+                                    type="button"
+                                    class="voucher-remove-button"
+                                    @click="removeVoucher"
+                                >
+                                    Remove
+                                </button>
+
+                            </div>
+
+                            <p
+                                v-if="appliedVoucher"
+                                class="voucher-applied"
+                            >
+                                NEXMART10 applied. You received a 10% discount.
+                            </p>
+
+                        </section>
+
+                        <!-- Payment Method -->
+                        <section class="checkout-section">
+
+                            <div class="checkout-section-title">
+                                <div class="checkout-section-icon">
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="2" y="5" width="20" height="14" rx="2" />
+                                        <path d="M2 10h20" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h2>Payment Method</h2>
+                                    <p>Choose how you want to pay.</p>
+                                </div>
+                            </div>
+
+                            <div class="checkout-option-list">
+
+                                <label
+                                    v-for="payment in paymentMethods"
+                                    :key="payment.id"
+                                    class="checkout-option"
+                                    :class="{ active: checkoutForm.paymentMethod === payment.id }"
+                                >
+
+                                    <input
+                                        v-model="checkoutForm.paymentMethod"
+                                        type="radio"
+                                        name="payment"
+                                        :value="payment.id"
+                                    >
+
+                                    <div class="checkout-option-info">
+                                        <strong>{{ payment.name }}</strong>
+                                        <span>{{ payment.description }}</span>
+                                    </div>
+
+                                </label>
+
+                            </div>
+
+                        </section>
+
+                    </div>
+
+                    <!-- ==================================================== -->
+                    <!-- ORDER SUMMARY SIDEBAR -->
+                    <!-- ==================================================== -->
+
+                    <div class="checkout-summary-sidebar">
+
+                        <div class="cart-summary-card">
+
+                            <h2>Order Summary</h2>
+
+                            <div class="cart-summary-rows">
+
+                                <div class="cart-summary-row">
+                                    <span>Merchandise Subtotal</span>
+                                    <span class="value">{{ formatPrice(subtotal) }}</span>
+                                </div>
+
+                                <div class="cart-summary-row">
+                                    <span>Shipping Fee</span>
+                                    <span class="value">{{ formatPrice(shippingFee) }}</span>
+                                </div>
+
+                                <div
+                                    v-if="discount > 0"
+                                    class="cart-summary-row"
+                                >
+                                    <span>Voucher Discount</span>
+                                    <span class="value--accent">-{{ formatPrice(discount) }}</span>
+                                </div>
+
+                                <div class="cart-summary-divider"></div>
+
+                                <div class="cart-summary-total">
+                                    <span>Total Payment</span>
+                                    <span class="value">{{ formatPrice(total) }}</span>
+                                </div>
+
+                            </div>
+
+                            <button
+                                type="button"
+                                class="cart-checkout-button"
+                                @click="placeOrder"
+                            >
+                                Place Order
+                            </button>
+
+                            <div class="cart-summary-notes">
+
+                                <div class="cart-summary-note">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                                    </svg>
+                                    <span>Secure Checkout Guaranteed</span>
+                                </div>
+
+                                <div class="cart-summary-note">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M3 12a9 9 0 1 0 3-6.7" />
+                                        <path d="M3 4v5h5" />
+                                    </svg>
+                                    <span>30-Day Free Returns</span>
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
             </div>
 
-        </header>
-
-        <main class="checkout-content">
-
-            <!-- ======================================================== -->
-            <!-- DELIVERY ADDRESS -->
-            <!-- ======================================================== -->
-
-            <section class="checkout-section">
-
-                <div class="checkout-section-title">
-
-                    <div>
-                        <h2>
-                            Delivery Address
-                        </h2>
-
-                        <p>
-                            Where should we deliver your order?
-                        </p>
-                    </div>
-
-                </div>
-
-                <div class="checkout-form-grid">
-
-                    <div class="checkout-field">
-
-                        <label>
-                            Recipient Name
-                        </label>
-
-                        <input
-                            v-model="checkoutForm.recipientName"
-                            type="text"
-                            placeholder="Enter recipient name"
-                        />
-
-                    </div>
-
-                    <div class="checkout-field">
-
-                        <label>
-                            Contact Number
-                        </label>
-
-                        <input
-                            v-model="checkoutForm.contactNumber"
-                            type="text"
-                            placeholder="09XXXXXXXXX"
-                        />
-
-                    </div>
-
-                    <div class="checkout-field checkout-field-full">
-
-                        <label>
-                            Complete Address
-                        </label>
-
-                        <textarea
-                            v-model="checkoutForm.address"
-                            rows="3"
-                            placeholder="House number, street, barangay, municipality, province"
-                        ></textarea>
-
-                    </div>
-
-                </div>
-
-            </section>
-
-            <!-- ======================================================== -->
-            <!-- PRODUCTS -->
-            <!-- ======================================================== -->
-
-            <section class="checkout-section">
-
-                <div class="checkout-section-title">
-
-                    <div>
-                        <h2>
-                            Products
-                        </h2>
-
-                        <p>
-                            Items included in this order.
-                        </p>
-                    </div>
-
-                </div>
-
-                <div
-                    v-for="item in items"
-                    :key="`${item.productId}-${item.variation}`"
-                    class="checkout-item"
-                >
-
-                    <div class="checkout-item-image">
-                        Product Image
-                    </div>
-
-                    <div class="checkout-item-info">
-
-                        <h3>
-                            {{ item.name }}
-                        </h3>
-
-                        <p>
-                            Seller: {{ item.seller }}
-                        </p>
-
-                        <p>
-                            Variation: {{ item.variation }}
-                        </p>
-
-                    </div>
-
-                    <div class="checkout-item-price">
-                        {{ formatPrice(item.price) }}
-                    </div>
-
-                    <div class="checkout-item-quantity">
-                        x{{ item.quantity }}
-                    </div>
-
-                    <div class="checkout-item-total">
-                        {{
-                            formatPrice(
-                                item.price *
-                                item.quantity
-                            )
-                        }}
-                    </div>
-
-                </div>
-
-            </section>
-
-            <!-- ======================================================== -->
-            <!-- SHIPPING -->
-            <!-- ======================================================== -->
-
-            <section class="checkout-section">
-
-                <div class="checkout-section-title">
-
-                    <div>
-                        <h2>
-                            Shipping Option
-                        </h2>
-
-                        <p>
-                            Choose your preferred delivery service.
-                        </p>
-                    </div>
-
-                </div>
-
-                <div class="checkout-option-list">
-
-                    <label
-                        v-for="option in shippingOptions"
-                        :key="option.id"
-                        class="checkout-option"
-                        :class="{
-                            active:
-                                checkoutForm.shippingMethod === option.id
-                        }"
-                    >
-
-                        <input
-                            v-model="checkoutForm.shippingMethod"
-                            type="radio"
-                            name="shipping"
-                            :value="option.id"
-                        />
-
-                        <div class="checkout-option-info">
-
-                            <strong>
-                                {{ option.name }}
-                            </strong>
-
-                            <span>
-                                {{ option.description }}
-                            </span>
-
-                        </div>
-
-                        <strong class="checkout-option-price">
-                            {{ formatPrice(option.fee) }}
-                        </strong>
-
-                    </label>
-
-                </div>
-
-            </section>
-
-            <!-- ======================================================== -->
-            <!-- VOUCHER -->
-            <!-- ======================================================== -->
-
-            <section class="checkout-section">
-
-                <div class="checkout-section-title">
-
-                    <div>
-                        <h2>
-                            Voucher / Discount
-                        </h2>
-
-                        <p>
-                            Enter an available NEXMART voucher.
-                        </p>
-                    </div>
-
-                </div>
-
-                <div class="voucher-input-row">
-
-                    <input
-                        v-model="voucherCode"
-                        type="text"
-                        placeholder="Enter voucher code"
-                        :disabled="Boolean(appliedVoucher)"
-                    />
-
-                    <button
-                        v-if="!appliedVoucher"
-                        type="button"
-                        class="voucher-button"
-                        @click="applyVoucher"
-                    >
-                        Apply
-                    </button>
-
-                    <button
-                        v-else
-                        type="button"
-                        class="voucher-remove-button"
-                        @click="removeVoucher"
-                    >
-                        Remove
-                    </button>
-
-                </div>
-
-                <p
-                    v-if="appliedVoucher"
-                    class="voucher-applied"
-                >
-                    NEXMART10 applied. You received a 10% discount.
-                </p>
-
-            </section>
-
-            <!-- ======================================================== -->
-            <!-- PAYMENT -->
-            <!-- ======================================================== -->
-
-            <section class="checkout-section">
-
-                <div class="checkout-section-title">
-
-                    <div>
-                        <h2>
-                            Payment Method
-                        </h2>
-
-                        <p>
-                            Choose how you want to pay.
-                        </p>
-                    </div>
-
-                </div>
-
-                <div class="checkout-option-list">
-
-                    <label
-                        v-for="payment in paymentMethods"
-                        :key="payment.id"
-                        class="checkout-option"
-                        :class="{
-                            active:
-                                checkoutForm.paymentMethod === payment.id
-                        }"
-                    >
-
-                        <input
-                            v-model="checkoutForm.paymentMethod"
-                            type="radio"
-                            name="payment"
-                            :value="payment.id"
-                        />
-
-                        <div class="checkout-option-info">
-
-                            <strong>
-                                {{ payment.name }}
-                            </strong>
-
-                            <span>
-                                {{ payment.description }}
-                            </span>
-
-                        </div>
-
-                    </label>
-
-                </div>
-
-            </section>
-
-            <!-- ======================================================== -->
-            <!-- ORDER SUMMARY -->
-            <!-- ======================================================== -->
-
-            <section class="checkout-summary">
-
-                <h2>
-                    Order Summary
-                </h2>
-
-                <div class="summary-row">
-
-                    <span>
-                        Merchandise Subtotal
-                    </span>
-
-                    <span>
-                        {{ formatPrice(subtotal) }}
-                    </span>
-
-                </div>
-
-                <div class="summary-row">
-
-                    <span>
-                        Shipping Fee
-                    </span>
-
-                    <span>
-                        {{ formatPrice(shippingFee) }}
-                    </span>
-
-                </div>
-
-                <div
-                    v-if="discount > 0"
-                    class="summary-row summary-discount"
-                >
-
-                    <span>
-                        Voucher Discount
-                    </span>
-
-                    <span>
-                        -{{ formatPrice(discount) }}
-                    </span>
-
-                </div>
-
-                <div class="summary-row summary-total">
-
-                    <span>
-                        Total Payment
-                    </span>
-
-                    <strong>
-                        {{ formatPrice(total) }}
-                    </strong>
-
-                </div>
-
-                <button
-                    type="button"
-                    class="place-order-button"
-                    @click="placeOrder"
-                >
-                    Place Order
-                </button>
-
-            </section>
-
-        </main>
+        </div>
+
+        <Footer
+            @browse-all="emit('browse-all')"
+            @browse-categories="emit('browse-categories')"
+            @cart-click="() => {}"
+        />
 
     </div>
 

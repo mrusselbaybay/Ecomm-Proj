@@ -1,23 +1,44 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
+import {
+    metaFor,
+    discountPercent as sharedDiscountPercent,
+    ratingStars as sharedRatingStars,
+    formatPrice as sharedFormatPrice
+} from '../composables/useCategoryMeta';
+import Header from './Header.vue';
+import Footer from './Footer.vue';
+import ProductCard from './ProductCard.vue';
 
 const props = defineProps({
     product: {
         type: Object,
         default: null
+    },
+    relatedProducts: {
+        type: Array,
+        default: () => []
     }
 });
 
 const emit = defineEmits([
     'back',
-    'buy-now'
+    'buy-now',
+    'select-product',
+    'search',
+    'select-category',
+    'open-cart',
+    'browse-all',
+    'browse-categories'
 ]);
 
-const { addToCart } = useBuyer();
+const { addToCart, toggleFavorite, isFavorite } = useBuyer();
 
 const quantity = ref(1);
 const selectedVariation = ref('');
+const activeTab = ref('description');
+const selectedImageIndex = ref(0);
 
 /*
 |--------------------------------------------------------------------------
@@ -53,6 +74,137 @@ const variations = computed(() => {
 
 /*
 |--------------------------------------------------------------------------
+| Category icon / accent color
+|--------------------------------------------------------------------------
+|
+| Uses the same metaFor() map as Dashboard.vue's category cards and product
+| grid (imported from the shared composable), so the icon/color shown here
+| for a given category is always identical to what's shown elsewhere.
+|--------------------------------------------------------------------------
+*/
+
+function accentClassFor(category) {
+    return 'accent-' + metaFor(category).accent;
+}
+
+const accentClass = computed(() => {
+    return props.product ? accentClassFor(props.product.category) : 'accent-slate';
+});
+
+/*
+|--------------------------------------------------------------------------
+| Pricing
+|--------------------------------------------------------------------------
+|
+| Uses the same discountPercent()/formatPrice() helpers Dashboard.vue's
+| product cards use (via the shared composable), so prices/discounts are
+| formatted identically everywhere.
+|--------------------------------------------------------------------------
+*/
+
+const formattedPrice = computed(() => {
+    return props.product ? sharedFormatPrice(props.product.price) : '';
+});
+
+const hasDiscount = computed(() => {
+    return !!props.product?.oldPrice &&
+        Number(props.product.oldPrice) > Number(props.product.price);
+});
+
+const formattedOldPrice = computed(() => {
+    return hasDiscount.value ? sharedFormatPrice(props.product.oldPrice) : '';
+});
+
+const discountPercent = computed(() => {
+    return props.product ? sharedDiscountPercent(props.product) : 0;
+});
+
+const savingsAmount = computed(() => {
+    if (!hasDiscount.value) {
+        return '';
+    }
+
+    return sharedFormatPrice(Number(props.product.oldPrice) - Number(props.product.price));
+});
+
+/*
+|--------------------------------------------------------------------------
+| Gallery
+|--------------------------------------------------------------------------
+|
+| Supports a product.images array when present (multiple angles/thumbnails).
+| Falls back to the single product.image/imageUrl field, and to no image
+| at all if neither exists (the existing .product-details-image placeholder
+| already handles that state).
+|
+*/
+
+const productImage = computed(() => {
+    return props.product?.image || props.product?.imageUrl || '';
+});
+
+const galleryImages = computed(() => {
+    if (Array.isArray(props.product?.images) && props.product.images.length > 0) {
+        return props.product.images;
+    }
+
+    return productImage.value ? [productImage.value] : [];
+});
+
+const hasGallery = computed(() => {
+    return galleryImages.value.length > 1;
+});
+
+const activeImage = computed(() => {
+    return galleryImages.value[selectedImageIndex.value] || galleryImages.value[0] || '';
+});
+
+function selectImage(index) {
+    selectedImageIndex.value = index;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Optional presentation fields
+|--------------------------------------------------------------------------
+|
+| These only render when the product actually carries the field. We don't
+| fabricate ratings, stock counts, specs, or reviews that aren't in the data.
+|
+*/
+
+const hasRating = computed(() => {
+    return typeof props.product?.rating === 'number';
+});
+
+const ratingStars = computed(() => {
+    return hasRating.value ? sharedRatingStars(props.product.rating) : '';
+});
+
+const hasStock = computed(() => {
+    return typeof props.product?.stock === 'number';
+});
+
+const inStock = computed(() => {
+    return hasStock.value ? props.product.stock > 0 : null;
+});
+
+const hasSpecifications = computed(() => {
+    return !!props.product?.specifications &&
+        Object.keys(props.product.specifications).length > 0;
+});
+
+const hasReviews = computed(() => {
+    return Array.isArray(props.product?.reviews) &&
+        props.product.reviews.length > 0;
+});
+
+const favorited = computed(() => {
+    return props.product ? isFavorite(props.product.id) : false;
+});
+
+/*
+|--------------------------------------------------------------------------
 | Quantity
 |--------------------------------------------------------------------------
 */
@@ -65,6 +217,20 @@ function decreaseQuantity() {
     if (quantity.value > 1) {
         quantity.value--;
     }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Favorite
+|--------------------------------------------------------------------------
+*/
+
+function handleToggleFavorite() {
+    if (!props.product) {
+        return;
+    }
+
+    toggleFavorite(props.product.id);
 }
 
 /*
@@ -137,26 +303,92 @@ function handleBuyNow() {
 function goBack() {
     emit('back');
 }
+
+/*
+|--------------------------------------------------------------------------
+| Header relay
+|--------------------------------------------------------------------------
+|
+| The embedded Header has no products/dashboard state of its own, so a
+| search or category click here has to bubble all the way up to Dashboard
+| (which does the actual navigation + filtering), rather than being
+| handled locally.
+|--------------------------------------------------------------------------
+*/
+
+function handleHeaderSearch(query) {
+    emit('search', query);
+}
+
+function handleHeaderSelectCategory(category) {
+    emit('select-category', category);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Related products
+|--------------------------------------------------------------------------
+|
+| Rendered using the same markup/classes as the existing product grid
+| (.product-card, .product-image, .product-price-row, etc.) so it matches
+| the homepage cards exactly instead of introducing a second card style.
+|
+*/
+
+/*
+|--------------------------------------------------------------------------
+| Related products
+|--------------------------------------------------------------------------
+|
+| Rendering itself (pricing, favorites, quick-add, icons) is handled by
+| ProductCard.vue — the same component Dashboard.vue's product grid uses.
+| This page only needs to know what happens when one is clicked.
+|
+*/
+
+function selectRelatedProduct(item) {
+    emit('select-product', item);
+}
 </script>
 
 <template>
 
-    <div
-        v-if="product"
-        class="product-details-page"
-    >
+    <div class="buyer-page">
 
-        <!-- ============================================================ -->
-        <!-- BACK -->
-        <!-- ============================================================ -->
+        <Header
+            :active-category="product ? product.category : ''"
+            @select-category="handleHeaderSelectCategory"
+            @cart-click="emit('open-cart')"
+            @logo-click="goBack"
+            @search="handleHeaderSearch"
+        />
 
-        <button
-            type="button"
-            class="back-button"
-            @click="goBack"
+        <div
+            v-if="product"
+            class="product-details-page"
         >
-            Back to Products
-        </button>
+
+        <!-- ============================================================ -->
+        <!-- BREADCRUMB -->
+        <!-- ============================================================ -->
+
+        <nav class="product-breadcrumb">
+            <button
+                type="button"
+                class="breadcrumb-link"
+                @click="goBack"
+            >
+                Home
+            </button>
+            <span class="breadcrumb-separator">/</span>
+            <span class="breadcrumb-current">
+                {{ product.category }}
+            </span>
+            <span class="breadcrumb-separator">/</span>
+            <span class="breadcrumb-current breadcrumb-current--active">
+                {{ product.name }}
+            </span>
+        </nav>
 
         <!-- ============================================================ -->
         <!-- PRODUCT DETAILS -->
@@ -165,8 +397,49 @@ function goBack() {
         <div class="product-details-card">
 
             <!-- Product Image -->
-            <div class="product-details-image">
-                Product Image
+            <div>
+
+                <div
+                    class="product-details-image"
+                    :class="accentClass"
+                >
+                    <img
+                        v-if="activeImage"
+                        :src="activeImage"
+                        :alt="product.name"
+                    >
+                    <span
+                        v-else
+                        class="product-image-icon product-image-icon--lg"
+                        v-html="metaFor(product.category).icon"
+                    ></span>
+                    <span
+                        v-if="hasDiscount"
+                        class="product-discount-badge"
+                    >
+                        -{{ discountPercent }}% OFF
+                    </span>
+                </div>
+
+                <div
+                    v-if="hasGallery"
+                    class="product-thumbnails"
+                >
+                    <button
+                        v-for="(image, index) in galleryImages"
+                        :key="index"
+                        type="button"
+                        class="product-thumbnail"
+                        :class="{ active: index === selectedImageIndex }"
+                        @click="selectImage(index)"
+                    >
+                        <img
+                            :src="image"
+                            :alt="`${product.name} thumbnail ${index + 1}`"
+                        >
+                    </button>
+                </div>
+
             </div>
 
             <!-- Product Information -->
@@ -182,16 +455,55 @@ function goBack() {
                     {{ product.name }}
                 </h1>
 
+                <!-- Rating / Stock -->
+                <div
+                    v-if="hasRating || hasStock"
+                    class="product-rating"
+                >
+                    <span
+                        v-if="hasRating"
+                        class="product-rating-stars"
+                    >
+                        {{ ratingStars }}
+                    </span>
+                    <span
+                        v-if="hasRating"
+                        class="product-rating-count"
+                    >
+                        {{ product.rating.toFixed(1) }}
+                        <template v-if="product.reviewCount">
+                            ({{ product.reviewCount }} Reviews)
+                        </template>
+                    </span>
+                    <span
+                        v-if="hasStock"
+                        class="product-stock"
+                        :class="inStock ? 'product-stock--in' : 'product-stock--out'"
+                    >
+                        {{ inStock ? 'In Stock' : 'Out of Stock' }}
+                    </span>
+                </div>
+
                 <!-- Price -->
                 <p class="product-details-price">
-                    ₱{{ Number(product.price).toFixed(2) }}
+                    {{ formattedPrice }}
+                    <span
+                        v-if="hasDiscount"
+                        class="product-old-price"
+                    >
+                        {{ formattedOldPrice }}
+                    </span>
+                    <span
+                        v-if="hasDiscount"
+                        class="product-savings"
+                    >
+                        Save {{ savingsAmount }}
+                    </span>
                 </p>
 
                 <!-- Description -->
                 <p class="product-description">
-                    Select your preferred variation and quantity
-                    before adding this product to your cart or
-                    purchasing it immediately.
+                    {{ product.description || 'Select your preferred variation and quantity before adding this product to your cart or purchasing it immediately.' }}
                 </p>
 
                 <!-- ==================================================== -->
@@ -284,7 +596,154 @@ function goBack() {
                         Buy Now
                     </button>
 
+                    <button
+                        type="button"
+                        class="favorite-toggle-button"
+                        :class="{ 'is-favorite': favorited }"
+                        :aria-pressed="favorited"
+                        :title="favorited ? 'Remove from favorites' : 'Add to favorites'"
+                        @click="handleToggleFavorite"
+                    >
+                        <svg viewBox="0 0 24 24" width="18" height="18" :fill="favorited ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
+                            <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z" />
+                        </svg>
+                    </button>
+
                 </div>
+
+                <!-- ==================================================== -->
+                <!-- SHIPPING / RETURNS -->
+                <!-- ==================================================== -->
+
+                <div class="shipping-info-grid">
+                    <div class="shipping-info-item">
+                        <span class="shipping-info-icon">🚚</span>
+                        <div>
+                            <p class="shipping-info-title">Free Shipping</p>
+                            <p class="shipping-info-text">Orders above ₱2,500</p>
+                        </div>
+                    </div>
+                    <div class="shipping-info-item">
+                        <span class="shipping-info-icon">↩️</span>
+                        <div>
+                            <p class="shipping-info-title">30 Days Return</p>
+                            <p class="shipping-info-text">Easy and free</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- INFORMATION TABS -->
+        <!-- ============================================================ -->
+
+        <div class="product-tabs">
+
+            <div class="product-tabs-nav">
+
+                <button
+                    type="button"
+                    class="product-tab-button"
+                    :class="{ active: activeTab === 'description' }"
+                    @click="activeTab = 'description'"
+                >
+                    Description
+                </button>
+
+                <button
+                    v-if="hasSpecifications"
+                    type="button"
+                    class="product-tab-button"
+                    :class="{ active: activeTab === 'specifications' }"
+                    @click="activeTab = 'specifications'"
+                >
+                    Specifications
+                </button>
+
+                <button
+                    v-if="hasReviews"
+                    type="button"
+                    class="product-tab-button"
+                    :class="{ active: activeTab === 'reviews' }"
+                    @click="activeTab = 'reviews'"
+                >
+                    Reviews ({{ product.reviews.length }})
+                </button>
+
+                <button
+                    type="button"
+                    class="product-tab-button"
+                    :class="{ active: activeTab === 'shipping' }"
+                    @click="activeTab = 'shipping'"
+                >
+                    Shipping &amp; Delivery
+                </button>
+
+            </div>
+
+            <div class="product-tabs-content">
+
+                <div v-if="activeTab === 'description'">
+                    <p>
+                        {{ product.description || 'No additional description is available for this product yet.' }}
+                    </p>
+                </div>
+
+                <div v-else-if="activeTab === 'specifications' && hasSpecifications">
+                    <div
+                        v-for="(value, key) in product.specifications"
+                        :key="key"
+                        class="spec-row"
+                    >
+                        <span class="spec-label">{{ key }}</span>
+                        <span class="spec-value">{{ value }}</span>
+                    </div>
+                </div>
+
+                <div v-else-if="activeTab === 'reviews' && hasReviews">
+                    <div
+                        v-for="review in product.reviews"
+                        :key="review.id"
+                        class="review-row"
+                    >
+                        <p class="review-author">{{ review.author }}</p>
+                        <p class="review-comment">{{ review.comment }}</p>
+                    </div>
+                </div>
+
+                <div v-else-if="activeTab === 'shipping'">
+                    <p>
+                        Orders ship within 1-2 business days. Free shipping applies on orders above ₱2,500.
+                        Items can be returned within 30 days of delivery, provided they're unused and in their
+                        original packaging.
+                    </p>
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- RELATED PRODUCTS -->
+        <!-- ============================================================ -->
+
+        <div v-if="relatedProducts.length > 0">
+
+            <div class="buyer-section-head">
+                <h2>Related Products</h2>
+            </div>
+
+            <div class="product-grid">
+
+                <ProductCard
+                    v-for="item in relatedProducts"
+                    :key="item.id"
+                    :product="item"
+                    @view="selectRelatedProduct"
+                />
 
             </div>
 
@@ -312,6 +771,14 @@ function goBack() {
         >
             Back to Products
         </button>
+
+    </div>
+
+    <Footer
+        @browse-all="emit('browse-all')"
+        @browse-categories="emit('browse-categories')"
+        @cart-click="emit('open-cart')"
+    />
 
     </div>
 

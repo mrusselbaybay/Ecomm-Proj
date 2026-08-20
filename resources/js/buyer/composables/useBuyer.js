@@ -4,6 +4,40 @@ const cart = ref([]);
 
 /*
 |--------------------------------------------------------------------------
+| Favorites
+|--------------------------------------------------------------------------
+|
+| Client-side only for now (no wishlist table/API yet). Stored as a Set of
+| product IDs, shared across every component via this module-level ref —
+| same pattern as `cart` above. Swap for a real API-backed version once a
+| wishlist endpoint exists.
+|
+*/
+
+const favoriteProductIds = ref(new Set());
+
+function toggleFavorite(productId) {
+    if (!productId) {
+        return;
+    }
+
+    const next = new Set(favoriteProductIds.value);
+
+    if (next.has(productId)) {
+        next.delete(productId);
+    } else {
+        next.add(productId);
+    }
+
+    favoriteProductIds.value = next;
+}
+
+function isFavorite(productId) {
+    return favoriteProductIds.value.has(productId);
+}
+
+/*
+|--------------------------------------------------------------------------
 | Cart
 |--------------------------------------------------------------------------
 */
@@ -152,6 +186,9 @@ export function useBuyer() {
         decreaseCartQuantity,
         toggleCartItem,
         toggleSellerItems,
-        toggleSelectAll
+        toggleSelectAll,
+
+        toggleFavorite,
+        isFavorite
     };
 }
