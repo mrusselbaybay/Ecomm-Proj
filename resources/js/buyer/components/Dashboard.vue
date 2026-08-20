@@ -1,25 +1,13 @@
 <script setup>
-<<<<<<< HEAD
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-
-=======
-import { computed, ref } from 'vue';
->>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
 import ProductDetails from './ProductDetails.vue';
 import Cart from './Cart.vue';
 import Checkout from './Checkout.vue';
-<<<<<<< HEAD
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
-=======
 import Orders from './Orders.vue';
-<<<<<<< HEAD
->>>>>>> 87c29c1 (feat: add buyer checkout orders tracking and cancellation)
-
-=======
 import Account from './Account.vue';
->>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
 import { useBuyer } from '../composables/useBuyer';
 import {
     categories,
@@ -35,13 +23,9 @@ import {
 */
 
 const {
-<<<<<<< HEAD
-    removeFromCart
-=======
     cartItemCount,
     removeFromCart,
     addOrder
->>>>>>> 87c29c1 (feat: add buyer checkout orders tracking and cancellation)
 } = useBuyer();
 
 /*
@@ -519,12 +503,6 @@ function clearFilters() {
 
 /*
 |--------------------------------------------------------------------------
-| Newsletter (local-only mock — no subscribers API yet)
-|--------------------------------------------------------------------------
-*/
-
-/*
-|--------------------------------------------------------------------------
 | Related Products (for the Product Details page)
 |--------------------------------------------------------------------------
 |
@@ -576,18 +554,14 @@ function handleBrowseAll() {
         :items="checkoutItems"
         @back="backFromCheckout"
         @place-order="handleOrderPlaced"
-<<<<<<< HEAD
         @search="handleSearch"
         @select-category="handleSelectCategory"
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
-=======
->>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
     />
 
     <Cart
         v-else-if="showCart"
-<<<<<<< HEAD
         :recommended-products="bestSellers"
         @back="closeCart"
         @checkout="checkoutFromCart"
@@ -596,10 +570,6 @@ function handleBrowseAll() {
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
         @select-product="viewProduct"
-=======
-        @back="closeCart"
-        @checkout="checkoutFromCart"
->>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
     />
 
     <ProductDetails
@@ -630,83 +600,14 @@ function handleBrowseAll() {
         v-else
         class="buyer-page"
     >
-<<<<<<< HEAD
-
-<<<<<<< HEAD
         <Header
             v-model:search-query="searchQuery"
             :active-category="selectedCategory"
             @select-category="selectCategory"
             @cart-click="openCart"
         />
-=======
-        <!-- Header -->
-=======
->>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
-        <header class="buyer-header">
-            <div class="buyer-logo">
-                NEXMART
-            </div>
-
-            <div class="buyer-search">
-                <input
-                    v-model="searchQuery"
-                    type="text"
-                    placeholder="Search products..."
-                >
-                <button
-                    type="button"
-                    title="Search"
-                >
-                    🔍
-                </button>
-            </div>
-
-            <nav class="buyer-actions">
-                <button
-                    type="button"
-                    title="Messages"
-                >
-                    💬
-                </button>
-
-                <button
-                    type="button"
-                    title="Orders"
-                    @click="openOrders"
-                >
-                    Orders
-                </button>
-
-                <button
-                    type="button"
-                    title="Cart"
-                    class="cart-button"
-                    @click="openCart"
-                >
-                    🛒
-                    <span
-                        v-if="cartCount > 0"
-                        class="cart-count"
-                    >
-                        {{ cartCount }}
-                    </span>
-                </button>
-
-                <button
-                    type="button"
-                    title="Account"
-                    aria-label="Open Buyer account"
-                    @click="openAccount"
-                >
-                    👤
-                </button>
-            </nav>
-        </header>
->>>>>>> 87c29c1 (feat: add buyer checkout orders tracking and cancellation)
 
         <main class="buyer-main">
-<<<<<<< HEAD
 
             <!-- Hero -->
             <section class="buyer-hero">
@@ -756,39 +657,15 @@ function handleBrowseAll() {
                 </div>
 
                 <div class="category-grid">
-
-=======
-            <section class="welcome-section">
-                <h1>Welcome to NEXMART!</h1>
-                <p>
-                    Discover products from verified local sellers.
-                </p>
-            </section>
-
-            <section class="buyer-section">
-                <div class="section-header">
-                    <h2>Categories</h2>
-                </div>
-
-                <div class="category-list">
->>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
                     <button
                         v-for="category in categories"
                         :key="category"
                         type="button"
-<<<<<<< HEAD
                         class="category-card"
                         :class="[
                             'accent-' + metaFor(category).accent,
                             { active: selectedCategory === category }
                         ]"
-=======
-                        class="category-button"
-                        :class="{
-                            active:
-                                selectedCategory === category
-                        }"
->>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
                         @click="selectCategory(category)"
                     >
                         <span
@@ -803,7 +680,6 @@ function handleBrowseAll() {
                 </div>
             </section>
 
-<<<<<<< HEAD
             <!-- Flash Deals -->
             <section v-if="flashDeals.length > 0">
 
@@ -979,18 +855,10 @@ function handleBrowseAll() {
                 </div>
 
                 <!-- No Products -->
-=======
-            <section class="buyer-section">
-                <div class="section-header">
-                    <h2>Products</h2>
-                </div>
-
->>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
                 <div
                     v-if="filteredProducts.length === 0"
                     class="empty-products"
                 >
-<<<<<<< HEAD
 
                     <span
                         class="empty-products-icon"
@@ -1003,9 +871,6 @@ function handleBrowseAll() {
                         No products found.
                     </p>
 
-=======
-                    <p>No products found.</p>
->>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
                     <button
                         type="button"
                         class="clear-filters-button"
@@ -1019,7 +884,6 @@ function handleBrowseAll() {
                     v-else
                     class="product-grid"
                 >
-<<<<<<< HEAD
 
                     <ProductCard
                         v-for="product in filteredProducts"
@@ -1028,47 +892,14 @@ function handleBrowseAll() {
                         @view="viewProduct"
                     />
 
-=======
-                    <article
-                        v-for="product in filteredProducts"
-                        :key="product.id"
-                        class="product-card"
-                    >
-                        <div class="product-image">
-                            Product Image
-                        </div>
-
-                        <div class="product-info">
-                            <span class="product-category">
-                                {{ product.category }}
-                            </span>
-                            <h3>{{ product.name }}</h3>
-                            <p class="product-price">
-                                ₱{{
-                                    Number(product.price).toFixed(2)
-                                }}
-                            </p>
-                            <button
-                                type="button"
-                                class="view-product-button"
-                                @click="viewProduct(product)"
-                            >
-                                View Product
-                            </button>
-                        </div>
-                    </article>
->>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
                 </div>
             </section>
         </main>
-<<<<<<< HEAD
 
         <Footer
             @browse-categories="selectCategory('All')"
             @cart-click="openCart"
         />
 
-=======
->>>>>>> 036ce43 (feat: add buyer reviews returns and account profile)
     </div>
 </template>
