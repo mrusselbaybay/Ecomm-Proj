@@ -109,7 +109,6 @@ const App = {
         const newConfirmPassword = ref('');
         const isVerifying = ref(false);
 
-<<<<<<< HEAD
         // Validation errors for inline display
         const validationErrors = ref({
             firstName: '',
@@ -136,7 +135,8 @@ const App = {
             driverBirthday: '',
             driverPassword: '',
             driverConfirmPassword: '',
-=======
+        });
+
     async function fetchMunicipalities(provinceCode, isCompany = false) {
       if (isCompany) {
         companyMunicipalityOptions.value = [];
@@ -532,29 +532,6 @@ async function handleLogin() {
 }
 
     // ---------- Password Reset Functions ----------
-    async function handleSendCode() {
-      resetMessages();
-
-      if (!forgotEmail.value) {
-        errorMsg.value = 'Please enter your email address.';
-        return;
-      }
-
-      try {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-
-        const response = await fetch('/api/password/send-code', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': csrfToken
-          },
-          body: JSON.stringify({
-            email: forgotEmail.value.trim().toLowerCase()
-          })
->>>>>>> feature/buyer
-        });
 
         // Registration Form Fields
         const form = ref({
