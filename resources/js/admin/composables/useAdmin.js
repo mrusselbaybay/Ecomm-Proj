@@ -88,61 +88,90 @@ export function useAdmin() {
         }
     }
 
+    async function adminFetch(url, options = {}) {
+        const {
+            data: { session },
+            error: sessionError,
+        } = await supabase.auth.getSession();
+
+        if (sessionError || !session?.access_token) {
+            throw new Error(
+                'Your admin session has expired. Please sign in again.',
+            );
+        }
+
+        const headers = new Headers(options.headers || {});
+        headers.set('Accept', 'application/json');
+        headers.set('Authorization', `Bearer ${session.access_token}`);
+
+        const response = await fetch(url, {
+            ...options,
+            headers,
+        });
+
+        if (response.status === 401) {
+            window.location.href = '/login';
+            throw new Error('Your admin session has expired.');
+        }
+
+        if (response.status === 403) {
+            throw new Error(
+                'You do not have permission to perform this action.',
+            );
+        }
+
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.message || 'The admin request failed.');
+        }
+
+        return response;
+    }
+
     async function loadStats() {
         try {
-            const { data: profiles, error } = await supabase
-                .from('profiles')
-                .select('role, account_status, status');
-
-            if (error) {
-                throw error;
-            }
-
-            const totalUsers = profiles?.length || 0;
-            const activeSellers =
-                profiles?.filter(
-                    (p) => p.role === 'seller' && p.account_status === 'active',
-                ).length || 0;
-            const pendingRegistrations =
-                profiles?.filter(
-                    (p) =>
-                        ['buyer', 'seller', 'courier'].includes(p.role) &&
-                        p.status === 'pending',
-                ).length || 0;
+            const response = await adminFetch('/api/admin/dashboard/stats');
+            const data = await response.json();
 
             stats.value = [
-                { label: 'Total Users', value: totalUsers, delta: 'All time' },
+                {
+                    label: 'Total Users',
+                    value: data.total_users,
+                    delta: 'All registered accounts',
+                },
                 {
                     label: 'Active Sellers',
-                    value: activeSellers,
-                    delta: 'Active sellers',
+                    value: data.active_sellers,
+                    delta: 'Approved and active',
                 },
                 {
                     label: 'Pending Registrations',
-                    value: pendingRegistrations,
+                    value: data.pending_registrations,
                     delta: 'Awaiting review',
                 },
                 {
                     label: 'Open Complaints',
-                    value: '0',
-                    delta: 'No open complaints',
+                    value: data.open_complaints,
+                    delta: 'Awaiting resolution',
                 },
             ];
 
-            pendingCount.value = pendingRegistrations;
+            pendingCount.value = data.pending_registrations;
         } catch (error) {
-            console.error('Error loading stats:', error);
+            console.error('Error loading admin dashboard stats:', error);
         }
     }
 
     async function loadNotifications() {
-        notifications.value = [
-            { text: 'Welcome to the admin panel!', time: 'Just now' },
-            {
-                text: 'Review pending registrations to get started.',
-                time: 'Just now',
-            },
-        ];
+        try {
+            const response = await adminFetch(
+                '/api/admin/dashboard/notifications',
+            );
+            notifications.value = await response.json();
+        } catch (error) {
+            console.error('Error loading admin notifications:', error);
+            notifications.value = [];
+        }
     }
 
     async function confirmLogout() {
@@ -203,6 +232,7 @@ export function useAdmin() {
         confirmLogout,
         statusBadgeClass,
         formatDate,
+        adminFetch,
         supabase,
     };
 }

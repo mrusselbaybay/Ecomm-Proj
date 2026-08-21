@@ -1,10 +1,11 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\AccountRegistrationController;
-use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Logistics\LogisticsNotificationController;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -39,29 +40,31 @@ Route::prefix('seller')->name('seller.')->group(function () {
 });
 
 // ---------- API Routes for Admin (AJAX calls from Vue) ----------
-Route::prefix('api/admin')->name('api.admin.')->group(function () {
-    Route::get('/registrations', [AccountRegistrationController::class, 'index'])->name('registrations.index');
-    Route::get('/registrations/{profile}', [AccountRegistrationController::class, 'show'])->name('registrations.show');
-    Route::post('/registrations/{profile}/approve', [AccountRegistrationController::class, 'approve'])->name('registrations.approve');
-    Route::post('/registrations/{profile}/reject', [AccountRegistrationController::class, 'reject'])->name('registrations.reject');
-    Route::post('/documents/{document}/review', [AccountRegistrationController::class, 'reviewDocument'])->name('documents.review');
+Route::middleware(['supabase.auth', 'admin'])
+    ->prefix('api/admin')
+    ->name('api.admin.')
+    ->group(function () {
+        Route::get('/registrations', [AccountRegistrationController::class, 'index'])->name('registrations.index');
+        Route::get('/registrations/{profile}', [AccountRegistrationController::class, 'show'])->name('registrations.show');
+        Route::post('/registrations/{profile}/approve', [AccountRegistrationController::class, 'approve'])->name('registrations.approve');
+        Route::post('/registrations/{profile}/reject', [AccountRegistrationController::class, 'reject'])->name('registrations.reject');
+        Route::post('/documents/{document}/review', [AccountRegistrationController::class, 'reviewDocument'])->name('documents.review');
 
-    Route::get('/accounts', [UserAccountController::class, 'index'])->name('accounts.index');
-    Route::get('/accounts/{profile}', [UserAccountController::class, 'show'])->name('accounts.show');
-    Route::put('/accounts/{profile}/status', [UserAccountController::class, 'updateStatus'])->name('accounts.update-status');
+        Route::get('/accounts', [UserAccountController::class, 'index'])->name('accounts.index');
+        Route::get('/accounts/{profile}', [UserAccountController::class, 'show'])->name('accounts.show');
+        Route::put('/accounts/{profile}/status', [UserAccountController::class, 'updateStatus'])->name('accounts.update-status');
 
-    Route::get('/dashboard/stats', [DashboardController::class, 'stats'])->name('dashboard.stats');
-    Route::get('/dashboard/notifications', [DashboardController::class, 'notifications'])->name('dashboard.notifications');
-});
+        Route::get('/dashboard/stats', [DashboardController::class, 'stats'])->name('dashboard.stats');
+        Route::get('/dashboard/notifications', [DashboardController::class, 'notifications'])->name('dashboard.notifications');
+    });
 
 // ---------- API Routes for Logistics ----------
 Route::prefix('api/logistics')->name('api.logistics.')->group(function () {
-    Route::post('/notify-application-accepted', [\App\Http\Controllers\Logistics\LogisticsNotificationController::class, 'applicationAccepted'])
+    Route::post('/notify-application-accepted', [LogisticsNotificationController::class, 'applicationAccepted'])
         ->name('notify.accepted');
-    Route::post('/notify-application-rejected', [\App\Http\Controllers\Logistics\LogisticsNotificationController::class, 'applicationRejected'])
+    Route::post('/notify-application-rejected', [LogisticsNotificationController::class, 'applicationRejected'])
         ->name('notify.rejected');
 });
-
 
 // ---------- API Routes for Seller (Seller Order Page) ----------
 require __DIR__.'/seller.php';
@@ -75,7 +78,7 @@ require __DIR__.'/seller.php';
 Route::prefix('api/signup')->name('api.signup.')->group(function () {
     Route::post('/register', [AuthController::class, 'registerUser'])->name('register');
     Route::post('/register-logistics', [AuthController::class, 'registerLogistics'])->name('register-logistics');
-    });
+});
 // ---------- Buyer SPA ----------
 Route::prefix('buyer')->name('buyer.')->group(function () {
     Route::get('/{any?}', function () {
