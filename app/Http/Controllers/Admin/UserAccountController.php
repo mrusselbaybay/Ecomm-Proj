@@ -25,7 +25,7 @@ class UserAccountController extends Controller
     {
         $query = Profile::query()
             ->where('status', 'approved')
-            ->with(['sellerDetail', 'courierDetail']);
+            ->with(['sellerDetail', 'courierDetail', 'driverDetail']);
 
         if ($role = $request->string('role')->toString()) {
             $query->where('role', $role);
@@ -76,6 +76,7 @@ class UserAccountController extends Controller
             'address',
             'sellerDetail',
             'courierDetail.logisticsCompany',
+            'driverDetail.logisticsCompany',
             'documents',
             'statusAuditLogs.changedBy',
         ]);
@@ -167,6 +168,7 @@ class UserAccountController extends Controller
             'created_at' => $profile->created_at?->toIso8601String(),
             'seller_detail' => $profile->sellerDetail?->toArray(),
             'courier_detail' => $profile->courierDetail?->toArray(),
+            'driver_detail' => $profile->driverDetail?->toArray(),
         ];
 
         if (! $includeDetails) {

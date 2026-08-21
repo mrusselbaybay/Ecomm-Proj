@@ -23,7 +23,7 @@ class AccountRegistrationController extends Controller
         $query = Profile::query()
             ->whereIn('role', Profile::REGISTRABLE_ROLES)
             ->whereIn('status', ['pending', 'rejected'])
-            ->with(['address', 'sellerDetail', 'courierDetail.logisticsCompany', 'documents']);
+            ->with(['address', 'sellerDetail', 'courierDetail.logisticsCompany', 'driverDetail.logisticsCompany', 'documents']);
 
         if ($role = $request->string('role')->toString()) {
             $query->where('role', $role);
@@ -70,6 +70,7 @@ class AccountRegistrationController extends Controller
             'address',
             'sellerDetail',
             'courierDetail.logisticsCompany',
+            'driverDetail.logisticsCompany',
             'documents.reviewer',
         ]);
 
@@ -199,6 +200,7 @@ class AccountRegistrationController extends Controller
             ] : null,
             'seller_detail' => $profile->sellerDetail?->toArray(),
             'courier_detail' => $profile->courierDetail?->toArray(),
+            'driver_detail' => $profile->driverDetail?->toArray(),
             'documents' => $profile->documents->map(fn (Document $document): array => [
                 'id' => $document->id,
                 'doc_type' => $document->doc_type,

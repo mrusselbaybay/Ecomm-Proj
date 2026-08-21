@@ -23,6 +23,7 @@
                 <option value="buyer">Buyer</option>
                 <option value="seller">Seller</option>
                 <option value="courier">Courier</option>
+                <option value="driver">Driver</option>
             </select>
             <select
                 v-model="statusFilter"

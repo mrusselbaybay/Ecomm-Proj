@@ -3,13 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Profile extends Model
 {
     protected $table = 'profiles';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -23,7 +25,7 @@ class Profile extends Model
     ];
 
     // Roles that go through the registration/approval workflow.
-    public const REGISTRABLE_ROLES = ['buyer', 'seller', 'courier'];
+    public const REGISTRABLE_ROLES = ['buyer', 'seller', 'courier', 'driver'];
 
     public const ROLE_ADMIN = 'admin';
 
@@ -64,6 +66,11 @@ class Profile extends Model
         return $this->hasOne(CourierDetail::class, 'profile_id');
     }
 
+    public function driverDetail(): HasOne
+    {
+        return $this->hasOne(DriverDetail::class, 'profile_id');
+    }
+
     public function documents(): HasMany
     {
         return $this->hasMany(Document::class, 'profile_id')->where('owner_kind', 'profile');
@@ -79,6 +86,7 @@ class Profile extends Model
     public function getFullNameAttribute(): string
     {
         $mi = $this->middle_initial ? "{$this->middle_initial}. " : '';
+
         return trim("{$this->first_name} {$mi}{$this->last_name}");
     }
 }

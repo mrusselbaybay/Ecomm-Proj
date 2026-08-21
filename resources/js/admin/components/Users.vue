@@ -266,6 +266,19 @@
                                 }})
                             </dd>
                         </div>
+                        <div v-if="selectedAccount.driver_detail">
+                            <dt class="field-label">Driver details</dt>
+                            <dd>
+                                {{ selectedAccount.driver_detail.vehicle }}
+                                ({{
+                                    selectedAccount.driver_detail.plate_number
+                                }}) · License
+                                {{
+                                    selectedAccount.driver_detail
+                                        .license_number || 'not provided'
+                                }}
+                            </dd>
+                        </div>
                     </dl>
 
                     <section>
