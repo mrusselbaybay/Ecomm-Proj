@@ -83,6 +83,11 @@ class Profile extends Model
             ->orderByDesc('created_at');
     }
 
+    public function sellerComplianceActions(): HasMany
+    {
+        return $this->hasMany(SellerComplianceAction::class, 'seller_id');
+    }
+
     public function getFullNameAttribute(): string
     {
         $mi = $this->middle_initial ? "{$this->middle_initial}. " : '';

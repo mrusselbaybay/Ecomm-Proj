@@ -4,12 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Product extends Model
 {
     protected $table = 'products';
 
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -27,5 +29,10 @@ class Product extends Model
     public function seller(): BelongsTo
     {
         return $this->belongsTo(Profile::class, 'seller_id');
+    }
+
+    public function complianceActions(): HasMany
+    {
+        return $this->hasMany(SellerComplianceAction::class);
     }
 }
