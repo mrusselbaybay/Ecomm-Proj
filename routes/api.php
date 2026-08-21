@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AccountRegistrationController;
 use App\Http\Controllers\Admin\AdminNotificationController;
+use App\Http\Controllers\Admin\CommissionController;
 use App\Http\Controllers\Admin\ComplaintController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\SellerComplianceController;
@@ -106,6 +107,8 @@ Route::middleware(['supabase.auth', 'admin'])
         Route::get('/complaints', [ComplaintController::class, 'index'])->name('complaints.index');
         Route::get('/complaints/{complaint}', [ComplaintController::class, 'show'])->name('complaints.show');
         Route::put('/complaints/{complaint}', [ComplaintController::class, 'update'])->name('complaints.update');
+
+        Route::get('/commissions', [CommissionController::class, 'index'])->name('commissions.index');
 
         // Approval/Rejection notifications
         Route::post('/notify-approval', [AdminNotificationController::class, 'notifyApproval'])
