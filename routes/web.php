@@ -31,6 +31,13 @@ Route::prefix('logistics')->name('logistics.')->group(function () {
     })->where('any', '.*')->name('dashboard');
 });
 
+// ---------- Seller SPA ----------
+Route::prefix('seller')->name('seller.')->group(function () {
+    Route::get('/{any?}', function () {
+        return view('seller');
+    })->where('any', '.*')->name('dashboard');
+});
+
 // ---------- API Routes for Admin (AJAX calls from Vue) ----------
 Route::prefix('api/admin')->name('api.admin.')->group(function () {
     Route::get('/registrations', [AccountRegistrationController::class, 'index'])->name('registrations.index');
@@ -55,6 +62,20 @@ Route::prefix('api/logistics')->name('api.logistics.')->group(function () {
         ->name('notify.rejected');
 });
 
+
+// ---------- API Routes for Seller (Seller Order Page) ----------
+require __DIR__.'/seller.php';
+
+// ---------- Registration (server-side, service-role protected) ----------
+// NOTE: Your project already has /api/signup/send-code, /api/signup/verify-code,
+// and /api/signup/resend-code routes wired to PasswordResetController (referenced
+// from app.js) that weren't included in the web.php you gave me. If those live in
+// a different route file (e.g. routes/api.php), move this group there to match —
+// otherwise this is fine to leave here.
+Route::prefix('api/signup')->name('api.signup.')->group(function () {
+    Route::post('/register', [AuthController::class, 'registerUser'])->name('register');
+    Route::post('/register-logistics', [AuthController::class, 'registerLogistics'])->name('register-logistics');
+    });
 // ---------- Buyer SPA ----------
 Route::prefix('buyer')->name('buyer.')->group(function () {
     Route::get('/{any?}', function () {

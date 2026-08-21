@@ -1,13 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+
 import ProductDetails from './ProductDetails.vue';
 import Cart from './Cart.vue';
 import Checkout from './Checkout.vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
-import Orders from './Orders.vue';
-import Account from './Account.vue';
+
 import { useBuyer } from '../composables/useBuyer';
 import {
     categories,
@@ -23,9 +23,7 @@ import {
 */
 
 const {
-    cartItemCount,
-    removeFromCart,
-    addOrder
+    removeFromCart
 } = useBuyer();
 
 /*
@@ -36,10 +34,9 @@ const {
 
 const searchQuery = ref('');
 const selectedCategory = ref('All');
+
 const selectedProduct = ref(null);
 const showCart = ref(false);
-const showOrders = ref(false);
-const showAccount = ref(false);
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
 
@@ -198,17 +195,12 @@ const filteredProducts = computed(() => {
     return products.filter(product => {
         const matchesCategory =
             selectedCategory.value === 'All' ||
-            product.category ===
-                selectedCategory.value;
+            product.category === selectedCategory.value;
 
         const matchesSearch =
             !search ||
-            product.name
-                .toLowerCase()
-                .includes(search) ||
-            product.category
-                .toLowerCase()
-                .includes(search);
+            product.name.toLowerCase().includes(search) ||
+            product.category.toLowerCase().includes(search);
 
         return matchesCategory && matchesSearch;
     });
@@ -309,8 +301,6 @@ function selectCategory(category) {
 function viewProduct(product) {
     selectedProduct.value = product;
     showCart.value = false;
-    showOrders.value = false;
-    showAccount.value = false;
     checkoutItems.value = [];
 }
 
@@ -326,52 +316,12 @@ function backToProducts() {
 
 function openCart() {
     selectedProduct.value = null;
-    showOrders.value = false;
-    showAccount.value = false;
-    showCart.value = true;
     checkoutItems.value = [];
+    showCart.value = true;
 }
 
 function closeCart() {
     showCart.value = false;
-}
-
-/*
-|--------------------------------------------------------------------------
-| Orders
-|--------------------------------------------------------------------------
-*/
-
-function openOrders() {
-    selectedProduct.value = null;
-    showCart.value = false;
-    showAccount.value = false;
-    showOrders.value = true;
-    checkoutItems.value = [];
-    checkoutSource.value = null;
-}
-
-function closeOrders() {
-    showOrders.value = false;
-}
-
-/*
-|--------------------------------------------------------------------------
-| Account
-|--------------------------------------------------------------------------
-*/
-
-function openAccount() {
-    selectedProduct.value = null;
-    showCart.value = false;
-    showOrders.value = false;
-    showAccount.value = true;
-    checkoutItems.value = [];
-    checkoutSource.value = null;
-}
-
-function closeAccount() {
-    showAccount.value = false;
 }
 
 /*
@@ -381,7 +331,7 @@ function closeAccount() {
 |
 | IMPORTANT:
 | Buy Now DOES NOT add the product to the cart.
-|
+|--------------------------------------------------------------------------
 */
 
 function buyNow(item) {
@@ -405,10 +355,9 @@ function buyNow(item) {
     ];
 
     checkoutSource.value = 'buy-now';
-    showCart.value = false;
-    showAccount.value = false;
-}
 
+    showCart.value = false;
+}
 /*
 |--------------------------------------------------------------------------
 | Checkout From Cart
@@ -423,44 +372,39 @@ function checkoutFromCart(items) {
         return;
     }
 
-    checkoutItems.value = items.map(item => ({
-        cartId: item.cartId,
-        productId: item.productId,
-        name: item.name,
-        price: Number(item.price),
-        category: item.category,
-        seller:
-            item.seller ||
-            'NEXMART Seller',
-        variation: item.variation,
-        quantity: Number(item.quantity)
-    }));
+    checkoutItems.value = items.map(
+        item => ({
+            cartId: item.cartId,
+            productId: item.productId,
+            name: item.name,
+            price: Number(item.price),
+            category: item.category,
+            seller:
+                item.seller ||
+                'NEXMART Seller',
+            variation: item.variation,
+            quantity: Number(item.quantity)
+        })
+    );
 
     checkoutSource.value = 'cart';
+
     showCart.value = false;
-    showAccount.value = false;
     selectedProduct.value = null;
 }
 
-/*
-|--------------------------------------------------------------------------
-| Place Order
-|--------------------------------------------------------------------------
-*/
 
-function handleOrderPlaced(orderPayload) {
-    const savedOrder = addOrder(orderPayload);
-
-    if (!savedOrder) {
-        alert('Unable to save the order.');
-        return;
-    }
-
-    console.log('Order saved:', savedOrder);
-
+function handleOrderPlaced() {
     /*
-     * Remove only the purchased cart items.
-     */
+    |--------------------------------------------------------------------------
+    | Remove purchased cart items
+    |--------------------------------------------------------------------------
+    |
+    | Only remove products when checkout came from the cart.
+    | Buy Now does not affect the existing cart.
+    |
+    */
+
     if (checkoutSource.value === 'cart') {
         checkoutItems.value.forEach(item => {
             if (item.cartId) {
@@ -469,16 +413,18 @@ function handleOrderPlaced(orderPayload) {
         });
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Reset Checkout
+    |--------------------------------------------------------------------------
+    */
+
     checkoutItems.value = [];
     checkoutSource.value = null;
+
     showCart.value = false;
-    showAccount.value = false;
     selectedProduct.value = null;
-
-    /* Show the newly created order. */
-    showOrders.value = true;
 }
-
 /*
 |--------------------------------------------------------------------------
 | Checkout Back
@@ -500,6 +446,12 @@ function clearFilters() {
     searchQuery.value = '';
     selectedCategory.value = 'All';
 }
+
+/*
+|--------------------------------------------------------------------------
+| Newsletter (local-only mock — no subscribers API yet)
+|--------------------------------------------------------------------------
+*/
 
 /*
 |--------------------------------------------------------------------------
@@ -549,6 +501,11 @@ function handleBrowseAll() {
 </script>
 
 <template>
+
+    <!-- ================================================================ -->
+    <!-- CHECKOUT -->
+    <!-- ================================================================ -->
+
     <Checkout
         v-if="checkoutItems.length > 0"
         :items="checkoutItems"
@@ -559,6 +516,10 @@ function handleBrowseAll() {
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
     />
+
+    <!-- ================================================================ -->
+    <!-- CART -->
+    <!-- ================================================================ -->
 
     <Cart
         v-else-if="showCart"
@@ -571,6 +532,10 @@ function handleBrowseAll() {
         @browse-categories="handleBrowseAll"
         @select-product="viewProduct"
     />
+
+    <!-- ================================================================ -->
+    <!-- PRODUCT DETAILS -->
+    <!-- ================================================================ -->
 
     <ProductDetails
         v-else-if="selectedProduct"
@@ -586,20 +551,15 @@ function handleBrowseAll() {
         @browse-categories="handleBrowseAll"
     />
 
-    <Orders
-        v-else-if="showOrders"
-        @back="closeOrders"
-    />
-
-    <Account
-        v-else-if="showAccount"
-        @back="closeAccount"
-    />
+    <!-- ================================================================ -->
+    <!-- BUYER DASHBOARD -->
+    <!-- ================================================================ -->
 
     <div
         v-else
         class="buyer-page"
     >
+
         <Header
             v-model:search-query="searchQuery"
             :active-category="selectedCategory"
@@ -607,6 +567,7 @@ function handleBrowseAll() {
             @cart-click="openCart"
         />
 
+        <!-- Main -->
         <main class="buyer-main">
 
             <!-- Hero -->
@@ -657,6 +618,7 @@ function handleBrowseAll() {
                 </div>
 
                 <div class="category-grid">
+
                     <button
                         v-for="category in categories"
                         :key="category"
@@ -677,7 +639,9 @@ function handleBrowseAll() {
                             {{ category }}
                         </span>
                     </button>
+
                 </div>
+
             </section>
 
             <!-- Flash Deals -->
@@ -878,8 +842,10 @@ function handleBrowseAll() {
                     >
                         Clear Filters
                     </button>
+
                 </div>
 
+                <!-- Products -->
                 <div
                     v-else
                     class="product-grid"
@@ -893,7 +859,9 @@ function handleBrowseAll() {
                     />
 
                 </div>
+
             </section>
+
         </main>
 
         <Footer
@@ -902,4 +870,5 @@ function handleBrowseAll() {
         />
 
     </div>
+
 </template>
