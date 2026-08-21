@@ -10,21 +10,20 @@ use App\Mail\RegistrationRejected;
 use App\Models\Document;
 use App\Models\Profile;
 use App\Models\StatusAuditLog;
-use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
-use Inertia\Inertia;
-use Inertia\Response;
+use Illuminate\Validation\ValidationException;
 
 class AccountRegistrationController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request): JsonResponse
     {
         $query = Profile::query()
             ->whereIn('role', Profile::REGISTRABLE_ROLES)
             ->whereIn('status', ['pending', 'rejected'])
-            ->with(['address', 'sellerDetail', 'courierDetail', 'documents']);
+            ->with(['address', 'sellerDetail', 'courierDetail.logisticsCompany', 'documents']);
 
         if ($role = $request->string('role')->toString()) {
             $query->where('role', $role);
@@ -34,40 +33,56 @@ class AccountRegistrationController extends Controller
             $query->where('status', $status);
         }
 
-        if ($search = $request->string('search')->toString()) {
-            $query->where(function ($q) use ($search) {
-                $q->where('first_name', 'ilike', "%{$search}%")
+        if ($search = $request->string('search')->trim()->toString()) {
+            $query->where(function ($query) use ($search): void {
+                $query->where('first_name', 'ilike', "%{$search}%")
                     ->orWhere('last_name', 'ilike', "%{$search}%")
                     ->orWhere('email', 'ilike', "%{$search}%");
             });
         }
 
-        $applications = $query->orderByDesc('created_at')->paginate(15)->withQueryString();
+        $applications = $query
+            ->orderByDesc('created_at')
+            ->paginate(15)
+            ->withQueryString()
+            ->through(fn (Profile $profile): array => $this->applicationData($profile));
 
-        return Inertia::render('Admin/AccountRegistrations/Index', [
+        return response()->json([
             'applications' => $applications,
-            'filters' => $request->only(['role', 'status', 'search']),
             'counts' => [
-                'pending' => Profile::whereIn('role', Profile::REGISTRABLE_ROLES)->where('status', 'pending')->count(),
-                'rejected' => Profile::whereIn('role', Profile::REGISTRABLE_ROLES)->where('status', 'rejected')->count(),
+                'pending' => Profile::query()
+                    ->whereIn('role', Profile::REGISTRABLE_ROLES)
+                    ->where('status', 'pending')
+                    ->count(),
+                'rejected' => Profile::query()
+                    ->whereIn('role', Profile::REGISTRABLE_ROLES)
+                    ->where('status', 'rejected')
+                    ->count(),
             ],
         ]);
     }
 
-    public function show(Profile $profile): Response
+    public function show(Profile $profile): JsonResponse
     {
-        $profile->load(['address', 'sellerDetail', 'courierDetail', 'documents.reviewer']);
+        $this->ensureRegistrable($profile);
 
-        return Inertia::render('Admin/AccountRegistrations/Show', [
-            'application' => $profile,
+        $profile->load([
+            'address',
+            'sellerDetail',
+            'courierDetail.logisticsCompany',
+            'documents.reviewer',
+        ]);
+
+        return response()->json([
+            'application' => $this->applicationData($profile),
         ]);
     }
 
-    public function approve(Profile $profile): RedirectResponse
+    public function approve(Request $request, Profile $profile): JsonResponse
     {
-        abort_unless($profile->role !== 'admin', 403);
+        $this->ensureRegistrable($profile);
 
-        DB::transaction(function () use ($profile) {
+        DB::transaction(function () use ($request, $profile): void {
             $oldStatus = $profile->account_status;
 
             $profile->update([
@@ -75,10 +90,9 @@ class AccountRegistrationController extends Controller
                 'account_status' => 'active',
             ]);
 
-            // Approve any documents still pending review.
             $profile->documents()->where('status', 'pending')->update([
                 'status' => 'approved',
-                'reviewed_by' => auth()->id(),
+                'reviewed_by' => $request->user()->id,
                 'reviewed_at' => now(),
             ]);
 
@@ -88,47 +102,114 @@ class AccountRegistrationController extends Controller
                 'old_status' => $oldStatus,
                 'new_status' => 'active',
                 'reason' => 'Registration approved by admin',
-                'changed_by' => auth()->id(),
+                'changed_by' => $request->user()->id,
             ]);
         });
 
-        Mail::to($profile->email)->queue(new RegistrationApproved($profile->fresh()));
+        Mail::to($profile->email)->queue(
+            new RegistrationApproved($profile->full_name),
+        );
 
-        return back()->with('success', "{$profile->full_name}'s application was approved and notified by email.");
+        return response()->json([
+            'message' => "{$profile->full_name}'s application was approved. An email notification was queued.",
+        ]);
     }
 
-    public function reject(RejectRegistrationRequest $request, Profile $profile): RedirectResponse
-    {
+    public function reject(
+        RejectRegistrationRequest $request,
+        Profile $profile,
+    ): JsonResponse {
+        $this->ensureRegistrable($profile);
+
         $reason = $request->validated('reason');
 
-        DB::transaction(function () use ($profile, $reason) {
+        DB::transaction(function () use ($request, $profile, $reason): void {
             $oldStatus = $profile->account_status;
 
-            $profile->update(['status' => 'rejected']);
+            $profile->update([
+                'status' => 'rejected',
+                'account_status' => 'deactivated',
+            ]);
 
             StatusAuditLog::create([
                 'entity_type' => 'profile',
                 'entity_id' => $profile->id,
                 'old_status' => $oldStatus,
-                'new_status' => $profile->account_status,
+                'new_status' => 'deactivated',
                 'reason' => "Registration rejected: {$reason}",
-                'changed_by' => auth()->id(),
+                'changed_by' => $request->user()->id,
             ]);
         });
 
-        Mail::to($profile->email)->queue(new RegistrationRejected($profile->fresh(), $reason));
+        Mail::to($profile->email)->queue(
+            new RegistrationRejected($profile->full_name, $reason),
+        );
 
-        return back()->with('success', "{$profile->full_name}'s application was rejected and notified by email.");
+        return response()->json([
+            'message' => "{$profile->full_name}'s application was rejected. An email notification was queued.",
+        ]);
     }
 
-    public function reviewDocument(DocumentReviewRequest $request, Document $document): RedirectResponse
-    {
+    public function reviewDocument(
+        DocumentReviewRequest $request,
+        Document $document,
+    ): JsonResponse {
         $document->update([
             'status' => $request->validated('status'),
-            'reviewed_by' => auth()->id(),
+            'reviewed_by' => $request->user()->id,
             'reviewed_at' => now(),
         ]);
 
-        return back()->with('success', 'Document review updated.');
+        return response()->json([
+            'message' => 'Document review updated.',
+        ]);
+    }
+
+    private function ensureRegistrable(Profile $profile): void
+    {
+        if (! in_array($profile->role, Profile::REGISTRABLE_ROLES, true)) {
+            throw ValidationException::withMessages([
+                'profile' => 'This profile does not use the registration review workflow.',
+            ]);
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function applicationData(Profile $profile): array
+    {
+        return [
+            'id' => $profile->id,
+            'full_name' => $profile->full_name,
+            'first_name' => $profile->first_name,
+            'last_name' => $profile->last_name,
+            'middle_initial' => $profile->middle_initial,
+            'email' => $profile->email,
+            'contact_no' => $profile->contact_no,
+            'birthday' => $profile->birthday?->toDateString(),
+            'sex' => $profile->sex,
+            'role' => $profile->role,
+            'status' => $profile->status,
+            'account_status' => $profile->account_status,
+            'created_at' => $profile->created_at?->toIso8601String(),
+            'address' => $profile->address ? [
+                ...$profile->address->toArray(),
+                'full_address' => $profile->address->full_address,
+            ] : null,
+            'seller_detail' => $profile->sellerDetail?->toArray(),
+            'courier_detail' => $profile->courierDetail?->toArray(),
+            'documents' => $profile->documents->map(fn (Document $document): array => [
+                'id' => $document->id,
+                'doc_type' => $document->doc_type,
+                'storage_path' => $document->storage_path,
+                'status' => $document->status,
+                'reviewed_at' => $document->reviewed_at?->toIso8601String(),
+                'reviewer' => $document->reviewer ? [
+                    'id' => $document->reviewer->id,
+                    'full_name' => $document->reviewer->full_name,
+                ] : null,
+            ])->values(),
+        ];
     }
 }

@@ -1,6 +1,9 @@
 <?php
 
+use App\Http\Controllers\Admin\AccountRegistrationController;
 use App\Http\Controllers\Admin\AdminNotificationController;
+use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
 use App\Http\Controllers\PasswordResetController;
@@ -79,6 +82,19 @@ Route::middleware(['supabase.auth', 'admin'])
     ->prefix('admin')
     ->name('admin.')
     ->group(function () {
+        Route::get('/dashboard/stats', [DashboardController::class, 'stats'])->name('dashboard.stats');
+        Route::get('/dashboard/notifications', [DashboardController::class, 'notifications'])->name('dashboard.notifications');
+
+        Route::get('/registrations', [AccountRegistrationController::class, 'index'])->name('registrations.index');
+        Route::get('/registrations/{profile}', [AccountRegistrationController::class, 'show'])->name('registrations.show');
+        Route::post('/registrations/{profile}/approve', [AccountRegistrationController::class, 'approve'])->name('registrations.approve');
+        Route::post('/registrations/{profile}/reject', [AccountRegistrationController::class, 'reject'])->name('registrations.reject');
+        Route::post('/documents/{document}/review', [AccountRegistrationController::class, 'reviewDocument'])->name('documents.review');
+
+        Route::get('/accounts', [UserAccountController::class, 'index'])->name('accounts.index');
+        Route::get('/accounts/{profile}', [UserAccountController::class, 'show'])->name('accounts.show');
+        Route::put('/accounts/{profile}/status', [UserAccountController::class, 'updateStatus'])->name('accounts.update-status');
+
         // Approval/Rejection notifications
         Route::post('/notify-approval', [AdminNotificationController::class, 'notifyApproval'])
             ->middleware('throttle:10,1')

@@ -198,6 +198,7 @@ import Complaints from './Complaints.vue';
 import Compliance from './Compliance.vue';
 import Dashboard from './Dashboard.vue';
 import Profile from './Profile.vue';
+import Registrations from './Registrations.vue';
 import Reports from './Reports.vue';
 import Settings from './Settings.vue';
 import Users from './Users.vue';
@@ -222,6 +223,7 @@ const {
 // URL to section mapping
 const pathToSection = {
     '/admin/dashboard': 'dashboard',
+    '/admin/registrations': 'registrations',
     '/admin/accounts': 'accounts',
     '/admin/compliance': 'compliance',
     '/admin/complaints': 'complaints',
@@ -235,6 +237,7 @@ const pathToSection = {
 // Section to URL mapping
 const sectionToPath = {
     dashboard: '/admin/dashboard',
+    registrations: '/admin/registrations',
     accounts: '/admin/accounts',
     compliance: '/admin/compliance',
     complaints: '/admin/complaints',
@@ -248,6 +251,7 @@ const sectionToPath = {
 // Component map
 const componentMap = {
     dashboard: Dashboard,
+    registrations: Registrations,
     accounts: Users,
     compliance: Compliance,
     complaints: Complaints,
@@ -265,6 +269,7 @@ const currentComponent = computed(
 const sectionLabel = computed(() => {
     const labels = {
         dashboard: 'Dashboard',
+        registrations: 'Account Registrations',
         accounts: 'User Accounts',
         compliance: 'Seller Compliance',
         complaints: 'Complaints & Disputes',
@@ -280,6 +285,12 @@ const sectionLabel = computed(() => {
 
 const navItems = computed(() => [
     { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
+    {
+        id: 'registrations',
+        label: 'Account Registrations',
+        icon: 'userCheck',
+        badge: pendingCount.value > 0 ? pendingCount.value : null,
+    },
     { id: 'accounts', label: 'User Accounts', icon: 'users' },
     { id: 'compliance', label: 'Seller Compliance', icon: 'shield' },
     { id: 'complaints', label: 'Complaints & Disputes', icon: 'alert' },
@@ -307,6 +318,7 @@ const adminInitials = computed(() => {
 function getIcon(iconName) {
     const icons = {
         grid: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
+        userCheck: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m17 11 2 2 4-4"/></svg>`,
         users: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
         shield: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>`,
         alert: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,

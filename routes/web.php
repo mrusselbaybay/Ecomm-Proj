@@ -1,8 +1,5 @@
 <?php
 
-use App\Http\Controllers\Admin\AccountRegistrationController;
-use App\Http\Controllers\Admin\DashboardController;
-use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
 use Illuminate\Support\Facades\Route;
@@ -38,25 +35,6 @@ Route::prefix('seller')->name('seller.')->group(function () {
         return view('seller');
     })->where('any', '.*')->name('dashboard');
 });
-
-// ---------- API Routes for Admin (AJAX calls from Vue) ----------
-Route::middleware(['supabase.auth', 'admin'])
-    ->prefix('api/admin')
-    ->name('api.admin.')
-    ->group(function () {
-        Route::get('/registrations', [AccountRegistrationController::class, 'index'])->name('registrations.index');
-        Route::get('/registrations/{profile}', [AccountRegistrationController::class, 'show'])->name('registrations.show');
-        Route::post('/registrations/{profile}/approve', [AccountRegistrationController::class, 'approve'])->name('registrations.approve');
-        Route::post('/registrations/{profile}/reject', [AccountRegistrationController::class, 'reject'])->name('registrations.reject');
-        Route::post('/documents/{document}/review', [AccountRegistrationController::class, 'reviewDocument'])->name('documents.review');
-
-        Route::get('/accounts', [UserAccountController::class, 'index'])->name('accounts.index');
-        Route::get('/accounts/{profile}', [UserAccountController::class, 'show'])->name('accounts.show');
-        Route::put('/accounts/{profile}/status', [UserAccountController::class, 'updateStatus'])->name('accounts.update-status');
-
-        Route::get('/dashboard/stats', [DashboardController::class, 'stats'])->name('dashboard.stats');
-        Route::get('/dashboard/notifications', [DashboardController::class, 'notifications'])->name('dashboard.notifications');
-    });
 
 // ---------- API Routes for Logistics ----------
 Route::prefix('api/logistics')->name('api.logistics.')->group(function () {

@@ -198,11 +198,7 @@
                     <button
                         @click="submitRejection"
                         class="btn-danger-outline flex-1 py-2"
-                        :disabled="
-                            !selectedReason ||
-                            (selectedReason === 'others' &&
-                                !customReason.trim())
-                        "
+                        :disabled="!canReject"
                     >
                         Reject
                     </button>
@@ -213,24 +209,28 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 
-const { registrations, pendingCount, statusBadgeClass, formatDate, supabase } =
-    useAdmin();
+const {
+    registrations,
+    pendingCount,
+    statusBadgeClass,
+    formatDate,
+    adminFetch,
+    supabase,
+} = useAdmin();
 
 const search = ref('');
 const roleFilter = ref('');
 const statusFilter = ref('');
 const loading = ref(false);
-
-// Rejection modal
 const showRejectModal = ref(false);
 const rejectUserData = ref(null);
 const selectedReason = ref('');
 const customReason = ref('');
+let searchTimer;
 
-// Rejection reasons
 const rejectionReasons = [
     {
         value: 'invalid_information',
@@ -247,88 +247,73 @@ const rejectionReasons = [
     {
         value: 'not_eligible',
         label: 'Does not meet eligibility requirements',
-        description:
-            'The user does not qualify for the service or organization.',
+        description: 'The user does not qualify for the platform.',
     },
     {
         value: 'fraudulent',
         label: 'Suspicious or fraudulent information',
         description:
-            'The submitted information appears fake, inconsistent, or potentially fraudulent.',
+            'The submitted information appears fraudulent or misleading.',
     },
 ];
 
+const canReject = computed(
+    () =>
+        selectedReason.value &&
+        (selectedReason.value !== 'others' || customReason.value.trim()),
+);
+
 async function loadData() {
-    loading.value = true;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+        loading.value = true;
 
-    try {
-        let query = supabase
-            .from('profiles')
-            .select('*')
-            .in('role', ['buyer', 'seller', 'courier'])
-            .in('status', ['pending', 'rejected'])
-            .order('created_at', { ascending: false });
+        try {
+            const params = new URLSearchParams();
 
-        if (search.value) {
-            query = query.or(
-                `first_name.ilike.%${search.value}%,last_name.ilike.%${search.value}%,email.ilike.%${search.value}%`,
+            if (search.value.trim()) {
+                params.set('search', search.value.trim());
+            }
+
+            if (roleFilter.value) {
+                params.set('role', roleFilter.value);
+            }
+
+            if (statusFilter.value) {
+                params.set('status', statusFilter.value);
+            }
+
+            const response = await adminFetch(
+                `/api/admin/registrations?${params.toString()}`,
             );
+            const payload = await response.json();
+
+            registrations.value = payload.applications.data;
+            pendingCount.value = payload.counts.pending;
+        } catch (error) {
+            window.alert(error.message);
+        } finally {
+            loading.value = false;
         }
-
-        if (roleFilter.value) {
-            query = query.eq('role', roleFilter.value);
-        }
-
-        if (statusFilter.value) {
-            query = query.eq('status', statusFilter.value);
-        }
-
-        const { data, error } = await query;
-
-        if (error) {
-            throw error;
-        }
-
-        registrations.value = data || [];
-
-        // Update pending count
-        const { count } = await supabase
-            .from('profiles')
-            .select('*', { count: 'exact', head: true })
-            .in('role', ['buyer', 'seller', 'courier'])
-            .eq('status', 'pending');
-        pendingCount.value = count || 0;
-    } catch (error) {
-        console.error('Error loading registrations:', error);
-    } finally {
-        loading.value = false;
-    }
+    }, 250);
 }
 
 async function approveUser(user) {
-    if (
-        !confirm(`Approve ${user.full_name || user.first_name || user.email}?`)
-    ) {
+    if (!window.confirm(`Approve ${user.full_name || user.email}?`)) {
         return;
     }
 
     try {
-        const { error } = await supabase
-            .from('profiles')
-            .update({ status: 'approved', account_status: 'active' })
-            .eq('id', user.id);
-
-        if (error) {
-            throw error;
-        }
-
-        alert(
-            `✅ ${user.full_name || user.first_name || user.email} approved!`,
+        const response = await adminFetch(
+            `/api/admin/registrations/${user.id}/approve`,
+            { method: 'POST' },
         );
+        const payload = await response.json();
+
+        window.alert(payload.message);
         await loadData();
     } catch (error) {
-        console.error('Error approving user:', error);
-        alert('Failed to approve user: ' + error.message);
+        window.alert(`Failed to approve application: ${error.message}`);
     }
 }
 
@@ -347,66 +332,68 @@ function closeRejectModal() {
 }
 
 async function submitRejection() {
-    if (!selectedReason.value) {
-        alert('Please select a reason for rejection.');
+    if (!canReject.value) {
+        return;
+    }
+
+    const reasonDefinition = rejectionReasons.find(
+        (reason) => reason.value === selectedReason.value,
+    );
+    const reason =
+        selectedReason.value === 'others'
+            ? customReason.value.trim()
+            : `${reasonDefinition.label} — ${reasonDefinition.description}`;
+
+    try {
+        const response = await adminFetch(
+            `/api/admin/registrations/${rejectUserData.value.id}/reject`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason }),
+            },
+        );
+        const payload = await response.json();
+
+        closeRejectModal();
+        window.alert(payload.message);
+        await loadData();
+    } catch (error) {
+        window.alert(`Failed to reject application: ${error.message}`);
+    }
+}
+
+async function viewRegistration(user) {
+    if (!user.documents?.length) {
+        window.alert('This applicant has not submitted any documents.');
 
         return;
     }
 
-    // Get the rejection message
-    let rejectionMessage = '';
-
-    if (selectedReason.value === 'others') {
-        rejectionMessage = customReason.value.trim();
-
-        if (!rejectionMessage) {
-            alert('Please specify the reason for rejection.');
-
-            return;
-        }
-    } else {
-        const reason = rejectionReasons.find(
-            (r) => r.value === selectedReason.value,
-        );
-        rejectionMessage = reason
-            ? `${reason.label} — ${reason.description}`
-            : selectedReason.value;
-    }
-
     try {
-        const { error } = await supabase
-            .from('profiles')
-            .update({
-                status: 'rejected',
-                account_status: 'deactivated',
-                rejection_reason: rejectionMessage,
-            })
-            .eq('id', rejectUserData.value.id);
+        const { data, error } = await supabase.storage
+            .from('documents')
+            .createSignedUrl(user.documents[0].storage_path, 300);
 
         if (error) {
             throw error;
         }
 
-        alert(
-            `❌ ${rejectUserData.value.full_name || rejectUserData.value.first_name || rejectUserData.value.email} rejected.`,
-        );
-        closeRejectModal();
-        await loadData();
+        window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+
+        if (user.documents.length > 1) {
+            window.alert(
+                `Opened the first of ${user.documents.length} submitted documents.`,
+            );
+        }
     } catch (error) {
-        console.error('Error rejecting user:', error);
-        alert('Failed to reject user: ' + error.message);
+        window.alert(`Unable to open document: ${error.message}`);
     }
 }
 
-function viewRegistration(user) {
-    alert(
-        `📄 Viewing documents for ${user.full_name || user.first_name || user.email}`,
-    );
-}
+onMounted(loadData);
 
-onMounted(() => {
-    loadData();
-});
+onBeforeUnmount(() => clearTimeout(searchTimer));
 </script>
 
 <style scoped>
