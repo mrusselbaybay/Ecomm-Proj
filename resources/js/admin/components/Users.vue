@@ -1,10 +1,15 @@
 <template>
     <div class="space-y-5">
-        <div>
-            <h2 class="text-xl font-bold text-slate-900">User accounts</h2>
-            <p class="mt-1 text-sm text-slate-500">
-                View approved user profiles and control account access.
-            </p>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <h2 class="text-xl font-bold text-slate-900">User accounts</h2>
+                <p class="mt-1 text-sm text-slate-500">
+                    View approved user profiles and control account access.
+                </p>
+            </div>
+            <button class="btn-primary" @click="openStaffModal">
+                Add platform admin
+            </button>
         </div>
 
         <div
@@ -359,6 +364,118 @@
                 </div>
             </div>
         </div>
+
+        <div
+            v-if="showStaffModal"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            @click.self="closeStaffModal"
+        >
+            <form
+                class="modal-card max-h-[90vh] w-full max-w-lg overflow-y-auto p-6"
+                @submit.prevent="createStaffAccount"
+            >
+                <h3 class="text-lg font-bold text-slate-900">
+                    Add platform admin
+                </h3>
+                <p class="mt-1 text-sm text-slate-500">
+                    Create a new platform administrator account.
+                </p>
+
+                <div class="mt-5 grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="field-label" for="staff-first-name">
+                            First name
+                        </label>
+                        <input
+                            id="staff-first-name"
+                            v-model.trim="staffForm.first_name"
+                            class="field-input"
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label class="field-label" for="staff-last-name">
+                            Last name
+                        </label>
+                        <input
+                            id="staff-last-name"
+                            v-model.trim="staffForm.last_name"
+                            class="field-input"
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label class="field-label" for="staff-middle-initial">
+                            Middle initial
+                        </label>
+                        <input
+                            id="staff-middle-initial"
+                            v-model.trim="staffForm.middle_initial"
+                            class="field-input"
+                            maxlength="2"
+                        />
+                    </div>
+                    <div>
+                        <label class="field-label" for="staff-email"
+                            >Email</label
+                        >
+                        <input
+                            id="staff-email"
+                            v-model.trim="staffForm.email"
+                            type="email"
+                            class="field-input"
+                            required
+                        />
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label class="field-label" for="staff-password">
+                            Temporary password
+                        </label>
+                        <div class="flex gap-2">
+                            <input
+                                id="staff-password"
+                                v-model="staffForm.password"
+                                class="field-input"
+                                minlength="12"
+                                required
+                            />
+                            <button
+                                type="button"
+                                class="btn-outline"
+                                @click="generateStaffPassword"
+                            >
+                                Generate
+                            </button>
+                        </div>
+                        <p class="mt-1 text-xs text-slate-400">
+                            Credentials are emailed after account creation.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="mt-6 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        class="btn-outline"
+                        @click="closeStaffModal"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="submit"
+                        class="btn-primary"
+                        :disabled="creatingStaff"
+                    >
+                        {{
+                            creatingStaff
+                                ? 'Creating...'
+                                : 'Create platform admin'
+                        }}
+                    </button>
+                </div>
+            </form>
+        </div>
     </div>
 </template>
 
@@ -375,6 +492,8 @@ const accountStatusFilter = ref('');
 const loading = ref(false);
 const profileLoading = ref(false);
 const savingStatus = ref(false);
+const creatingStaff = ref(false);
+const showStaffModal = ref(false);
 const currentAdminId = ref(null);
 const selectedAccount = ref(null);
 const statusAccount = ref(null);
@@ -391,6 +510,14 @@ const summary = ref({
 const pagination = ref({
     current_page: 1,
     last_page: 1,
+});
+const staffForm = ref({
+    role: 'admin',
+    first_name: '',
+    last_name: '',
+    middle_initial: '',
+    email: '',
+    password: '',
 });
 
 let searchTimer;
@@ -415,6 +542,59 @@ function formatRole(role) {
 function showMessage(text, type = 'success') {
     message.value = text;
     messageType.value = type;
+}
+
+function resetStaffForm() {
+    staffForm.value = {
+        first_name: '',
+        last_name: '',
+        middle_initial: '',
+        email: '',
+        password: '',
+    };
+}
+
+function openStaffModal() {
+    resetStaffForm();
+    generateStaffPassword();
+    showStaffModal.value = true;
+}
+
+function closeStaffModal() {
+    showStaffModal.value = false;
+}
+
+function generateStaffPassword() {
+    const characters =
+        'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    const randomValues = new Uint32Array(16);
+    crypto.getRandomValues(randomValues);
+
+    staffForm.value.password = Array.from(
+        randomValues,
+        (value) => characters[value % characters.length],
+    ).join('');
+}
+
+async function createStaffAccount() {
+    creatingStaff.value = true;
+
+    try {
+        const response = await adminFetch('/api/admin/staff', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(staffForm.value),
+        });
+        const payload = await response.json();
+
+        closeStaffModal();
+        showMessage(payload.message);
+        await loadAccounts(1);
+    } catch (error) {
+        showMessage(error.message, 'error');
+    } finally {
+        creatingStaff.value = false;
+    }
 }
 
 function scheduleLoad() {

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AccountRegistrationController;
 use App\Http\Controllers\Admin\AdminNotificationController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\StaffAccountController;
 use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
@@ -94,6 +95,8 @@ Route::middleware(['supabase.auth', 'admin'])
         Route::get('/accounts', [UserAccountController::class, 'index'])->name('accounts.index');
         Route::get('/accounts/{profile}', [UserAccountController::class, 'show'])->name('accounts.show');
         Route::put('/accounts/{profile}/status', [UserAccountController::class, 'updateStatus'])->name('accounts.update-status');
+
+        Route::post('/staff', [StaffAccountController::class, 'store'])->name('staff.store');
 
         // Approval/Rejection notifications
         Route::post('/notify-approval', [AdminNotificationController::class, 'notifyApproval'])
