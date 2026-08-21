@@ -6,6 +6,18 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
+/**
+ * @property string $id
+ * @property string $role
+ * @property string $status
+ * @property string $account_status
+ * @property string $first_name
+ * @property string $last_name
+ * @property string|null $middle_initial
+ * @property string|null $email
+ * @property string|null $contact_no
+ * @property-read string $full_name
+ */
 class Profile extends Model
 {
     protected $table = 'profiles';
@@ -86,6 +98,16 @@ class Profile extends Model
     public function sellerComplianceActions(): HasMany
     {
         return $this->hasMany(SellerComplianceAction::class, 'seller_id');
+    }
+
+    public function submittedComplaints(): HasMany
+    {
+        return $this->hasMany(Complaint::class, 'complainant_id');
+    }
+
+    public function complaintsAgainst(): HasMany
+    {
+        return $this->hasMany(Complaint::class, 'respondent_id');
     }
 
     public function getFullNameAttribute(): string

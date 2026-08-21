@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Complaint;
 use App\Models\Profile;
 use App\Models\StatusAuditLog;
 use Illuminate\Http\JsonResponse;
@@ -24,7 +25,9 @@ class DashboardController extends Controller
             'pending_registrations' => (clone $registrableProfiles)
                 ->where('status', 'pending')
                 ->count(),
-            'open_complaints' => 0,
+            'open_complaints' => Complaint::query()
+                ->whereNotIn('status', ['resolved', 'dismissed'])
+                ->count(),
         ]);
     }
 
