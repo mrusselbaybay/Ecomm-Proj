@@ -1352,3 +1352,28 @@ ADD COLUMN IF NOT EXISTS interview_scheduled_at TIMESTAMPTZ;
 
 COMMENT ON COLUMN public.courier_applications.interview_scheduled_at IS
 'Date/time the logistics company scheduled the interview for. Included in the interview-invite email sent to the courier.';
+
+-- Add mime_type column to documents table
+ALTER TABLE public.documents 
+ADD COLUMN IF NOT EXISTS mime_type TEXT;
+
+-- Add comment for documentation
+COMMENT ON COLUMN public.documents.mime_type IS 'MIME type of the uploaded file (e.g., image/jpeg, application/pdf)';
+
+-- Create an index for faster queries
+CREATE INDEX IF NOT EXISTS idx_documents_mime_type ON public.documents(mime_type);
+
+-- Optional: Update existing documents with mime_type based on file extension
+-- This is a best-effort migration for existing files
+UPDATE public.documents 
+SET mime_type = 
+  CASE 
+    WHEN storage_path LIKE '%.jpg' OR storage_path LIKE '%.jpeg' THEN 'image/jpeg'
+    WHEN storage_path LIKE '%.png' THEN 'image/png'
+    WHEN storage_path LIKE '%.gif' THEN 'image/gif'
+    WHEN storage_path LIKE '%.pdf' THEN 'application/pdf'
+    WHEN storage_path LIKE '%.doc' OR storage_path LIKE '%.docx' THEN 'application/msword'
+    WHEN storage_path LIKE '%.webp' THEN 'image/webp'
+    ELSE 'application/octet-stream'
+  END
+WHERE mime_type IS NULL;

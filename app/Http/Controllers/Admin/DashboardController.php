@@ -1,81 +1,55 @@
 <?php
-// app/Http/Controllers/Admin/DashboardController.php
 
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
+use App\Models\Complaint;
+use App\Models\Profile;
+use App\Models\StatusAuditLog;
+use Illuminate\Http\JsonResponse;
 
 class DashboardController extends Controller
 {
-    /**
-     * Get admin dashboard stats
-     */
-    public function stats()
+    public function stats(): JsonResponse
     {
-        // Since you're using Supabase directly from frontend,
-        // this is just a placeholder for future API calls
+        $registrableProfiles = Profile::query()
+            ->whereIn('role', Profile::REGISTRABLE_ROLES);
+
         return response()->json([
-            'total_users' => 0,
-            'active_sellers' => 0,
-            'pending_registrations' => 0,
-            'open_complaints' => 0,
+            'total_users' => Profile::query()->count(),
+            'active_sellers' => Profile::query()
+                ->where('role', 'seller')
+                ->where('status', 'approved')
+                ->where('account_status', 'active')
+                ->count(),
+            'pending_registrations' => (clone $registrableProfiles)
+                ->where('status', 'pending')
+                ->count(),
+            'open_complaints' => Complaint::query()
+                ->whereNotIn('status', ['resolved', 'dismissed'])
+                ->count(),
         ]);
     }
 
-    /**
-     * Get notifications
-     */
-    public function notifications()
+    public function notifications(): JsonResponse
     {
-        return response()->json([
-            [
-                'text' => 'Welcome to the admin panel!',
-                'time' => 'Just now'
-            ]
-        ]);
-    }
+        $notifications = StatusAuditLog::query()
+            ->with('changedBy:id,first_name,last_name')
+            ->latest('created_at')
+            ->limit(10)
+            ->get()
+            ->map(function (StatusAuditLog $log): array {
+                $actor = $log->changedBy?->full_name ?? 'An administrator';
+                $status = str_replace('_', ' ', $log->new_status);
 
-    /**
-     * Get registrations
-     */
-    public function registrations(Request $request)
-    {
-        // Your Supabase queries are in the frontend,
-        // so this is just a placeholder
-        return response()->json([]);
-    }
+                return [
+                    'id' => $log->getKey(),
+                    'text' => "{$actor} changed a {$log->entity_type} status to {$status}.",
+                    'time' => $log->created_at?->diffForHumans() ?? 'Recently',
+                ];
+            })
+            ->values();
 
-    /**
-     * Get accounts
-     */
-    public function accounts(Request $request)
-    {
-        return response()->json([]);
-    }
-
-    /**
-     * Approve user
-     */
-    public function approve($id)
-    {
-        return response()->json(['message' => 'User approved']);
-    }
-
-    /**
-     * Reject user
-     */
-    public function reject(Request $request, $id)
-    {
-        return response()->json(['message' => 'User rejected']);
-    }
-
-    /**
-     * Update user status
-     */
-    public function updateStatus(Request $request, $id)
-    {
-        return response()->json(['message' => 'Status updated']);
+        return response()->json($notifications);
     }
 }

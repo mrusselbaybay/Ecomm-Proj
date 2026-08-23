@@ -11,6 +11,8 @@ export default defineConfig({
                 'resources/js/admin/admin.js',
                 'resources/js/logistics/logistics.js',
                 'resources/js/pickup_courier/pickup_courier.js',
+                'resources/js/seller/seller.js',
+                'resources/js/buyer/buyer.js',
             ],
             refresh: true,
         }),

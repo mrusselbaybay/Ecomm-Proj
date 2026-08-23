@@ -11,6 +11,14 @@ use App\Models\PasswordResetCode;
 
 class PasswordResetController extends Controller
 {
+    /**
+     * How long a code stays valid. Exposed to callers via
+     * expires_in_seconds so the frontend countdown (e.g. the admin
+     * account settings "Change Password" modal) reflects the real TTL
+     * instead of a hardcoded guess.
+     */
+    private const CODE_TTL_MINUTES = 15;
+
     public function sendCode(Request $request)
     {
         Log::info('Password reset requested', ['email' => $request->input('email')]);
@@ -41,7 +49,7 @@ class PasswordResetController extends Controller
         PasswordResetCode::create([
             'email' => $email,
             'code' => $code,
-            'expires_at' => now()->addMinutes(15),
+            'expires_at' => now()->addMinutes(self::CODE_TTL_MINUTES),
         ]);
 
         // Send email
@@ -57,6 +65,7 @@ class PasswordResetController extends Controller
 
         return response()->json([
             'message' => 'Verification code sent to your email.',
+            'expires_in_seconds' => self::CODE_TTL_MINUTES * 60,
         ]);
     }
 
@@ -232,7 +241,7 @@ public function resendSignupCode(Request $request)
         PasswordResetCode::create([
             'email' => $email,
             'code' => $code,
-            'expires_at' => now()->addMinutes(15),
+            'expires_at' => now()->addMinutes(self::CODE_TTL_MINUTES),
         ]);
 
         try {
@@ -246,6 +255,7 @@ public function resendSignupCode(Request $request)
 
         return response()->json([
             'message' => 'New verification code sent to your email.',
+            'expires_in_seconds' => self::CODE_TTL_MINUTES * 60,
         ]);
     }
 

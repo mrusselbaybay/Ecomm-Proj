@@ -1,8 +1,14 @@
 import stylistic from '@stylistic/eslint-plugin';
-import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript';
+import { configureVueProject, defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript';
 import prettier from 'eslint-config-prettier/flat';
 import importPlugin from 'eslint-plugin-import';
 import vue from 'eslint-plugin-vue';
+
+// This project's .vue components are authored in plain JavaScript
+// (see jsconfig.json / absence of a root tsconfig.json), so allow
+// <script> blocks with no lang attribute (or lang="js") instead of
+// requiring lang="ts".
+configureVueProject({ scriptLangs: ['js', 'jsx'] });
 
 const controlStatements = [
     'if',

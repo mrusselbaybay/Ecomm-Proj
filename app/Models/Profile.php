@@ -3,13 +3,27 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
+/**
+ * @property string $id
+ * @property string $role
+ * @property string $status
+ * @property string $account_status
+ * @property string $first_name
+ * @property string $last_name
+ * @property string|null $middle_initial
+ * @property string|null $email
+ * @property string|null $contact_no
+ * @property-read string $full_name
+ */
 class Profile extends Model
 {
     protected $table = 'profiles';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -23,7 +37,31 @@ class Profile extends Model
     ];
 
     // Roles that go through the registration/approval workflow.
-    public const REGISTRABLE_ROLES = ['buyer', 'seller', 'courier'];
+    public const REGISTRABLE_ROLES = ['buyer', 'seller', 'courier', 'driver'];
+
+    public const ROLE_ADMIN = 'admin';
+
+    /**
+     * Defense-in-depth: block any Eloquent-level attempt to (re)assign
+     * the admin role from an HTTP request lifecycle. Admin accounts are
+     * provisioned out-of-band (console/seeder) only. This does not cover
+     * profile rows inserted directly by the Supabase auth.users trigger -
+     * that path is guarded separately in AuthController::register().
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Profile $profile) {
+            if (
+                $profile->role === self::ROLE_ADMIN
+                && $profile->isDirty('role')
+                && ! app()->runningInConsole()
+            ) {
+                throw new \RuntimeException(
+                    'Admin accounts cannot be created or modified through the application. Provision them via the console.'
+                );
+            }
+        });
+    }
 
     public function address(): HasOne
     {
@@ -40,6 +78,11 @@ class Profile extends Model
         return $this->hasOne(CourierDetail::class, 'profile_id');
     }
 
+    public function driverDetail(): HasOne
+    {
+        return $this->hasOne(DriverDetail::class, 'profile_id');
+    }
+
     public function documents(): HasMany
     {
         return $this->hasMany(Document::class, 'profile_id')->where('owner_kind', 'profile');
@@ -52,9 +95,25 @@ class Profile extends Model
             ->orderByDesc('created_at');
     }
 
+    public function sellerComplianceActions(): HasMany
+    {
+        return $this->hasMany(SellerComplianceAction::class, 'seller_id');
+    }
+
+    public function submittedComplaints(): HasMany
+    {
+        return $this->hasMany(Complaint::class, 'complainant_id');
+    }
+
+    public function complaintsAgainst(): HasMany
+    {
+        return $this->hasMany(Complaint::class, 'respondent_id');
+    }
+
     public function getFullNameAttribute(): string
     {
         $mi = $this->middle_initial ? "{$this->middle_initial}. " : '';
+
         return trim("{$this->first_name} {$mi}{$this->last_name}");
     }
 }
