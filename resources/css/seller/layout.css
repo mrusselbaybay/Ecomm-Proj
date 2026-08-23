@@ -2,6 +2,19 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 
+/* box-sizing: border-box everywhere in the seller portal — without this,
+   any element using `width: 100%` plus padding/border (which is most of
+   the form inputs/textareas/selects here) renders WIDER than its
+   container, since padding+border get added on top of the 100% width
+   instead of being included in it. That's what was pushing fields like
+   Compare Price / Ingredients past the edge of their card. */
+.seller-app,
+.seller-app *,
+.seller-app *::before,
+.seller-app *::after {
+    box-sizing: border-box;
+}
+
 /* Reset the page shell so the seller portal fills the full viewport with
    no default browser margin and a single scrollbar (inside .seller-main),
    instead of the whole page scrolling as well. */
@@ -1666,8 +1679,6 @@ body {
     flex-direction: column;
     gap: 1.5rem;
 }
-.filter-group {
-}
 .filter-heading {
     font-size: 0.65rem;
     font-weight: 700;
@@ -1744,14 +1755,15 @@ body {
 }
 
 .price-range {
-    padding: 0 0.15rem;
+    padding: 0.6rem 0.15rem 0.15rem;
 }
 .price-track {
     position: relative;
     height: 4px;
     background: #e2e8f0;
     border-radius: 9999px;
-    margin-bottom: 0.35rem;
+    margin: 0.6rem 0;
+    cursor: pointer;
 }
 .price-track-fill {
     position: absolute;
@@ -1759,52 +1771,90 @@ body {
     bottom: 0;
     background: var(--teal-500);
     border-radius: 9999px;
-}
-.price-slider {
-    position: relative;
-    width: 100%;
-    margin: 0;
-    -webkit-appearance: none;
-    appearance: none;
-    background: transparent;
     pointer-events: none;
-    height: 1rem;
 }
-.price-slider + .price-slider {
-    margin-top: -1rem;
-}
-.price-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    pointer-events: auto;
-    width: 15px;
-    height: 15px;
+.price-thumb {
+    position: absolute;
+    top: 50%;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     background: white;
     border: 2px solid var(--teal-500);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-    cursor: pointer;
-    margin-top: -6px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
+    transform: translate(-50%, -50%);
+    cursor: grab;
+    touch-action: none;
+    transition:
+        box-shadow 0.15s ease,
+        transform 0.1s ease;
 }
-.price-slider::-moz-range-thumb {
-    pointer-events: auto;
-    width: 15px;
-    height: 15px;
-    border-radius: 50%;
-    background: white;
-    border: 2px solid var(--teal-500);
-    cursor: pointer;
+.price-thumb:hover {
+    box-shadow: 0 0 0 5px rgba(27, 155, 168, 0.15);
 }
-.price-slider::-webkit-slider-runnable-track {
-    height: 3px;
-    background: transparent;
+.price-thumb:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 4px rgba(27, 155, 168, 0.35);
 }
-.price-labels {
+.price-thumb.dragging {
+    cursor: grabbing;
+    transform: translate(-50%, -50%) scale(1.15);
+    box-shadow: 0 0 0 6px rgba(27, 155, 168, 0.2);
+}
+.price-inputs {
     display: flex;
-    justify-content: space-between;
-    font-size: 0.72rem;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.7rem;
+}
+.price-input-box {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    background: white;
+    transition:
+        border-color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+.price-input-box:focus-within {
+    border-color: var(--teal-500);
+    box-shadow: 0 0 0 3px rgba(27, 155, 168, 0.15);
+}
+.price-input-box span {
+    font-size: 0.75rem;
     font-weight: 700;
-    color: #475569;
-    margin-top: 0.6rem;
+    color: #94a3b8;
+    flex-shrink: 0;
+}
+.price-input-box input {
+    width: 100%;
+    min-width: 0;
+    border: none;
+    outline: none;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #1e293b;
+    background: transparent;
+    /* Hide the native number-input spin arrows — they don't fit this
+       compact a box and the slider above already covers "nudge the
+       value" interactions. */
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+.price-input-box input::-webkit-outer-spin-button,
+.price-input-box input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.price-input-sep {
+    font-size: 0.75rem;
+    color: #cbd5e1;
+    flex-shrink: 0;
 }
 
 .inventory-grid-wrap {
@@ -1890,6 +1940,10 @@ body {
     background: #64748b;
     color: white;
 }
+.product-badge.badge-sky {
+    background: #0ea5e9;
+    color: white;
+}
 
 .product-select-box {
     position: absolute;
@@ -1955,6 +2009,7 @@ body {
     line-height: 1.3;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
@@ -2070,50 +2125,160 @@ body {
 }
 
 /* ---- product profile sheet ---- */
-.product-sheet {
-    width: 24rem;
-    flex-shrink: 0;
-    position: sticky;
-    top: 1rem;
+/* ============================================================
+   PRODUCT PROFILE SHEET (centered modal)
+   Reuses .modal-overlay for the backdrop (same one the Archive
+   confirm dialog uses) — this is just a much larger panel.
+   ============================================================ */
+.product-modal {
+    width: 100%;
+    max-width: 46rem;
+    max-height: 92vh;
     background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 1rem;
-    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.1);
+    border-radius: 1.75rem;
+    box-shadow: 0 25px 60px rgba(15, 23, 42, 0.28);
     display: flex;
     flex-direction: column;
-    max-height: calc(100vh - 6rem);
+    overflow: hidden;
 }
-.product-sheet-header {
-    padding: 1.25rem 1.4rem;
+.product-modal-gradient {
+    height: 4px;
+    flex-shrink: 0;
+    background: linear-gradient(90deg, var(--teal-600), var(--teal-300));
+}
+.product-modal-header {
+    padding: 1.5rem 1.75rem;
     border-bottom: 1px solid #f1f5f9;
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 0.75rem;
+    flex-shrink: 0;
 }
-.product-sheet-header h3 {
-    font-size: 1rem;
+.product-modal-header h2 {
+    font-size: 1.3rem;
     font-weight: 800;
     color: #0f172a;
+    letter-spacing: -0.01em;
+    margin: 0;
 }
-.product-sheet-header p {
-    font-size: 0.72rem;
-    color: #94a3b8;
-    margin-top: 0.15rem;
+.product-modal-status {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.4rem;
+}
+.product-modal-status p {
+    font-size: 0.75rem;
+    color: var(--slate);
+    margin: 0;
+}
+.status-dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.status-dot-new {
+    background: #10b981;
+}
+.status-dot-edit {
+    background: #f59e0b;
 }
 
-.product-sheet-body {
+.product-modal-body {
     flex: 1;
+    min-width: 0;
     overflow-y: auto;
-    padding: 1.4rem;
+    padding: 1.75rem;
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    gap: 2rem;
 }
 .sheet-field-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 0.9rem;
+}
+.field-hint {
+    margin: 0.4rem 0 0;
+    font-size: 0.72rem;
+    color: var(--slate);
+    line-height: 1.4;
+}
+
+/* ---- section cards (Basic Info / Pricing / Specs / Variants / Media) ---- */
+.ps-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+.ps-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+.ps-section-header h3 {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0;
+}
+.ps-section-header p {
+    font-size: 0.75rem;
+    color: var(--slate);
+    margin: 0.1rem 0 0;
+}
+.ps-icon-badge {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.ps-icon-teal {
+    background: var(--teal-50);
+    color: var(--teal-600);
+}
+.ps-icon-emerald {
+    background: #ecfdf5;
+    color: #059669;
+}
+.ps-icon-sky {
+    background: #f0f9ff;
+    color: #0284c7;
+}
+.ps-icon-indigo {
+    background: #eef2ff;
+    color: #4f46e5;
+}
+.ps-icon-amber {
+    background: #fffbeb;
+    color: #d97706;
+}
+.ps-icon-pink {
+    background: #fdf2f8;
+    color: #db2777;
+}
+.ps-section-card {
+    background: #f8fafc80;
+    border: 1px solid #f1f5f9;
+    border-radius: 1.25rem;
+    padding: 1.25rem 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+}
+.ps-category-chip {
+    padding: 0.8rem 1rem;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #334155;
 }
 
 .currency-input {
@@ -2209,21 +2374,32 @@ body {
     color: var(--teal-600);
 }
 
-.product-sheet-footer {
-    padding: 1.1rem 1.4rem;
+.product-modal-footer {
+    padding: 1.1rem 1.75rem;
     border-top: 1px solid #f1f5f9;
     background: #f8fafc80;
-    border-radius: 0 0 1rem 1rem;
+    flex-shrink: 0;
     display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.75rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
 }
-.product-sheet-footer .btn-outline {
+.product-modal-footer-hint {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--slate);
+    text-align: right;
+}
+.product-modal-footer-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+}
+.product-modal-footer-actions .btn-outline {
     color: #64748b;
     font-weight: 700;
 }
-.product-sheet-footer .btn-outline:hover {
+.product-modal-footer-actions .btn-outline:hover {
     color: #334155;
 }
 
@@ -2233,9 +2409,6 @@ body {
 @media (max-width: 1200px) {
     .product-grid {
         grid-template-columns: repeat(2, 1fr);
-    }
-    .product-sheet {
-        width: 20rem;
     }
 }
 
@@ -2252,14 +2425,6 @@ body {
     .filter-group {
         flex: 1;
         min-width: 12rem;
-    }
-    .product-sheet {
-        width: 100%;
-        position: fixed;
-        inset: 0;
-        max-height: 100vh;
-        border-radius: 0;
-        z-index: 60;
     }
 }
 
@@ -3065,4 +3230,866 @@ body {
     .order-detail-page-footer-right {
         flex-direction: column;
     }
+}
+
+/* ============================================================
+   PRODUCT VARIANTS (Inventory product sheet)
+   Reuses existing tokens (--teal-*, --slate) and existing
+   component classes (.field-input, .field-label, .chip-btn,
+   .btn-outline, .save-msg) rather than introducing new ones.
+   ============================================================ */
+
+.field-group {
+    border-top: 1px solid #e2e8f0;
+    padding-top: 1rem;
+}
+
+.variant-option-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin-bottom: 0.6rem;
+}
+
+.spec-fields-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.9rem;
+    max-height: 20rem;
+    overflow-y: auto;
+}
+
+.variant-option-values {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.4rem;
+    overflow-x: auto;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    background: white;
+    min-height: 2.4rem;
+}
+
+.variant-value-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--teal-700);
+    background: var(--teal-50);
+    border: 1px solid var(--teal-200);
+    border-radius: 999px;
+    white-space: nowrap;
+}
+.variant-value-chip button {
+    border: none;
+    background: none;
+    color: var(--teal-600);
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 0;
+}
+
+.variant-value-input {
+    flex: 1;
+    min-width: 6rem;
+    border: none;
+    outline: none;
+    font-size: 0.8rem;
+    color: #1e293b;
+    background: transparent;
+}
+
+.variant-table-wrap {
+    overflow-x: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.65rem;
+}
+
+.variant-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+.variant-table th,
+.variant-table td {
+    padding: 0.5rem 0.6rem;
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 1px solid #f1f5f9;
+}
+.variant-table th {
+    color: var(--slate);
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.65rem;
+    letter-spacing: 0.02em;
+    background: #f8fafc;
+}
+.variant-table td .field-input {
+    min-width: 5.5rem;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.78rem;
+}
+.variant-table tr:last-child td {
+    border-bottom: none;
+}
+
+.variant-image-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.4rem;
+    height: 2.4rem;
+    border: 1px dashed #cbd5e1;
+    border-radius: 0.5rem;
+    background: #f8fafc;
+    color: #94a3b8;
+    cursor: pointer;
+    overflow: hidden;
+}
+.variant-image-cell img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* ============================================================
+   HIDDEN SCROLLBARS
+   Hides the visible scrollbar in the relevant scrollable panels
+   (product sheet body, variant option-value chip row, variant
+   table) while keeping scroll fully functional via wheel,
+   trackpad, touch, and keyboard — nothing here disables
+   scrolling or removes focusability/keyboard access.
+   ============================================================ */
+.custom-scrollbar,
+.scrollbar-hidden {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.custom-scrollbar::-webkit-scrollbar,
+.scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+}
+
+/* ============================================================
+   PREPARE SHIPMENT (PrepareOrders.vue)
+   Reuses existing tokens/classes (.card, .field-input, .field-label,
+   .field-hint, .sheet-field-row, .badge, .btn-primary/.btn-outline,
+   .placeholder-page, .save-msg) rather than introducing a parallel
+   design system.
+   ============================================================ */
+.prep-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+.prep-title {
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.01em;
+    margin: 0;
+}
+.prep-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--slate);
+    margin-top: 0.35rem;
+}
+.prep-breadcrumb a {
+    color: var(--slate);
+    text-decoration: none;
+}
+.prep-breadcrumb a:hover {
+    color: var(--teal-600);
+    text-decoration: underline;
+}
+
+.prep-grid {
+    display: grid;
+    grid-template-columns: 7fr 5fr;
+    gap: 1.5rem;
+    align-items: start;
+}
+.prep-col {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.prep-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 1.25rem 1.4rem;
+    border-bottom: 1px solid #f1f5f9;
+}
+.prep-card-head h3 {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0;
+}
+.prep-card-sub {
+    font-size: 0.75rem;
+    color: var(--slate);
+    margin: 0.15rem 0 0;
+}
+.prep-icon-badge {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.75rem;
+    background: var(--teal-50);
+    color: var(--teal-600);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.prep-progress-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--slate);
+    white-space: nowrap;
+}
+.prep-progress-track {
+    height: 4px;
+    background: #f1f5f9;
+    margin: 0 1.4rem;
+}
+.prep-progress-fill {
+    height: 100%;
+    background: var(--teal-500);
+    border-radius: 9999px;
+    transition: width 0.2s ease;
+}
+
+.prep-item-list {
+    padding: 1.25rem 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.prep-item-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid #f1f5f9;
+    border-radius: 0.85rem;
+    background: #f8fafc80;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.prep-item-row.packed {
+    border-color: #a7f3d0;
+    background: #ecfdf5;
+}
+.prep-item-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.6rem;
+    background: white;
+    border: 1px solid #e2e8f0;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.prep-item-row.packed .prep-item-icon {
+    color: var(--teal-600);
+    border-color: var(--teal-200);
+}
+.prep-item-info {
+    flex: 1;
+    min-width: 0;
+}
+.prep-item-sku {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--teal-600);
+    text-transform: uppercase;
+    margin: 0;
+}
+.prep-item-name {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0.1rem 0 0;
+}
+.prep-item-variant {
+    font-size: 0.72rem;
+    color: var(--slate);
+    margin: 0.1rem 0 0;
+}
+.prep-item-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.4rem;
+    flex-shrink: 0;
+}
+.prep-item-qty {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #334155;
+}
+.prep-packed-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #94a3b8;
+}
+.prep-packed-toggle input {
+    width: 1.1rem;
+    height: 1.1rem;
+    accent-color: var(--teal-500);
+    cursor: pointer;
+}
+.prep-item-row.packed .prep-packed-toggle {
+    color: #059669;
+}
+
+.prep-tips-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    padding: 1rem 1.4rem 1.4rem;
+}
+.prep-tip {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+.prep-tip-num {
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 0.65rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.prep-tip p {
+    font-size: 0.75rem;
+    color: var(--slate);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.prep-form {
+    padding: 1.25rem 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+}
+.prep-dims-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.5rem;
+}
+.prep-dims-row input {
+    text-align: center;
+}
+
+.prep-dispatch-note {
+    padding: 0 1.4rem;
+    font-size: 0.78rem;
+    color: var(--slate);
+    line-height: 1.5;
+}
+.prep-dispatch-warning {
+    margin: 0.75rem 1.4rem 0;
+    padding: 0.6rem 0.85rem;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 0.6rem;
+    font-size: 0.75rem;
+    color: #92400e;
+}
+.prep-dispatch-btn {
+    display: block;
+    margin: 1.25rem 1.4rem 1.4rem;
+    width: calc(100% - 2.8rem);
+}
+
+.prep-picker-list {
+    padding: 0.5rem 1rem 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+.prep-picker-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.85rem;
+    background: white;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.prep-picker-row:hover {
+    border-color: var(--teal-300);
+    background: var(--teal-50);
+}
+.prep-picker-id {
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0;
+}
+.prep-picker-meta {
+    font-size: 0.75rem;
+    color: var(--slate);
+    margin: 0.15rem 0 0;
+}
+
+@media (max-width: 1024px) {
+    .prep-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ============================================================
+   COURIER HANDOVER (CourierHandover.vue)
+   Reuses .card, .field-input, .field-label, .field-hint, .badge,
+   .btn-primary/.btn-outline, .save-msg, .sales-table, .prep-header/
+   .prep-title/.prep-breadcrumb/.prep-card-head/.prep-card-sub/
+   .prep-form from PrepareOrders.vue's stylesheet rather than a third
+   parallel design system.
+   ============================================================ */
+.ch-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+.ch-metric-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 1rem;
+    padding: 1.25rem 1.4rem;
+    box-shadow: 0 1px 2px rgba(15, 118, 110, 0.04);
+}
+.ch-metric-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.9rem;
+}
+.ch-metric-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.ch-metric-icon.sky { background: #f0f9ff; color: #0284c7; }
+.ch-metric-icon.amber { background: #fffbeb; color: #d97706; }
+.ch-metric-icon.emerald { background: #ecfdf5; color: #059669; }
+.ch-metric-icon.indigo { background: #eef2ff; color: #4f46e5; }
+.ch-metric-chip {
+    font-size: 0.62rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.25rem 0.55rem;
+    border-radius: 999px;
+}
+.ch-metric-chip.sky { background: #f0f9ff; color: #0284c7; }
+.ch-metric-chip.amber { background: #fffbeb; color: #d97706; }
+.ch-metric-chip.emerald { background: #ecfdf5; color: #059669; }
+.ch-metric-chip.indigo { background: #eef2ff; color: #4f46e5; }
+.ch-metric-value {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0;
+}
+.ch-metric-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--slate);
+    margin: 0.25rem 0 0;
+}
+
+.ch-grid {
+    display: grid;
+    grid-template-columns: 5fr 7fr;
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.ch-select-all-btn {
+    background: none;
+    border: none;
+    color: var(--teal-600);
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+}
+.ch-select-all-btn:hover {
+    text-decoration: underline;
+}
+
+.ch-order-checklist {
+    max-height: 14rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    border: 1px solid #f1f5f9;
+    border-radius: 0.75rem;
+    padding: 0.6rem;
+}
+.ch-order-check-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.6rem;
+    border-radius: 0.6rem;
+    cursor: pointer;
+}
+.ch-order-check-row:hover {
+    background: #f8fafc;
+}
+.ch-order-check-row input {
+    width: 1.05rem;
+    height: 1.05rem;
+    accent-color: var(--teal-500);
+    flex-shrink: 0;
+}
+.ch-order-check-id {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0;
+}
+.ch-order-check-meta {
+    font-size: 0.7rem;
+    color: var(--slate);
+    margin: 0.1rem 0 0;
+}
+
+.ch-empty-note {
+    font-size: 0.78rem;
+    color: var(--slate);
+    line-height: 1.5;
+    padding: 0.75rem 0;
+}
+.ch-success-note {
+    font-size: 0.78rem;
+    color: #059669;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    border-radius: 0.6rem;
+    padding: 0.5rem 0.75rem;
+    margin: 0;
+}
+
+.ch-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.9rem 1.4rem;
+    border-top: 1px solid #f1f5f9;
+    font-size: 0.72rem;
+    color: var(--slate);
+}
+
+.ch-stepper {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+.ch-stepper-track {
+    position: absolute;
+    left: 1rem;
+    right: 1rem;
+    top: 0.9rem;
+    height: 2px;
+    background: #f1f5f9;
+    z-index: 0;
+}
+.ch-stepper-step {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+}
+.ch-stepper-dot {
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.ch-stepper-dot.active {
+    background: var(--teal-500);
+    color: white;
+}
+.ch-stepper-label {
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: #475569;
+    text-align: center;
+    margin: 0;
+}
+
+@media (max-width: 1024px) {
+    .ch-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ============================================================
+   ACCOUNT SETTINGS (Profile.vue)
+   Reuses .card, .form-grid, .field-label, .field-input, .field-hint,
+   .save-msg, .btn-primary/.btn-outline, .badge, .empty-state,
+   .doc-list/.doc-row (already defined) plus .prep-breadcrumb and
+   .ch-success-note from the Prepare Shipment / Courier Handover
+   stylesheets rather than a fourth parallel design system.
+   ============================================================ */
+.acct-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+.acct-title {
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.01em;
+    margin: 0;
+}
+.acct-last-updated {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    font-style: italic;
+}
+
+.acct-layout {
+    display: grid;
+    grid-template-columns: 16rem 1fr;
+    gap: 1.5rem;
+    align-items: start;
+}
+.acct-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    position: sticky;
+    top: 1rem;
+}
+.acct-nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    border: none;
+    background: none;
+    color: var(--slate);
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.acct-nav-btn:hover {
+    background: white;
+    color: #0f172a;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+}
+.acct-nav-btn.active {
+    background: white;
+    color: var(--teal-600);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+}
+.acct-nav-btn svg {
+    flex-shrink: 0;
+}
+
+.acct-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+/* The <form> wraps 3 of the 5 sections (the actually-editable ones);
+   without this, .acct-content's gap only separates the form itself from
+   Security/Documents, but does nothing for the sections stacked inside
+   the form — they'd render with no space between them at all. */
+.acct-content form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+.acct-section {
+    padding: 1.6rem;
+    scroll-margin-top: 1rem;
+}
+.acct-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.4rem;
+    flex-wrap: wrap;
+}
+.acct-section-head h3 {
+    font-size: 1rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0;
+}
+.acct-section-sub {
+    font-size: 0.78rem;
+    color: var(--slate);
+    margin: 0.2rem 0 0;
+}
+
+.acct-avatar {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 1rem;
+    background: linear-gradient(135deg, var(--teal-600), var(--teal-500));
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 800;
+    flex-shrink: 0;
+}
+
+.acct-verified-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.7rem;
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    flex-shrink: 0;
+}
+
+@media (max-width: 1024px) {
+    .acct-layout {
+        grid-template-columns: 1fr;
+    }
+    .acct-nav {
+        position: static;
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+}
+
+/* ============================================================
+   ACCOUNT SETTINGS — UX additions (toast, password show/hide)
+   ============================================================ */
+.acct-toast {
+    position: fixed;
+    top: 1.25rem;
+    right: 1.25rem;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.85rem 1.1rem;
+    border-radius: 0.85rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+    max-width: 22rem;
+}
+.acct-toast.success {
+    background: #0f172a;
+    color: white;
+}
+.acct-toast.success svg {
+    color: #10b981;
+}
+.acct-toast.error {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+}
+.acct-toast-fade-enter-active,
+.acct-toast-fade-leave-active {
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.acct-toast-fade-enter-from,
+.acct-toast-fade-leave-to {
+    opacity: 0;
+    transform: translateY(-8px);
+}
+
+.acct-password-box {
+    position: relative;
+}
+.acct-password-box input {
+    padding-right: 2.4rem;
+}
+.acct-password-toggle {
+    position: absolute;
+    right: 0.6rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 0.2rem;
+    display: flex;
+}
+.acct-password-toggle:hover {
+    color: var(--teal-600);
 }

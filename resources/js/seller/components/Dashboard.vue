@@ -65,10 +65,7 @@
 
         <!-- Metric Cards -->
         <div class="metric-grid grid">
-            <div
-                class="metric-card"
-                title="Placeholder — connect to real sales data once available"
-            >
+            <div class="metric-card">
                 <div class="metric-card-top">
                     <span class="metric-icon emerald"
                         ><svg
@@ -82,18 +79,15 @@
                             <path d="M3 17l6-6 4 4 8-8" />
                             <path d="M15 7h6v6" /></svg
                     ></span>
-                    <span class="metric-chip up">{{
-                        mockMetrics.salesChange
+                    <span class="metric-chip" :class="changeChipClass(salesChangeLabel)">{{
+                        salesChangeLabel
                     }}</span>
                 </div>
                 <p class="metric-label">Total Sales</p>
-                <h4 class="metric-value">{{ mockMetrics.totalSales }}</h4>
+                <h4 class="metric-value">{{ formatCurrencyValue(totalSales) }}</h4>
             </div>
 
-            <div
-                class="metric-card"
-                title="Placeholder — connect to real revenue data once available"
-            >
+            <div class="metric-card">
                 <div class="metric-card-top">
                     <span class="metric-icon sky"
                         ><svg
@@ -108,18 +102,15 @@
                                 d="M12 2v20M17 5.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 9 12 9s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5"
                             /></svg
                     ></span>
-                    <span class="metric-chip up">{{
-                        mockMetrics.revenueChange
+                    <span class="metric-chip" :class="changeChipClass(revenueChangeLabel)">{{
+                        revenueChangeLabel
                     }}</span>
                 </div>
                 <p class="metric-label">Total Revenue</p>
-                <h4 class="metric-value">{{ mockMetrics.totalRevenue }}</h4>
+                <h4 class="metric-value">{{ formatCurrencyValue(totalRevenue) }}</h4>
             </div>
 
-            <div
-                class="metric-card"
-                title="Placeholder — orders module not yet connected"
-            >
+            <div class="metric-card">
                 <div class="metric-card-top">
                     <span class="metric-icon orange"
                         ><svg
@@ -138,7 +129,7 @@
                     <span class="metric-chip flat">Tracked</span>
                 </div>
                 <p class="metric-label">Total Orders</p>
-                <h4 class="metric-value">0 Items</h4>
+                <h4 class="metric-value">{{ orders.length }} Orders</h4>
             </div>
 
             <div class="metric-card">
@@ -159,7 +150,7 @@
                     <span class="metric-chip flat">Stable</span>
                 </div>
                 <p class="metric-label">Active Products</p>
-                <h4 class="metric-value">0 Listed</h4>
+                <h4 class="metric-value">{{ activeProductsCount }} Listed</h4>
             </div>
 
             <div class="metric-card">
@@ -176,18 +167,15 @@
                             <circle cx="12" cy="12" r="9" />
                             <path d="M12 7v5l3 3" /></svg
                     ></span>
-                    <span class="metric-chip up"
-                        >{{ pendingDocsCount }} pending</span
+                    <span class="metric-chip" :class="pendingOrdersCount > 0 ? 'up' : 'flat'"
+                        >{{ pendingOrdersCount > 0 ? 'Needs Action' : 'All Clear' }}</span
                     >
                 </div>
                 <p class="metric-label">Pending Orders</p>
-                <h4 class="metric-value">0 Orders</h4>
+                <h4 class="metric-value">{{ pendingOrdersCount }} Orders</h4>
             </div>
 
-            <div
-                class="metric-card"
-                title="Placeholder — connect to real inventory stock levels once available"
-            >
+            <div class="metric-card">
                 <div class="metric-card-top">
                     <span class="metric-icon rose"
                         ><svg
@@ -203,13 +191,11 @@
                             />
                             <path d="M12 9v4M12 17h.01" /></svg
                     ></span>
-                    <span class="metric-chip down">{{
-                        mockMetrics.lowStockChange
-                    }}</span>
+                    <span class="metric-chip flat">Live</span>
                 </div>
                 <p class="metric-label">Low Stock</p>
                 <h4 class="metric-value">
-                    {{ mockMetrics.lowStockCount }} Alerted
+                    {{ lowStockProductsCount }} Alerted
                 </h4>
             </div>
         </div>
@@ -220,10 +206,7 @@
                 <div class="chart-card-head">
                     <div>
                         <p class="chart-title">Sales Performance Trend</p>
-                        <p class="chart-sub">
-                            Revenue growth over the past 7 days
-                            <span class="mock-tag">(sample data)</span>
-                        </p>
+                        <p class="chart-sub">Revenue over the past 7 days</p>
                     </div>
                     <div class="chart-toggle">
                         <button class="active" type="button">Weekly</button>
@@ -256,7 +239,7 @@
                             </linearGradient>
                         </defs>
                         <path
-                            d="M0,150 L100,80 L200,120 L300,140 L400,50 L500,80 L600,160 L800,90"
+                            :d="salesTrendLinePath"
                             fill="none"
                             stroke="#1b9ba8"
                             stroke-width="4"
@@ -264,30 +247,33 @@
                             stroke-linejoin="round"
                         ></path>
                         <path
-                            d="M0,150 L100,80 L200,120 L300,140 L400,50 L500,80 L600,160 L800,90 V200 H0 Z"
+                            :d="salesTrendAreaPath"
                             fill="url(#seller-line-gradient)"
                         ></path>
                         <circle
-                            cx="400"
-                            cy="50"
+                            v-if="salesTrendPeak"
+                            :cx="salesTrendPeak.x"
+                            :cy="salesTrendPeak.y"
                             r="6"
                             fill="#1b9ba8"
                             stroke="white"
                             stroke-width="3"
-                        ></circle>
+                        >
+                            <title>{{ salesTrendPeak.label }}: {{ formatCurrencyValue(salesTrendPeak.total) }}</title>
+                        </circle>
                     </svg>
                 </div>
                 <div class="chart-x-labels">
-                    <span>Mon</span><span>Tue</span><span>Wed</span
-                    ><span>Thu</span><span>Fri</span><span>Sat</span
-                    ><span>Sun</span>
+                    <span v-for="(day, idx) in salesTrendDays" :key="idx">{{
+                        day.label
+                    }}</span>
                 </div>
             </div>
 
             <div class="card chart-card">
                 <div class="chart-card-head">
                     <p class="chart-title">Order Breakdown</p>
-                    <span class="chart-live-tag">Sample</span>
+                    <span class="chart-live-tag">Live</span>
                 </div>
                 <div
                     class="flex items-center justify-center"
@@ -318,34 +304,16 @@
                                 stroke-width="4"
                             ></circle>
                             <circle
+                                v-for="seg in orderDonutSegments"
+                                :key="seg.key"
                                 cx="18"
                                 cy="18"
                                 r="15.9"
                                 fill="transparent"
-                                stroke="#1b9ba8"
+                                :stroke="seg.color"
                                 stroke-width="4"
-                                stroke-dasharray="68 32"
-                                stroke-dashoffset="0"
-                            ></circle>
-                            <circle
-                                cx="18"
-                                cy="18"
-                                r="15.9"
-                                fill="transparent"
-                                stroke="#2c5aa0"
-                                stroke-width="4"
-                                stroke-dasharray="22 78"
-                                stroke-dashoffset="-68"
-                            ></circle>
-                            <circle
-                                cx="18"
-                                cy="18"
-                                r="15.9"
-                                fill="transparent"
-                                stroke="#f87171"
-                                stroke-width="4"
-                                stroke-dasharray="10 90"
-                                stroke-dashoffset="-90"
+                                :stroke-dasharray="`${seg.pct} ${100 - seg.pct}`"
+                                :stroke-dashoffset="seg.dashoffset"
                             ></circle>
                         </svg>
                         <div
@@ -356,40 +324,31 @@
                                 flex-direction: column;
                             "
                         >
-                            <span class="donut-center-value">0</span>
+                            <span class="donut-center-value">{{ orderBreakdownTotal }}</span>
                             <span class="donut-center-label">Orders</span>
                         </div>
                     </div>
-                    <div style="width: 100%">
-                        <div class="donut-legend-row">
+                    <div
+                        v-if="orderBreakdownTotal === 0"
+                        class="empty-state"
+                        style="padding: 0 0 1rem"
+                    >
+                        <p>No orders yet.</p>
+                    </div>
+                    <div v-else style="width: 100%">
+                        <div
+                            v-for="seg in orderDonutSegments"
+                            :key="seg.key"
+                            class="donut-legend-row"
+                        >
                             <div class="flex items-center gap-2">
                                 <span
                                     class="legend-dot"
-                                    style="background: #1b9ba8"
+                                    :style="{ background: seg.color }"
                                 ></span
-                                ><span>Delivered</span>
+                                ><span>{{ seg.label }} ({{ seg.count }})</span>
                             </div>
-                            <strong>68%</strong>
-                        </div>
-                        <div class="donut-legend-row">
-                            <div class="flex items-center gap-2">
-                                <span
-                                    class="legend-dot"
-                                    style="background: #2c5aa0"
-                                ></span
-                                ><span>In Transit</span>
-                            </div>
-                            <strong>22%</strong>
-                        </div>
-                        <div class="donut-legend-row">
-                            <div class="flex items-center gap-2">
-                                <span
-                                    class="legend-dot"
-                                    style="background: #f87171"
-                                ></span
-                                ><span>Processing</span>
-                            </div>
-                            <strong>10%</strong>
+                            <strong>{{ seg.pct }}%</strong>
                         </div>
                     </div>
                 </div>
@@ -400,10 +359,7 @@
         <div class="bottom-grid mb-6 grid">
             <div class="card panel-card">
                 <div class="panel-head">
-                    <h3>
-                        Recent Sales Records
-                        <span class="mock-tag">(sample data)</span>
-                    </h3>
+                    <h3>Recent Sales Records</h3>
                     <a
                         href="#"
                         class="panel-link"
@@ -424,16 +380,21 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="row in mockSalesRecords" :key="row.id">
+                            <tr v-if="recentOrders.length === 0">
+                                <td colspan="6" style="text-align: center; color: #94a3b8; padding: 1.5rem 0">
+                                    No orders yet.
+                                </td>
+                            </tr>
+                            <tr v-for="row in recentOrders" :key="row.id">
                                 <td class="order-id">{{ row.id }}</td>
                                 <td class="customer">{{ row.customer }}</td>
-                                <td class="item-name">{{ row.item }}</td>
+                                <td class="item-name">{{ orderItemsSummary(row) }}</td>
                                 <td>{{ row.date }}</td>
-                                <td class="amount">{{ row.amount }}</td>
+                                <td class="amount">{{ formatCurrency(row.total) }}</td>
                                 <td>
                                     <span
                                         class="badge"
-                                        :class="row.badgeClass"
+                                        :class="orderStatusBadgeClass(row.status)"
                                         >{{ row.status }}</span
                                     >
                                 </td>
@@ -760,8 +721,10 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useSeller } from '../composables/useSeller';
+import { useOrders } from '../composables/useOrders';
+import { useSellerProducts } from '../composables/useSellerProducts';
 
 const {
     profile,
@@ -779,13 +742,31 @@ const {
     statusBadgeClass,
 } = useSeller();
 
+const {
+    orders,
+    loadOrders,
+    statusBadgeClass: orderStatusBadgeClass,
+    formatCurrency,
+} = useOrders();
+
+const {
+    products,
+    loadProducts,
+    stockStatusOf,
+} = useSellerProducts();
+
+onMounted(() => {
+    loadOrders();
+    loadProducts();
+});
+
 const isRefreshing = ref(false);
 
 async function refresh() {
     isRefreshing.value = true;
 
     try {
-        await refreshAll();
+        await Promise.all([refreshAll(), loadOrders(), loadProducts()]);
     } finally {
         isRefreshing.value = false;
     }
@@ -796,52 +777,219 @@ function goTo(section) {
 }
 
 // ---------------------------------------------------------------
-// MOCK DATA — the seller composable does not yet expose sales,
-// revenue, order-status, or stock data. These values are isolated
-// placeholders that reproduce the ShopNova reference visuals; swap
-// them for real queries (e.g. an `orders`/`sales` table via Supabase)
-// once that module ships. Nothing here is written back to the DB.
+// REAL METRICS — sourced from the same orders/products the Orders and
+// Inventory pages use (useOrders / useSellerProducts), not mock data.
 // ---------------------------------------------------------------
-const mockMetrics = ref({
-    totalSales: '$0.00',
-    salesChange: '+0.0%',
-    totalRevenue: '$0.00',
-    revenueChange: '+0.0%',
-    lowStockCount: 0,
-    lowStockChange: '0.0%',
+
+function formatCurrencyValue(n) {
+    return `₱${Number(n || 0).toFixed(2)}`;
+}
+
+function sumTotals(list) {
+    return list.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+}
+
+// orders.*.placedAt is a real ISO timestamp (SellerOrderController@
+// transformSummary) — used here instead of the pre-formatted `date`
+// display string so week-over-week comparisons are actually reliable.
+function ordersPlacedBetween(startMsAgo, endMsAgo) {
+    const now = Date.now();
+    const start = now - startMsAgo;
+    const end = now - endMsAgo;
+
+    return orders.value.filter((o) => {
+        if (!o.placedAt) {
+            return false;
+        }
+
+        const t = new Date(o.placedAt).getTime();
+
+        return t > start && t <= end;
+    });
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const thisWeekOrders = computed(() => ordersPlacedBetween(7 * DAY_MS, 0));
+const lastWeekOrders = computed(() => ordersPlacedBetween(14 * DAY_MS, 7 * DAY_MS));
+
+function pctChangeLabel(current, previous) {
+    if (previous === 0) {
+        return current > 0 ? '+100.0%' : '0.0%';
+    }
+
+    const change = ((current - previous) / previous) * 100;
+
+    return `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`;
+}
+
+function changeChipClass(label) {
+    if (label.startsWith('+')) return 'up';
+    if (label.startsWith('-')) return 'down';
+    return 'flat';
+}
+
+// "Total Sales" = gross value of every order placed (sales volume);
+// "Total Revenue" = value of orders actually paid — two genuinely
+// different real numbers rather than the same figure twice.
+const totalSales = computed(() => sumTotals(orders.value));
+const totalRevenue = computed(
+    () => sumTotals(orders.value.filter((o) => o.paymentStatus === 'Paid')),
+);
+const salesChangeLabel = computed(() =>
+    pctChangeLabel(sumTotals(thisWeekOrders.value), sumTotals(lastWeekOrders.value)),
+);
+const revenueChangeLabel = computed(() =>
+    pctChangeLabel(
+        sumTotals(thisWeekOrders.value.filter((o) => o.paymentStatus === 'Paid')),
+        sumTotals(lastWeekOrders.value.filter((o) => o.paymentStatus === 'Paid')),
+    ),
+);
+
+const activeProductsCount = computed(
+    () => products.value.filter((p) => p.status === 'active').length,
+);
+const lowStockProductsCount = computed(
+    () => products.value.filter((p) => stockStatusOf(p) === 'low_stock').length,
+);
+// "New" = placed but not yet accepted by the seller — the real
+// equivalent of "pending" for orders (this used to accidentally show
+// pendingDocsCount, a completely unrelated document-verification
+// figure — fixed here to use real order data).
+const pendingOrdersCount = computed(
+    () => orders.value.filter((o) => o.status === 'New').length,
+);
+
+// ---- Sales Performance Trend (last 7 days, real daily totals) ----
+const salesTrendDays = computed(() => {
+    const days = [];
+    const now = new Date();
+
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        d.setHours(0, 0, 0, 0);
+        days.push(d);
+    }
+
+    return days.map((d) => {
+        const total = orders.value.reduce((sum, o) => {
+            if (!o.placedAt) return sum;
+            const placed = new Date(o.placedAt);
+            const sameDay =
+                placed.getFullYear() === d.getFullYear() &&
+                placed.getMonth() === d.getMonth() &&
+                placed.getDate() === d.getDate();
+
+            return sameDay ? sum + (Number(o.total) || 0) : sum;
+        }, 0);
+
+        return { label: d.toLocaleDateString('en-US', { weekday: 'short' }), total };
+    });
 });
 
-// Sample rows only, used to preview the table layout — the panel header
-// is labeled "(sample data)" so it's never mistaken for real order history.
-const mockSalesRecords = ref([
-    {
-        id: '#SN-00001',
-        customer: 'Sample Customer',
-        item: 'Sample product',
-        date: '—',
-        amount: '$0.00',
-        status: 'Delivered',
-        badgeClass: 'badge-emerald',
-    },
-    {
-        id: '#SN-00002',
-        customer: 'Sample Customer',
-        item: 'Sample product',
-        date: '—',
-        amount: '$0.00',
-        status: 'In Transit',
-        badgeClass: 'badge-sky',
-    },
-    {
-        id: '#SN-00003',
-        customer: 'Sample Customer',
-        item: 'Sample product',
-        date: '—',
-        amount: '$0.00',
-        status: 'Processing',
-        badgeClass: 'badge-amber',
-    },
-]);
+const salesTrendMax = computed(() => {
+    const max = Math.max(...salesTrendDays.value.map((d) => d.total), 0);
+
+    return max > 0 ? max : 1; // avoid a divide-by-zero flatline when everything is 0
+});
+
+const salesTrendPoints = computed(() => {
+    const days = salesTrendDays.value;
+    const n = days.length;
+
+    return days.map((d, idx) => ({
+        x: n > 1 ? (idx / (n - 1)) * 800 : 0,
+        y: 190 - (d.total / salesTrendMax.value) * 170,
+        total: d.total,
+        label: d.label,
+    }));
+});
+
+const salesTrendLinePath = computed(() => {
+    const pts = salesTrendPoints.value;
+
+    if (!pts.length) return '';
+
+    return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+});
+
+const salesTrendAreaPath = computed(() => {
+    const pts = salesTrendPoints.value;
+
+    if (!pts.length) return '';
+
+    const first = pts[0];
+
+    return `${salesTrendLinePath.value} V200 H${first.x.toFixed(1)} Z`;
+});
+
+const salesTrendPeak = computed(() => {
+    const pts = salesTrendPoints.value;
+
+    if (!pts.length) return null;
+
+    return pts.reduce((max, p) => (p.total > max.total ? p : max), pts[0]);
+});
+
+// ---- Order Breakdown donut (real order status counts) ----
+// The r=15.9 circle trick: circumference = 2π×15.9 ≈ 99.9 ≈ 100, so a
+// percentage value can be used directly as the stroke-dasharray length
+// without any extra circumference math.
+const orderStatusCounts = computed(() => {
+    const counts = { delivered: 0, inTransit: 0, processing: 0 };
+
+    for (const o of orders.value) {
+        if (o.status === 'Delivered') counts.delivered++;
+        else if (o.status === 'In Transit') counts.inTransit++;
+        else if (o.status === 'New' || o.status === 'Processing') counts.processing++;
+        // Cancelled orders are excluded from this breakdown, matching
+        // the original 3-segment design.
+    }
+
+    return counts;
+});
+
+const orderBreakdownTotal = computed(
+    () =>
+        orderStatusCounts.value.delivered +
+        orderStatusCounts.value.inTransit +
+        orderStatusCounts.value.processing,
+);
+
+const orderDonutSegments = computed(() => {
+    const total = orderBreakdownTotal.value || 1;
+    const counts = orderStatusCounts.value;
+    const segments = [
+        { key: 'delivered', label: 'Delivered', color: '#1b9ba8', count: counts.delivered },
+        { key: 'inTransit', label: 'In Transit', color: '#2c5aa0', count: counts.inTransit },
+        { key: 'processing', label: 'Processing', color: '#f87171', count: counts.processing },
+    ];
+
+    let offsetAcc = 0;
+
+    return segments.map((s) => {
+        const pct = Math.round((s.count / total) * 100);
+        const seg = { ...s, pct, dashoffset: -offsetAcc };
+
+        offsetAcc += pct;
+
+        return seg;
+    });
+});
+
+// ---- Recent Sales Records (real orders, most recent first) ----
+const recentOrders = computed(() =>
+    [...orders.value]
+        .sort((a, b) => new Date(b.placedAt || 0) - new Date(a.placedAt || 0))
+        .slice(0, 5),
+);
+
+function orderItemsSummary(order) {
+    if (!order.items?.length) return '—';
+    if (order.items.length === 1) return order.items[0].name;
+
+    return `${order.items[0].name} +${order.items.length - 1} more`;
+}
 
 // Local, non-destructive view of the real activity log so "Clear Activity
 // Log" only clears what's on screen — it never mutates the underlying

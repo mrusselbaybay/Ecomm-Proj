@@ -554,7 +554,15 @@ async function handleCancel() {
 }
 
 function proceedToPacking() {
-    goTo('prepareOrders');
+    if (order.value) {
+        window.dispatchEvent(
+            new CustomEvent('seller-nav', {
+                detail: { section: 'prepareOrders', orderId: order.value.id },
+            }),
+        );
+    } else {
+        goTo('prepareOrders');
+    }
 }
 
 function goTo(section) {

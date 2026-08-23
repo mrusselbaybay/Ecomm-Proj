@@ -146,7 +146,7 @@ function statusBadgeClass(status) {
 }
 
 function formatCurrency(value) {
-    return `$${Number(value ?? 0).toFixed(2)}`;
+    return `₱${Number(value ?? 0).toFixed(2)}`;
 }
 
 const newOrdersCount = computed(

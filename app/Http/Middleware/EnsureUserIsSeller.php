@@ -7,23 +7,23 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Mirrors App\Http\Middleware\EnsureUserIsAdmin: assumes a Profile has
- * already been resolved onto the request (see AuthenticateSupabaseUser)
- * and checks the role. Also blocks sellers whose account isn't active,
- * matching the account_status checks already enforced client-side at
- * login (resources/js/app.js::handleLogin).
+ * Must run after 'supabase.auth' (see routes/seller.php), which resolves
+ * $request->user() to a public.profiles row. Requires that profile to be
+ * an approved, active seller — the same bar the admin approval workflow
+ * (app/Http/Controllers/Admin/AccountRegistrationController.php) uses
+ * before a seller account is usable.
  */
 class EnsureUserIsSeller
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $profile = $request->user();
+        $user = $request->user();
 
-        if (!$profile || $profile->role !== 'seller') {
+        if (!$user || $user->role !== 'seller') {
             abort(403, 'Sellers only.');
         }
 
-        if ($profile->account_status !== 'active') {
+        if ($user->status !== 'approved' || $user->account_status !== 'active') {
             abort(403, 'Your seller account is not active.');
         }
 
