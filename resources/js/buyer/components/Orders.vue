@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 
 import OrderDetails from './OrderDetails.vue';
 
@@ -11,8 +11,15 @@ const emit = defineEmits([
 
 const {
     orders,
+    isLoadingOrders,
+    ordersLoadError,
+    loadOrders,
     ORDER_STATUSES
 } = useBuyer();
+
+onMounted(() => {
+    loadOrders();
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -28,14 +35,16 @@ const selectedOrder = ref(null);
 |--------------------------------------------------------------------------
 */
 
+// De-duplicated: ORDER_STATUSES maps a couple of legacy UI labels onto the
+// same real order status (see useBuyer.js), so building this from the raw
+// values would otherwise show "In Transit" / "Cancelled" twice.
 const tabs = [
     'All',
     ORDER_STATUSES.TO_SHIP,
+    ORDER_STATUSES.PROCESSING,
     ORDER_STATUSES.IN_TRANSIT,
-    ORDER_STATUSES.OUT_FOR_DELIVERY,
     ORDER_STATUSES.DELIVERED,
-    ORDER_STATUSES.CANCELLED,
-    ORDER_STATUSES.RETURNED
+    ORDER_STATUSES.CANCELLED
 ];
 
 const selectedStatus = ref('All');
@@ -126,24 +135,24 @@ function formatShippingMethod(method) {
 }
 
 function getStatusClass(status) {
+    // OUT_FOR_DELIVERY/RETURNED are aliases of IN_TRANSIT/CANCELLED in
+    // ORDER_STATUSES (see useBuyer.js) — checked here only via their
+    // canonical key so a given status maps to exactly one class.
     return {
         'status-to-ship':
             status === ORDER_STATUSES.TO_SHIP,
 
+        'status-out-for-delivery':
+            status === ORDER_STATUSES.PROCESSING,
+
         'status-in-transit':
             status === ORDER_STATUSES.IN_TRANSIT,
-
-        'status-out-for-delivery':
-            status === ORDER_STATUSES.OUT_FOR_DELIVERY,
 
         'status-delivered':
             status === ORDER_STATUSES.DELIVERED,
 
         'status-cancelled':
-            status === ORDER_STATUSES.CANCELLED,
-
-        'status-returned':
-            status === ORDER_STATUSES.RETURNED
+            status === ORDER_STATUSES.CANCELLED
     };
 }
 
@@ -230,11 +239,30 @@ function getItemPrice(item) {
             </section>
 
             <!-- ======================================================== -->
+            <!-- LOADING / ERROR -->
+            <!-- ======================================================== -->
+
+            <section
+                v-if="isLoadingOrders"
+                class="orders-empty"
+            >
+                <h2>Loading your orders&hellip;</h2>
+            </section>
+
+            <section
+                v-else-if="ordersLoadError"
+                class="orders-empty"
+            >
+                <h2>Couldn&rsquo;t load your orders</h2>
+                <p>{{ ordersLoadError }}</p>
+            </section>
+
+            <!-- ======================================================== -->
             <!-- EMPTY ORDERS -->
             <!-- ======================================================== -->
 
             <section
-                v-if="filteredOrders.length === 0"
+                v-else-if="filteredOrders.length === 0"
                 class="orders-empty"
             >
 

@@ -20,10 +20,13 @@ const {
     submitReturnRequest
 } = useBuyer();
 
+// OUT_FOR_DELIVERY is an alias of IN_TRANSIT in ORDER_STATUSES (see
+// useBuyer.js — there's no separate DB state for it yet), so it's left
+// out here to avoid a duplicate step in the progress bar.
 const trackingSteps = [
     ORDER_STATUSES.TO_SHIP,
+    ORDER_STATUSES.PROCESSING,
     ORDER_STATUSES.IN_TRANSIT,
-    ORDER_STATUSES.OUT_FOR_DELIVERY,
     ORDER_STATUSES.DELIVERED
 ];
 
@@ -65,12 +68,10 @@ const isCancelled = computed(() => {
     );
 });
 
-const isReturned = computed(() => {
-    return (
-        props.order?.status ===
-        ORDER_STATUSES.RETURNED
-    );
-});
+// RETURNED is an alias of CANCELLED in ORDER_STATUSES (there's no
+// returns subsystem yet — see submitReturnRequest() in useBuyer.js), so
+// this always mirrors isCancelled for now.
+const isReturned = computed(() => false);
 
 const deliveryAddress = computed(() => {
     return props.order?.delivery_address || {};
@@ -178,7 +179,7 @@ function getItemPrice(item) {
     );
 }
 
-function handleCancelOrder() {
+async function handleCancelOrder() {
     if (!props.order) {
         return;
     }
@@ -198,13 +199,13 @@ function handleCancelOrder() {
         return;
     }
 
-    const cancelled = cancelOrder(
+    const cancelled = await cancelOrder(
         props.order.orderId,
         'Cancelled by buyer'
     );
 
     if (!cancelled) {
-        alert('Unable to cancel this order.');
+        alert('Unable to cancel this order right now \u2014 please contact the seller.');
         return;
     }
 

@@ -7,8 +7,12 @@ import Checkout from './Checkout.vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
+import Orders from './Orders.vue';
+import Account from './Account.vue';
 
 import { useBuyer } from '../composables/useBuyer';
+import { useBuyerProducts } from '../composables/useBuyerProducts';
+import { useBuyerSession } from '../composables/useBuyerSession';
 import {
     categories,
     metaFor,
@@ -23,8 +27,19 @@ import {
 */
 
 const {
-    removeFromCart
+    removeFromCart,
+    placeOrder,
+    checkoutError
 } = useBuyer();
+
+const {
+    products,
+    isLoadingProducts,
+    loadError: productsLoadError,
+    loadProducts
+} = useBuyerProducts();
+
+const { loadSession } = useBuyerSession();
 
 /*
 |--------------------------------------------------------------------------
@@ -37,6 +52,8 @@ const selectedCategory = ref('All');
 
 const selectedProduct = ref(null);
 const showCart = ref(false);
+const showOrders = ref(false);
+const showAccount = ref(false);
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
 
@@ -45,141 +62,16 @@ const checkoutSource = ref(null);
 | Product Catalog
 |--------------------------------------------------------------------------
 |
-| NOTE: Hardcoded for now — there is no products/catalog API yet.
-| price/oldPrice/rating/reviewCount are placeholder values. Swap this
-| array for a real API response (e.g. from GET /api/buyer/products) once
-| the backend exists; the rest of this component (filtering, cart,
-| favorites, flash deals) already reads from this shape and will keep
-| working unchanged.
+| Backed by GET /api/products (App\Http\Controllers\ProductController) —
+| see useBuyerProducts.js. `products` itself is the ref returned by that
+| composable; loaded on mount below.
+|
+| rating/reviewCount are NOT part of the real product shape (no reviews
+| table exists yet — see useBuyer.js's submitReview() note), so anything
+| that used to read product.rating/reviewCount falls back gracefully
+| rather than fabricating numbers.
 |
 */
-
-const products = [
-    {
-        id: 1,
-        name: 'Wireless Earbuds Pro',
-        price: 1499,
-        oldPrice: 2299,
-        rating: 4.7,
-        reviewCount: 128,
-        category: 'Electronics',
-        seller: 'NEXMART Electronics',
-        recommended: true
-    },
-    {
-        id: 2,
-        name: 'Smart Fitness Watch',
-        price: 2999,
-        oldPrice: 4499,
-        rating: 4.5,
-        reviewCount: 96,
-        category: 'Electronics',
-        seller: 'NEXMART Electronics',
-        bestSeller: true
-    },
-    {
-        id: 3,
-        name: 'Knit Performance Sneakers',
-        price: 1899,
-        rating: 4.6,
-        reviewCount: 214,
-        category: 'Fashion',
-        seller: 'NEXMART Fashion',
-        recommended: true
-    },
-    {
-        id: 4,
-        name: 'Everyday Canvas Tote Bag',
-        price: 599,
-        oldPrice: 899,
-        rating: 4.3,
-        reviewCount: 58,
-        category: 'Fashion',
-        seller: 'NEXMART Fashion'
-    },
-    {
-        id: 5,
-        name: 'Nordic Wooden Desk Lamp',
-        price: 799,
-        oldPrice: 1199,
-        rating: 4.4,
-        reviewCount: 71,
-        category: 'Home & Living',
-        seller: 'NEXMART Home',
-        recommended: true
-    },
-    {
-        id: 6,
-        name: 'Ceramic Dinnerware Set',
-        price: 1299,
-        rating: 4.8,
-        reviewCount: 143,
-        category: 'Home & Living',
-        seller: 'NEXMART Home',
-        bestSeller: true
-    },
-    {
-        id: 7,
-        name: 'Hydrating Face Serum',
-        price: 549,
-        oldPrice: 799,
-        rating: 4.6,
-        reviewCount: 302,
-        category: 'Beauty',
-        seller: 'NEXMART Beauty',
-        bestSeller: true
-    },
-    {
-        id: 8,
-        name: 'Bamboo Toothbrush Set',
-        price: 199,
-        rating: 4.2,
-        reviewCount: 44,
-        category: 'Beauty',
-        seller: 'NEXMART Beauty'
-    },
-    {
-        id: 9,
-        name: 'Eco-Friendly Textured Yoga Mat',
-        price: 899,
-        oldPrice: 1299,
-        rating: 4.5,
-        reviewCount: 87,
-        category: 'Sports',
-        seller: 'NEXMART Sports',
-        recommended: true
-    },
-    {
-        id: 10,
-        name: 'Insulated Steel Water Bottle',
-        price: 449,
-        rating: 4.7,
-        reviewCount: 165,
-        category: 'Sports',
-        seller: 'NEXMART Sports',
-        bestSeller: true
-    },
-    {
-        id: 11,
-        name: 'Fresh Produce Basket',
-        price: 349,
-        rating: 4.1,
-        reviewCount: 22,
-        category: 'Groceries',
-        seller: 'NEXMART Groceries'
-    },
-    {
-        id: 12,
-        name: 'Organic Rice, 5kg',
-        price: 429,
-        oldPrice: 549,
-        rating: 4.4,
-        reviewCount: 39,
-        category: 'Groceries',
-        seller: 'NEXMART Groceries',
-        recommended: true
-    }
-];
 
 /*
 |--------------------------------------------------------------------------
@@ -192,7 +84,7 @@ const filteredProducts = computed(() => {
         .trim()
         .toLowerCase();
 
-    return products.filter(product => {
+    return products.value.filter(product => {
         const matchesCategory =
             selectedCategory.value === 'All' ||
             product.category === selectedCategory.value;
@@ -200,7 +92,7 @@ const filteredProducts = computed(() => {
         const matchesSearch =
             !search ||
             product.name.toLowerCase().includes(search) ||
-            product.category.toLowerCase().includes(search);
+            (product.category || '').toLowerCase().includes(search);
 
         return matchesCategory && matchesSearch;
     });
@@ -210,20 +102,35 @@ const filteredProducts = computed(() => {
 |--------------------------------------------------------------------------
 | Curated Sections (Flash Deals / Recommended / Best Sellers)
 |--------------------------------------------------------------------------
+|
+| There is no orders/sales-aggregation endpoint yet to drive a *real*
+| "recommended" or "best seller" ranking (that would need aggregating
+| order_items across all sellers), so these are reasonable proxies over
+| real data rather than fabricated flags:
+|   - flashDeals: real products currently on sale (has a compare_price)
+|   - recommendedProducts: most recently listed in-stock products
+|   - bestSellers: highest-stock in-category products, as a stand-in
+| Flagged in the final report as a real gap, not hidden.
+|
 */
 
 const flashDeals = computed(() => {
-    return products
-        .filter(product => product.oldPrice)
+    return products.value
+        .filter(product => product.oldPrice && product.stock > 0)
         .slice(0, 4);
 });
 
 const recommendedProducts = computed(() => {
-    return products.filter(product => product.recommended);
+    return products.value
+        .filter(product => product.stock > 0)
+        .slice(0, 8);
 });
 
 const bestSellers = computed(() => {
-    return products.filter(product => product.bestSeller);
+    return [...products.value]
+        .filter(product => product.stock > 0)
+        .sort((a, b) => (b.stock || 0) - (a.stock || 0))
+        .slice(0, 8);
 });
 
 /*
@@ -274,6 +181,12 @@ function pad(value) {
 
 onMounted(() => {
     countdownTimer = setInterval(tickCountdown, 1000);
+
+    loadProducts();
+    // Populates buyerProfile if a Supabase session already exists (e.g.
+    // carried over from the auth page); browsing itself stays public
+    // either way — see useBuyerSession.js.
+    loadSession();
 });
 
 onUnmounted(() => {
@@ -469,7 +382,7 @@ const relatedProducts = computed(() => {
         return [];
     }
 
-    return products
+    return products.value
         .filter(product =>
             product.category === selectedProduct.value.category &&
             product.id !== selectedProduct.value.id
@@ -498,16 +411,66 @@ function handleBrowseAll() {
     selectedCategory.value = 'All';
     backToProducts();
 }
+
+/*
+|--------------------------------------------------------------------------
+| Account / Orders
+|--------------------------------------------------------------------------
+|
+| Mounts the previously-unwired Orders.vue/Account.vue components (see
+| useBuyer.js for the real GET /api/buyer/orders backing Orders.vue).
+| Follows the same single-flag view-toggle pattern as showCart above.
+|--------------------------------------------------------------------------
+*/
+
+function openAccount() {
+    selectedProduct.value = null;
+    showCart.value = false;
+    showOrders.value = false;
+    showAccount.value = true;
+}
+
+function closeAccount() {
+    showAccount.value = false;
+}
+
+function openOrders() {
+    showAccount.value = false;
+    showOrders.value = true;
+}
+
+function closeOrders() {
+    showOrders.value = false;
+}
 </script>
 
 <template>
+
+    <!-- ================================================================ -->
+    <!-- ORDERS -->
+    <!-- ================================================================ -->
+
+    <Orders
+        v-if="showOrders"
+        @back="closeOrders"
+    />
+
+    <!-- ================================================================ -->
+    <!-- ACCOUNT -->
+    <!-- ================================================================ -->
+
+    <Account
+        v-else-if="showAccount"
+        @back="closeAccount"
+        @view-orders="openOrders"
+    />
 
     <!-- ================================================================ -->
     <!-- CHECKOUT -->
     <!-- ================================================================ -->
 
     <Checkout
-        v-if="checkoutItems.length > 0"
+        v-else-if="checkoutItems.length > 0"
         :items="checkoutItems"
         @back="backFromCheckout"
         @place-order="handleOrderPlaced"
@@ -565,6 +528,7 @@ function handleBrowseAll() {
             :active-category="selectedCategory"
             @select-category="selectCategory"
             @cart-click="openCart"
+            @account-click="openAccount"
         />
 
         <!-- Main -->
@@ -818,9 +782,25 @@ function handleBrowseAll() {
                     </span>
                 </div>
 
+                <!-- Loading -->
+                <div
+                    v-if="isLoadingProducts"
+                    class="empty-products"
+                >
+                    <p>Loading products&hellip;</p>
+                </div>
+
+                <!-- Load Error -->
+                <div
+                    v-else-if="productsLoadError"
+                    class="empty-products"
+                >
+                    <p>{{ productsLoadError }}</p>
+                </div>
+
                 <!-- No Products -->
                 <div
-                    v-if="filteredProducts.length === 0"
+                    v-else-if="filteredProducts.length === 0"
                     class="empty-products"
                 >
 

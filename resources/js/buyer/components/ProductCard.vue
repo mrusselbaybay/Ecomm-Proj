@@ -5,8 +5,7 @@ import {
     metaFor,
     discountPercent,
     ratingStars,
-    formatPrice,
-    defaultVariationFor
+    formatPrice
 } from '../composables/useCategoryMeta';
 
 const props = defineProps({
@@ -31,11 +30,15 @@ function handleToggleFavorite() {
 }
 
 function handleQuickAdd() {
-    addToCart(
-        props.product,
-        defaultVariationFor(props.product.category),
-        1
-    );
+    // Variant products can't be quick-added blind — the buyer must pick
+    // a real option combination first (see ProductDetails.vue), so send
+    // them to the product page instead of guessing a variant here.
+    if (props.product.hasVariants) {
+        emit('view', props.product);
+        return;
+    }
+
+    addToCart(props.product, null, 1);
 }
 
 function handleView() {
@@ -102,8 +105,17 @@ function handleView() {
                 <span class="product-rating-stars">
                     {{ ratingStars(product.rating) }}
                 </span>
-                <span class="product-rating-count">
+                <span
+                    v-if="product.reviewCount"
+                    class="product-rating-count"
+                >
                     ({{ product.reviewCount }})
+                </span>
+                <span
+                    v-else
+                    class="product-rating-count"
+                >
+                    No reviews yet
                 </span>
             </div>
 

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
 import {
     metaFor,
@@ -36,41 +36,88 @@ const emit = defineEmits([
 const { addToCart, toggleFavorite, isFavorite } = useBuyer();
 
 const quantity = ref(1);
-const selectedVariation = ref('');
 const activeTab = ref('description');
 const selectedImageIndex = ref(0);
 
 /*
 |--------------------------------------------------------------------------
-| Variations
+| Variants
+|--------------------------------------------------------------------------
+|
+| Real option/variant data from the backend (App\Http\Controllers\
+| ProductController@transform), not a fabricated per-category list.
+| selectedOptionValues tracks one chosen value per option (e.g.
+| { Color: 'Black', Size: 'Large' }); selectedVariant resolves once every
+| option has a value picked, by matching against product.variants'
+| option_values exactly.
 |--------------------------------------------------------------------------
 */
 
-const variations = computed(() => {
-    if (!props.product) {
-        return [];
-    }
+const hasVariants = computed(() => !!props.product?.hasVariants);
 
-    if (props.product.category === 'Fashion') {
-        return [
-            'Small',
-            'Medium',
-            'Large',
-            'XL'
-        ];
-    }
+const productOptions = computed(() => props.product?.options || []);
 
-    if (props.product.category === 'Electronics') {
-        return [
-            'Black',
-            'White'
-        ];
-    }
+const selectedOptionValues = ref({});
 
-    return [
-        'Default'
-    ];
+// Reset the selection whenever a different product is shown, so leftover
+// selections from a previous product's options never leak in.
+watch(
+    () => props.product?.id,
+    () => {
+        selectedOptionValues.value = {};
+        selectedImageIndex.value = 0;
+        quantity.value = 1;
+    },
+);
+
+function selectOptionValue(optionName, value) {
+    selectedOptionValues.value = {
+        ...selectedOptionValues.value,
+        [optionName]: value,
+    };
+}
+
+// A value is disabled if no variant matching everything currently
+// selected plus this value exists, or every variant matching it is
+// unavailable/out of stock — same rule the task requires for the buyer
+// picker, computed from real variant rows rather than assumed.
+function isOptionValueDisabled(optionName, value) {
+    const candidate = { ...selectedOptionValues.value, [optionName]: value };
+
+    return !(props.product?.variants || []).some((v) => {
+        return Object.entries(candidate).every(
+            ([k, val]) => v.option_values?.[k] === val,
+        ) && v.status === 'active' && v.stock > 0;
+    });
+}
+
+const allOptionsSelected = computed(() => {
+    return productOptions.value.length > 0 &&
+        productOptions.value.every((opt) => !!selectedOptionValues.value[opt.name]);
 });
+
+const selectedVariant = computed(() => {
+    if (!allOptionsSelected.value) {
+        return null;
+    }
+
+    return (props.product?.variants || []).find((v) => {
+        return Object.entries(selectedOptionValues.value).every(
+            ([k, val]) => v.option_values?.[k] === val,
+        );
+    }) || null;
+});
+
+const selectedVariantUnavailable = computed(() => {
+    return !!selectedVariant.value &&
+        (selectedVariant.value.status !== 'active' || selectedVariant.value.stock <= 0);
+});
+
+function variantLabel(variant) {
+    return Object.entries(variant?.option_values || {})
+        .map(([name, value]) => `${name}: ${value}`)
+        .join(', ');
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -103,10 +150,23 @@ const accentClass = computed(() => {
 */
 
 const formattedPrice = computed(() => {
-    return props.product ? sharedFormatPrice(props.product.price) : '';
+    if (!props.product) {
+        return '';
+    }
+
+    const price = selectedVariant.value ? selectedVariant.value.price : props.product.price;
+
+    return sharedFormatPrice(price);
 });
 
 const hasDiscount = computed(() => {
+    // A variant's own price is an override, not a discount off the
+    // product's compare-at price — only show the "was" price when no
+    // variant-specific price is in effect.
+    if (selectedVariant.value) {
+        return false;
+    }
+
     return !!props.product?.oldPrice &&
         Number(props.product.oldPrice) > Number(props.product.price);
 });
@@ -140,10 +200,17 @@ const savingsAmount = computed(() => {
 */
 
 const productImage = computed(() => {
-    return props.product?.image || props.product?.imageUrl || '';
+    return selectedVariant.value?.image?.url ||
+        props.product?.image ||
+        props.product?.imageUrl ||
+        '';
 });
 
 const galleryImages = computed(() => {
+    if (selectedVariant.value?.image?.url) {
+        return [selectedVariant.value.image.url];
+    }
+
     if (Array.isArray(props.product?.images) && props.product.images.length > 0) {
         return props.product.images;
     }
@@ -182,11 +249,32 @@ const ratingStars = computed(() => {
 });
 
 const hasStock = computed(() => {
+    if (selectedVariant.value) {
+        return true;
+    }
+
     return typeof props.product?.stock === 'number';
 });
 
 const inStock = computed(() => {
+    if (selectedVariant.value) {
+        return selectedVariant.value.status === 'active' && selectedVariant.value.stock > 0;
+    }
+
+    if (hasVariants.value) {
+        // No variant fully selected yet — can't claim in-stock either way.
+        return null;
+    }
+
     return hasStock.value ? props.product.stock > 0 : null;
+});
+
+const availableStock = computed(() => {
+    if (selectedVariant.value) {
+        return selectedVariant.value.stock;
+    }
+
+    return hasStock.value ? props.product.stock : null;
 });
 
 const hasSpecifications = computed(() => {
@@ -210,6 +298,13 @@ const favorited = computed(() => {
 */
 
 function increaseQuantity() {
+    // Client-side convenience only — the real limit is enforced
+    // server-side at checkout (CheckoutService locks and re-checks the
+    // actual row).
+    if (availableStock.value !== null && quantity.value >= availableStock.value) {
+        return;
+    }
+
     quantity.value++;
 }
 
@@ -244,8 +339,25 @@ function validateSelection() {
         return false;
     }
 
-    if (!selectedVariation.value) {
-        alert('Please select a variation.');
+    if (hasVariants.value) {
+        if (!allOptionsSelected.value) {
+            alert('Please select an option for every variant before continuing.');
+            return false;
+        }
+
+        if (!selectedVariant.value || selectedVariantUnavailable.value) {
+            alert('That combination is currently unavailable.');
+            return false;
+        }
+    }
+
+    if (inStock.value === false) {
+        alert('This product is currently out of stock.');
+        return false;
+    }
+
+    if (availableStock.value !== null && quantity.value > availableStock.value) {
+        alert(`Only ${availableStock.value} left in stock.`);
         return false;
     }
 
@@ -263,16 +375,15 @@ function handleAddToCart() {
         return;
     }
 
-    addToCart(
-        props.product,
-        selectedVariation.value,
-        quantity.value
-    );
+    addToCart(props.product, selectedVariant.value, quantity.value);
+
+    const variantLine = selectedVariant.value
+        ? `\n${variantLabel(selectedVariant.value)}`
+        : '';
 
     alert(
         `${props.product.name} added to cart!\n` +
-        `Quantity: ${quantity.value}\n` +
-        `Variation: ${selectedVariation.value}`
+        `Quantity: ${quantity.value}${variantLine}`
     );
 }
 
@@ -289,7 +400,7 @@ function handleBuyNow() {
 
     emit('buy-now', {
         product: props.product,
-        variation: selectedVariation.value,
+        variant: selectedVariant.value,
         quantity: quantity.value
     });
 }
@@ -507,38 +618,54 @@ function selectRelatedProduct(item) {
                 </p>
 
                 <!-- ==================================================== -->
-                <!-- VARIATION -->
+                <!-- VARIANTS -->
                 <!-- ==================================================== -->
 
-                <div class="variation-section">
-
-                    <label for="product-variation">
-                        Variation
-                    </label>
-
-                    <select
-                        id="product-variation"
-                        v-model="selectedVariation"
+                <template v-if="hasVariants">
+                    <div
+                        v-for="option in productOptions"
+                        :key="option.id"
+                        class="variation-section"
                     >
 
-                        <option
-                            value=""
-                            disabled
+                        <label :for="`product-option-${option.id}`">
+                            {{ option.name }}
+                        </label>
+
+                        <select
+                            :id="`product-option-${option.id}`"
+                            :value="selectedOptionValues[option.name] || ''"
+                            @change="selectOptionValue(option.name, $event.target.value)"
                         >
-                            Select a variation
-                        </option>
 
-                        <option
-                            v-for="variation in variations"
-                            :key="variation"
-                            :value="variation"
-                        >
-                            {{ variation }}
-                        </option>
+                            <option
+                                value=""
+                                disabled
+                            >
+                                Select {{ option.name }}
+                            </option>
 
-                    </select>
+                            <option
+                                v-for="ov in option.values"
+                                :key="ov.id"
+                                :value="ov.value"
+                                :disabled="isOptionValueDisabled(option.name, ov.value)"
+                            >
+                                {{ ov.value }}{{ isOptionValueDisabled(option.name, ov.value) ? ' (Unavailable)' : '' }}
+                            </option>
 
-                </div>
+                        </select>
+
+                    </div>
+                </template>
+
+                <p
+                    v-if="hasVariants && selectedVariantUnavailable"
+                    class="product-stock product-stock--out"
+                    style="margin: -0.5rem 0 0.5rem"
+                >
+                    This combination is currently unavailable.
+                </p>
 
                 <!-- ==================================================== -->
                 <!-- QUANTITY -->

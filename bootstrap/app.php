@@ -1,5 +1,9 @@
 <?php
 
+use App\Http\Middleware\AuthenticateSupabaseUser;
+use App\Http\Middleware\EnsureUserIsAdmin;
+use App\Http\Middleware\EnsureUserIsBuyer;
+use App\Http\Middleware\EnsureUserIsSeller;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -18,6 +22,16 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
+        ]);
+
+        $middleware->alias([
+            // Verifies the Supabase bearer token and resolves it to a
+            // public.profiles row on the request (see routes/seller.php
+            // and routes/buyer.php for the contract this promises).
+            'supabase.auth' => AuthenticateSupabaseUser::class,
+            'admin' => EnsureUserIsAdmin::class,
+            'seller' => EnsureUserIsSeller::class,
+            'buyer' => EnsureUserIsBuyer::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

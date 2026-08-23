@@ -6,7 +6,7 @@ import {
 } from 'vue';
 import { useBuyerAccount } from '../composables/useBuyerAccount';
 
-const emit = defineEmits(['back']);
+const emit = defineEmits(['back', 'view-orders']);
 
 const {
     buyerProfile,
@@ -214,6 +214,14 @@ function saveProfile() {
                     View and manage your Buyer information.
                 </p>
             </div>
+
+            <button
+                type="button"
+                class="account-back-button"
+                @click="emit('view-orders')"
+            >
+                My Orders
+            </button>
         </header>
 
         <main class="account-content">

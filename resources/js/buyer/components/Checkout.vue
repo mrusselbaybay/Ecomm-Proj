@@ -1,8 +1,14 @@
 <script setup>
 import { computed, reactive, ref } from 'vue';
 import { metaFor } from '../composables/useCategoryMeta';
+import { useBuyer } from '../composables/useBuyer';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
+
+// Renamed on import: this component's own placeOrder() below is the
+// click handler (validates the form, builds the payload); it calls this
+// composable function to actually submit to the backend.
+const { placeOrder: submitCheckout, isPlacingOrder } = useBuyer();
 
 const props = defineProps({
     items: {
@@ -238,7 +244,7 @@ function handleHeaderSelectCategory(category) {
 |
 */
 
-function placeOrder() {
+async function placeOrder() {
     if (props.items.length === 0) {
         alert('There are no items to checkout.');
         return;
@@ -275,6 +281,7 @@ function placeOrder() {
     const orderPayload = {
             items: props.items.map(item => ({
             product_id: item.productId,
+            variant_id: item.variantId || null,
 
             name: item.name,
             category: item.category,
@@ -306,18 +313,25 @@ function placeOrder() {
         total: total.value
     };
 
-    console.log(
-        'Order ready for database:',
-        orderPayload
-    );
+    /*
+     * Sends the payload to POST /api/buyer/checkout (App\Http\Controllers\
+     * Buyer\CheckoutController via useBuyer.js's placeOrder()), which
+     * re-validates price/stock server-side and creates one real order
+     * per seller. Nothing is emitted/cleared until that succeeds.
+     */
+    try {
+        const createdOrders = await submitCheckout(orderPayload);
 
-    emit('place-order', orderPayload);
+        emit('place-order', createdOrders);
 
-    alert(
-        `Order ready to be placed!\n\n` +
-        `Total: ${formatPrice(total.value)}\n` +
-        `Payment: ${checkoutForm.paymentMethod.toUpperCase()}`
-    );
+        alert(
+            `Order placed!\n\n` +
+            `Total: ${formatPrice(total.value)}\n` +
+            `Payment: ${checkoutForm.paymentMethod.toUpperCase()}`
+        );
+    } catch (err) {
+        alert(err?.message || 'Could not place your order. Please try again.');
+    }
 }
 </script>
 
@@ -457,7 +471,7 @@ function placeOrder() {
 
                             <div
                                 v-for="item in items"
-                                :key="`${item.productId}-${item.variation}`"
+                                :key="`${item.productId}-${item.variantId || 'simple'}`"
                                 class="checkout-item"
                             >
 
@@ -473,7 +487,7 @@ function placeOrder() {
 
                                 <div class="checkout-item-info">
                                     <h3>{{ item.name }}</h3>
-                                    <p>Seller: {{ item.seller }} | Variation: {{ item.variation }}</p>
+                                    <p>Seller: {{ item.seller }}<template v-if="item.variation"> | Variation: {{ item.variation }}</template></p>
                                 </div>
 
                                 <div class="checkout-item-quantity">
@@ -679,9 +693,10 @@ function placeOrder() {
                             <button
                                 type="button"
                                 class="cart-checkout-button"
+                                :disabled="isPlacingOrder"
                                 @click="placeOrder"
                             >
-                                Place Order
+                                {{ isPlacingOrder ? 'Placing Order…' : 'Place Order' }}
                             </button>
 
                             <div class="cart-summary-notes">

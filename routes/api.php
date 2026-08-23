@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PsgcProxyController;
+use App\Http\Controllers\ProductController;
 use App\Http\Controllers\Admin\AdminNotificationController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
 
@@ -11,6 +12,12 @@ use App\Http\Controllers\Logistics\LogisticsNotificationController;
 | API Routes
 |--------------------------------------------------------------------------
 */
+
+// ============================================================
+// PUBLIC PRODUCT CATALOG (buyer storefront browsing)
+// ============================================================
+Route::get('/products', [ProductController::class, 'index'])->name('products.index');
+Route::get('/products/{id}', [ProductController::class, 'show'])->name('products.show');
 
 // ============================================================
 // PASSWORD RESET ROUTES
