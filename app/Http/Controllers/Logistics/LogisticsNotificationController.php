@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Logistics;
 
 use App\Http\Controllers\Controller;
 use App\Mail\Logistics\ApplicationAccepted;
+use App\Mail\Logistics\ApplicationInterview;
 use App\Mail\Logistics\ApplicationRejected;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -27,6 +28,30 @@ class LogisticsNotificationController extends Controller
             return response()->json(['success' => true]);
         } catch (\Throwable $e) {
             Log::error('Failed to send application-accepted email', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function applicationInterview(Request $request)
+    {
+        $data = $request->validate([
+            'email'        => 'required|email',
+            'name'         => 'required|string',
+            'company_name' => 'required|string',
+            'interview_at' => 'required|date',
+            'notes'        => 'nullable|string|max:1000',
+        ]);
+
+        try {
+            Mail::to($data['email'])->send(new ApplicationInterview(
+                $data['name'],
+                $data['company_name'],
+                $data['interview_at'],
+                $data['notes'] ?? null
+            ));
+            return response()->json(['success' => true]);
+        } catch (\Throwable $e) {
+            Log::error('Failed to send application-interview email', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }

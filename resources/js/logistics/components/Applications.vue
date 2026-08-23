@@ -2,7 +2,7 @@
 <template>
   <div class="logistics-page">
 
-    <div class="toast-stack">
+    <div class="toast-stack" role="status" aria-live="polite">
       <transition-group name="toast">
         <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">
           <span>{{ t.message }}</span>
@@ -18,29 +18,52 @@
     </div>
 
     <div class="grid grid-cols-4 gap-4 mb-6">
-      <div class="stat-card">
-        <p class="field-label">Total</p>
+      <div class="stat-card accent-total">
+        <div class="stat-card-top">
+          <p class="field-label">Total</p>
+          <span class="stat-icon" aria-hidden="true">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none"><path d="M9 12h6M9 16h6M9 8h1M6 4h8l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" /></svg>
+          </span>
+        </div>
         <p class="text-2xl font-bold stat-total">{{ applications.length }}</p>
       </div>
-      <div class="stat-card">
-        <p class="field-label">Pending</p>
+      <div class="stat-card accent-pending">
+        <div class="stat-card-top">
+          <p class="field-label">Pending</p>
+          <span class="stat-icon" aria-hidden="true">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8" /><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+          </span>
+        </div>
         <p class="text-2xl font-bold stat-pending">{{ pendingCount }}</p>
       </div>
-      <div class="stat-card">
-        <p class="field-label">Accepted</p>
+      <div class="stat-card accent-active">
+        <div class="stat-card-top">
+          <p class="field-label">Accepted</p>
+          <span class="stat-icon" aria-hidden="true">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none"><path d="m5 13 4 4L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </span>
+        </div>
         <p class="text-2xl font-bold stat-active">{{ acceptedCount }}</p>
       </div>
-      <div class="stat-card">
-        <p class="field-label">Rejected</p>
+      <div class="stat-card accent-deactivated">
+        <div class="stat-card-top">
+          <p class="field-label">Rejected</p>
+          <span class="stat-icon" aria-hidden="true">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+          </span>
+        </div>
         <p class="text-2xl font-bold stat-deactivated">{{ rejectedCount }}</p>
       </div>
     </div>
 
     <div class="toolbar">
       <div class="search-input">
-        <input type="text" v-model="search" placeholder="Search by courier name or email..." @input="debouncedLoad" />
+        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8" /><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+        <label for="applications-search" class="sr-only">Search by courier name or email</label>
+        <input id="applications-search" type="text" v-model="search" placeholder="Search by courier name or email..." @input="debouncedLoad" />
       </div>
-      <select v-model="statusFilter" class="field-input w-40" @change="load">
+      <label for="applications-status" class="sr-only">Filter by status</label>
+      <select id="applications-status" v-model="statusFilter" class="field-input w-40" @change="load">
         <option value="">All Statuses</option>
         <option value="pending">Pending</option>
         <option value="accepted">Accepted</option>
@@ -50,6 +73,7 @@
     </div>
 
     <div class="card overflow-hidden">
+      <div class="table-scroll">
       <table class="admin-table">
         <thead>
           <tr>
@@ -62,15 +86,20 @@
         </thead>
         <tbody>
           <tr v-if="loading">
-            <td colspan="5" class="text-center py-8"><div class="loading-spinner"></div></td>
+            <td colspan="5" class="text-center py-8"><div class="loading-spinner" role="status" aria-label="Loading applications"></div></td>
           </tr>
           <tr v-else-if="applications.length === 0">
-            <td colspan="5" class="empty-state"><p>No applications match these filters.</p></td>
+            <td colspan="5">
+              <div class="empty-state">
+                <svg class="icon-lg empty-state-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 12h6M9 16h6M9 8h1M6 4h8l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg>
+                <p>No applications match these filters.</p>
+              </div>
+            </td>
           </tr>
           <tr v-for="app in applications" :key="app.id">
             <td>
               <div class="flex items-center gap-3">
-                <div class="avatar">{{ initials(app) }}</div>
+                <div class="avatar" aria-hidden="true">{{ initials(app) }}</div>
                 <div>
                   <p class="font-medium text-slate-800">{{ app.courier?.first_name }} {{ app.courier?.last_name }}</p>
                   <p class="text-xs text-slate-500">{{ app.courier?.email }}</p>
@@ -82,16 +111,21 @@
               <p class="text-xs text-slate-500">{{ app.courier_details?.plate_number || '' }}</p>
             </td>
             <td>
-              <span class="badge" :class="badgeClass(app.status)">
-                <span class="status-dot" :class="app.status"></span>{{ app.status }}
+              <span class="badge" :class="isInterviewing(app) ? 'badge-indigo' : badgeClass(app.status)">
+                <span class="status-dot" :class="app.status" aria-hidden="true"></span>{{ isInterviewing(app) ? 'Interviewing' : app.status }}
               </span>
+              <p v-if="isInterviewing(app) && app.interview_scheduled_at" class="text-xs text-slate-500 mt-1">{{ formatInterviewTime(app.interview_scheduled_at) }}</p>
             </td>
             <td>
               <button @click="openDocuments(app)" class="btn-doc">View</button>
             </td>
             <td>
               <div class="action-buttons">
-                <template v-if="app.status === 'pending'">
+                <template v-if="app.status === 'pending' && !app.interview_invited_at">
+                  <button @click="openInterviewModal(app)" class="btn-sm-primary">Proceed to Interview</button>
+                  <button @click="openRejectModal(app)" class="btn-danger-outline">Reject</button>
+                </template>
+                <template v-else-if="app.status === 'pending' && app.interview_invited_at">
                   <button @click="acceptApplication(app)" class="btn-sm-primary">Accept</button>
                   <button @click="openRejectModal(app)" class="btn-danger-outline">Reject</button>
                 </template>
@@ -110,15 +144,16 @@
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <!-- REJECT MODAL -->
     <transition name="modal">
       <div v-if="showRejectModal" class="modal-overlay" @click.self="closeRejectModal">
-        <div class="modal-panel modal-lg">
+        <div class="modal-panel modal-lg" role="dialog" aria-modal="true" aria-labelledby="reject-modal-title">
           <div class="modal-header">
-            <h3>Reject Application</h3>
-            <button class="modal-close" @click="closeRejectModal">✕</button>
+            <h3 id="reject-modal-title">Reject Application</h3>
+            <button class="modal-close" aria-label="Close" @click="closeRejectModal">✕</button>
           </div>
           <p class="modal-desc">
             Select a reason for rejecting <strong>{{ rejectApp?.courier?.first_name }} {{ rejectApp?.courier?.last_name }}</strong>'s application:
@@ -164,13 +199,54 @@
       </div>
     </transition>
 
+    <!-- INTERVIEW MODAL -->
+    <transition name="modal">
+      <div v-if="showInterviewModal" class="modal-overlay" @click.self="closeInterviewModal">
+        <div class="modal-panel modal-sm" role="dialog" aria-modal="true" aria-labelledby="interview-modal-title">
+          <div class="modal-header">
+            <h3 id="interview-modal-title">Schedule Interview</h3>
+            <button class="modal-close" aria-label="Close" @click="closeInterviewModal">✕</button>
+          </div>
+          <p class="modal-desc">
+            Pick a date and time to interview <strong>{{ interviewApp?.courier?.first_name }} {{ interviewApp?.courier?.last_name }}</strong>. Their application stays pending — this just sends them an invite.
+          </p>
+          <div class="space-y-3">
+            <div>
+              <label class="field-label" for="interview-datetime">Interview date &amp; time</label>
+              <input
+                id="interview-datetime"
+                type="datetime-local"
+                v-model="interviewDateTime"
+                :min="minInterviewDateTime"
+                class="field-input mt-2"
+              />
+            </div>
+            <div>
+              <label class="field-label" for="interview-notes">Notes for the courier (optional)</label>
+              <textarea
+                id="interview-notes"
+                v-model="interviewNotes"
+                rows="3"
+                class="field-input mt-2"
+                placeholder="e.g. video call link, office address, what to bring..."
+              ></textarea>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button @click="closeInterviewModal" class="btn-outline">Cancel</button>
+            <button @click="submitInterview" class="btn-primary" :disabled="!interviewDateTime">Send Invite</button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
     <!-- VIEW REASON MODAL -->
     <transition name="modal">
       <div v-if="showReasonModal" class="modal-overlay" @click.self="showReasonModal = false">
-        <div class="modal-panel modal-sm">
+        <div class="modal-panel modal-sm" role="dialog" aria-modal="true" aria-labelledby="reason-modal-title">
           <div class="modal-header">
-            <h3>Rejection Reason</h3>
-            <button class="modal-close" @click="showReasonModal = false">✕</button>
+            <h3 id="reason-modal-title">Rejection Reason</h3>
+            <button class="modal-close" aria-label="Close" @click="showReasonModal = false">✕</button>
           </div>
           <div class="callout-red">{{ reasonApp?.rejection_reason }}</div>
           <div class="modal-actions">
@@ -183,13 +259,27 @@
     <!-- DOCUMENTS MODAL -->
     <transition name="modal">
       <div v-if="showDocsModal" class="modal-overlay" @click.self="closeDocuments">
-        <div class="modal-panel">
+        <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="docs-modal-title">
           <div class="modal-header">
-            <h3>Documents — {{ docsApp?.courier?.first_name }} {{ docsApp?.courier?.last_name }}</h3>
-            <button class="modal-close" @click="closeDocuments">✕</button>
+            <h3 id="docs-modal-title">Documents — {{ docsApp?.courier?.first_name }} {{ docsApp?.courier?.last_name }}</h3>
+            <button class="modal-close" aria-label="Close" @click="closeDocuments">✕</button>
           </div>
-          <div v-if="docsLoading" class="py-8 text-center"><div class="loading-spinner"></div></div>
-          <div v-else-if="userDocuments.length === 0" class="empty-state"><p>No documents uploaded yet.</p></div>
+          <div v-if="docsApp?.resume_original_name" class="doc-row" style="margin-bottom: 12px;">
+            <div class="doc-info">
+              <div>
+                <p class="doc-type">Resume — {{ docsApp.resume_original_name }}</p>
+                <p class="doc-date">{{ formatFileSize(docsApp.resume_size) }} · Applied {{ formatDate(docsApp.applied_at) }}</p>
+              </div>
+            </div>
+            <div class="doc-actions">
+              <button class="btn-sm-outline" :disabled="resumeLoading" @click="viewResume(docsApp)">{{ resumeLoading ? 'Opening…' : 'View Resume' }}</button>
+            </div>
+          </div>
+          <div v-if="docsApp?.cover_note" class="callout-red" style="background:#f0fdfa;border-color:#99f6e4;color:#0f766e;margin-bottom:12px;">
+            <strong>Cover note:</strong> {{ docsApp.cover_note }}
+          </div>
+          <div v-if="docsLoading" class="py-8 text-center"><div class="loading-spinner" role="status" aria-label="Loading documents"></div></div>
+          <div v-else-if="userDocuments.length === 0" class="empty-state"><p>No other documents uploaded yet.</p></div>
           <div v-else class="doc-list">
             <div v-for="doc in userDocuments" :key="doc.id" class="doc-row">
               <div class="doc-info">
@@ -214,13 +304,13 @@
     <!-- DOC PREVIEW -->
     <transition name="modal">
       <div v-if="previewDoc" class="modal-overlay preview-overlay" @click.self="closePreview">
-        <div class="preview-panel">
+        <div class="preview-panel" role="dialog" aria-modal="true" aria-labelledby="preview-modal-title">
           <div class="modal-header">
-            <h3>{{ formatRole(previewDoc.doc_type) }}</h3>
-            <button class="modal-close" @click="closePreview">✕</button>
+            <h3 id="preview-modal-title">{{ formatRole(previewDoc.doc_type) }}</h3>
+            <button class="modal-close" aria-label="Close" @click="closePreview">✕</button>
           </div>
           <div class="preview-body">
-            <div v-if="previewLoading" class="loading-spinner"></div>
+            <div v-if="previewLoading" class="loading-spinner" role="status" aria-label="Loading preview"></div>
             <img v-else-if="previewUrl" :src="previewUrl" class="preview-image" alt="Document preview" />
           </div>
         </div>
@@ -230,8 +320,8 @@
     <!-- CONFIRM MODAL -->
     <transition name="modal">
       <div v-if="confirmModal.show" class="modal-overlay confirm-overlay" @click.self="resolveConfirm(false)">
-        <div class="modal-panel modal-sm">
-          <h3 class="confirm-title">{{ confirmModal.title }}</h3>
+        <div class="modal-panel modal-sm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+          <h3 id="confirm-modal-title" class="confirm-title">{{ confirmModal.title }}</h3>
           <p class="confirm-message">{{ confirmModal.message }}</p>
           <div class="confirm-actions">
             <button @click="resolveConfirm(false)" class="btn-outline confirm-cancel">Cancel</button>
@@ -353,6 +443,84 @@ async function submitRejection() {
   }
 }
 
+function isInterviewing(app) {
+  return app.status === 'pending' && !!app.interview_invited_at;
+}
+
+// Formats a stored interview_scheduled_at (or interview_invited_at) value
+// as the exact wall-clock digits that were picked, with no timezone
+// conversion — the value is a "floating" local time, not a real instant,
+// since it's just what the logistics staff typed into the picker.
+function formatInterviewTime(value) {
+  if (!value) return '';
+  const naive = value.replace(/(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/, '');
+  const date = new Date(naive);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('en-US', {
+    weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
+}
+
+// INTERVIEW MODAL
+const showInterviewModal = ref(false);
+const interviewApp = ref(null);
+const interviewDateTime = ref('');
+const interviewNotes = ref('');
+
+function pad(n) { return String(n).padStart(2, '0'); }
+function toLocalInputValue(date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+const minInterviewDateTime = computed(() => toLocalInputValue(new Date()));
+
+function openInterviewModal(app) {
+  interviewApp.value = app;
+  interviewDateTime.value = '';
+  interviewNotes.value = '';
+  showInterviewModal.value = true;
+}
+function closeInterviewModal() {
+  showInterviewModal.value = false;
+  interviewApp.value = null;
+}
+
+async function submitInterview() {
+  if (!interviewDateTime.value) {
+    showToast('Please pick a date and time.', 'error');
+    return;
+  }
+
+  const app = interviewApp.value;
+  const scheduledAt = interviewDateTime.value; // kept as the raw picked value, no timezone conversion
+  const notes = interviewNotes.value.trim();
+  closeInterviewModal();
+
+  try {
+    const { error } = await supabase
+      .from('courier_applications')
+      .update({
+        interview_invited_at: new Date().toISOString(),
+        interview_scheduled_at: scheduledAt,
+      })
+      .eq('id', app.id);
+    if (error) throw error;
+
+    sendEmail('/api/logistics/notify-application-interview', {
+      email: app.courier.email,
+      name: `${app.courier.first_name} ${app.courier.last_name}`,
+      company_name: companyName.value,
+      interview_at: scheduledAt,
+      notes: notes || null,
+    });
+
+    showToast(`${app.courier.first_name} invited to interview.`, 'success');
+    await load();
+  } catch (e) {
+    showToast('Failed to invite to interview: ' + e.message, 'error');
+  }
+}
+
 async function acceptApplication(app) {
   const ok = await askConfirm('Accept application', `Accept ${app.courier.first_name} ${app.courier.last_name} into ${companyName.value}?`, 'Accept');
   if (!ok) return;
@@ -416,6 +584,28 @@ function closeDocuments() {
   userDocuments.value = [];
 }
 
+const resumeLoading = ref(false);
+
+async function viewResume(app) {
+  resumeLoading.value = true;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = await fetch(`/api/logistics/applications/${app.id}/resume`, {
+      headers: {
+        'Accept': 'application/json',
+        ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {}),
+      },
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || 'Failed to load resume.');
+    window.open(payload.url, '_blank', 'noopener');
+  } catch (e) {
+    showToast('Failed to open resume: ' + e.message, 'error');
+  } finally {
+    resumeLoading.value = false;
+  }
+}
+
 const previewDoc = ref(null);
 const previewUrl = ref('');
 const previewLoading = ref(false);
@@ -448,6 +638,12 @@ function initials(app) {
 function formatDate(dateStr) {
   if (!dateStr) return '';
   return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+function formatFileSize(bytes) {
+  if (!bytes) return '';
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${Math.round(kb)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
 }
 function formatRole(value) {
   if (!value) return '';

@@ -1,11 +1,16 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Admin\AdminNotificationController;
+use App\Http\Controllers\Api\Courier\CourierApplicationController;
+use App\Http\Controllers\Api\Courier\CourierProfileController;
+use App\Http\Controllers\Api\Courier\LogisticsCompanyController;
+use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Logistics\LogisticsNotificationController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PsgcProxyController;
-use App\Http\Controllers\Admin\AdminNotificationController;
-use App\Http\Controllers\Logistics\LogisticsNotificationController;
+use App\Mail\RegistrationApproved;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -18,9 +23,9 @@ use App\Http\Controllers\Logistics\LogisticsNotificationController;
 // ============================================================
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
-    Route::post('/login',    [AuthController::class, 'login']);
-    Route::get('/user',      [AuthController::class, 'user']);
-    Route::post('/logout',   [AuthController::class, 'logout']);
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::get('/user', [AuthController::class, 'user']);
+    Route::post('/logout', [AuthController::class, 'logout']);
 });
 
 // ============================================================
@@ -30,15 +35,15 @@ Route::prefix('password')->name('password.')->group(function () {
     Route::post('/send-code', [PasswordResetController::class, 'sendCode'])
         ->middleware('throttle:3,1')
         ->name('send-code');
-    
+
     Route::post('/verify-code', [PasswordResetController::class, 'verifyCode'])
         ->middleware('throttle:5,1')
         ->name('verify-code');
-    
+
     Route::post('/reset', [PasswordResetController::class, 'resetPassword'])
         ->middleware('throttle:5,1')
         ->name('reset');
-    
+
     Route::post('/resend-code', [PasswordResetController::class, 'resendCode'])
         ->middleware('throttle:3,1')
         ->name('resend-code');
@@ -51,11 +56,11 @@ Route::prefix('signup')->name('signup.')->group(function () {
     Route::post('/send-code', [PasswordResetController::class, 'sendSignupCode'])
         ->middleware('throttle:3,1')
         ->name('send-code');
-    
+
     Route::post('/verify-code', [PasswordResetController::class, 'verifySignupCode'])
         ->middleware('throttle:5,1')
         ->name('verify-code');
-    
+
     Route::post('/resend-code', [PasswordResetController::class, 'resendSignupCode'])
         ->middleware('throttle:3,1')
         ->name('resend-code');
@@ -72,6 +77,31 @@ Route::prefix('psgc')->name('psgc.')->group(function () {
 });
 
 // ============================================================
+// COURIER WORK ROUTES
+// ============================================================
+Route::prefix('courier')->name('courier.')->group(function () {
+    Route::get('/logistics-companies', [LogisticsCompanyController::class, 'index'])
+        ->name('logistics-companies.index');
+    Route::get('/applications', [CourierApplicationController::class, 'index'])
+        ->name('applications.index');
+    Route::post('/applications', [CourierApplicationController::class, 'store'])
+        ->name('applications.store');
+    Route::patch('/applications/{application}/withdraw', [CourierApplicationController::class, 'withdraw'])
+        ->name('applications.withdraw');
+    Route::get('/applications/{application}/resume', [CourierApplicationController::class, 'resume'])
+        ->name('applications.resume');
+    Route::get('/profile/employment', [CourierProfileController::class, 'employment'])
+        ->name('profile.employment');
+});
+
+Route::prefix('logistics')->name('logistics.')->group(function () {
+    Route::get('/applications', LogisticsApplicationController::class)
+        ->name('applications.index');
+    Route::get('/applications/{application}/resume', [LogisticsApplicationController::class, 'resume'])
+        ->name('applications.resume');
+});
+
+// ============================================================
 // ADMIN NOTIFICATION ROUTES
 // ============================================================
 Route::prefix('admin')->name('admin.')->group(function () {
@@ -79,23 +109,24 @@ Route::prefix('admin')->name('admin.')->group(function () {
     Route::post('/notify-approval', [AdminNotificationController::class, 'notifyApproval'])
         ->middleware('throttle:10,1')
         ->name('notify-approval');
-    
+
     Route::post('/notify-rejection', [AdminNotificationController::class, 'notifyRejection'])
         ->middleware('throttle:10,1')
         ->name('notify-rejection');
-    
+
     Route::post('/notify-status-change', [AdminNotificationController::class, 'notifyStatusChange'])
         ->middleware('throttle:10,1')
         ->name('notify-status-change');
-    
+
     Route::post('/notify-account-created', [AdminNotificationController::class, 'notifyAccountCreated'])
         ->middleware('throttle:10,1')
         ->name('notify-account-created');
 });
 
-    Route::prefix('logistics')->group(function () {
+Route::prefix('logistics')->group(function () {
     Route::post('/notify-application-accepted', [LogisticsNotificationController::class, 'applicationAccepted']);
     Route::post('/notify-application-rejected', [LogisticsNotificationController::class, 'applicationRejected']);
+    Route::post('/notify-application-interview', [LogisticsNotificationController::class, 'applicationInterview']);
 });
 
 // ============================================================
@@ -104,9 +135,10 @@ Route::prefix('admin')->name('admin.')->group(function () {
 if (app()->environment('local')) {
     Route::get('/test-email', function () {
         try {
-            Mail::to('test@example.com')->send(new \App\Mail\RegistrationApproved('Test User'));
+            Mail::to('test@example.com')->send(new RegistrationApproved('Test User'));
+
             return response()->json(['message' => 'Email sent successfully!']);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
     });

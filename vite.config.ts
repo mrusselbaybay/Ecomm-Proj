@@ -9,6 +9,8 @@ export default defineConfig({
             input: [
                 'resources/js/app.js',
                 'resources/js/admin/admin.js',
+                'resources/js/logistics/logistics.js',
+                'resources/js/pickup_courier/pickup_courier.js',
             ],
             refresh: true,
         }),

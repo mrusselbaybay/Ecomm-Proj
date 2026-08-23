@@ -829,6 +829,33 @@ const App = {
     }
 
     // ---------- Registration Functions ----------
+    async function createAccountAndSignIn(accountData) {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(accountData),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.message || 'Registration failed. Please try again.');
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: accountData.email,
+        password: accountData.password,
+      });
+
+      if (error || !data.user) {
+        throw error || new Error('Account was created, but sign-in failed. Please sign in manually.');
+      }
+
+      return data.user;
+    }
+
     async function submitUserRegistration() {
       try {
         const userEmail = selectedRole.value === 'driver' 
@@ -857,37 +884,21 @@ const App = {
           birthday = form.value.birthday;
         }
         
-        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        const authUser = await createAccountAndSignIn({
           email: userEmail.trim().toLowerCase(),
           password: userPassword,
-          email_confirm: true,
-          user_metadata: {
-            role: userRole,
-            first_name: firstName,
-            last_name: lastName,
-            middle_initial: middleInitial,
-            sex: sex,
-            contact_no: contactNo,
-            birthday: birthday,
-            status: 'pending'
-          }
+          role: userRole,
+          first_name: firstName,
+          last_name: lastName,
+          middle_initial: middleInitial,
+          sex: sex,
+          contact_no: contactNo,
+          birthday: birthday,
+          status: 'pending'
         });
 
-        if (authError) {
-          console.error('Auth error:', authError);
-          if (authError.message && authError.message.includes('already exists')) {
-            errorMsg.value = 'This email is already registered. Please login instead.';
-            return;
-          }
-          throw authError;
-        }
-
-        if (!authData?.user) throw new Error('Failed to create user');
-
-        const userId = authData.user.id;
+        const userId = authUser.id;
         console.log('✅ User created via admin API:', userId);
-
-        await new Promise(resolve => setTimeout(resolve, 1500));
 
         if (form.value.provinceCode && form.value.municipalityCode && form.value.barangay) {
           const { error: addressError } = await supabaseAdmin
@@ -970,17 +981,14 @@ const App = {
         const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
           email: form.value.companyEmail.trim().toLowerCase(),
           password: password.value,
-          email_confirm: true,
-          user_metadata: {
-            role: 'logistics',
-            company_name: form.value.companyName,
-            first_name: form.value.ownerFirstName,
-            last_name: form.value.ownerLastName,
-            middle_initial: form.value.ownerMiddleInitial || '',
-            sex: form.value.ownerSex,
-            birthday: form.value.ownerBirthday,
-            status: 'pending'
-          }
+          role: 'logistics',
+          company_name: form.value.companyName,
+          first_name: form.value.ownerFirstName,
+          last_name: form.value.ownerLastName,
+          middle_initial: form.value.ownerMiddleInitial || '',
+          sex: form.value.ownerSex,
+          birthday: form.value.ownerBirthday,
+          status: 'pending'
         });
 
         if (authError) {
@@ -1459,92 +1467,100 @@ const App = {
 
     // ---------- Login Functions ----------
     // ---------- Login Functions ----------
+// ---------- Login Functions ----------
 async function handleLogin() {
-  resetMessages();
+    resetMessages();
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: email.value.trim().toLowerCase(),
-    password: password.value
-  });
+    const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.value.trim().toLowerCase(),
+        password: password.value
+    });
 
-  if (error) {
-    console.log('Supabase auth error:', error);
-    errorMsg.value = 'Email or password is incorrect.';
-    return;
-  }
+    if (error) {
+        console.log('Supabase auth error:', error);
+        errorMsg.value = 'Email or password is incorrect.';
+        return;
+    }
 
-  const user = data.user;
+    const user = data.user;
 
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('role, first_name, last_name, email, account_status, status')
-    .eq('id', user.id)
-    .single();
+    const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role, first_name, last_name, email, account_status, status')
+        .eq('id', user.id)
+        .single();
 
-  if (profileError) {
-    console.log('Profile error:', profileError);
-    errorMsg.value = 'Could not fetch user profile.';
-    return;
-  }
+    if (profileError) {
+        console.log('Profile error:', profileError);
+        errorMsg.value = 'Could not fetch user profile.';
+        return;
+    }
 
-  // Check account status
-  if (profile.account_status === 'suspended') {
-    errorMsg.value = 'Your account has been suspended. Please contact support.';
-    await supabase.auth.signOut();
-    return;
-  }
-  
-  if (profile.account_status === 'deactivated') {
-    errorMsg.value = 'Your account has been deactivated. Please contact support.';
-    await supabase.auth.signOut();
-    return;
-  }
-  
-  if (profile.account_status === 'pending' || profile.status === 'pending') {
-    errorMsg.value = 'Your account is pending approval. Please wait for the administrator to approve your account.';
-    await supabase.auth.signOut();
-    return;
-  }
+    // Check account status
+    if (profile.account_status === 'suspended') {
+        errorMsg.value = 'Your account has been suspended. Please contact support.';
+        await supabase.auth.signOut();
+        return;
+    }
+    
+    if (profile.account_status === 'deactivated') {
+        errorMsg.value = 'Your account has been deactivated. Please contact support.';
+        await supabase.auth.signOut();
+        return;
+    }
+    
+    if (profile.account_status === 'pending' || profile.status === 'pending') {
+        errorMsg.value = 'Your account is pending approval. Please wait for the administrator to approve your account.';
+        await supabase.auth.signOut();
+        return;
+    }
 
-  if (profile.status === 'rejected') {
-    errorMsg.value = 'Your account has been rejected. Please contact support.';
-    await supabase.auth.signOut();
-    return;
-  }
+    if (profile.status === 'rejected') {
+        errorMsg.value = 'Your account has been rejected. Please contact support.';
+        await supabase.auth.signOut();
+        return;
+    }
 
-  const userRole = profile?.role || user.user_metadata?.role || 'buyer';
+    const userRole = profile?.role || user.user_metadata?.role || 'buyer';
 
-  loggedInUser.value = {
-    email: user.email,
-    role: userRole,
-    status: profile.account_status || profile.status
-  };
+    loggedInUser.value = {
+        email: user.email,
+        role: userRole,
+        status: profile.account_status || profile.status
+    };
 
-  setCookie(
-    'nexmart_session',
-    JSON.stringify(loggedInUser.value),
-    rememberMe.value ? 30 : 1
-  );
+    setCookie(
+        'nexmart_session',
+        JSON.stringify(loggedInUser.value),
+        rememberMe.value ? 30 : 1
+    );
 
-  // Redirect based on role
-  switch (userRole) {
+    // ========== REDIRECT LOGIC - INSIDE handleLogin ==========
+    console.log('User role:', userRole); // Debug log
+    
+    // Redirect based on role
+    switch (userRole) {
     case 'admin':
-      window.location.href = '/admin/dashboard';
-      break;
+        window.location.href = '/admin/dashboard';
+        break;
     case 'logistics':
     case 'logistics_admin':
-      window.location.href = '/logistics/dashboard';
-      break;
+        // Logistics company owner/staff - goes to logistics dashboard
+        window.location.href = '/logistics/dashboard';
+        break;
     case 'seller':
-      window.location.href = '/seller/dashboard';
-      break;
+        window.location.href = '/seller/dashboard';
+        break;
     case 'courier':
+        // Independent courier - goes to pickup courier page
+        window.location.href = '/pickup-courier';
+        break;
     case 'driver':
-      window.location.href = '/';
-      break;
+        window.location.href = '/';
+        break;
     default: // buyer
-      window.location.href = '/';
-  }
+        window.location.href = '/';
+}
 }
 
     // ---------- Password Reset Functions ----------
@@ -1759,16 +1775,53 @@ async function handleLogin() {
     }
 
     // ---------- Lifecycle ----------
-    onMounted(() => {
-      fetchProvinces();
+    // ---------- Lifecycle ----------
+onMounted(() => {
+    fetchProvinces();
 
-      supabase.auth.onAuthStateChange((event) => {
+    supabase.auth.onAuthStateChange((event) => {
         if (event === 'PASSWORD_RECOVERY') {
-          mode.value = 'reset';
-          resetMessages();
+            mode.value = 'reset';
+            resetMessages();
         }
-      });
     });
+
+    // ========== ADD THIS: Check existing session ==========
+    // ========== Check existing session ==========
+// ========== Check existing session ==========
+const sessionCookie = getCookie('nexmart_session');
+if (sessionCookie) {
+    try {
+        const userData = JSON.parse(sessionCookie);
+        loggedInUser.value = userData;
+        
+        // Redirect based on role
+        switch (userData.role) {
+            case 'admin':
+                window.location.href = '/admin/dashboard';
+                break;
+            case 'logistics':
+            case 'logistics_admin':
+                window.location.href = '/logistics/dashboard';
+                break;
+            case 'seller':
+                window.location.href = '/seller/dashboard';
+                break;
+            case 'courier':
+                window.location.href = '/pickup-courier';
+                break;
+            case 'driver':
+                window.location.href = '/';
+                break;
+            default:
+                window.location.href = '/';
+        }
+    } catch (e) {
+        console.log('Invalid session cookie');
+    }
+}
+    // ========== END ADD ==========
+});
 
     // ---------- Return ----------
     return {
