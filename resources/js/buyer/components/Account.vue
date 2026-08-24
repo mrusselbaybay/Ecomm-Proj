@@ -900,9 +900,7 @@ onBeforeUnmount(() => {
                     </button>
                 </section>
 
-                <div class="account-page-grid">
-                    <div class="account-main-column">
-                    <section class="account-information-card">
+                <section class="account-information-card">
                         <form
                             class="account-form"
                             @submit.prevent="saveProfile"
@@ -1138,8 +1136,10 @@ onBeforeUnmount(() => {
                                 </button>
                             </footer>
                         </form>
-                    </section>
+                </section>
 
+                <div class="account-page-grid">
+                    <div class="account-main-column">
                     <!-- ==================================================== -->
                     <!-- SECURITY & PASSWORD -->
                     <!-- ==================================================== -->

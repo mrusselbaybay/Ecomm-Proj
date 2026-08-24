@@ -3400,10 +3400,14 @@
     background: var(--nx-accent-dark);
 }
 
-/* ---- Two-column grid: (info form + security + danger zone) | overview aside ----
-   .account-main-column stacks the three left cards; .account-overview-card
-   sits beside the whole stack as one grid row, so align-items: stretch
-   (the grid default) lets it grow to match the stack's full height. */
+/* ---- Two-column grid: (security + danger zone) | overview aside ----
+   Personal Information + Home Address live in their own full-width
+   .account-information-card above this grid (not inside it) — only
+   Security & Password and Danger Zone sit in .account-main-column here.
+   .account-overview-card sits beside that two-card stack as one grid
+   row, so align-items: stretch (the grid default) lets it grow to
+   match the stack's full height — from the top of Security & Password
+   to the bottom of Danger Zone. */
 
 .account-page-grid {
     display: grid;
@@ -3437,8 +3441,8 @@
 
     /* Stretches to match .account-main-column's full stacked height
        (the grid's default align-items: stretch) instead of hugging its
-       own content, so it visually runs the whole length of the Personal
-       Information / Security / Danger Zone stack beside it. */
+       own content, so it visually runs the whole length of the
+       Security & Password / Danger Zone stack beside it. */
     align-self: stretch;
 }
 
