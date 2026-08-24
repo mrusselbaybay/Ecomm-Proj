@@ -111,6 +111,15 @@ Route::prefix('courier')->name('courier.')->group(function () {
         ->name('profile.employment');
 });
 
+// ============================================================
+// DRIVER / COURIER SETTINGS ROUTES
+// ------------------------------------------------------------
+// Registered here (not routes/web.php) so they get the 'api' middleware
+// group — no CSRF check — matching the courier routes just above. Their
+// only consumer is the Flutter app, a stateless Bearer-token client.
+// ============================================================
+require __DIR__.'/driver.php';
+
 Route::prefix('logistics')->name('logistics.')->group(function () {
     Route::get('/applications', LogisticsApplicationController::class)
         ->name('applications.index');

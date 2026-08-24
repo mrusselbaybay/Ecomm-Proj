@@ -1,363 +1,699 @@
 <!-- resources/js/seller/components/Profile.vue -->
 <template>
     <div>
-        <form @submit.prevent="handleSave">
-            <!-- Personal Information -->
-            <div class="card form-section">
-                <p class="form-section-title">Personal Information</p>
-                <p class="form-section-desc">
-                    This is the information on file for your seller account.
-                </p>
-
-                <div class="form-grid">
-                    <div>
-                        <label class="field-label"
-                            >Last Name
-                            <span style="color: var(--teal-500)">*</span></label
-                        >
-                        <input
-                            v-model="formData.last_name"
-                            @input="onNameInput('last_name')"
-                            class="field-input"
-                            placeholder="Dela Cruz"
-                        />
-                        <span v-if="errors.last_name" class="save-msg error">{{
-                            errors.last_name
-                        }}</span>
-                    </div>
-                    <div>
-                        <label class="field-label"
-                            >First Name
-                            <span style="color: var(--teal-500)">*</span></label
-                        >
-                        <input
-                            v-model="formData.first_name"
-                            @input="onNameInput('first_name')"
-                            class="field-input"
-                            placeholder="Juan"
-                        />
-                        <span v-if="errors.first_name" class="save-msg error">{{
-                            errors.first_name
-                        }}</span>
-                    </div>
-                    <div>
-                        <label class="field-label">M.I.</label>
-                        <input
-                            v-model="formData.middle_initial"
-                            maxlength="1"
-                            @input="onMiddleInitialInput"
-                            class="field-input"
-                            placeholder="B"
-                        />
-                    </div>
-
-                    <div>
-                        <label class="field-label"
-                            >Sex
-                            <span style="color: var(--teal-500)">*</span></label
-                        >
-                        <select v-model="formData.sex" class="field-input">
-                            <option value="">Select</option>
-                            <option value="Male">Male</option>
-                            <option value="Female">Female</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="field-label"
-                            >Birthday
-                            <span style="color: var(--teal-500)">*</span></label
-                        >
-                        <input
-                            v-model="formData.birthday"
-                            type="date"
-                            :max="todayStr"
-                            class="field-input"
-                        />
-                        <span v-if="errors.birthday" class="save-msg error">{{
-                            errors.birthday
-                        }}</span>
-                    </div>
-                    <div>
-                        <label class="field-label">Age</label>
-                        <input
-                            :value="age !== null ? age : '—'"
-                            class="field-input"
-                            disabled
-                        />
-                    </div>
-
-                    <div>
-                        <label class="field-label"
-                            >Contact No.
-                            <span style="color: var(--teal-500)">*</span></label
-                        >
-                        <input
-                            v-model="formData.contact_no"
-                            @input="onContactInput"
-                            class="field-input"
-                            placeholder="09XXXXXXXXX"
-                            maxlength="11"
-                        />
-                        <span v-if="errors.contact_no" class="save-msg error">{{
-                            errors.contact_no
-                        }}</span>
-                    </div>
-                    <div class="full-span" style="grid-column: span 2">
-                        <label class="field-label">Email</label>
-                        <input
-                            :value="profile?.email"
-                            class="field-input"
-                            disabled
-                        />
-                    </div>
-                </div>
+        <!-- Floating save-feedback toast — visible regardless of scroll
+             position, since Save/Cancel live at the bottom of the form
+             but the page can be scrolled well past them by then. -->
+        <Transition name="acct-toast-fade">
+            <div
+                v-if="toastMessage"
+                class="acct-toast"
+                :class="toastIsError ? 'error' : 'success'"
+            >
+                <svg v-if="!toastIsError" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="m4 10 4 4 8-8" />
+                </svg>
+                <svg v-else width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="M10 6v5M10 14h.01" />
+                    <circle cx="10" cy="10" r="8" />
+                </svg>
+                {{ toastMessage }}
             </div>
+        </Transition>
 
-            <!-- Address -->
-            <div class="card form-section">
-                <p class="form-section-title">Store Address</p>
-                <p class="form-section-desc">
-                    Used for logistics and courier pickup/delivery matching.
-                </p>
-
-                <div class="form-grid">
-                    <div>
-                        <label class="field-label"
-                            >Province
-                            <span style="color: var(--teal-500)">*</span></label
-                        >
-                        <select
-                            v-model="formData.province_code"
-                            @change="onProvinceChange"
-                            class="field-input"
-                            :disabled="loadingProvinces"
-                        >
-                            <option value="">
-                                {{
-                                    loadingProvinces
-                                        ? 'Loading provinces…'
-                                        : 'Select province'
-                                }}
-                            </option>
-                            <option
-                                v-for="p in provinceOptions"
-                                :key="p.code"
-                                :value="p.code"
-                            >
-                                {{ p.name }}
-                            </option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="field-label"
-                            >Municipality / City
-                            <span style="color: var(--teal-500)">*</span></label
-                        >
-                        <select
-                            v-model="formData.municipality_code"
-                            @change="onMunicipalityChange"
-                            class="field-input"
-                            :disabled="
-                                loadingMunicipalities || !formData.province_code
-                            "
-                        >
-                            <option value="">
-                                {{
-                                    loadingMunicipalities
-                                        ? 'Loading…'
-                                        : 'Select municipality/city'
-                                }}
-                            </option>
-                            <option
-                                v-for="m in municipalityOptions"
-                                :key="m.code"
-                                :value="m.code"
-                            >
-                                {{ m.name }}
-                            </option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="field-label"
-                            >Barangay
-                            <span style="color: var(--teal-500)">*</span></label
-                        >
-                        <select
-                            v-model="formData.barangay"
-                            class="field-input"
-                            :disabled="
-                                loadingBarangays || !formData.municipality_code
-                            "
-                        >
-                            <option value="">
-                                {{
-                                    loadingBarangays
-                                        ? 'Loading…'
-                                        : 'Select barangay'
-                                }}
-                            </option>
-                            <option
-                                v-for="b in barangayOptions"
-                                :key="b.code"
-                                :value="b.name"
-                            >
-                                {{ b.name }}
-                            </option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="field-label">House / Unit No.</label>
-                        <input
-                            v-model="formData.house_no"
-                            class="field-input"
-                            placeholder="123"
-                        />
-                    </div>
-                    <div class="full-span" style="grid-column: span 2">
-                        <label class="field-label"
-                            >Street
-                            <span style="color: var(--teal-500)">*</span></label
-                        >
-                        <input
-                            v-model="formData.street"
-                            class="field-input"
-                            placeholder="Rizal St."
-                        />
-                    </div>
-                </div>
-
-                <p
-                    v-if="addressApiError"
-                    class="save-msg error"
-                    style="margin-top: 0.75rem"
-                >
-                    {{ addressApiError }}
-                    <button
-                        type="button"
-                        @click="fetchProvinces"
-                        style="
-                            text-decoration: underline;
-                            font-weight: 600;
-                            margin-left: 0.25rem;
-                        "
-                    >
-                        Retry
-                    </button>
-                </p>
+        <!-- ================================================================
+         HEADER — no "Save All Changes" here anymore; saving now lives
+         contextually at the bottom of the form, only while editing (see
+         .form-actions below), matching the buyer account settings page.
+         ================================================================ -->
+        <header class="acct-header">
+            <div>
+                <h2 class="acct-title">Account Settings</h2>
+                <nav class="prep-breadcrumb" style="margin-top: 0.35rem">
+                    <span>Personal</span>
+                    <span>/</span>
+                    <span>Settings</span>
+                </nav>
             </div>
+            <span class="acct-last-updated">Last updated: {{ lastUpdatedLabel }}</span>
+        </header>
 
-            <!-- Business Information -->
-            <div class="card form-section">
-                <p class="form-section-title">Business Information</p>
-                <p class="form-section-desc">
-                    Shown to buyers on your storefront.
-                </p>
-
-                <div class="form-grid">
-                    <div class="full-span" style="grid-column: span 2">
-                        <label class="field-label"
-                            >Business Name
-                            <span style="color: var(--teal-500)">*</span></label
-                        >
-                        <input
-                            v-model="formData.business_name"
-                            class="field-input"
-                            placeholder="My Store"
-                        />
-                    </div>
-                    <div>
-                        <label class="field-label"
-                            >Line of Business
-                            <span style="color: var(--teal-500)">*</span></label
-                        >
-                        <select
-                            v-model="formData.line_of_business"
-                            class="field-input"
-                        >
-                            <option value="">Select category</option>
-                            <option
-                                v-for="opt in LINE_OF_BUSINESS_OPTIONS"
-                                :key="opt"
-                                :value="opt"
-                            >
-                                {{ opt }}
-                            </option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Compliance Documents (read-only summary) -->
-            <div class="card form-section">
-                <p class="form-section-title">Compliance Documents</p>
-                <p class="form-section-desc">
-                    Submitted during registration. Contact support to resubmit a
-                    document.
-                </p>
-
-                <div v-if="documents.length === 0" class="empty-state">
-                    <p>No documents on file.</p>
-                </div>
-                <div v-else class="doc-list">
-                    <div v-for="doc in documents" :key="doc.id" class="doc-row">
-                        <div class="doc-info">
-                            <div class="avatar">
-                                {{
-                                    docTypeLabel(doc.doc_type)
-                                        .slice(0, 2)
-                                        .toUpperCase()
-                                }}
-                            </div>
+        <div class="acct-content">
+            <form id="profile-form" @submit.prevent="handleSave">
+                <!-- ====================================================
+                 PROFILE INFORMATION (Personal Information)
+                 ==================================================== -->
+                <section id="section-profile" class="card acct-section">
+                    <div class="acct-section-head">
+                        <div class="flex items-center gap-4">
+                            <div class="acct-avatar">{{ initials }}</div>
                             <div>
-                                <p class="doc-type">
-                                    {{ docTypeLabel(doc.doc_type) }}
-                                </p>
-                                <p class="doc-date">
-                                    Submitted {{ formatDate(doc.created_at) }}
+                                <h3>{{ fullName }}</h3>
+                                <p class="acct-section-sub">
+                                    This is the information on file for
+                                    your seller account.
                                 </p>
                             </div>
                         </div>
-                        <span
-                            class="badge"
-                            :class="statusBadgeClass(doc.status)"
-                            >{{ doc.status }}</span
-                        >
+                        <div class="flex items-center gap-3">
+                            <span
+                                v-if="isVerifiedSeller"
+                                class="acct-verified-badge"
+                            >
+                                <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5">
+                                    <path d="m4 10 4 4 8-8" />
+                                </svg>
+                                Verified Seller
+                            </span>
+                            <span
+                                v-else
+                                class="badge"
+                                :class="statusBadgeClass(profile?.status)"
+                            >
+                                {{ profile?.status || 'Pending' }}
+                            </span>
+                            <button
+                                v-if="!isEditing"
+                                type="button"
+                                class="btn-primary"
+                                @click="startEditing"
+                            >
+                                Edit Profile
+                            </button>
+                        </div>
                     </div>
+
+                    <div class="form-grid">
+                        <div>
+                            <label class="field-label"
+                                >Last Name
+                                <span style="color: var(--teal-500)">*</span></label
+                            >
+                            <input
+                                v-model="formData.last_name"
+                                data-field="last_name"
+                                :disabled="!isEditing"
+                                @input="onNameInput('last_name')"
+                                class="field-input"
+                                placeholder="Dela Cruz"
+                            />
+                            <span v-if="errors.last_name" class="save-msg error">{{
+                                errors.last_name
+                            }}</span>
+                        </div>
+                        <div>
+                            <label class="field-label"
+                                >First Name
+                                <span style="color: var(--teal-500)">*</span></label
+                            >
+                            <input
+                                v-model="formData.first_name"
+                                data-field="first_name"
+                                :disabled="!isEditing"
+                                @input="onNameInput('first_name')"
+                                class="field-input"
+                                placeholder="Juan"
+                            />
+                            <span v-if="errors.first_name" class="save-msg error">{{
+                                errors.first_name
+                            }}</span>
+                        </div>
+                        <div>
+                            <label class="field-label">M.I.</label>
+                            <input
+                                v-model="formData.middle_initial"
+                                maxlength="1"
+                                :disabled="!isEditing"
+                                @input="onMiddleInitialInput"
+                                class="field-input"
+                                placeholder="B"
+                            />
+                        </div>
+
+                        <div>
+                            <label class="field-label"
+                                >Sex
+                                <span style="color: var(--teal-500)">*</span></label
+                            >
+                            <select v-model="formData.sex" :disabled="!isEditing" class="field-input">
+                                <option value="">Select</option>
+                                <option value="Male">Male</option>
+                                <option value="Female">Female</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="field-label"
+                                >Birthday
+                                <span style="color: var(--teal-500)">*</span></label
+                            >
+                            <input
+                                v-model="formData.birthday"
+                                data-field="birthday"
+                                type="date"
+                                :max="todayStr"
+                                :disabled="!isEditing"
+                                class="field-input"
+                            />
+                            <span v-if="errors.birthday" class="save-msg error">{{
+                                errors.birthday
+                            }}</span>
+                        </div>
+                        <div>
+                            <label class="field-label">Age</label>
+                            <input
+                                :value="age !== null ? age : '—'"
+                                class="field-input"
+                                disabled
+                            />
+                        </div>
+
+                        <div>
+                            <label class="field-label"
+                                >Contact No.
+                                <span style="color: var(--teal-500)">*</span></label
+                            >
+                            <input
+                                v-model="formData.contact_no"
+                                data-field="contact_no"
+                                :disabled="!isEditing"
+                                @input="onContactInput"
+                                class="field-input"
+                                placeholder="09XXXXXXXXX"
+                                maxlength="11"
+                            />
+                            <span v-if="errors.contact_no" class="save-msg error">{{
+                                errors.contact_no
+                            }}</span>
+                        </div>
+                        <div class="full-span" style="grid-column: span 2">
+                            <label class="field-label">Email</label>
+                            <input
+                                :value="profile?.email"
+                                class="field-input"
+                                disabled
+                            />
+                        </div>
+                    </div>
+                </section>
+
+                    <!-- ====================================================
+                     BUSINESS DETAILS
+                     ==================================================== -->
+                    <section id="section-business" class="card acct-section">
+                        <div class="acct-section-head">
+                            <div>
+                                <h3>Business Details</h3>
+                                <p class="acct-section-sub">Shown to buyers on your storefront.</p>
+                            </div>
+                        </div>
+
+                        <div class="form-grid">
+                            <div class="full-span" style="grid-column: span 2">
+                                <label class="field-label"
+                                    >Business Name
+                                    <span style="color: var(--teal-500)">*</span></label
+                                >
+                                <input
+                                    v-model="formData.business_name"
+                                    :disabled="!isEditing"
+                                    class="field-input"
+                                    placeholder="My Store"
+                                />
+                            </div>
+                            <div>
+                                <label class="field-label"
+                                    >Line of Business
+                                    <span style="color: var(--teal-500)">*</span></label
+                                >
+                                <select
+                                    v-model="formData.line_of_business"
+                                    :disabled="!isEditing"
+                                    class="field-input"
+                                >
+                                    <option value="">Select category</option>
+                                    <option
+                                        v-for="opt in LINE_OF_BUSINESS_OPTIONS"
+                                        :key="opt"
+                                        :value="opt"
+                                    >
+                                        {{ opt }}
+                                    </option>
+                                </select>
+                                <p class="field-hint">
+                                    This is the category used for your product
+                                    listings and their available options.
+                                </p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- ====================================================
+                     STORE ADDRESS
+                     ==================================================== -->
+                    <section id="section-address" class="card acct-section">
+                        <div class="acct-section-head">
+                            <div>
+                                <h3>Store Address</h3>
+                                <p class="acct-section-sub">
+                                    Used for logistics and courier
+                                    pickup/delivery matching.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="form-grid">
+                            <div>
+                                <label class="field-label"
+                                    >Province
+                                    <span style="color: var(--teal-500)">*</span></label
+                                >
+                                <select
+                                    v-model="formData.province_code"
+                                    @change="onProvinceChange"
+                                    class="field-input"
+                                    :disabled="!isEditing || loadingProvinces"
+                                >
+                                    <option value="">
+                                        {{
+                                            loadingProvinces
+                                                ? 'Loading provinces…'
+                                                : 'Select province'
+                                        }}
+                                    </option>
+                                    <option
+                                        v-for="p in provinceOptions"
+                                        :key="p.code"
+                                        :value="p.code"
+                                    >
+                                        {{ p.name }}
+                                    </option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="field-label"
+                                    >Municipality / City
+                                    <span style="color: var(--teal-500)">*</span></label
+                                >
+                                <select
+                                    v-model="formData.municipality_code"
+                                    @change="onMunicipalityChange"
+                                    class="field-input"
+                                    :disabled="
+                                        !isEditing || loadingMunicipalities || !formData.province_code
+                                    "
+                                >
+                                    <option value="">
+                                        {{
+                                            loadingMunicipalities
+                                                ? 'Loading…'
+                                                : 'Select municipality/city'
+                                        }}
+                                    </option>
+                                    <option
+                                        v-for="m in municipalityOptions"
+                                        :key="m.code"
+                                        :value="m.code"
+                                    >
+                                        {{ m.name }}
+                                    </option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="field-label"
+                                    >Barangay
+                                    <span style="color: var(--teal-500)">*</span></label
+                                >
+                                <select
+                                    v-model="formData.barangay"
+                                    class="field-input"
+                                    :disabled="
+                                        !isEditing || loadingBarangays || !formData.municipality_code
+                                    "
+                                >
+                                    <option value="">
+                                        {{
+                                            loadingBarangays
+                                                ? 'Loading…'
+                                                : 'Select barangay'
+                                        }}
+                                    </option>
+                                    <option
+                                        v-for="b in barangayOptions"
+                                        :key="b.code"
+                                        :value="b.name"
+                                    >
+                                        {{ b.name }}
+                                    </option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="field-label">House / Unit No.</label>
+                                <input
+                                    v-model="formData.house_no"
+                                    :disabled="!isEditing"
+                                    class="field-input"
+                                    placeholder="123"
+                                />
+                            </div>
+                            <div class="full-span" style="grid-column: span 2">
+                                <label class="field-label"
+                                    >Street
+                                    <span style="color: var(--teal-500)">*</span></label
+                                >
+                                <input
+                                    v-model="formData.street"
+                                    :disabled="!isEditing"
+                                    class="field-input"
+                                    placeholder="Rizal St."
+                                />
+                            </div>
+                        </div>
+
+                        <p
+                            v-if="addressApiError"
+                            class="save-msg error"
+                            style="margin-top: 0.75rem"
+                        >
+                            {{ addressApiError }}
+                            <button
+                                type="button"
+                                @click="fetchProvinces"
+                                style="
+                                    text-decoration: underline;
+                                    font-weight: 600;
+                                    margin-left: 0.25rem;
+                                "
+                            >
+                                Retry
+                            </button>
+                        </p>
+                    </section>
+                </form>
+
+                <!-- ========================================================
+                 SECURITY — real password change via Supabase Auth. Kept
+                 outside the profile <form> since it's a separate action
+                 with its own request, not part of "Save All Changes".
+                 No 2FA toggle, active-sessions list, or API keys here —
+                 none of those exist in this app, and a control that
+                 looks functional but silently does nothing is worse than
+                 not having it.
+                 ======================================================== -->
+                <section id="section-security" class="card acct-section">
+                    <div class="acct-section-head">
+                        <div>
+                            <h3>Security</h3>
+                            <p class="acct-section-sub">Update your account password.</p>
+                        </div>
+                    </div>
+
+                    <div class="form-grid" style="max-width: 32rem; grid-template-columns: 1fr 1fr">
+                        <div>
+                            <label class="field-label">New Password</label>
+                            <div class="acct-password-box">
+                                <input
+                                    :type="showNewPassword ? 'text' : 'password'"
+                                    v-model="newPassword"
+                                    class="field-input"
+                                    placeholder="••••••••"
+                                    autocomplete="new-password"
+                                />
+                                <button
+                                    type="button"
+                                    class="acct-password-toggle"
+                                    :aria-label="showNewPassword ? 'Hide password' : 'Show password'"
+                                    @click="showNewPassword = !showNewPassword"
+                                >
+                                    <svg v-if="showNewPassword" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7">
+                                        <path d="M3 3l14 14M8.3 8.3a2.5 2.5 0 0 0 3.4 3.4M6.2 5.5C4 6.8 2.4 8.7 1.7 10c1.4 2.6 4.3 5.5 8.3 5.5 1.4 0 2.6-.3 3.7-.9M11.8 4.6c.7.2 1.4.5 2 .9 2 1.3 3.6 3.2 4.3 4.5-.4.7-1 1.6-1.8 2.5" />
+                                    </svg>
+                                    <svg v-else width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7">
+                                        <path d="M1.7 10c1.4-2.6 4.3-5.5 8.3-5.5s6.9 2.9 8.3 5.5c-1.4 2.6-4.3 5.5-8.3 5.5S3.1 12.6 1.7 10Z" />
+                                        <circle cx="10" cy="10" r="2.5" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <p class="field-hint">At least 8 characters.</p>
+                        </div>
+                        <div>
+                            <label class="field-label">Confirm New Password</label>
+                            <div class="acct-password-box">
+                                <input
+                                    :type="showConfirmPassword ? 'text' : 'password'"
+                                    v-model="confirmPassword"
+                                    class="field-input"
+                                    placeholder="••••••••"
+                                    autocomplete="new-password"
+                                />
+                                <button
+                                    type="button"
+                                    class="acct-password-toggle"
+                                    :aria-label="showConfirmPassword ? 'Hide password' : 'Show password'"
+                                    @click="showConfirmPassword = !showConfirmPassword"
+                                >
+                                    <svg v-if="showConfirmPassword" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7">
+                                        <path d="M3 3l14 14M8.3 8.3a2.5 2.5 0 0 0 3.4 3.4M6.2 5.5C4 6.8 2.4 8.7 1.7 10c1.4 2.6 4.3 5.5 8.3 5.5 1.4 0 2.6-.3 3.7-.9M11.8 4.6c.7.2 1.4.5 2 .9 2 1.3 3.6 3.2 4.3 4.5-.4.7-1 1.6-1.8 2.5" />
+                                    </svg>
+                                    <svg v-else width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7">
+                                        <path d="M1.7 10c1.4-2.6 4.3-5.5 8.3-5.5s6.9 2.9 8.3 5.5c-1.4 2.6-4.3 5.5-8.3 5.5S3.1 12.6 1.7 10Z" />
+                                        <circle cx="10" cy="10" r="2.5" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <p v-if="passwordError" class="save-msg error" style="margin-top: 0.75rem">
+                        {{ passwordError }}
+                    </p>
+                    <p v-if="passwordSuccess" class="ch-success-note" style="margin-top: 0.75rem; max-width: 32rem">
+                        {{ passwordSuccess }}
+                    </p>
+
+                    <button
+                        type="button"
+                        class="btn-outline"
+                        style="margin-top: 1rem"
+                        :disabled="isChangingPassword || !canUpdatePassword"
+                        :title="passwordDisabledReason"
+                        @click="handleChangePassword"
+                    >
+                        {{ isChangingPassword ? 'Updating…' : 'Update Password' }}
+                    </button>
+                </section>
+
+                <!-- ========================================================
+                 COMPLIANCE DOCUMENTS (read-only summary)
+                 ======================================================== -->
+                <section id="section-documents" class="card acct-section">
+                    <div class="acct-section-head">
+                        <div>
+                            <h3>Compliance Documents</h3>
+                            <p class="acct-section-sub">
+                                Submitted during registration. Contact support
+                                to resubmit a document.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div v-if="documents.length === 0" class="empty-state">
+                        <p>No documents on file.</p>
+                    </div>
+                    <div v-else class="doc-list">
+                        <div v-for="doc in documents" :key="doc.id" class="doc-row">
+                            <div class="doc-info">
+                                <div class="avatar">
+                                    {{
+                                        docTypeLabel(doc.doc_type)
+                                            .slice(0, 2)
+                                            .toUpperCase()
+                                    }}
+                                </div>
+                                <div>
+                                    <p class="doc-type">
+                                        {{ docTypeLabel(doc.doc_type) }}
+                                    </p>
+                                    <p class="doc-date">
+                                        Submitted {{ formatDate(doc.created_at) }}
+                                    </p>
+                                </div>
+                            </div>
+                            <span
+                                class="badge"
+                                :class="statusBadgeClass(doc.status)"
+                                >{{ doc.status }}</span
+                            >
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ========================================================
+                 DANGER ZONE — self-deactivation. Kept outside the profile
+                 <form> since it's a separate, irreversible account action,
+                 not part of "Save All Changes". Mirrors the buyer/admin
+                 account settings page's two-step confirm (type DEACTIVATE,
+                 then re-enter password), verified live against Supabase
+                 Auth via signInWithPassword() — a client-only check isn't
+                 a security boundary, and unlike a Laravel round trip this
+                 needs no new backend endpoint since it reuses the same
+                 already-authenticated Supabase session Update Password
+                 above uses. A failed signInWithPassword() call never
+                 touches the current valid session; it only replaces it on
+                 success, so this is safe to run from an already-signed-in
+                 tab.
+                 ======================================================== -->
+                <section id="section-danger" class="card acct-section acct-section-danger">
+                    <div class="acct-section-head">
+                        <div>
+                            <h3>Danger Zone</h3>
+                            <p class="acct-section-sub">
+                                Deactivating your account is irreversible and immediately ends your session.
+                            </p>
+                        </div>
+                    </div>
+
+                    <button type="button" class="btn-danger" @click="openDeactivateStep1">
+                        Deactivate Account
+                    </button>
+                </section>
+
+                <!-- ========================================================
+                 SAVE / CANCEL — only shown while editing (matches the
+                 buyer account settings page). `form="profile-form"`
+                 associates this button with the <form> above (per the
+                 HTML spec) without it needing to physically sit inside
+                 it, so it can live down here instead of appearing
+                 mid-page after just the Address section.
+                 ======================================================== -->
+                <div v-if="isEditing" class="form-actions">
+                    <span v-if="saveSuccess" class="save-msg success">{{
+                        saveSuccess
+                    }}</span>
+                    <span v-if="saveError" class="save-msg error">{{
+                        saveError
+                    }}</span>
+                    <button
+                        type="button"
+                        class="btn-outline"
+                        @click="handleCancelClick"
+                        :disabled="savingProfile"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="submit"
+                        form="profile-form"
+                        class="btn-primary"
+                        :disabled="savingProfile || !isFormDirty"
+                        :title="!isFormDirty ? 'No changes to save' : ''"
+                    >
+                        {{ savingProfile ? 'Saving…' : 'Save Changes' }}
+                    </button>
                 </div>
             </div>
 
-            <!-- Actions -->
-            <div class="form-actions">
-                <span v-if="saveSuccess" class="save-msg success">{{
-                    saveSuccess
-                }}</span>
-                <span v-if="saveError" class="save-msg error">{{
-                    saveError
-                }}</span>
-                <button
-                    type="button"
-                    class="btn-outline"
-                    @click="resetForm"
-                    :disabled="savingProfile"
-                >
-                    Reset
-                </button>
-                <button
-                    type="submit"
-                    class="btn-primary"
-                    :disabled="savingProfile"
-                >
-                    {{ savingProfile ? 'Saving…' : 'Save Changes' }}
-                </button>
+        <!-- ============================================================
+         DEACTIVATION MODAL — STEP 1 (reuses existing .modal-* classes)
+         ============================================================ -->
+        <div v-if="showDeactivateStep1" class="modal-overlay" @click.self="closeDeactivateModals">
+            <div class="modal-panel">
+                <div class="modal-header">
+                    <h3 style="color: #b91c1c">Deactivate your account?</h3>
+                    <button class="modal-close" @click="closeDeactivateModals">
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 5l10 10M15 5 5 15" />
+                        </svg>
+                    </button>
+                </div>
+                <p class="modal-desc">
+                    <strong>This action is irreversible.</strong> Deactivating your account will
+                    immediately end your session and remove access to your seller dashboard,
+                    orders, and product listings.
+                </p>
+                <label class="field-label">
+                    Type <strong>DEACTIVATE</strong> to confirm you understand
+                </label>
+                <input
+                    v-model="confirmPhrase"
+                    class="field-input"
+                    autocomplete="off"
+                    placeholder="DEACTIVATE"
+                    style="margin-top: 0.35rem"
+                />
+                <div class="modal-actions">
+                    <button class="btn-outline" style="flex: 1" @click="closeDeactivateModals">Cancel</button>
+                    <button
+                        class="btn-danger"
+                        style="flex: 1"
+                        :disabled="confirmPhrase !== 'DEACTIVATE'"
+                        @click="openDeactivateStep2"
+                    >
+                        Continue
+                    </button>
+                </div>
             </div>
-        </form>
+        </div>
+
+        <!-- ============================================================
+         DEACTIVATION MODAL — STEP 2 (final)
+         ============================================================ -->
+        <div v-if="showDeactivateStep2" class="modal-overlay" @click.self="closeDeactivateModals">
+            <div class="modal-panel">
+                <div class="modal-header">
+                    <h3 style="color: #b91c1c">Last step — this cannot be undone</h3>
+                    <button class="modal-close" @click="closeDeactivateModals">
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 5l10 10M15 5 5 15" />
+                        </svg>
+                    </button>
+                </div>
+                <p class="modal-desc">
+                    Enter your current password to permanently deactivate your account.
+                </p>
+                <label class="field-label">Current Password</label>
+                <input
+                    v-model="deactivatePassword"
+                    type="password"
+                    class="field-input"
+                    style="margin-top: 0.35rem"
+                    @input="deactivateError = ''"
+                />
+                <p v-if="deactivateError" class="save-msg error" style="margin-top: 0.5rem">
+                    {{ deactivateError }}
+                </p>
+                <div class="modal-actions">
+                    <button class="btn-outline" style="flex: 1" @click="closeDeactivateModals">Cancel</button>
+                    <button
+                        class="btn-danger"
+                        style="flex: 1"
+                        :disabled="!deactivatePassword || deactivateCountdown > 0 || deactivating"
+                        @click="confirmDeactivate"
+                    >
+                        {{
+                            deactivating
+                                ? 'Deactivating…'
+                                : deactivateCountdown > 0
+                                    ? `Confirm (${deactivateCountdown}s)`
+                                    : 'Deactivate My Account'
+                        }}
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
-import { useSeller } from '../composables/useSeller';
+import {
+    ref,
+    reactive,
+    computed,
+    watch,
+    onMounted,
+    onBeforeUnmount,
+} from 'vue';
+import { useSeller, getSupabase } from '../composables/useSeller';
 
 const {
     profile,
@@ -368,6 +704,8 @@ const {
     saveError,
     saveSuccess,
     LINE_OF_BUSINESS_OPTIONS,
+    fullName,
+    initials,
     age,
     saveProfile,
     formatDate,
@@ -379,6 +717,15 @@ const PSGC_BASE = '/api/psgc';
 
 const todayStr = new Date().toISOString().split('T')[0];
 
+// ---------- Edit toggle (matches the buyer account settings page: the
+// form starts read-only, "Edit Profile" turns editing on, Cancel/Save
+// turn it back off) ----------
+const isEditing = ref(false);
+
+function startEditing() {
+    isEditing.value = true;
+}
+
 const errors = reactive({
     last_name: '',
     first_name: '',
@@ -386,23 +733,28 @@ const errors = reactive({
     contact_no: '',
 });
 
-const formData = reactive({
-    last_name: '',
-    first_name: '',
-    middle_initial: '',
-    sex: '',
-    birthday: '',
-    contact_no: '',
-    province_code: '',
-    province_name: '',
-    municipality_code: '',
-    municipality_name: '',
-    barangay: '',
-    street: '',
-    house_no: '',
-    business_name: '',
-    line_of_business: '',
-});
+function emptyFormData() {
+    return {
+        last_name: '',
+        first_name: '',
+        middle_initial: '',
+        sex: '',
+        birthday: '',
+        contact_no: '',
+        province_code: '',
+        province_name: '',
+        municipality_code: '',
+        municipality_name: '',
+        barangay: '',
+        street: '',
+        house_no: '',
+        business_name: '',
+        line_of_business: '',
+    };
+}
+
+const formData = reactive(emptyFormData());
+const savedFormData = reactive(emptyFormData());
 
 const provinceOptions = ref([]);
 const municipalityOptions = ref([]);
@@ -412,35 +764,195 @@ const loadingMunicipalities = ref(false);
 const loadingBarangays = ref(false);
 const addressApiError = ref('');
 const provinceCache = { value: [] };
+const municipalityCache = new Map();
+const barangayCache = new Map();
+const ADDRESS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-function populateFormFromState() {
-    if (profile.value) {
-        formData.last_name = profile.value.last_name || '';
-        formData.first_name = profile.value.first_name || '';
-        formData.middle_initial = profile.value.middle_initial || '';
-        formData.sex = profile.value.sex || '';
-        formData.birthday = profile.value.birthday || '';
-        formData.contact_no = profile.value.contact_no || '';
+function readAddressCache(key) {
+    try {
+        const cached = JSON.parse(sessionStorage.getItem(key) || 'null');
+
+        if (
+            cached &&
+            Array.isArray(cached.data) &&
+            Date.now() - cached.savedAt < ADDRESS_CACHE_TTL_MS
+        ) {
+            return cached.data;
+        }
+    } catch {
+        // Storage can be unavailable in private/restricted browser contexts.
     }
 
-    if (address.value) {
-        formData.province_code = address.value.province_code || '';
-        formData.province_name = address.value.province_name || '';
-        formData.municipality_code = address.value.municipality_code || '';
-        formData.municipality_name = address.value.municipality_name || '';
-        formData.barangay = address.value.barangay || '';
-        formData.street = address.value.street || '';
-        formData.house_no = address.value.house_no || '';
-    }
+    return null;
+}
 
-    if (sellerDetails.value) {
-        formData.business_name = sellerDetails.value.business_name || '';
-        formData.line_of_business = sellerDetails.value.line_of_business || '';
+function writeAddressCache(key, data) {
+    try {
+        sessionStorage.setItem(
+            key,
+            JSON.stringify({ data, savedAt: Date.now() }),
+        );
+    } catch {
+        // A failed cache write must never prevent the form from loading.
     }
 }
 
+const PROFILE_FIELDS = [
+    'last_name',
+    'first_name',
+    'middle_initial',
+    'sex',
+    'birthday',
+    'contact_no',
+];
+const ADDRESS_FIELDS = [
+    'province_code',
+    'province_name',
+    'municipality_code',
+    'municipality_name',
+    'barangay',
+    'street',
+    'house_no',
+];
+const BUSINESS_FIELDS = ['business_name', 'line_of_business'];
+const hydrated = {
+    profile: false,
+    address: false,
+    business: false,
+};
+
+function hasLoadedRecord(value) {
+    return value && typeof value === 'object' && Object.keys(value).length > 0;
+}
+
+function hydrateFields(source, fields) {
+    for (const field of fields) {
+        const value = source?.[field] ?? '';
+        formData[field] = value;
+        savedFormData[field] = value;
+    }
+}
+
+// Keep the form responsive even when useSeller() is still loading. Each data
+// source hydrates its own fields as soon as it arrives instead of relying on a
+// single onMounted snapshot that may run before Supabase has returned data.
+watch(
+    profile,
+    (value) => {
+        if (!hydrated.profile && hasLoadedRecord(value)) {
+            hydrateFields(value, PROFILE_FIELDS);
+            hydrated.profile = true;
+        }
+    },
+    { immediate: true, deep: true },
+);
+
+watch(
+    sellerDetails,
+    (value) => {
+        if (!hydrated.business && hasLoadedRecord(value)) {
+            hydrateFields(value, BUSINESS_FIELDS);
+            hydrated.business = true;
+        }
+    },
+    { immediate: true, deep: true },
+);
+
+watch(
+    address,
+    (value) => {
+        if (hydrated.address || !hasLoadedRecord(value)) {
+            return;
+        }
+
+        hydrateFields(value, ADDRESS_FIELDS);
+        hydrated.address = true;
+
+        // Make saved values visible immediately while the dropdown choices
+        // are fetched in the background.
+        if (
+            formData.province_code &&
+            !provinceOptions.value.some(
+                (item) => item.code === formData.province_code,
+            )
+        ) {
+            provinceOptions.value = [
+                {
+                    code: formData.province_code,
+                    name: formData.province_name || formData.province_code,
+                },
+                ...provinceOptions.value,
+            ];
+        }
+        if (
+            formData.municipality_code &&
+            !municipalityOptions.value.some(
+                (item) => item.code === formData.municipality_code,
+            )
+        ) {
+            municipalityOptions.value = [
+                {
+                    code: formData.municipality_code,
+                    name:
+                        formData.municipality_name ||
+                        formData.municipality_code,
+                },
+                ...municipalityOptions.value,
+            ];
+        }
+        if (
+            formData.barangay &&
+            !barangayOptions.value.some(
+                (item) => item.name === formData.barangay,
+            )
+        ) {
+            barangayOptions.value = [
+                { code: 'current', name: formData.barangay },
+                ...barangayOptions.value,
+            ];
+        }
+
+        // These endpoints are independent once the saved codes are known.
+        // Running them together removes the previous request waterfall.
+        const lookups = [];
+        if (formData.province_code) {
+            lookups.push(
+                fetchMunicipalities(formData.province_code, {
+                    preserveSelection: true,
+                }),
+            );
+        }
+        if (formData.municipality_code) {
+            lookups.push(
+                fetchBarangays(formData.municipality_code, {
+                    preserveSelection: true,
+                }),
+            );
+        }
+        void Promise.allSettled(lookups);
+    },
+    { immediate: true, deep: true },
+);
+
+// ---------- dirty-check (avoids pointless saves/resets when nothing changed) ----------
+const isFormDirty = computed(
+    () => JSON.stringify(formData) !== JSON.stringify(savedFormData),
+);
+
+function handleCancelClick() {
+    if (
+        isFormDirty.value &&
+        !window.confirm('Discard your unsaved changes to this form?')
+    ) {
+        return;
+    }
+
+    resetForm();
+    isEditing.value = false;
+}
+
 function resetForm() {
-    populateFormFromState();
+    Object.assign(formData, savedFormData);
     Object.keys(errors).forEach((k) => (errors[k] = ''));
 }
 
@@ -479,46 +991,67 @@ async function fetchProvinces() {
         return;
     }
 
+    const cachedProvinces = readAddressCache('seller-address:provinces');
+
+    if (cachedProvinces?.length) {
+        provinceCache.value = cachedProvinces;
+        provinceOptions.value = cachedProvinces;
+
+        return;
+    }
+
     loadingProvinces.value = true;
     addressApiError.value = '';
 
     try {
-        const regionsRes = await fetch(`${PSGC_BASE}/regions?limit=100`);
+        // Prefer one all-provinces request. Keep the region fan-out as a
+        // compatibility fallback for older PSGC proxy routes.
+        let allProvinces = [];
+        const allRes = await fetch(`${PSGC_BASE}/provinces?limit=200`);
 
-        if (!regionsRes.ok) {
-            throw new Error('Request failed: ' + regionsRes.status);
+        if (allRes.ok) {
+            const allJson = await allRes.json();
+            allProvinces = dedupeByCodeOrName(allJson.data || []);
         }
 
-        const regionsJson = await regionsRes.json();
-        const regions = regionsJson.data || [];
+        if (allProvinces.length === 0) {
+            const regionsRes = await fetch(`${PSGC_BASE}/regions?limit=100`);
 
-        const provinceResults = await Promise.all(
-            regions.map(async (r) => {
-                try {
-                    const res = await fetch(
-                        `${PSGC_BASE}/provinces?region_code=${r.code}`,
-                    );
+            if (!regionsRes.ok) {
+                throw new Error('Request failed: ' + regionsRes.status);
+            }
 
-                    if (!res.ok) {
+            const regionsJson = await regionsRes.json();
+            const regions = regionsJson.data || [];
+            const provinceResults = await Promise.all(
+                regions.map(async (r) => {
+                    try {
+                        const res = await fetch(
+                            `${PSGC_BASE}/provinces?region_code=${r.code}`,
+                        );
+
+                        if (!res.ok) {
+                            return [];
+                        }
+
+                        const json = await res.json();
+
+                        return json.data || [];
+                    } catch {
                         return [];
                     }
+                }),
+            );
 
-                    const json = await res.json();
-
-                    return json.data || [];
-                } catch {
-                    return [];
-                }
-            }),
-        );
-
-        const allProvinces = dedupeByCodeOrName(provinceResults.flat());
+            allProvinces = dedupeByCodeOrName(provinceResults.flat());
+        }
 
         if (allProvinces.length === 0) {
             throw new Error('No provinces returned');
         }
 
         provinceCache.value = allProvinces;
+        writeAddressCache('seller-address:provinces', allProvinces);
         provinceOptions.value = allProvinces;
 
         // Preserve the saved province if it isn't in the freshly fetched list yet
@@ -556,6 +1089,32 @@ async function fetchMunicipalities(
         return;
     }
 
+    const cacheKey = `seller-address:municipalities:${provinceCode}`;
+    const cachedData =
+        municipalityCache.get(provinceCode) || readAddressCache(cacheKey);
+
+    if (cachedData?.length) {
+        municipalityCache.set(provinceCode, cachedData);
+
+        if (
+            preserveSelection &&
+            formData.municipality_code &&
+            !cachedData.some((m) => m.code === formData.municipality_code)
+        ) {
+            municipalityOptions.value = [
+                {
+                    code: formData.municipality_code,
+                    name: formData.municipality_name,
+                },
+                ...cachedData,
+            ];
+        } else {
+            municipalityOptions.value = cachedData;
+        }
+
+        return;
+    }
+
     loadingMunicipalities.value = true;
     addressApiError.value = '';
 
@@ -572,6 +1131,9 @@ async function fetchMunicipalities(
         const data = (json.data || [])
             .slice()
             .sort((a, b) => a.name.localeCompare(b.name));
+
+        municipalityCache.set(provinceCode, data);
+        writeAddressCache(cacheKey, data);
 
         if (
             preserveSelection &&
@@ -609,6 +1171,29 @@ async function fetchBarangays(
         return;
     }
 
+    const cacheKey = `seller-address:barangays:${municipalityCode}`;
+    const cachedData =
+        barangayCache.get(municipalityCode) || readAddressCache(cacheKey);
+
+    if (cachedData?.length) {
+        barangayCache.set(municipalityCode, cachedData);
+
+        if (
+            preserveSelection &&
+            formData.barangay &&
+            !cachedData.some((b) => b.name === formData.barangay)
+        ) {
+            barangayOptions.value = [
+                { code: 'current', name: formData.barangay },
+                ...cachedData,
+            ];
+        } else {
+            barangayOptions.value = cachedData;
+        }
+
+        return;
+    }
+
     loadingBarangays.value = true;
     addressApiError.value = '';
 
@@ -625,6 +1210,9 @@ async function fetchBarangays(
         const data = (json.data || [])
             .slice()
             .sort((a, b) => a.name.localeCompare(b.name));
+
+        barangayCache.set(municipalityCode, data);
+        writeAddressCache(cacheKey, data);
 
         if (
             preserveSelection &&
@@ -702,6 +1290,23 @@ function validate() {
         errors.contact_no = '';
     }
 
+    if (!valid) {
+        // Scroll/focus the first invalid field so a seller doesn't have
+        // to hunt for it — especially now that the page has multiple
+        // sections and the error might be off-screen.
+        const firstErrorField = ['last_name', 'first_name', 'birthday', 'contact_no'].find(
+            (key) => errors[key],
+        );
+        const el = firstErrorField
+            ? document.querySelector(`[data-field="${firstErrorField}"]`)
+            : null;
+
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.focus();
+        }
+    }
+
     return valid;
 }
 
@@ -711,22 +1316,235 @@ async function handleSave() {
     }
 
     await saveProfile({ ...formData });
+
+    if (saveSuccess.value) {
+        // Marks the form clean again so Save/Cancel disable until the
+        // next real edit — avoids a pointless second save of identical
+        // data. Also exits edit mode, matching the buyer account
+        // settings page (back to read-only after a successful save).
+        Object.assign(savedFormData, formData);
+        isEditing.value = false;
+    }
+
+    showToast(saveSuccess.value || saveError.value, !saveSuccess.value);
 }
 
-onMounted(async () => {
-    populateFormFromState();
-    await fetchProvinces();
+// ---------- floating save-feedback toast ----------
+const toastMessage = ref('');
+const toastIsError = ref(false);
+let toastTimer = null;
 
-    if (formData.province_code) {
-        await fetchMunicipalities(formData.province_code, {
-            preserveSelection: true,
-        });
+function showToast(message, isError) {
+    if (!message) {
+        return;
     }
 
-    if (formData.municipality_code) {
-        await fetchBarangays(formData.municipality_code, {
-            preserveSelection: true,
-        });
+    toastMessage.value = message;
+    toastIsError.value = isError;
+
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+        toastMessage.value = '';
+    }, 4000);
+}
+
+// ---------- Real: verified badge, last-updated, in-page nav ----------
+const isVerifiedSeller = computed(() => profile.value?.status === 'active');
+
+const lastUpdatedLabel = computed(() => {
+    const raw = profile.value?.updated_at;
+
+    if (!raw) {
+        return '—';
     }
+
+    return new Date(raw).toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+});
+
+onBeforeUnmount(() => {
+    clearTimeout(toastTimer);
+    clearInterval(deactivateTimer);
+    window.removeEventListener('keydown', handleDeactivateEscape);
+});
+
+// ---------- Real: change password via Supabase Auth ----------
+// A genuine account action, not a fabricated control — supabase.auth
+// .updateUser() re-uses the seller's own already-authenticated session,
+// no separate Laravel endpoint needed.
+const newPassword = ref('');
+const confirmPassword = ref('');
+const showNewPassword = ref(false);
+const showConfirmPassword = ref(false);
+const isChangingPassword = ref(false);
+const passwordError = ref('');
+const passwordSuccess = ref('');
+
+const canUpdatePassword = computed(
+    () => newPassword.value.length >= 8 && newPassword.value === confirmPassword.value,
+);
+const passwordDisabledReason = computed(() => {
+    if (isChangingPassword.value) return '';
+    if (newPassword.value.length < 8) return 'Password must be at least 8 characters.';
+    if (newPassword.value !== confirmPassword.value) return 'Passwords do not match.';
+
+    return '';
+});
+
+async function handleChangePassword() {
+    passwordError.value = '';
+    passwordSuccess.value = '';
+
+    if (!canUpdatePassword.value) {
+        passwordError.value = passwordDisabledReason.value;
+        showToast(passwordError.value, true);
+
+        return;
+    }
+
+    isChangingPassword.value = true;
+
+    try {
+        const supabase = getSupabase();
+        const { error } = await supabase.auth.updateUser({
+            password: newPassword.value,
+        });
+
+        if (error) {
+            throw error;
+        }
+
+        passwordSuccess.value = 'Your password has been updated.';
+        newPassword.value = '';
+        confirmPassword.value = '';
+        showToast(passwordSuccess.value, false);
+    } catch (err) {
+        passwordError.value = err?.message || 'Could not update your password.';
+        showToast(passwordError.value, true);
+    } finally {
+        isChangingPassword.value = false;
+    }
+}
+
+// ---------- Real: self-deactivation (Danger Zone) ----------
+// Mirrors the buyer/admin account settings "Danger Zone" two-step confirm
+// (type DEACTIVATE, then re-enter password), but the password is verified
+// directly against Supabase Auth via signInWithPassword() rather than a
+// new Laravel endpoint — the same approach Update Password above already
+// uses. A failed signInWithPassword() call never touches the current
+// valid session; it only replaces it on success, so this is safe to run
+// from an already-signed-in tab. RLS on public.profiles already lets a
+// user update their own row (profiles_update_own_or_admin), so no
+// service-role key is needed for the account_status change either — the
+// existing trg_status_log_profiles trigger records the audit log entry
+// automatically.
+const showDeactivateStep1 = ref(false);
+const showDeactivateStep2 = ref(false);
+const confirmPhrase = ref('');
+const deactivatePassword = ref('');
+const deactivateError = ref('');
+const deactivating = ref(false);
+const deactivateCountdown = ref(30);
+let deactivateTimer = null;
+
+function openDeactivateStep1() {
+    confirmPhrase.value = '';
+    showDeactivateStep1.value = true;
+}
+
+function openDeactivateStep2() {
+    if (confirmPhrase.value !== 'DEACTIVATE') {
+        return;
+    }
+
+    showDeactivateStep1.value = false;
+    showDeactivateStep2.value = true;
+    deactivatePassword.value = '';
+    deactivateError.value = '';
+    deactivateCountdown.value = 30;
+
+    clearInterval(deactivateTimer);
+    deactivateTimer = setInterval(() => {
+        if (deactivateCountdown.value <= 0) {
+            clearInterval(deactivateTimer);
+
+            return;
+        }
+
+        deactivateCountdown.value -= 1;
+    }, 1000);
+}
+
+function closeDeactivateModals() {
+    showDeactivateStep1.value = false;
+    showDeactivateStep2.value = false;
+    confirmPhrase.value = '';
+    deactivatePassword.value = '';
+    clearInterval(deactivateTimer);
+}
+
+async function confirmDeactivate() {
+    if (!deactivatePassword.value || deactivateCountdown.value > 0) {
+        return;
+    }
+
+    deactivating.value = true;
+    deactivateError.value = '';
+
+    try {
+        const supabase = getSupabase();
+
+        const { error: verifyErr } = await supabase.auth.signInWithPassword({
+            email: profile.value?.email,
+            password: deactivatePassword.value,
+        });
+
+        if (verifyErr) {
+            throw new Error('Current password is incorrect.');
+        }
+
+        const { error: updateErr } = await supabase
+            .from('profiles')
+            .update({ account_status: 'deactivated' })
+            .eq('id', profile.value.id);
+
+        if (updateErr) {
+            throw updateErr;
+        }
+
+        closeDeactivateModals();
+        showToast('Your account has been deactivated. Signing you out…', false);
+
+        setTimeout(async () => {
+            await supabase.auth.signOut();
+            window.location.href = '/';
+        }, 1500);
+    } catch (err) {
+        deactivateError.value = err?.message || 'Deactivation failed. Please try again.';
+    } finally {
+        deactivating.value = false;
+    }
+}
+
+function handleDeactivateEscape(event) {
+    if (event.key !== 'Escape') {
+        return;
+    }
+
+    if (showDeactivateStep1.value || showDeactivateStep2.value) {
+        closeDeactivateModals();
+    }
+}
+
+onMounted(() => {
+    // Do not block the account page while dropdown choices load. The saved
+    // address is hydrated by the watcher above as soon as it is available.
+    void fetchProvinces();
+    window.addEventListener('keydown', handleDeactivateEscape);
 });
 </script>

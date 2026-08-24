@@ -279,6 +279,15 @@ async function saveProfile() {
 // PSGC address lookups (mirrors resources/js/seller/components/
 // Profile.vue's "Store Address" section — the same province /
 // municipality / barangay API dropdown used across the app).
+//
+// Two speed fixes ported from the seller side:
+//  1. One `/provinces` call instead of fanning out to every region —
+//     the upstream PSGC API already returns the full province list
+//     regardless of `region_code`, so looping over ~17 regions was
+//     ~17x more requests for the exact same data.
+//  2. Results are cached in sessionStorage (24h TTL) in addition to
+//     the in-memory cache, so a repeat visit this session skips the
+//     network entirely instead of re-fetching on every mount.
 // ------------------------------------------------------------
 const provinceOptions = ref([]);
 const municipalityOptions = ref([]);
@@ -288,6 +297,35 @@ const loadingMunicipalities = ref(false);
 const loadingBarangays = ref(false);
 const addressApiError = ref('');
 const provinceCache = { value: [] };
+const municipalityCache = new Map();
+const barangayCache = new Map();
+const ADDRESS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function readAddressCache(key) {
+    try {
+        const cached = JSON.parse(sessionStorage.getItem(key) || 'null');
+
+        if (
+            cached &&
+            Array.isArray(cached.data) &&
+            Date.now() - cached.savedAt < ADDRESS_CACHE_TTL_MS
+        ) {
+            return cached.data;
+        }
+    } catch {
+        // Storage can be unavailable in private/restricted browser contexts.
+    }
+
+    return null;
+}
+
+function writeAddressCache(key, data) {
+    try {
+        sessionStorage.setItem(key, JSON.stringify({ data, savedAt: Date.now() }));
+    } catch {
+        // A failed cache write must never prevent the form from loading.
+    }
+}
 
 function dedupeByCodeOrName(items = []) {
     const seen = new Map();
@@ -314,9 +352,50 @@ function dedupeByCodeOrName(items = []) {
     return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Seeds provinceOptions/municipalityOptions/barangayOptions with just the
+ * current draft codes so the read-only <select> shows the saved address
+ * immediately, instead of appearing blank while the full lists load in
+ * the background.
+ */
+function seedAddressOptionsFromDraft() {
+    if (draft.provinceCode && !provinceOptions.value.some((p) => p.code === draft.provinceCode)) {
+        provinceOptions.value = [
+            { code: draft.provinceCode, name: draft.provinceName || draft.provinceCode },
+            ...provinceOptions.value
+        ];
+    }
+
+    if (
+        draft.municipalityCode &&
+        !municipalityOptions.value.some((m) => m.code === draft.municipalityCode)
+    ) {
+        municipalityOptions.value = [
+            {
+                code: draft.municipalityCode,
+                name: draft.municipalityName || draft.municipalityCode
+            },
+            ...municipalityOptions.value
+        ];
+    }
+
+    if (draft.barangay && !barangayOptions.value.some((b) => b.name === draft.barangay)) {
+        barangayOptions.value = [{ code: 'current', name: draft.barangay }, ...barangayOptions.value];
+    }
+}
+
 async function fetchProvinces() {
     if (provinceCache.value.length > 0) {
         provinceOptions.value = provinceCache.value;
+
+        return;
+    }
+
+    const cachedProvinces = readAddressCache('buyer-address:provinces');
+
+    if (cachedProvinces?.length) {
+        provinceCache.value = cachedProvinces;
+        provinceOptions.value = cachedProvinces;
 
         return;
     }
@@ -325,40 +404,53 @@ async function fetchProvinces() {
     addressApiError.value = '';
 
     try {
-        const regionsRes = await fetch(`${PSGC_BASE}/regions?limit=100`);
+        // Prefer one all-provinces request. Keep the region fan-out as a
+        // compatibility fallback for older PSGC proxy routes.
+        let allProvinces = [];
+        const allRes = await fetch(`${PSGC_BASE}/provinces?limit=200`);
 
-        if (!regionsRes.ok) {
-            throw new Error('Request failed: ' + regionsRes.status);
+        if (allRes.ok) {
+            const allJson = await allRes.json();
+            allProvinces = dedupeByCodeOrName(allJson.data || []);
         }
 
-        const regionsJson = await regionsRes.json();
-        const regions = regionsJson.data || [];
+        if (allProvinces.length === 0) {
+            const regionsRes = await fetch(`${PSGC_BASE}/regions?limit=100`);
 
-        const provinceResults = await Promise.all(
-            regions.map(async (r) => {
-                try {
-                    const res = await fetch(`${PSGC_BASE}/provinces?region_code=${r.code}`);
+            if (!regionsRes.ok) {
+                throw new Error('Request failed: ' + regionsRes.status);
+            }
 
-                    if (!res.ok) {
+            const regionsJson = await regionsRes.json();
+            const regions = regionsJson.data || [];
+
+            const provinceResults = await Promise.all(
+                regions.map(async (r) => {
+                    try {
+                        const res = await fetch(`${PSGC_BASE}/provinces?region_code=${r.code}`);
+
+                        if (!res.ok) {
+                            return [];
+                        }
+
+                        const json = await res.json();
+
+                        return json.data || [];
+                    } catch {
                         return [];
                     }
+                })
+            );
 
-                    const json = await res.json();
-
-                    return json.data || [];
-                } catch {
-                    return [];
-                }
-            })
-        );
-
-        const allProvinces = dedupeByCodeOrName(provinceResults.flat());
+            allProvinces = dedupeByCodeOrName(provinceResults.flat());
+        }
 
         if (allProvinces.length === 0) {
             throw new Error('No provinces returned');
         }
 
         provinceCache.value = allProvinces;
+        writeAddressCache('buyer-address:provinces', allProvinces);
         provinceOptions.value = allProvinces;
 
         // Preserve the saved province if it isn't in the freshly fetched
@@ -391,6 +483,28 @@ async function fetchMunicipalities(provinceCode, { preserveSelection = false } =
         return;
     }
 
+    const cacheKey = `buyer-address:municipalities:${provinceCode}`;
+    const cachedData = municipalityCache.get(provinceCode) || readAddressCache(cacheKey);
+
+    if (cachedData?.length) {
+        municipalityCache.set(provinceCode, cachedData);
+
+        if (
+            preserveSelection &&
+            draft.municipalityCode &&
+            !cachedData.some((m) => m.code === draft.municipalityCode)
+        ) {
+            municipalityOptions.value = [
+                { code: draft.municipalityCode, name: draft.municipalityName },
+                ...cachedData
+            ];
+        } else {
+            municipalityOptions.value = cachedData;
+        }
+
+        return;
+    }
+
     loadingMunicipalities.value = true;
     addressApiError.value = '';
 
@@ -403,6 +517,9 @@ async function fetchMunicipalities(provinceCode, { preserveSelection = false } =
 
         const json = await res.json();
         const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+
+        municipalityCache.set(provinceCode, data);
+        writeAddressCache(cacheKey, data);
 
         if (
             preserveSelection &&
@@ -433,6 +550,21 @@ async function fetchBarangays(municipalityCode, { preserveSelection = false } = 
         return;
     }
 
+    const cacheKey = `buyer-address:barangays:${municipalityCode}`;
+    const cachedData = barangayCache.get(municipalityCode) || readAddressCache(cacheKey);
+
+    if (cachedData?.length) {
+        barangayCache.set(municipalityCode, cachedData);
+
+        if (preserveSelection && draft.barangay && !cachedData.some((b) => b.name === draft.barangay)) {
+            barangayOptions.value = [{ code: 'current', name: draft.barangay }, ...cachedData];
+        } else {
+            barangayOptions.value = cachedData;
+        }
+
+        return;
+    }
+
     loadingBarangays.value = true;
     addressApiError.value = '';
 
@@ -447,6 +579,9 @@ async function fetchBarangays(municipalityCode, { preserveSelection = false } = 
 
         const json = await res.json();
         const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+
+        barangayCache.set(municipalityCode, data);
+        writeAddressCache(cacheKey, data);
 
         if (preserveSelection && draft.barangay && !data.some((b) => b.name === draft.barangay)) {
             barangayOptions.value = [{ code: 'current', name: draft.barangay }, ...data];
@@ -812,6 +947,24 @@ onMounted(async () => {
     if (loadError.value) {
         showMessage(loadError.value, 'error');
     }
+
+    // Show the saved address immediately (no blank <select> while the
+    // full option lists load), then fetch those lists in the background.
+    // Does not block the page — Edit Profile still awaits these directly
+    // in startEditing(), but by then they're normally already cached.
+    seedAddressOptionsFromDraft();
+
+    const lookups = [fetchProvinces()];
+
+    if (draft.provinceCode) {
+        lookups.push(fetchMunicipalities(draft.provinceCode, { preserveSelection: true }));
+    }
+
+    if (draft.municipalityCode) {
+        lookups.push(fetchBarangays(draft.municipalityCode, { preserveSelection: true }));
+    }
+
+    void Promise.allSettled(lookups);
 });
 
 onBeforeUnmount(() => {

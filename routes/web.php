@@ -82,6 +82,14 @@ if (file_exists($buyerRoutes)) {
     require $buyerRoutes;
 }
 
+// NOTE: routes/driver.php (driver/courier Settings) is intentionally NOT
+// required here. Buyer/seller are browser SPAs on this same origin, so the
+// 'web' middleware group's CSRF check is satisfied automatically by their
+// session/XSRF cookie. The driver/courier client is the Flutter mobile
+// app — a stateless Bearer-token caller with no session cookie, so its
+// routes are registered from routes/api.php instead (see the 'api' group,
+// same as the existing api/courier/* routes the same app already calls).
+
 // ---------- Registration (server-side, service-role protected) ----------
 // NOTE: Your project already has /api/signup/send-code, /api/signup/verify-code,
 // and /api/signup/resend-code routes wired to PasswordResetController (referenced

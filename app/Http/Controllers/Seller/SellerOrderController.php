@@ -155,6 +155,13 @@ class SellerOrderController extends Controller
             'phone' => $order->recipient_contact_no,
             'date' => optional($order->placed_at)->format('F d, Y'),
             'time' => optional($order->placed_at)->format('h:i A'),
+            'placedAt' => optional($order->placed_at)->toIso8601String(),
+            // Approximates "last status change" for orders that have
+            // already shipped (In Transit/Delivered are effectively
+            // terminal-ish states, so this is a reasonable proxy for
+            // "handed to courier at" without a dedicated timestamp
+            // column) — used by the Courier Handover history table.
+            'updatedAt' => optional($order->updated_at)->toIso8601String(),
             'status' => $order->status,
             'paymentMethod' => $order->payment_method,
             'paymentStatus' => $order->payment_status,
@@ -163,6 +170,13 @@ class SellerOrderController extends Controller
             'tax' => (float) $order->tax,
             'discount' => (float) $order->discount,
             'total' => (float) $order->total,
+            // Flat fields (not nested under `shipping`, unlike
+            // transformDetail below) so the Courier Handover history
+            // table can read them straight from the list response
+            // without an extra per-order detail fetch.
+            'trackingNumber' => $order->tracking_number,
+            'shippingCarrier' => $order->shipping_carrier,
+            'shippingService' => $order->shipping_service,
             'items' => $order->items->map(fn ($item) => [
                 'name' => $item->product_name,
                 'category' => $item->category,

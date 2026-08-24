@@ -195,7 +195,11 @@
             <!-- MAIN CONTENT -->
             <main class="seller-main">
                 <div class="seller-content-wrapper">
-                    <div class="content-header">
+                    <!-- Hidden on the Account Settings page only: that page has
+                         its own header (see Profile.vue), and the search bar /
+                         notification bell / profile summary here would just
+                         duplicate what "My Account" already shows in full. -->
+                    <div v-if="currentSection !== 'account'" class="content-header">
                         <div>
                             <p class="header-subtitle">Seller Center</p>
                             <h1 class="header-title">{{ sectionLabel }}</h1>
@@ -418,10 +422,13 @@ const currentComponent = computed(
     () => componentMap[currentSection.value] || Dashboard,
 );
 
-// Only OrderDetails currently needs props; every other section ignores
-// v-bind="{}" harmlessly.
+// OrderDetails and PrepareOrders both need to know which order is
+// active; every other section ignores v-bind="{}" harmlessly.
 const currentComponentProps = computed(() => {
-    if (currentSection.value === 'orderDetails') {
+    if (
+        currentSection.value === 'orderDetails' ||
+        currentSection.value === 'prepareOrders'
+    ) {
         return { orderId: selectedOrderId.value };
     }
 
@@ -513,6 +520,14 @@ function navigateTo(sectionId, orderId = null) {
 
     if (!path) {
         return;
+    }
+
+    // prepareOrders also needs to know which order is active — unlike
+    // orderDetails it doesn't get its own /seller/prepare-orders/{id}
+    // URL (so refreshing lands back on the plain list), but the id still
+    // has to survive in memory for the duration of this navigation.
+    if (sectionId === 'prepareOrders') {
+        selectedOrderId.value = orderId;
     }
 
     currentSection.value = sectionId;

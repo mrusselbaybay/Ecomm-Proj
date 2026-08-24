@@ -3,6 +3,7 @@
 use App\Http\Middleware\AuthenticateSupabaseUser;
 use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Middleware\EnsureUserIsBuyer;
+use App\Http\Middleware\EnsureUserIsDriver;
 use App\Http\Middleware\EnsureUserIsSeller;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
@@ -32,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin' => EnsureUserIsAdmin::class,
             'seller' => EnsureUserIsSeller::class,
             'buyer' => EnsureUserIsBuyer::class,
+            'driver' => EnsureUserIsDriver::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
