@@ -3301,20 +3301,23 @@
 .account-profile-card {
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 28px;
+
+    width: 100%;
+    box-sizing: border-box;
 
     background: #ffffff;
     border: 1px solid var(--nx-border);
     border-radius: 24px;
-    padding: 28px 32px;
+    padding: 36px 40px;
 
     box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 2px 8px -2px rgba(0, 0, 0, 0.04);
 }
 
 .account-avatar {
     flex-shrink: 0;
-    width: 64px;
-    height: 64px;
+    width: 80px;
+    height: 80px;
 
     display: flex;
     align-items: center;
@@ -3324,7 +3327,7 @@
     background: var(--nx-accent-soft);
     color: var(--nx-accent-dark);
 
-    font-size: 22px;
+    font-size: 27px;
     font-weight: 800;
 }
 
@@ -3342,7 +3345,7 @@
 .account-name-row h2 {
     margin: 0;
     color: var(--nx-ink);
-    font-size: 19px;
+    font-size: 22px;
     font-weight: 800;
 }
 
@@ -3397,13 +3400,23 @@
     background: var(--nx-accent-dark);
 }
 
-/* ---- Two-column grid: info form | overview aside ---- */
+/* ---- Two-column grid: (info form + security + danger zone) | overview aside ----
+   .account-main-column stacks the three left cards; .account-overview-card
+   sits beside the whole stack as one grid row, so align-items: stretch
+   (the grid default) lets it grow to match the stack's full height. */
 
 .account-page-grid {
     display: grid;
     grid-template-columns: 2fr 1fr;
     gap: 24px;
-    align-items: start;
+    align-items: stretch;
+}
+
+.account-main-column {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    min-width: 0;
 }
 
 .account-information-card,
@@ -3416,6 +3429,17 @@
     padding: 32px;
 
     box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 2px 8px -2px rgba(0, 0, 0, 0.04);
+}
+
+.account-overview-card {
+    display: flex;
+    flex-direction: column;
+
+    /* Stretches to match .account-main-column's full stacked height
+       (the grid's default align-items: stretch) instead of hugging its
+       own content, so it visually runs the whole length of the Personal
+       Information / Security / Danger Zone stack beside it. */
+    align-self: stretch;
 }
 
 .account-danger-card {
@@ -3652,6 +3676,7 @@
 /* ---- Account overview aside ---- */
 
 .account-overview-list {
+    flex: 1;
     margin: 0;
     display: flex;
     flex-direction: column;

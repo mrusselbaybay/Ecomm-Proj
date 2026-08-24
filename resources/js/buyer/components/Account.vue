@@ -901,6 +901,7 @@ onBeforeUnmount(() => {
                 </section>
 
                 <div class="account-page-grid">
+                    <div class="account-main-column">
                     <section class="account-information-card">
                         <form
                             class="account-form"
@@ -1139,6 +1140,54 @@ onBeforeUnmount(() => {
                         </form>
                     </section>
 
+                    <!-- ==================================================== -->
+                    <!-- SECURITY & PASSWORD -->
+                    <!-- ==================================================== -->
+                    <section class="account-security-card">
+                        <div class="account-section-heading">
+                            <span class="account-section-icon account-section-icon-key" v-html="icons.key"></span>
+                            <div>
+                                <span>Security</span>
+                                <h2>Security &amp; Password</h2>
+                            </div>
+                        </div>
+
+                        <p class="account-section-desc">
+                            Your password is never shown — only its presence is confirmed below.
+                        </p>
+
+                        <div class="account-password-display">
+                            <span class="account-password-dots" aria-hidden="true">{{ passwordDots }}</span>
+                            <span class="account-password-note">Password set</span>
+                        </div>
+
+                        <button type="button" class="account-security-button" @click="openPasswordModal">
+                            <span v-html="icons.key"></span> Change Password
+                        </button>
+                    </section>
+
+                    <!-- ==================================================== -->
+                    <!-- DANGER ZONE -->
+                    <!-- ==================================================== -->
+                    <section class="account-danger-card">
+                        <div class="account-section-heading">
+                            <span class="account-section-icon account-section-icon-warning" v-html="icons.warning"></span>
+                            <div>
+                                <span class="account-danger-eyebrow">Danger Zone</span>
+                                <h2 class="account-danger-title">Deactivate Account</h2>
+                            </div>
+                        </div>
+
+                        <p class="account-section-desc">
+                            Deactivating your account is irreversible and immediately ends your session.
+                        </p>
+
+                        <button type="button" class="account-danger-button" @click="openDeactivateStep1">
+                            <span v-html="icons.warning"></span> Deactivate Account
+                        </button>
+                    </section>
+                    </div>
+
                     <aside class="account-overview-card">
                         <div class="account-section-heading">
                             <div>
@@ -1169,53 +1218,6 @@ onBeforeUnmount(() => {
                         </dl>
                     </aside>
                 </div>
-
-                <!-- ==================================================== -->
-                <!-- SECURITY & PASSWORD -->
-                <!-- ==================================================== -->
-                <section class="account-security-card">
-                    <div class="account-section-heading">
-                        <span class="account-section-icon account-section-icon-key" v-html="icons.key"></span>
-                        <div>
-                            <span>Security</span>
-                            <h2>Security &amp; Password</h2>
-                        </div>
-                    </div>
-
-                    <p class="account-section-desc">
-                        Your password is never shown — only its presence is confirmed below.
-                    </p>
-
-                    <div class="account-password-display">
-                        <span class="account-password-dots" aria-hidden="true">{{ passwordDots }}</span>
-                        <span class="account-password-note">Password set</span>
-                    </div>
-
-                    <button type="button" class="account-security-button" @click="openPasswordModal">
-                        <span v-html="icons.key"></span> Change Password
-                    </button>
-                </section>
-
-                <!-- ==================================================== -->
-                <!-- DANGER ZONE -->
-                <!-- ==================================================== -->
-                <section class="account-danger-card">
-                    <div class="account-section-heading">
-                        <span class="account-section-icon account-section-icon-warning" v-html="icons.warning"></span>
-                        <div>
-                            <span class="account-danger-eyebrow">Danger Zone</span>
-                            <h2 class="account-danger-title">Deactivate Account</h2>
-                        </div>
-                    </div>
-
-                    <p class="account-section-desc">
-                        Deactivating your account is irreversible and immediately ends your session.
-                    </p>
-
-                    <button type="button" class="account-danger-button" @click="openDeactivateStep1">
-                        <span v-html="icons.warning"></span> Deactivate Account
-                    </button>
-                </section>
             </template>
         </main>
 
