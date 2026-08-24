@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\ProductController;
 use App\Http\Controllers\PsgcProxyController;
 use App\Mail\RegistrationApproved;
 use Illuminate\Support\Facades\Mail;
@@ -37,6 +38,12 @@ Route::prefix('auth')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::post('/logout', [AuthController::class, 'logout']);
 });
+
+// ============================================================
+// PUBLIC PRODUCT CATALOG (buyer storefront browsing)
+// ============================================================
+Route::get('/products', [ProductController::class, 'index'])->name('products.index');
+Route::get('/products/{id}', [ProductController::class, 'show'])->name('products.show');
 
 // ============================================================
 // PASSWORD RESET ROUTES

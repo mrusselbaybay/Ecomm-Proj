@@ -69,7 +69,18 @@ Route::prefix('api/logistics')->name('api.logistics.')->group(function () {
 });
 
 // ---------- API Routes for Seller (Seller Order Page) ----------
-require __DIR__.'/seller.php';
+$sellerRoutes = __DIR__.'/seller.php';
+
+if (file_exists($sellerRoutes)) {
+    require $sellerRoutes;
+}
+
+// ---------- API Routes for Buyer (Checkout / Orders) ----------
+$buyerRoutes = __DIR__.'/buyer.php';
+
+if (file_exists($buyerRoutes)) {
+    require $buyerRoutes;
+}
 
 // ---------- Registration (server-side, service-role protected) ----------
 // NOTE: Your project already has /api/signup/send-code, /api/signup/verify-code,

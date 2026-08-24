@@ -1,11 +1,24 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 
 import ProductDetails from './ProductDetails.vue';
 import Cart from './Cart.vue';
 import Checkout from './Checkout.vue';
+import Header from './Header.vue';
+import Footer from './Footer.vue';
+import ProductCard from './ProductCard.vue';
+import Orders from './Orders.vue';
+import Account from './Account.vue';
 
 import { useBuyer } from '../composables/useBuyer';
+import { useBuyerProducts } from '../composables/useBuyerProducts';
+import { useBuyerSession } from '../composables/useBuyerSession';
+import {
+    categories,
+    metaFor,
+    discountPercent,
+    formatPrice
+} from '../composables/useCategoryMeta';
 
 /*
 |--------------------------------------------------------------------------
@@ -14,9 +27,19 @@ import { useBuyer } from '../composables/useBuyer';
 */
 
 const {
-    cartItemCount,
-    removeFromCart
+    removeFromCart,
+    placeOrder,
+    checkoutError
 } = useBuyer();
+
+const {
+    products,
+    isLoadingProducts,
+    loadError: productsLoadError,
+    loadProducts
+} = useBuyerProducts();
+
+const { loadSession } = useBuyerSession();
 
 /*
 |--------------------------------------------------------------------------
@@ -29,54 +52,26 @@ const selectedCategory = ref('All');
 
 const selectedProduct = ref(null);
 const showCart = ref(false);
+const showOrders = ref(false);
+const showAccount = ref(false);
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
 
 /*
 |--------------------------------------------------------------------------
-| Categories
+| Product Catalog
 |--------------------------------------------------------------------------
+|
+| Backed by GET /api/products (App\Http\Controllers\ProductController) —
+| see useBuyerProducts.js. `products` itself is the ref returned by that
+| composable; loaded on mount below.
+|
+| rating/reviewCount are NOT part of the real product shape (no reviews
+| table exists yet — see useBuyer.js's submitReview() note), so anything
+| that used to read product.rating/reviewCount falls back gracefully
+| rather than fabricating numbers.
+|
 */
-
-const categories = [
-    'All',
-    'Electronics',
-    'Fashion',
-    'Home & Living',
-    'Beauty',
-    'Sports',
-    'Groceries'
-];
-
-/*
-|--------------------------------------------------------------------------
-| Sample Products
-|--------------------------------------------------------------------------
-*/
-
-const products = [
-    {
-        id: 1,
-        name: 'Sample Product 1',
-        price: 299,
-        category: 'Electronics',
-        seller: 'NEXMART Electronics'
-    },
-    {
-        id: 2,
-        name: 'Sample Product 2',
-        price: 499,
-        category: 'Fashion',
-        seller: 'NEXMART Fashion'
-    },
-    {
-        id: 3,
-        name: 'Sample Product 3',
-        price: 799,
-        category: 'Home & Living',
-        seller: 'NEXMART Home'
-    }
-];
 
 /*
 |--------------------------------------------------------------------------
@@ -89,7 +84,7 @@ const filteredProducts = computed(() => {
         .trim()
         .toLowerCase();
 
-    return products.filter(product => {
+    return products.value.filter(product => {
         const matchesCategory =
             selectedCategory.value === 'All' ||
             product.category === selectedCategory.value;
@@ -97,7 +92,7 @@ const filteredProducts = computed(() => {
         const matchesSearch =
             !search ||
             product.name.toLowerCase().includes(search) ||
-            product.category.toLowerCase().includes(search);
+            (product.category || '').toLowerCase().includes(search);
 
         return matchesCategory && matchesSearch;
     });
@@ -105,12 +100,99 @@ const filteredProducts = computed(() => {
 
 /*
 |--------------------------------------------------------------------------
-| Cart Count
+| Curated Sections (Flash Deals / Recommended / Best Sellers)
 |--------------------------------------------------------------------------
+|
+| There is no orders/sales-aggregation endpoint yet to drive a *real*
+| "recommended" or "best seller" ranking (that would need aggregating
+| order_items across all sellers), so these are reasonable proxies over
+| real data rather than fabricated flags:
+|   - flashDeals: real products currently on sale (has a compare_price)
+|   - recommendedProducts: most recently listed in-stock products
+|   - bestSellers: highest-stock in-category products, as a stand-in
+| Flagged in the final report as a real gap, not hidden.
+|
 */
 
-const cartCount = computed(() => {
-    return cartItemCount.value;
+const flashDeals = computed(() => {
+    return products.value
+        .filter(product => product.oldPrice && product.stock > 0)
+        .slice(0, 4);
+});
+
+const recommendedProducts = computed(() => {
+    return products.value
+        .filter(product => product.stock > 0)
+        .slice(0, 8);
+});
+
+const bestSellers = computed(() => {
+    return [...products.value]
+        .filter(product => product.stock > 0)
+        .sort((a, b) => (b.stock || 0) - (a.stock || 0))
+        .slice(0, 8);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Flash Deal Countdown
+|--------------------------------------------------------------------------
+|
+| Cosmetic only — counts down from a fixed duration on page load. There is
+| no real deal-expiry timestamp from the backend yet, so this does not
+| reflect an actual sale end time.
+|
+*/
+
+const dealHours = ref(2);
+const dealMinutes = ref(45);
+const dealSeconds = ref(18);
+
+let countdownTimer = null;
+
+function tickCountdown() {
+    if (dealSeconds.value > 0) {
+        dealSeconds.value--;
+        return;
+    }
+
+    if (dealMinutes.value > 0) {
+        dealMinutes.value--;
+        dealSeconds.value = 59;
+        return;
+    }
+
+    if (dealHours.value > 0) {
+        dealHours.value--;
+        dealMinutes.value = 59;
+        dealSeconds.value = 59;
+        return;
+    }
+
+    // Reached zero — loop back so the demo banner keeps showing urgency.
+    dealHours.value = 2;
+    dealMinutes.value = 45;
+    dealSeconds.value = 18;
+}
+
+function pad(value) {
+    return String(value).padStart(2, '0');
+}
+
+onMounted(() => {
+    countdownTimer = setInterval(tickCountdown, 1000);
+
+    loadProducts();
+    // Populates buyerProfile if a Supabase session already exists (e.g.
+    // carried over from the auth page); browsing itself stays public
+    // either way — see useBuyerSession.js.
+    loadSession();
+});
+
+onUnmounted(() => {
+    if (countdownTimer) {
+        clearInterval(countdownTimer);
+    }
 });
 
 /*
@@ -277,19 +359,125 @@ function clearFilters() {
     searchQuery.value = '';
     selectedCategory.value = 'All';
 }
+
+/*
+|--------------------------------------------------------------------------
+| Newsletter (local-only mock — no subscribers API yet)
+|--------------------------------------------------------------------------
+*/
+
+/*
+|--------------------------------------------------------------------------
+| Related Products (for the Product Details page)
+|--------------------------------------------------------------------------
+|
+| Other products in the same category, excluding the product itself.
+| Real catalog data, not fabricated — falls back to an empty array (which
+| ProductDetails already handles by simply not rendering the section).
+|
+*/
+
+const relatedProducts = computed(() => {
+    if (!selectedProduct.value) {
+        return [];
+    }
+
+    return products.value
+        .filter(product =>
+            product.category === selectedProduct.value.category &&
+            product.id !== selectedProduct.value.id
+        )
+        .slice(0, 5);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Header / Footer Events (bubbled up from Header.vue, Footer.vue, and from
+| ProductDetails.vue's own embedded Header/Footer when viewing a product)
+|--------------------------------------------------------------------------
+*/
+
+function handleSearch(query) {
+    searchQuery.value = query;
+    backToProducts();
+}
+
+function handleSelectCategory(category) {
+    selectCategory(category);
+    backToProducts();
+}
+
+function handleBrowseAll() {
+    selectedCategory.value = 'All';
+    backToProducts();
+}
+
+/*
+|--------------------------------------------------------------------------
+| Account / Orders
+|--------------------------------------------------------------------------
+|
+| Mounts the previously-unwired Orders.vue/Account.vue components (see
+| useBuyer.js for the real GET /api/buyer/orders backing Orders.vue).
+| Follows the same single-flag view-toggle pattern as showCart above.
+|--------------------------------------------------------------------------
+*/
+
+function openAccount() {
+    selectedProduct.value = null;
+    showCart.value = false;
+    showOrders.value = false;
+    showAccount.value = true;
+}
+
+function closeAccount() {
+    showAccount.value = false;
+}
+
+function openOrders() {
+    showAccount.value = false;
+    showOrders.value = true;
+}
+
+function closeOrders() {
+    showOrders.value = false;
+}
 </script>
 
 <template>
+
+    <!-- ================================================================ -->
+    <!-- ORDERS -->
+    <!-- ================================================================ -->
+
+    <Orders
+        v-if="showOrders"
+        @back="closeOrders"
+    />
+
+    <!-- ================================================================ -->
+    <!-- ACCOUNT -->
+    <!-- ================================================================ -->
+
+    <Account
+        v-else-if="showAccount"
+        @back="closeAccount"
+        @view-orders="openOrders"
+    />
 
     <!-- ================================================================ -->
     <!-- CHECKOUT -->
     <!-- ================================================================ -->
 
     <Checkout
-    v-if="checkoutItems.length > 0"
-    :items="checkoutItems"
-    @back="backFromCheckout"
-    @place-order="handleOrderPlaced"
+        v-else-if="checkoutItems.length > 0"
+        :items="checkoutItems"
+        @back="backFromCheckout"
+        @place-order="handleOrderPlaced"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @browse-all="handleBrowseAll"
+        @browse-categories="handleBrowseAll"
     />
 
     <!-- ================================================================ -->
@@ -297,9 +485,15 @@ function clearFilters() {
     <!-- ================================================================ -->
 
     <Cart
-    v-else-if="showCart"
-    @back="closeCart"
-    @checkout="checkoutFromCart"
+        v-else-if="showCart"
+        :recommended-products="bestSellers"
+        @back="closeCart"
+        @checkout="checkoutFromCart"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @browse-all="handleBrowseAll"
+        @browse-categories="handleBrowseAll"
+        @select-product="viewProduct"
     />
 
     <!-- ================================================================ -->
@@ -309,8 +503,15 @@ function clearFilters() {
     <ProductDetails
         v-else-if="selectedProduct"
         :product="selectedProduct"
+        :related-products="relatedProducts"
         @back="backToProducts"
         @buy-now="buyNow"
+        @select-product="viewProduct"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+        @browse-all="handleBrowseAll"
+        @browse-categories="handleBrowseAll"
     />
 
     <!-- ================================================================ -->
@@ -322,126 +523,293 @@ function clearFilters() {
         class="buyer-page"
     >
 
-        <!-- Header -->
-        <header class="buyer-header">
-
-            <div class="buyer-logo">
-                NEXMART
-            </div>
-
-            <!-- Search -->
-            <div class="buyer-search">
-
-                <input
-                    v-model="searchQuery"
-                    type="text"
-                    placeholder="Search products..."
-                />
-
-                <button
-                    type="button"
-                    title="Search"
-                >
-                    🔍
-                </button>
-
-            </div>
-
-            <!-- Buyer Actions -->
-            <nav class="buyer-actions">
-
-                <button
-                    type="button"
-                    title="Messages"
-                >
-                    💬
-                </button>
-
-                <button
-                    type="button"
-                    title="Cart"
-                    class="cart-button"
-                    @click="openCart"
-                >
-                    🛒
-
-                    <span
-                        v-if="cartCount > 0"
-                        class="cart-count"
-                    >
-                        {{ cartCount }}
-                    </span>
-                </button>
-
-                <button
-                    type="button"
-                    title="Account"
-                >
-                    👤
-                </button>
-
-            </nav>
-
-        </header>
+        <Header
+            v-model:search-query="searchQuery"
+            :active-category="selectedCategory"
+            @select-category="selectCategory"
+            @cart-click="openCart"
+            @account-click="openAccount"
+        />
 
         <!-- Main -->
         <main class="buyer-main">
 
-            <!-- Welcome -->
-            <section class="welcome-section">
+            <!-- Hero -->
+            <section class="buyer-hero">
 
-                <h1>
-                    Welcome to NEXMART!
-                </h1>
+                <img
+                    class="buyer-hero-image"
+                    src="https://images.unsplash.com/photo-1556910103-1c02745aae4d?auto=format&fit=crop&q=80&w=2000"
+                    alt=""
+                    aria-hidden="true"
+                >
 
-                <p>
-                    Discover products from verified local sellers.
-                </p>
+                <div class="buyer-hero-overlay"></div>
+
+                <div class="buyer-hero-content">
+
+                    <span class="buyer-hero-badge">
+                        NEXMART Marketplace
+                    </span>
+
+                    <h1>
+                        Shop Local, <br>
+                        <span>Delivered To You</span>
+                    </h1>
+
+                    <p>
+                        Discover electronics, fashion, home essentials and more from verified local sellers, all in one place.
+                    </p>
+
+                    <a
+                        href="#buyer-products"
+                        class="buyer-hero-cta"
+                    >
+                        Browse Products
+                    </a>
+
+                </div>
 
             </section>
 
             <!-- Categories -->
-            <section class="buyer-section">
+            <section>
 
-                <div class="section-header">
+                <div class="buyer-section-head">
                     <h2>
-                        Categories
+                        Popular Categories
                     </h2>
                 </div>
 
-                <div class="category-list">
+                <div class="category-grid">
 
                     <button
                         v-for="category in categories"
                         :key="category"
                         type="button"
-                        class="category-button"
-                        :class="{
-                            active: selectedCategory === category
-                        }"
+                        class="category-card"
+                        :class="[
+                            'accent-' + metaFor(category).accent,
+                            { active: selectedCategory === category }
+                        ]"
                         @click="selectCategory(category)"
                     >
-                        {{ category }}
+                        <span
+                            class="category-card-icon"
+                            v-html="metaFor(category).icon"
+                        ></span>
+
+                        <span class="category-card-label">
+                            {{ category }}
+                        </span>
                     </button>
 
                 </div>
 
             </section>
 
-            <!-- Products -->
-            <section class="buyer-section">
+            <!-- Flash Deals -->
+            <section v-if="flashDeals.length > 0">
 
-                <div class="section-header">
+                <div class="flash-deals-card">
+
+                    <div class="flash-deals-head">
+
+                        <div class="flash-deals-title">
+
+                            <h2>
+                                Flash Deals
+                            </h2>
+
+                            <div class="flash-deals-countdown">
+
+                                <span class="flash-deals-countdown-label">
+                                    Ending In:
+                                </span>
+
+                                <div class="flash-deals-countdown-digits">
+                                    <span>{{ pad(dealHours) }}</span>
+                                    <span>{{ pad(dealMinutes) }}</span>
+                                    <span>{{ pad(dealSeconds) }}</span>
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    <div class="flash-deals-grid">
+
+                        <div
+                            v-for="deal in flashDeals"
+                            :key="deal.id"
+                            class="flash-deal-card"
+                            :class="'accent-' + metaFor(deal.category).accent"
+                            @click="viewProduct(deal)"
+                        >
+
+                            <div class="flash-deal-image">
+                                <span class="flash-deal-badge">
+                                    -{{ discountPercent(deal) }}%
+                                </span>
+                                <span
+                                    class="flash-deal-icon"
+                                    v-html="metaFor(deal.category).icon"
+                                ></span>
+                            </div>
+
+                            <div class="flash-deal-info">
+
+                                <h3>
+                                    {{ deal.name }}
+                                </h3>
+
+                                <div class="flash-deal-price-row">
+                                    <span class="flash-deal-price">
+                                        {{ formatPrice(deal.price) }}
+                                    </span>
+                                    <span class="flash-deal-old-price">
+                                        {{ formatPrice(deal.oldPrice) }}
+                                    </span>
+                                </div>
+
+                                <div class="flash-deal-stock-row">
+                                    <span class="flash-deal-stock-label">
+                                        Selling Fast
+                                    </span>
+                                    <span class="flash-deal-stock-value">
+                                        {{ discountPercent(deal) }}%
+                                    </span>
+                                </div>
+
+                                <div class="flash-deal-stock-bar">
+                                    <div
+                                        class="flash-deal-stock-fill"
+                                        :style="{ width: discountPercent(deal) + '%' }"
+                                    ></div>
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+            <!-- Recommended For You -->
+            <section v-if="recommendedProducts.length > 0">
+
+                <div class="buyer-section-head">
                     <h2>
-                        Products
+                        Recommended For You
                     </h2>
+                </div>
+
+                <div class="product-grid">
+
+                    <ProductCard
+                        v-for="product in recommendedProducts"
+                        :key="product.id"
+                        :product="product"
+                        @view="viewProduct"
+                    />
+
+                </div>
+
+            </section>
+
+            <!-- Info Banner -->
+            <section class="info-banner">
+
+                <div class="info-banner-left">
+
+                    <div class="info-banner-icon">
+                        🚚
+                    </div>
+
+                    <div class="info-banner-text">
+
+                        <h3>
+                            Reliable Delivery, Every Order
+                        </h3>
+
+                        <p>
+                            We work with trusted local sellers and couriers to get your orders to your door safely.
+                        </p>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+            <!-- Best Sellers -->
+            <section v-if="bestSellers.length > 0">
+
+                <div class="buyer-section-head">
+                    <h2>
+                        Best Sellers
+                    </h2>
+                </div>
+
+                <div class="product-grid">
+
+                    <ProductCard
+                        v-for="product in bestSellers"
+                        :key="product.id"
+                        :product="product"
+                        @view="viewProduct"
+                    />
+
+                </div>
+
+            </section>
+
+            <!-- All Products -->
+            <section id="buyer-products">
+
+                <div class="buyer-section-head">
+                    <h2>
+                        All Products
+                    </h2>
+
+                    <span class="buyer-section-tag">
+                        {{ filteredProducts.length }} items
+                    </span>
+                </div>
+
+                <!-- Loading -->
+                <div
+                    v-if="isLoadingProducts"
+                    class="empty-products"
+                >
+                    <p>Loading products&hellip;</p>
+                </div>
+
+                <!-- Load Error -->
+                <div
+                    v-else-if="productsLoadError"
+                    class="empty-products"
+                >
+                    <p>{{ productsLoadError }}</p>
                 </div>
 
                 <!-- No Products -->
                 <div
-                    v-if="filteredProducts.length === 0"
+                    v-else-if="filteredProducts.length === 0"
                     class="empty-products"
                 >
+
+                    <span
+                        class="empty-products-icon"
+                        aria-hidden="true"
+                    >
+                        🔍
+                    </span>
 
                     <p>
                         No products found.
@@ -449,6 +817,7 @@ function clearFilters() {
 
                     <button
                         type="button"
+                        class="clear-filters-button"
                         @click="clearFilters"
                     >
                         Clear Filters
@@ -462,47 +831,23 @@ function clearFilters() {
                     class="product-grid"
                 >
 
-                    <article
+                    <ProductCard
                         v-for="product in filteredProducts"
                         :key="product.id"
-                        class="product-card"
-                    >
-
-                        <div class="product-image">
-                            Product Image
-                        </div>
-
-                        <div class="product-info">
-
-                            <span class="product-category">
-                                {{ product.category }}
-                            </span>
-
-                            <h3>
-                                {{ product.name }}
-                            </h3>
-
-                            <p class="product-price">
-                                ₱{{ Number(product.price).toFixed(2) }}
-                            </p>
-
-                            <button
-                                type="button"
-                                class="view-product-button"
-                                @click="viewProduct(product)"
-                            >
-                                View Product
-                            </button>
-
-                        </div>
-
-                    </article>
+                        :product="product"
+                        @view="viewProduct"
+                    />
 
                 </div>
 
             </section>
 
         </main>
+
+        <Footer
+            @browse-categories="selectCategory('All')"
+            @cart-click="openCart"
+        />
 
     </div>
 

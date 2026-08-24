@@ -8,1640 +8,2316 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 console.log('✅ Supabase URL:', SUPABASE_URL);
-console.log(
-    '✅ Supabase Key:',
-    SUPABASE_ANON_KEY ? 'Loaded' : '❌ Missing'
-);
+console.log('✅ Supabase Key:', SUPABASE_ANON_KEY ? 'Loaded' : '❌ Missing');
 
 // ---------- Initialize Supabase ----------
-const supabase = window.supabase.createClient(
-    SUPABASE_URL,
-    SUPABASE_ANON_KEY
-);
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ---------- PSGC API Base ----------
 const PSGC_BASE = '/api/psgc';
 
 // ---------- Cookie Helpers ----------
 function setCookie(name, value, days = 7) {
-  const d = new Date();
-  d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
-  document.cookie = `${name}=${encodeURIComponent(value)};expires=${d.toUTCString()};path=/`;
+    const d = new Date();
+    d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
+    document.cookie = `${name}=${encodeURIComponent(value)};expires=${d.toUTCString()};path=/`;
 }
 
 function getCookie(name) {
-  const match = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
-  return match ? decodeURIComponent(match.pop()) : null;
+    const match = document.cookie.match(
+        '(^|;)\\s*' + name + '\\s*=\\s*([^;]+)',
+    );
+
+    return match ? decodeURIComponent(match.pop()) : null;
 }
 
 function deleteCookie(name) {
-  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
 }
 
 // ---------- Validation Helpers ----------
 function validateName(name) {
-  return /^[A-Za-z\s\-]+$/.test(name);
+    return /^[A-Za-z\s\-]+$/.test(name);
 }
 
 function validateMiddleInitial(mi) {
-  if (mi === '') return true;
-  return /^[A-Za-z]$/.test(mi);
+    if (mi === '') {
+        return true;
+    }
+
+    return /^[A-Za-z]$/.test(mi);
 }
 
 function validateEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 function validateContactNumber(contact) {
-  return /^09\d{9}$/.test(contact);
+    return /^09\d{9}$/.test(contact);
 }
 
 function validateBirthday(birthday) {
-  if (!birthday) return false;
-  const selected = new Date(birthday);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return selected <= today;
+    if (!birthday) {
+        return false;
+    }
+
+    const selected = new Date(birthday);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return selected <= today;
 }
 
 function validatePassword(password) {
-  return password.length >= 8;
+    return password.length >= 8;
 }
 
 // ---------- Main Application ----------
 const App = {
-  setup() {
-    // UI State
-    const mode = ref('login');
-    const signupStep = ref('role');
-    const selectedRole = ref(null);
-    const showPassword = ref(false);
-    const rememberMe = ref(false);
-    const email = ref('');
-    const password = ref('');
-    const confirmPassword = ref('');
-    const forgotEmail = ref('');
-    const errorMsg = ref('');
-    const successMsg = ref('');
-    const loggedInUser = ref(getCookie('nexmart_session') ? JSON.parse(getCookie('nexmart_session')) : null);
-    const isLogisticsSignup = ref(false);
-    const isSubmitting = ref(false);
-
-    // Signup Email Verification
-    const signupVerifyCode = ref('');
-    const isSendingSignupCode = ref(false);
-    const isVerifyingSignupCode = ref(false);
-    const signupEmailVerified = ref(false);
-
-    // Password Reset Wizard
-    const resetStep = ref(1);
-    const resetEmail = ref('');
-    const resetCode = ref('');
-    const newPassword = ref('');
-    const newConfirmPassword = ref('');
-    const isVerifying = ref(false);
-
-    // Validation errors for inline display
-    const validationErrors = ref({
-      firstName: '',
-      lastName: '',
-      middleInitial: '',
-      email: '',
-      contactNo: '',
-      birthday: '',
-      password: '',
-      confirmPassword: '',
-      companyName: '',
-      companyEmail: '',
-      companyContactNo: '',
-      companyTIN: '',
-      ownerFirstName: '',
-      ownerLastName: '',
-      ownerMiddleInitial: '',
-      ownerBirthday: '',
-      driverFirstName: '',
-      driverLastName: '',
-      driverMiddleInitial: '',
-      driverEmail: '',
-      driverContactNo: '',
-      driverBirthday: '',
-      driverPassword: '',
-      driverConfirmPassword: '',
-    });
-
-    // Registration Form Fields
-    const form = ref({
-      lastName: '',
-      firstName: '',
-      middleInitial: '',
-      sex: '',
-      contactNo: '',
-      birthday: '',
-      provinceCode: '',
-      province: '',
-      municipalityCode: '',
-      municipality: '',
-      barangay: '',
-      street: '',
-      houseNo: '',
-      idFile: null,
-      businessName: '',
-      lineOfBusiness: '',
-      businessPermit: null,
-      vehicle: '',
-      plateNumber: '',
-      orcrFile: null,
-      licenseFile: null,
-      companyName: '',
-      companyAddress: '',
-      companyRegion: '',
-      companyProvinceCode: '',
-      companyProvince: '',
-      companyMunicipalityCode: '',
-      companyMunicipality: '',
-      companyBarangay: '',
-      companyStreet: '',
-      companyHouseNo: '',
-      companyContactNo: '',
-      companyEmail: '',
-      companyTIN: '',
-      companySECReg: '',
-      ownerLastName: '',
-      ownerFirstName: '',
-      ownerMiddleInitial: '',
-      ownerSex: '',
-      ownerBirthday: '',
-      ownerIdFile: null,
-      businessPermitFile: null,
-      mayorPermitFile: null,
-      dtiRegFile: null,
-      driverFirstName: '',
-      driverLastName: '',
-      driverMiddleInitial: '',
-      driverSex: '',
-      driverBirthday: '',
-      driverContactNo: '',
-      driverEmail: '',
-      driverPassword: '',
-      driverConfirmPassword: '',
-      driverIdFile: null,
-      driverLicenseFile: null,
-      driverVehicle: '',
-      driverPlateNumber: '',
-      driverOrcrFile: null,
-      driverLicenseNumber: '',
-    });
-
-    // PSGC API State
-    const provinceOptions = ref([]);
-    const municipalityOptions = ref([]);
-    const barangayOptions = ref([]);
-    const companyProvinceOptions = ref([]);
-    const companyMunicipalityOptions = ref([]);
-    const companyBarangayOptions = ref([]);
-    const loadingProvinces = ref(false);
-    const loadingMunicipalities = ref(false);
-    const loadingBarangays = ref(false);
-    const loadingCompanyProvinces = ref(false);
-    const loadingCompanyMunicipalities = ref(false);
-    const loadingCompanyBarangays = ref(false);
-    const addressApiError = ref('');
-
-    // Step Definitions
-    const steps = ['Personal', 'Verify Email', 'Address', 'Security', 'Documents'];
-    const logisticsSteps = ['Company Info', 'Verify Email', 'Owner Details', 'Address', 'Security', 'Documents'];
-    const driverSteps = ['Personal', 'Verify Email', 'Address', 'Security', 'Documents'];
-
-    // Step keys
-    const stepKeys = ['personal', 'verifyEmail', 'address', 'security', 'documents'];
-    const driverStepKeys = ['driverPersonal', 'driverVerifyEmail', 'driverAddress', 'driverSecurity', 'driverDocuments'];
-    const logisticsStepKeys = ['company', 'companyVerifyEmail', 'owner', 'address', 'security', 'documents'];
-
-    // Computed: Current Step Index
-    const currentStepIndex = computed(() => {
-      if (isLogisticsSignup.value) {
-        const stepMap = {
-          'company': 0, 'companyVerifyEmail': 1, 'owner': 2,
-          'address': 3, 'security': 4, 'documents': 5
-        };
-        return stepMap[signupStep.value] !== undefined ? stepMap[signupStep.value] : -1;
-      } else if (selectedRole.value === 'driver') {
-        const stepMap = {
-          'driverPersonal': 0, 'driverVerifyEmail': 1, 'driverAddress': 2,
-          'driverSecurity': 3, 'driverDocuments': 4
-        };
-        return stepMap[signupStep.value] !== undefined ? stepMap[signupStep.value] : -1;
-      } else {
-        const stepMap = {
-          'personal': 0, 'verifyEmail': 1, 'address': 2,
-          'security': 3, 'documents': 4
-        };
-        return stepMap[signupStep.value] !== undefined ? stepMap[signupStep.value] : -1;
-      }
-    });
-
-    // Role Options
-    const roles = [
-      { id: 'buyer', label: 'Buyer', desc: 'Shop from verified local sellers', icon: 'bag' },
-      { id: 'seller', label: 'Seller', desc: 'Open your store, reach customers', icon: 'house' },
-      { id: 'courier', label: 'Courier', desc: 'Deliver & earn on your schedule', icon: 'truck' },
-      { id: 'driver', label: 'Driver', desc: 'Drive & deliver for logistics companies', icon: 'car' }
-    ];
-
-    // ---------- Validation Functions ----------
-    function clearValidationError(field) {
-      validationErrors.value[field] = '';
-    }
-
-    function setValidationError(field, message) {
-      validationErrors.value[field] = message;
-    }
-
-    function validatePersonalFields() {
-      let isValid = true;
-      
-      if (!form.value.firstName) {
-        setValidationError('firstName', 'First name is required');
-        isValid = false;
-      } else if (!validateName(form.value.firstName)) {
-        setValidationError('firstName', 'Only letters allowed');
-        isValid = false;
-      } else {
-        clearValidationError('firstName');
-      }
-
-      if (!form.value.lastName) {
-        setValidationError('lastName', 'Last name is required');
-        isValid = false;
-      } else if (!validateName(form.value.lastName)) {
-        setValidationError('lastName', 'Only letters allowed');
-        isValid = false;
-      } else {
-        clearValidationError('lastName');
-      }
-
-      if (form.value.middleInitial && !validateMiddleInitial(form.value.middleInitial)) {
-        setValidationError('middleInitial', 'Only 1 letter allowed');
-        isValid = false;
-      } else {
-        clearValidationError('middleInitial');
-      }
-
-      if (!email.value) {
-        setValidationError('email', 'Email is required');
-        isValid = false;
-      } else if (!validateEmail(email.value)) {
-        setValidationError('email', 'Invalid email format');
-        isValid = false;
-      } else {
-        clearValidationError('email');
-      }
-
-      if (!form.value.contactNo) {
-        setValidationError('contactNo', 'Contact number is required');
-        isValid = false;
-      } else if (!validateContactNumber(form.value.contactNo)) {
-        setValidationError('contactNo', 'Must start with 09 and be 11 digits');
-        isValid = false;
-      } else {
-        clearValidationError('contactNo');
-      }
-
-      if (!form.value.birthday) {
-        setValidationError('birthday', 'Birthday is required');
-        isValid = false;
-      } else if (!validateBirthday(form.value.birthday)) {
-        setValidationError('birthday', 'Cannot select future date');
-        isValid = false;
-      } else {
-        clearValidationError('birthday');
-      }
-
-      if (!form.value.sex) {
-        errorMsg.value = 'Please select your sex';
-        isValid = false;
-      }
-
-      return isValid;
-    }
-
-    function validateDriverPersonal() {
-      let isValid = true;
-      
-      if (!form.value.driverFirstName) {
-        setValidationError('driverFirstName', 'First name is required');
-        isValid = false;
-      } else if (!validateName(form.value.driverFirstName)) {
-        setValidationError('driverFirstName', 'Only letters allowed');
-        isValid = false;
-      } else {
-        clearValidationError('driverFirstName');
-      }
-
-      if (!form.value.driverLastName) {
-        setValidationError('driverLastName', 'Last name is required');
-        isValid = false;
-      } else if (!validateName(form.value.driverLastName)) {
-        setValidationError('driverLastName', 'Only letters allowed');
-        isValid = false;
-      } else {
-        clearValidationError('driverLastName');
-      }
-
-      if (form.value.driverMiddleInitial && !validateMiddleInitial(form.value.driverMiddleInitial)) {
-        setValidationError('driverMiddleInitial', 'Only 1 letter allowed');
-        isValid = false;
-      } else {
-        clearValidationError('driverMiddleInitial');
-      }
-
-      if (!form.value.driverEmail) {
-        setValidationError('driverEmail', 'Email is required');
-        isValid = false;
-      } else if (!validateEmail(form.value.driverEmail)) {
-        setValidationError('driverEmail', 'Invalid email format');
-        isValid = false;
-      } else {
-        clearValidationError('driverEmail');
-      }
-
-      if (!form.value.driverContactNo) {
-        setValidationError('driverContactNo', 'Contact number is required');
-        isValid = false;
-      } else if (!validateContactNumber(form.value.driverContactNo)) {
-        setValidationError('driverContactNo', 'Must start with 09 and be 11 digits');
-        isValid = false;
-      } else {
-        clearValidationError('driverContactNo');
-      }
-
-      if (!form.value.driverBirthday) {
-        setValidationError('driverBirthday', 'Birthday is required');
-        isValid = false;
-      } else if (!validateBirthday(form.value.driverBirthday)) {
-        setValidationError('driverBirthday', 'Cannot select future date');
-        isValid = false;
-      } else {
-        clearValidationError('driverBirthday');
-      }
-
-      if (!form.value.driverSex) {
-        errorMsg.value = 'Please select your sex';
-        isValid = false;
-      }
-
-      return isValid;
-    }
-
-    function validateAddressFields() {
-      const { province, municipality, barangay, street } = form.value;
-      if (!province || !municipality || !barangay || !street) {
-        errorMsg.value = 'Please fill in all address fields.';
-        return false;
-      }
-      return true;
-    }
-
-    function validateDriverAddressFields() {
-      const { province, municipality, barangay, street } = form.value;
-      if (!province || !municipality || !barangay || !street) {
-        errorMsg.value = 'Please fill in all address fields.';
-        return false;
-      }
-      return true;
-    }
-
-    function validateSecurityFields() {
-      let isValid = true;
-      
-      if (!password.value) {
-        setValidationError('password', 'Password is required');
-        isValid = false;
-      } else if (!validatePassword(password.value)) {
-        setValidationError('password', 'Min 8 characters');
-        isValid = false;
-      } else {
-        clearValidationError('password');
-      }
-
-      if (!confirmPassword.value) {
-        setValidationError('confirmPassword', 'Please confirm password');
-        isValid = false;
-      } else if (password.value !== confirmPassword.value) {
-        setValidationError('confirmPassword', 'Passwords do not match');
-        isValid = false;
-      } else {
-        clearValidationError('confirmPassword');
-      }
-
-      return isValid;
-    }
-
-    function validateDriverSecurityFields() {
-      let isValid = true;
-      
-      if (!form.value.driverPassword) {
-        setValidationError('driverPassword', 'Password is required');
-        isValid = false;
-      } else if (!validatePassword(form.value.driverPassword)) {
-        setValidationError('driverPassword', 'Min 8 characters');
-        isValid = false;
-      } else {
-        clearValidationError('driverPassword');
-      }
-
-      if (!form.value.driverConfirmPassword) {
-        setValidationError('driverConfirmPassword', 'Please confirm password');
-        isValid = false;
-      } else if (form.value.driverPassword !== form.value.driverConfirmPassword) {
-        setValidationError('driverConfirmPassword', 'Passwords do not match');
-        isValid = false;
-      } else {
-        clearValidationError('driverConfirmPassword');
-      }
-
-      return isValid;
-    }
-
-    function validateDocuments() {
-      if (selectedRole.value === 'buyer' && !form.value.idFile) {
-        errorMsg.value = 'Please upload an ID.';
-        return false;
-      }
-      if (selectedRole.value === 'seller') {
-        if (!form.value.idFile || !form.value.businessPermit || !form.value.businessName || !form.value.lineOfBusiness) {
-          errorMsg.value = 'Please fill in all seller documents and business info.';
-          return false;
-        }
-        const allowedLines = [
-          'Pet Supplies', 'Kids and Baby', 'Electronics and Gadgets', 
-          'House and Garden', "Woman's Apparel", "Men's Apparel", 
-          'Sports and Outdoors', 'Health and Beauty'
-        ];
-        if (!allowedLines.includes(form.value.lineOfBusiness)) {
-          errorMsg.value = 'Please select a valid line of business.';
-          return false;
-        }
-      }
-      if (selectedRole.value === 'courier') {
-        if (!form.value.vehicle || !form.value.plateNumber || !form.value.orcrFile || !form.value.licenseFile) {
-          errorMsg.value = 'Please fill in all courier documents and vehicle info.';
-          return false;
-        }
-      }
-      if (selectedRole.value === 'driver') {
-        if (!form.value.driverVehicle || !form.value.driverPlateNumber || !form.value.driverOrcrFile || !form.value.driverLicenseFile || !form.value.driverIdFile) {
-          errorMsg.value = 'Please fill in all driver documents and vehicle info.';
-          return false;
-        }
-      }
-      return true;
-    }
-
-    // Logistics validations
-    function validateCompany() {
-      const { companyName, companyContactNo, companyEmail, companyTIN, companyRegion } = form.value;
-      if (!companyName || !companyContactNo || !companyEmail || !companyTIN || !companyRegion) {
-        errorMsg.value = 'Please fill in all required company fields.';
-        return false;
-      }
-      if (!validateEmail(companyEmail)) {
-        errorMsg.value = 'Invalid company email format.';
-        return false;
-      }
-      if (!validateContactNumber(companyContactNo)) {
-        errorMsg.value = 'Contact number must start with 09 and be 11 digits.';
-        return false;
-      }
-      return true;
-    }
-
-    function validateOwner() {
-      const { ownerLastName, ownerFirstName, ownerSex, ownerBirthday } = form.value;
-      if (!ownerLastName || !ownerFirstName || !ownerSex || !ownerBirthday) {
-        errorMsg.value = 'Please fill in all required owner details.';
-        return false;
-      }
-      if (!validateName(ownerFirstName) || !validateName(ownerLastName)) {
-        errorMsg.value = 'Names should only contain letters.';
-        return false;
-      }
-      if (!validateBirthday(ownerBirthday)) {
-        errorMsg.value = 'Cannot select future date for birthday.';
-        return false;
-      }
-      return true;
-    }
-
-    function validateLogisticsAddress() {
-      const { companyProvince, companyMunicipality, companyBarangay, companyStreet } = form.value;
-      if (!companyProvince || !companyMunicipality || !companyBarangay || !companyStreet) {
-        errorMsg.value = 'Please fill in all address fields.';
-        return false;
-      }
-      return true;
-    }
-
-    function validateLogisticsSecurity() {
-      if (password.value.length < 8) {
-        errorMsg.value = 'Password must be at least 8 characters.';
-        return false;
-      }
-      if (password.value !== confirmPassword.value) {
-        errorMsg.value = 'Passwords do not match.';
-        return false;
-      }
-      return true;
-    }
-
-    function validateLogisticsDocuments() {
-      if (!form.value.ownerIdFile || !form.value.businessPermitFile || !form.value.mayorPermitFile || !form.value.dtiRegFile) {
-        errorMsg.value = 'Please upload all required documents.';
-        return false;
-      }
-      return true;
-    }
-
-    // ---------- Signup Email Verification Functions ----------
-    function getSignupEmailForVerification() {
-      if (isLogisticsSignup.value) return form.value.companyEmail;
-      if (selectedRole.value === 'driver') return form.value.driverEmail;
-      return email.value;
-    }
-
-    async function sendSignupVerificationCode() {
-      const targetEmail = getSignupEmailForVerification();
-      if (!targetEmail || !validateEmail(targetEmail)) {
-        return false;
-      }
-
-      isSendingSignupCode.value = true;
-      try {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const response = await fetch('/api/signup/send-code', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': csrfToken
-          },
-          body: JSON.stringify({ 
-            email: targetEmail.trim().toLowerCase() 
-          })
-        });
-        
-        if (!response.ok) {
-          const text = await response.text();
-          let errorMessage = 'Could not send verification code.';
-          try {
-            const data = JSON.parse(text);
-            errorMessage = data.message || data.error || errorMessage;
-          } catch (e) {
-            errorMessage = `Server error: ${response.status} ${response.statusText}`;
-          }
-          throw new Error(errorMessage);
-        }
-        
-        const data = await response.json();
-        signupVerifyCode.value = '';
-        signupEmailVerified.value = false;
-        successMsg.value = 'A verification code has been sent to your email.';
-        return true;
-      } catch (err) {
-        console.error('Failed to send verification code:', err);
-        errorMsg.value = err.message || 'Could not send code. Please try again.';
-        return false;
-      } finally {
-        isSendingSignupCode.value = false;
-      }
-    }
-
-    async function verifySignupCode() {
-      if (!signupVerifyCode.value || signupVerifyCode.value.length !== 6) {
-        errorMsg.value = 'Please enter the 6-digit verification code.';
-        return false;
-      }
-
-      isVerifyingSignupCode.value = true;
-      try {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const targetEmail = getSignupEmailForVerification();
-        
-        const response = await fetch('/api/signup/verify-code', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': csrfToken
-          },
-          body: JSON.stringify({ 
-            email: targetEmail.trim().toLowerCase(), 
-            code: signupVerifyCode.value.trim()
-          })
-        });
-        
-        if (!response.ok) {
-          const text = await response.text();
-          let errorMessage = 'Invalid code. Please try again.';
-          try {
-            const data = JSON.parse(text);
-            errorMessage = data.message || data.error || errorMessage;
-          } catch (e) {
-            errorMessage = `Server error: ${response.status} ${response.statusText}`;
-          }
-          throw new Error(errorMessage);
-        }
-        
-        const data = await response.json();
-        signupEmailVerified.value = true;
-        successMsg.value = 'Email verified!';
-        return true;
-      } catch (err) {
-        console.error('Verification error:', err);
-        errorMsg.value = err.message || 'Invalid or expired code.';
-        return false;
-      } finally {
-        isVerifyingSignupCode.value = false;
-      }
-    }
-
-    async function resendSignupVerificationCode() {
-      const targetEmail = getSignupEmailForVerification();
-      if (!targetEmail || !validateEmail(targetEmail)) {
-        errorMsg.value = 'Please enter a valid email address.';
-        return;
-      }
-      
-      try {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const response = await fetch('/api/signup/resend-code', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': csrfToken
-          },
-          body: JSON.stringify({ 
-            email: targetEmail.trim().toLowerCase() 
-          })
-        });
-        
-        if (!response.ok) {
-          const text = await response.text();
-          let errorMessage = 'Could not resend code.';
-          try {
-            const data = JSON.parse(text);
-            errorMessage = data.message || data.error || errorMessage;
-          } catch (e) {
-            errorMessage = `Server error: ${response.status} ${response.statusText}`;
-          }
-          throw new Error(errorMessage);
-        }
-        
-        const data = await response.json();
-        signupVerifyCode.value = '';
-        signupEmailVerified.value = false;
-        successMsg.value = 'New verification code sent to your email.';
-      } catch (err) {
-        console.error('Resend error:', err);
-        errorMsg.value = err.message || 'Could not resend code. Please try again.';
-      }
-    }
-
-    // ---------- Registration Functions ----------
-    // Both functions below post to Laravel endpoints that use the Supabase
-    // service role key server-side (see AuthController@registerUser /
-    // registerLogistics). No admin-privileged Supabase call happens in the
-    // browser anymore.
-    async function submitUserRegistration() {
-      try {
-        const isDriver = selectedRole.value === 'driver';
-        const userEmail = isDriver ? form.value.driverEmail : email.value;
-        const userPassword = isDriver ? form.value.driverPassword : password.value;
-        const userRole = selectedRole.value || 'buyer';
-
-        const fd = new FormData();
-        fd.append('email', (userEmail || '').trim().toLowerCase());
-        fd.append('password', userPassword || '');
-        fd.append('role', userRole);
-
-        if (isDriver) {
-          fd.append('first_name', form.value.driverFirstName || '');
-          fd.append('last_name', form.value.driverLastName || '');
-          fd.append('middle_initial', form.value.driverMiddleInitial || '');
-          fd.append('sex', form.value.driverSex || '');
-          fd.append('contact_no', form.value.driverContactNo || '');
-          fd.append('birthday', form.value.driverBirthday || '');
-        } else {
-          fd.append('first_name', form.value.firstName || '');
-          fd.append('last_name', form.value.lastName || '');
-          fd.append('middle_initial', form.value.middleInitial || '');
-          fd.append('sex', form.value.sex || '');
-          fd.append('contact_no', form.value.contactNo || '');
-          fd.append('birthday', form.value.birthday || '');
-        }
-
-        if (form.value.provinceCode && form.value.municipalityCode && form.value.barangay) {
-          fd.append('province_code', form.value.provinceCode);
-          fd.append('province_name', form.value.province || '');
-          fd.append('municipality_code', form.value.municipalityCode);
-          fd.append('municipality_name', form.value.municipality || '');
-          fd.append('barangay', form.value.barangay);
-          fd.append('street', form.value.street || '');
-          if (form.value.houseNo) fd.append('house_no', form.value.houseNo);
-        }
-
-        if (userRole === 'seller') {
-          fd.append('business_name', form.value.businessName || '');
-          fd.append('line_of_business', form.value.lineOfBusiness || '');
-        } else if (userRole === 'courier') {
-          fd.append('vehicle', form.value.vehicle || '');
-          fd.append('plate_number', form.value.plateNumber || '');
-        } else if (userRole === 'driver') {
-          fd.append('driver_vehicle', form.value.driverVehicle || '');
-          fd.append('driver_plate_number', form.value.driverPlateNumber || '');
-          if (form.value.driverLicenseNumber) fd.append('driver_license_number', form.value.driverLicenseNumber);
-        }
-
-        // Files — field names match AuthController::fileMapForRole()
-        if (userRole === 'driver') {
-          if (form.value.driverIdFile) fd.append('id_file', form.value.driverIdFile);
-          if (form.value.driverLicenseFile) fd.append('license_file', form.value.driverLicenseFile);
-          if (form.value.driverOrcrFile) fd.append('orcr_file', form.value.driverOrcrFile);
-        } else {
-          if (form.value.idFile) fd.append('id_file', form.value.idFile);
-          if (form.value.businessPermit) fd.append('business_permit', form.value.businessPermit);
-          if (form.value.orcrFile) fd.append('orcr_file', form.value.orcrFile);
-          if (form.value.licenseFile) fd.append('license_file', form.value.licenseFile);
-        }
-
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const response = await fetch('/api/signup/register', {
-          method: 'POST',
-          headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfToken },
-          body: fd,
-        });
-
-        const result = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          throw new Error(result.message || 'Registration failed. Please try again.');
-        }
-
-        console.log('✅ User registered:', result.user_id);
-        successMsg.value = result.message || 'Registration submitted! Please wait for administrator approval.';
-        signupStep.value = 'complete';
-      } catch (error) {
-        console.error('Registration error:', error);
-        errorMsg.value = error.message || 'Registration failed. Please try again.';
-      }
-    }
-
-    async function submitLogisticsRegistration() {
-      try {
-        const fd = new FormData();
-        fd.append('company_email', (form.value.companyEmail || '').trim().toLowerCase());
-        fd.append('password', password.value || '');
-        fd.append('company_name', form.value.companyName || '');
-        fd.append('company_contact_no', form.value.companyContactNo || '');
-        fd.append('company_tin', form.value.companyTIN || '');
-
-        if (form.value.companySECReg) fd.append('company_sec_registration', form.value.companySECReg);
-        if (form.value.companyRegion) fd.append('company_region', form.value.companyRegion);
-
-        fd.append('owner_first_name', form.value.ownerFirstName || '');
-        fd.append('owner_last_name', form.value.ownerLastName || '');
-        fd.append('owner_middle_initial', form.value.ownerMiddleInitial || '');
-        fd.append('owner_sex', form.value.ownerSex || '');
-        fd.append('owner_birthday', form.value.ownerBirthday || '');
-
-        if (form.value.companyProvinceCode) {
-          fd.append('company_province_code', form.value.companyProvinceCode);
-          fd.append('company_province_name', form.value.companyProvince || '');
-          fd.append('company_municipality_code', form.value.companyMunicipalityCode || '');
-          fd.append('company_municipality_name', form.value.companyMunicipality || '');
-          fd.append('company_barangay', form.value.companyBarangay || '');
-          fd.append('company_street', form.value.companyStreet || '');
-          if (form.value.companyHouseNo) fd.append('company_house_no', form.value.companyHouseNo);
-        }
-
-        if (form.value.ownerIdFile) fd.append('owner_id_file', form.value.ownerIdFile);
-        if (form.value.businessPermitFile) fd.append('business_permit_file', form.value.businessPermitFile);
-        if (form.value.mayorPermitFile) fd.append('mayor_permit_file', form.value.mayorPermitFile);
-        if (form.value.dtiRegFile) fd.append('dti_reg_file', form.value.dtiRegFile);
-
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const response = await fetch('/api/signup/register-logistics', {
-          method: 'POST',
-          headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfToken },
-          body: fd,
-        });
-
-        const result = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          throw new Error(result.message || 'Registration failed. Please try again.');
-        }
-
-        console.log('✅ Logistics company registered:', result.company_id);
-        successMsg.value = result.message || 'Logistics company registration submitted! Please wait for administrator approval.';
-        signupStep.value = 'complete';
-      } catch (error) {
-        console.error('Logistics registration error:', error);
-        errorMsg.value = error.message || 'Registration failed. Please try again.';
-      }
-    }
-
-    function submitRegistration() {
-      resetMessages();
-      
-      if (isSubmitting.value) return;
-      isSubmitting.value = true;
-      
-      try {
-        if (isLogisticsSignup.value) {
-          if (!validateLogisticsDocuments()) {
-            isSubmitting.value = false;
-            return;
-          }
-          submitLogisticsRegistration();
-          isSubmitting.value = false;
-          return;
-        }
-        
-        if (selectedRole.value === 'driver') {
-          if (!validateDriverPersonal() || !validateDriverSecurityFields() || !validateDocuments()) {
-            isSubmitting.value = false;
-            return;
-          }
-        } else {
-          if (!validateDocuments()) {
-            isSubmitting.value = false;
-            return;
-          }
-        }
-        
-        submitUserRegistration();
-        
-      } catch (error) {
-        console.error('Submit error:', error);
-        errorMsg.value = error.message || 'Registration failed. Please try again.';
-      } finally {
-        isSubmitting.value = false;
-      }
-    }
-
-    // ---------- PSGC API Functions ----------
-    const provinceCache = { value: [] };
-
-    function dedupeByCodeOrName(items = []) {
-      const seen = new Map();
-      for (const item of items) {
-        if (!item || typeof item !== 'object') continue;
-        const code = String(item.code ?? '').trim();
-        const name = String(item.name ?? '').trim();
-        if (!code && !name) continue;
-        const key = code || name.toLowerCase().replace(/\s+/g, ' ');
-        if (!seen.has(key)) {
-          seen.set(key, item);
-        }
-      }
-      return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
-    }
-
-    async function fetchProvinces() {
-      if (provinceCache.value.length > 0) {
-        provinceOptions.value = provinceCache.value;
-        companyProvinceOptions.value = provinceCache.value;
-        return;
-      }
-
-      loadingProvinces.value = true;
-      loadingCompanyProvinces.value = true;
-      addressApiError.value = '';
-
-      try {
-        const regionsRes = await fetch(`${PSGC_BASE}/regions?limit=100`);
-        if (!regionsRes.ok) throw new Error('Request failed: ' + regionsRes.status);
-        const regionsJson = await regionsRes.json();
-        const regions = regionsJson.data || [];
-
-        const provinceResults = await Promise.all(
-          regions.map(async (r) => {
-            try {
-              const res = await fetch(`${PSGC_BASE}/provinces?region_code=${r.code}`);
-              if (!res.ok) return [];
-              const json = await res.json();
-              return json.data || [];
-            } catch (e) {
-              return [];
-            }
-          })
+    setup() {
+        // UI State
+        const mode = ref('login');
+        const signupStep = ref('role');
+        const selectedRole = ref(null);
+        const showPassword = ref(false);
+        const rememberMe = ref(false);
+        const email = ref('');
+        const password = ref('');
+        const confirmPassword = ref('');
+        const forgotEmail = ref('');
+        const errorMsg = ref('');
+        const successMsg = ref('');
+        const loggedInUser = ref(
+            getCookie('nexmart_session')
+                ? JSON.parse(getCookie('nexmart_session'))
+                : null,
         );
+        const isLogisticsSignup = ref(false);
+        const isSubmitting = ref(false);
 
-        const allProvinces = dedupeByCodeOrName(provinceResults.flat());
-        if (allProvinces.length === 0) throw new Error('No provinces returned');
+        // Signup Email Verification
+        const signupVerifyCode = ref('');
+        const isSendingSignupCode = ref(false);
+        const isVerifyingSignupCode = ref(false);
+        const signupEmailVerified = ref(false);
 
-        provinceCache.value = allProvinces;
-        provinceOptions.value = allProvinces;
-        companyProvinceOptions.value = allProvinces;
-      } catch (err) {
-        addressApiError.value = 'Could not load provinces from the PSGC API. Check your connection and retry.';
-      } finally {
-        loadingProvinces.value = false;
-        loadingCompanyProvinces.value = false;
-      }
-    }
+        // Password Reset Wizard
+        const resetStep = ref(1);
+        const resetEmail = ref('');
+        const resetCode = ref('');
+        const newPassword = ref('');
+        const newConfirmPassword = ref('');
+        const isVerifying = ref(false);
 
-    async function fetchMunicipalities(provinceCode, isCompany = false) {
-      if (isCompany) {
-        companyMunicipalityOptions.value = [];
-        companyBarangayOptions.value = [];
-        form.value.companyMunicipalityCode = '';
-        form.value.companyMunicipality = '';
-        form.value.companyBarangay = '';
-      } else {
-        municipalityOptions.value = [];
-        barangayOptions.value = [];
-        form.value.municipalityCode = '';
-        form.value.municipality = '';
-        form.value.barangay = '';
-      }
-      
-      if (!provinceCode) return;
-      
-      if (isCompany) {
-        loadingCompanyMunicipalities.value = true;
-      } else {
-        loadingMunicipalities.value = true;
-      }
-      addressApiError.value = '';
-      
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
-        
-        const res = await fetch(`${PSGC_BASE}/cities-municipalities?province_code=${provinceCode}`, {
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        
-        if (!res.ok) throw new Error('Request failed: ' + res.status);
-        const json = await res.json();
-        const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
-
-        if (isCompany) {
-          companyMunicipalityOptions.value = data;
-        } else {
-          municipalityOptions.value = data;
-        }
-      } catch (err) {
-        if (err.name === 'AbortError') {
-          addressApiError.value = 'Request timed out. Please try again.';
-        } else {
-          addressApiError.value = 'Could not load cities/municipalities. Please try again.';
-        }
-      } finally {
-        if (isCompany) {
-          loadingCompanyMunicipalities.value = false;
-        } else {
-          loadingMunicipalities.value = false;
-        }
-      }
-    }
-
-    async function fetchBarangays(municipalityCode, isCompany = false) {
-      if (isCompany) {
-        companyBarangayOptions.value = [];
-        form.value.companyBarangay = '';
-      } else {
-        barangayOptions.value = [];
-        form.value.barangay = '';
-      }
-      
-      if (!municipalityCode) return;
-      
-      if (isCompany) {
-        loadingCompanyBarangays.value = true;
-      } else {
-        loadingBarangays.value = true;
-      }
-      addressApiError.value = '';
-      
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-        
-        const res = await fetch(`${PSGC_BASE}/barangays?city_municipality_code=${municipalityCode}&limit=500`, {
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        
-        if (!res.ok) {
-          let detail = '';
-          try { detail = await res.text(); } catch (e) {}
-          throw new Error('Request failed: ' + res.status + (detail ? ' — ' + detail : ''));
-        }
-        const json = await res.json();
-        const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
-
-        if (isCompany) {
-          companyBarangayOptions.value = data;
-        } else {
-          barangayOptions.value = data;
-        }
-      } catch (err) {
-        if (err.name === 'AbortError') {
-          addressApiError.value = 'Request timed out. Please try again.';
-        } else {
-          addressApiError.value = 'Could not load barangays. Please try again.';
-        }
-      } finally {
-        if (isCompany) {
-          loadingCompanyBarangays.value = false;
-        } else {
-          loadingBarangays.value = false;
-        }
-      }
-    }
-
-    // Address Change Handlers
-    function onProvinceChange() {
-      const selected = provinceOptions.value.find(p => p.code === form.value.provinceCode);
-      form.value.province = selected ? selected.name : '';
-      fetchMunicipalities(form.value.provinceCode, false);
-    }
-
-    function onMunicipalityChange() {
-      const selected = municipalityOptions.value.find(m => m.code === form.value.municipalityCode);
-      form.value.municipality = selected ? selected.name : '';
-      fetchBarangays(form.value.municipalityCode, false);
-    }
-
-    function onCompanyProvinceChange() {
-      const selected = companyProvinceOptions.value.find(p => p.code === form.value.companyProvinceCode);
-      form.value.companyProvince = selected ? selected.name : '';
-      fetchMunicipalities(form.value.companyProvinceCode, true);
-    }
-
-    function onCompanyMunicipalityChange() {
-      const selected = companyMunicipalityOptions.value.find(m => m.code === form.value.companyMunicipalityCode);
-      form.value.companyMunicipality = selected ? selected.name : '';
-      fetchBarangays(form.value.companyMunicipalityCode, true);
-    }
-
-    function retryAddressLoad() {
-      if (!form.value.provinceCode) {
-        fetchProvinces();
-      } else if (!form.value.municipalityCode) {
-        fetchMunicipalities(form.value.provinceCode, false);
-      } else {
-        fetchBarangays(form.value.municipalityCode, false);
-      }
-    }
-
-    // ---------- Navigation Functions ----------
-    function resetMessages() {
-      errorMsg.value = '';
-      successMsg.value = '';
-    }
-
-    function switchMode(next) {
-      mode.value = next;
-      signupStep.value = 'role';
-      selectedRole.value = null;
-      isLogisticsSignup.value = false;
-      resetMessages();
-      resetStep.value = 1;
-      resetEmail.value = '';
-      resetCode.value = '';
-      newPassword.value = '';
-      newConfirmPassword.value = '';
-      forgotEmail.value = '';
-      isSubmitting.value = false;
-      signupVerifyCode.value = '';
-      signupEmailVerified.value = false;
-      isSendingSignupCode.value = false;
-      isVerifyingSignupCode.value = false;
-      
-      form.value = { 
-        lastName:'', firstName:'', middleInitial:'', sex:'', contactNo:'', birthday:'', 
-        provinceCode:'', province:'', municipalityCode:'', municipality:'', barangay:'', street:'', houseNo:'', 
-        idFile:null, businessName:'', lineOfBusiness:'', businessPermit:null, 
-        vehicle:'', plateNumber:'', orcrFile:null, licenseFile:null,
-        companyName:'', companyAddress:'', companyRegion:'', companyProvinceCode:'', companyProvince:'', 
-        companyMunicipalityCode:'', companyMunicipality:'', companyBarangay:'', 
-        companyStreet:'', companyHouseNo:'', companyContactNo:'', companyEmail:'', 
-        companyTIN:'', companySECReg:'', ownerLastName:'', ownerFirstName:'', 
-        ownerMiddleInitial:'', ownerSex:'', ownerBirthday:'', 
-        ownerIdFile:null, businessPermitFile:null, mayorPermitFile:null, 
-        dtiRegFile:null,
-        driverFirstName:'', driverLastName:'', driverMiddleInitial:'', driverSex:'', 
-        driverBirthday:'', driverContactNo:'', driverEmail:'', driverPassword:'', 
-        driverConfirmPassword:'', driverIdFile:null, driverLicenseFile:null, 
-        driverVehicle:'', driverPlateNumber:'', driverOrcrFile:null, driverLicenseNumber:''
-      };
-      
-      Object.keys(validationErrors.value).forEach(key => {
-        validationErrors.value[key] = '';
-      });
-      
-      municipalityOptions.value = [];
-      barangayOptions.value = [];
-      companyMunicipalityOptions.value = [];
-      companyBarangayOptions.value = [];
-      addressApiError.value = '';
-      email.value = '';
-      password.value = '';
-      confirmPassword.value = '';
-    }
-
-    function startLogisticsSignup() {
-      isLogisticsSignup.value = true;
-      signupStep.value = 'company';
-      resetMessages();
-    }
-
-    function selectRole(role) {
-      selectedRole.value = role;
-      resetMessages();
-      
-      Object.keys(validationErrors.value).forEach(key => {
-        validationErrors.value[key] = '';
-      });
-      
-      if (role === 'driver') {
-        signupStep.value = 'driverPersonal';
-      } else {
-        signupStep.value = 'personal';
-      }
-    }
-
-    async function goToStep(step) {
-      if (selectedRole.value === 'driver') {
-        if (step === 'driverVerifyEmail' && signupStep.value === 'driverPersonal') {
-          if (!validateDriverPersonal()) return;
-          signupStep.value = step;
-          resetMessages();
-          sendSignupVerificationCode();
-          return;
-        }
-        if (step === 'driverAddress' && signupStep.value === 'driverVerifyEmail') {
-          const verified = await verifySignupCode();
-          if (!verified) return;
-          signupStep.value = step;
-          resetMessages();
-          return;
-        }
-        if (step === 'driverSecurity' && signupStep.value === 'driverAddress') {
-          if (!validateDriverAddressFields()) return;
-        }
-        if (step === 'driverDocuments' && signupStep.value === 'driverSecurity') {
-          if (!validateDriverSecurityFields()) return;
-        }
-      } else if (!isLogisticsSignup.value) {
-        if (step === 'verifyEmail' && signupStep.value === 'personal') {
-          if (!validatePersonalFields()) return;
-          signupStep.value = step;
-          resetMessages();
-          sendSignupVerificationCode();
-          return;
-        }
-        if (step === 'address' && signupStep.value === 'verifyEmail') {
-          const verified = await verifySignupCode();
-          if (!verified) return;
-          signupStep.value = step;
-          resetMessages();
-          return;
-        }
-        if (step === 'security' && signupStep.value === 'address') {
-          if (!validateAddressFields()) return;
-        }
-        if (step === 'documents' && signupStep.value === 'security') {
-          if (!validateSecurityFields()) return;
-        }
-      } else {
-        if (step === 'companyVerifyEmail' && signupStep.value === 'company') {
-          if (!validateCompany()) return;
-          signupStep.value = step;
-          resetMessages();
-          sendSignupVerificationCode();
-          return;
-        }
-        if (step === 'owner' && signupStep.value === 'companyVerifyEmail') {
-          const verified = await verifySignupCode();
-          if (!verified) return;
-          signupStep.value = step;
-          resetMessages();
-          return;
-        }
-        if (step === 'address' && signupStep.value === 'owner') {
-          if (!validateOwner()) return;
-        }
-        if (step === 'security' && signupStep.value === 'address') {
-          if (!validateLogisticsAddress()) return;
-        }
-        if (step === 'documents' && signupStep.value === 'security') {
-          if (!validateLogisticsSecurity()) return;
-        }
-      }
-      
-      signupStep.value = step;
-      resetMessages();
-    }
-
-    function handleFileUpload(event, field) {
-      const file = event.target.files[0];
-      if (file) {
-        form.value[field] = file;
-      }
-    }
-
-    // ---------- Login Functions ----------
-    // ---------- Login Functions ----------
-// ---------- Login Functions ----------
-async function handleLogin() {
-    resetMessages();
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.value.trim().toLowerCase(),
-        password: password.value
-    });
-
-    if (error) {
-        console.log('Supabase auth error:', error);
-        errorMsg.value = 'Email or password is incorrect.';
-        return;
-    }
-
-    const user = data.user;
-
-    const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('role, first_name, last_name, email, account_status, status')
-        .eq('id', user.id)
-        .single();
-
-    if (profileError) {
-        console.log('Profile error:', profileError);
-        errorMsg.value = 'Could not fetch user profile.';
-        return;
-    }
-
-    // Check account status
-    if (profile.account_status === 'suspended') {
-        errorMsg.value = 'Your account has been suspended. Please contact support.';
-        await supabase.auth.signOut();
-        return;
-    }
-    
-    if (profile.account_status === 'deactivated') {
-        errorMsg.value = 'Your account has been deactivated. Please contact support.';
-        await supabase.auth.signOut();
-        return;
-    }
-    
-    if (profile.account_status === 'pending' || profile.status === 'pending') {
-        errorMsg.value = 'Your account is pending approval. Please wait for the administrator to approve your account.';
-        await supabase.auth.signOut();
-        return;
-    }
-
-    if (profile.status === 'rejected') {
-        errorMsg.value = 'Your account has been rejected. Please contact support.';
-        await supabase.auth.signOut();
-        return;
-    }
-
-    const userRole = profile?.role || user.user_metadata?.role || 'buyer';
-
-    loggedInUser.value = {
-        email: user.email,
-        role: userRole,
-        status: profile.account_status || profile.status
-    };
-
-    setCookie(
-        'nexmart_session',
-        JSON.stringify(loggedInUser.value),
-        rememberMe.value ? 30 : 1
-    );
-
-    // ========== REDIRECT LOGIC - INSIDE handleLogin ==========
-    console.log('User role:', userRole); // Debug log
-    
-    // Redirect based on role
-    switch (userRole) {
-    case 'admin':
-        window.location.href = '/admin/dashboard';
-        break;
-    case 'logistics':
-    case 'logistics_admin':
-        // Logistics company owner/staff - goes to logistics dashboard
-        window.location.href = '/logistics/dashboard';
-        break;
-    case 'seller':
-        window.location.href = '/seller/dashboard';
-        break;
-    case 'courier':
-        // Independent courier - goes to pickup courier page
-        window.location.href = '/pickup-courier';
-        break;
-    case 'driver':
-        window.location.href = '/';
-        break;
-    default: // buyer
-        window.location.href = '/buyer/dashboard';
-    }
-}
-
-    // ---------- Password Reset Functions ----------
-    async function handleSendCode() {
-      resetMessages();
-
-      if (!forgotEmail.value) {
-        errorMsg.value = 'Please enter your email address.';
-        return;
-      }
-
-      try {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-
-        const response = await fetch('/api/password/send-code', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': csrfToken
-          },
-          body: JSON.stringify({
-            email: forgotEmail.value.trim().toLowerCase()
-          })
+        // Validation errors for inline display
+        const validationErrors = ref({
+            firstName: '',
+            lastName: '',
+            middleInitial: '',
+            email: '',
+            contactNo: '',
+            birthday: '',
+            password: '',
+            confirmPassword: '',
+            companyName: '',
+            companyEmail: '',
+            companyContactNo: '',
+            companyTIN: '',
+            ownerFirstName: '',
+            ownerLastName: '',
+            ownerMiddleInitial: '',
+            ownerBirthday: '',
+            driverFirstName: '',
+            driverLastName: '',
+            driverMiddleInitial: '',
+            driverEmail: '',
+            driverContactNo: '',
+            driverBirthday: '',
+            driverPassword: '',
+            driverConfirmPassword: '',
         });
 
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.message || 'Something went wrong');
-        }
-
-        resetEmail.value = forgotEmail.value;
-        forgotEmail.value = '';
-        resetStep.value = 2;
-        successMsg.value = 'A verification code has been sent to your email.';
-      } catch (err) {
-        errorMsg.value = err.message || 'Could not send code. Please try again.';
-      }
-    }
-
-    async function handleVerifyCode() {
-      resetMessages();
-
-      if (!resetCode.value || resetCode.value.length !== 6) {
-        errorMsg.value = 'Please enter the 6-digit verification code.';
-        return;
-      }
-
-      isVerifying.value = true;
-
-      try {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-
-        const response = await fetch('/api/password/verify-code', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': csrfToken
-          },
-          body: JSON.stringify({
-            email: resetEmail.value,
-            code: resetCode.value
-          })
+        // Registration Form Fields
+        const form = ref({
+            lastName: '',
+            firstName: '',
+            middleInitial: '',
+            sex: '',
+            contactNo: '',
+            birthday: '',
+            provinceCode: '',
+            province: '',
+            municipalityCode: '',
+            municipality: '',
+            barangay: '',
+            street: '',
+            houseNo: '',
+            idFile: null,
+            businessName: '',
+            lineOfBusiness: '',
+            businessPermit: null,
+            vehicle: '',
+            plateNumber: '',
+            orcrFile: null,
+            licenseFile: null,
+            companyName: '',
+            companyAddress: '',
+            companyRegion: '',
+            companyProvinceCode: '',
+            companyProvince: '',
+            companyMunicipalityCode: '',
+            companyMunicipality: '',
+            companyBarangay: '',
+            companyStreet: '',
+            companyHouseNo: '',
+            companyContactNo: '',
+            companyEmail: '',
+            companyTIN: '',
+            companySECReg: '',
+            ownerLastName: '',
+            ownerFirstName: '',
+            ownerMiddleInitial: '',
+            ownerSex: '',
+            ownerBirthday: '',
+            ownerIdFile: null,
+            businessPermitFile: null,
+            mayorPermitFile: null,
+            dtiRegFile: null,
+            driverFirstName: '',
+            driverLastName: '',
+            driverMiddleInitial: '',
+            driverSex: '',
+            driverBirthday: '',
+            driverContactNo: '',
+            driverEmail: '',
+            driverPassword: '',
+            driverConfirmPassword: '',
+            driverIdFile: null,
+            driverLicenseFile: null,
+            driverVehicle: '',
+            driverPlateNumber: '',
+            driverOrcrFile: null,
+            driverLicenseNumber: '',
         });
 
-        const data = await response.json();
+        // PSGC API State
+        const provinceOptions = ref([]);
+        const municipalityOptions = ref([]);
+        const barangayOptions = ref([]);
+        const companyProvinceOptions = ref([]);
+        const companyMunicipalityOptions = ref([]);
+        const companyBarangayOptions = ref([]);
+        const loadingProvinces = ref(false);
+        const loadingMunicipalities = ref(false);
+        const loadingBarangays = ref(false);
+        const loadingCompanyProvinces = ref(false);
+        const loadingCompanyMunicipalities = ref(false);
+        const loadingCompanyBarangays = ref(false);
+        const addressApiError = ref('');
 
-        if (!response.ok) {
-          throw new Error(data.message || 'Invalid code. Please try again.');
-        }
+        // Step Definitions
+        const steps = [
+            'Personal',
+            'Verify Email',
+            'Address',
+            'Security',
+            'Documents',
+        ];
+        const logisticsSteps = [
+            'Company Info',
+            'Verify Email',
+            'Owner Details',
+            'Address',
+            'Security',
+            'Documents',
+        ];
+        const driverSteps = [
+            'Personal',
+            'Verify Email',
+            'Address',
+            'Security',
+            'Documents',
+        ];
 
-        resetStep.value = 3;
-        successMsg.value = 'Code verified! Please enter your new password.';
-      } catch (err) {
-        errorMsg.value = err.message || 'Invalid or expired code. Please request a new one.';
-      } finally {
-        isVerifying.value = false;
-      }
-    }
+        // Step keys
+        const stepKeys = [
+            'personal',
+            'verifyEmail',
+            'address',
+            'security',
+            'documents',
+        ];
+        const driverStepKeys = [
+            'driverPersonal',
+            'driverVerifyEmail',
+            'driverAddress',
+            'driverSecurity',
+            'driverDocuments',
+        ];
+        const logisticsStepKeys = [
+            'company',
+            'companyVerifyEmail',
+            'owner',
+            'address',
+            'security',
+            'documents',
+        ];
 
-    async function handleResetPassword() {
-      resetMessages();
+        // Computed: Current Step Index
+        const currentStepIndex = computed(() => {
+            if (isLogisticsSignup.value) {
+                const stepMap = {
+                    company: 0,
+                    companyVerifyEmail: 1,
+                    owner: 2,
+                    address: 3,
+                    security: 4,
+                    documents: 5,
+                };
 
-      if (!newPassword.value || newPassword.value.length < 8) {
-        errorMsg.value = 'Password must be at least 8 characters.';
-        return;
-      }
-      if (newPassword.value !== newConfirmPassword.value) {
-        errorMsg.value = 'Passwords do not match.';
-        return;
-      }
+                return stepMap[signupStep.value] !== undefined
+                    ? stepMap[signupStep.value]
+                    : -1;
+            } else if (selectedRole.value === 'driver') {
+                const stepMap = {
+                    driverPersonal: 0,
+                    driverVerifyEmail: 1,
+                    driverAddress: 2,
+                    driverSecurity: 3,
+                    driverDocuments: 4,
+                };
 
-      try {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                return stepMap[signupStep.value] !== undefined
+                    ? stepMap[signupStep.value]
+                    : -1;
+            } else {
+                const stepMap = {
+                    personal: 0,
+                    verifyEmail: 1,
+                    address: 2,
+                    security: 3,
+                    documents: 4,
+                };
 
-        const response = await fetch('/api/password/reset', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': csrfToken
-          },
-          body: JSON.stringify({
-            email: resetEmail.value,
-            code: resetCode.value,
-            password: newPassword.value,
-            password_confirmation: newConfirmPassword.value
-          })
+                return stepMap[signupStep.value] !== undefined
+                    ? stepMap[signupStep.value]
+                    : -1;
+            }
         });
 
-        const data = await response.json();
+        // Role Options
+        const roles = [
+            {
+                id: 'buyer',
+                label: 'Buyer',
+                desc: 'Shop from verified local sellers',
+                icon: 'bag',
+            },
+            {
+                id: 'seller',
+                label: 'Seller',
+                desc: 'Open your store, reach customers',
+                icon: 'house',
+            },
+            {
+                id: 'courier',
+                label: 'Courier',
+                desc: 'Deliver & earn on your schedule',
+                icon: 'truck',
+            },
+            {
+                id: 'driver',
+                label: 'Driver',
+                desc: 'Drive & deliver for logistics companies',
+                icon: 'car',
+            },
+        ];
 
-        if (!response.ok) {
-          throw new Error(data.message || 'Failed to reset password.');
+        // ---------- Validation Functions ----------
+        function clearValidationError(field) {
+            validationErrors.value[field] = '';
         }
 
-        resetCode.value = '';
-        newPassword.value = '';
-        newConfirmPassword.value = '';
-        resetEmail.value = '';
-        resetStep.value = 1;
-        mode.value = 'login';
-        successMsg.value = 'Password reset successfully! You can now log in.';
-      } catch (err) {
-        errorMsg.value = err.message || 'Could not reset password. Please try again.';
-      }
-    }
-
-    async function handleResendCode() {
-      resetMessages();
-
-      if (!resetEmail.value) {
-        errorMsg.value = 'Email address not found. Please start over.';
-        resetStep.value = 1;
-        return;
-      }
-
-      try {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-
-        const response = await fetch('/api/password/resend-code', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': csrfToken
-          },
-          body: JSON.stringify({
-            email: resetEmail.value
-          })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.message || 'Could not resend code.');
+        function setValidationError(field, message) {
+            validationErrors.value[field] = message;
         }
 
-        successMsg.value = 'New verification code sent to your email.';
-      } catch (err) {
-        errorMsg.value = err.message || 'Could not resend code. Please try again.';
-      }
-    }
+        function validatePersonalFields() {
+            let isValid = true;
 
-    function goToResetStep(step) {
-      resetStep.value = step;
-      resetMessages();
-    }
+            if (!form.value.firstName) {
+                setValidationError('firstName', 'First name is required');
+                isValid = false;
+            } else if (!validateName(form.value.firstName)) {
+                setValidationError('firstName', 'Only letters allowed');
+                isValid = false;
+            } else {
+                clearValidationError('firstName');
+            }
 
-    function logout() {
-      loggedInUser.value = null;
-      deleteCookie('nexmart_session');
-      resetMessages();
-      supabase.auth.signOut();
-    }
+            if (!form.value.lastName) {
+                setValidationError('lastName', 'Last name is required');
+                isValid = false;
+            } else if (!validateName(form.value.lastName)) {
+                setValidationError('lastName', 'Only letters allowed');
+                isValid = false;
+            } else {
+                clearValidationError('lastName');
+            }
 
-    // Input handlers
-    function formatContactNumber(event, field) {
-      let value = event.target.value;
-      value = value.replace(/\D/g, '');
-      if (value.length > 11) {
-        value = value.slice(0, 11);
-      }
-      event.target.value = value;
-      if (field) {
-        form.value[field] = value;
-      }
-    }
+            if (
+                form.value.middleInitial &&
+                !validateMiddleInitial(form.value.middleInitial)
+            ) {
+                setValidationError('middleInitial', 'Only 1 letter allowed');
+                isValid = false;
+            } else {
+                clearValidationError('middleInitial');
+            }
 
-    function formatName(event, field) {
-      let value = event.target.value;
-      value = value.replace(/[^A-Za-z\s\-]/g, '');
-      event.target.value = value;
-      if (field) {
-        form.value[field] = value;
-      }
-    }
+            if (!email.value) {
+                setValidationError('email', 'Email is required');
+                isValid = false;
+            } else if (!validateEmail(email.value)) {
+                setValidationError('email', 'Invalid email format');
+                isValid = false;
+            } else {
+                clearValidationError('email');
+            }
 
-    function formatMiddleInitial(event, field) {
-      let value = event.target.value;
-      value = value.replace(/[^A-Za-z]/g, '');
-      if (value.length > 1) {
-        value = value.slice(0, 1);
-      }
-      value = value.toUpperCase();
-      event.target.value = value;
-      if (field) {
-        form.value[field] = value;
-      }
-    }
+            if (!form.value.contactNo) {
+                setValidationError('contactNo', 'Contact number is required');
+                isValid = false;
+            } else if (!validateContactNumber(form.value.contactNo)) {
+                setValidationError(
+                    'contactNo',
+                    'Must start with 09 and be 11 digits',
+                );
+                isValid = false;
+            } else {
+                clearValidationError('contactNo');
+            }
 
-    // ---------- Lifecycle ----------
-    // ---------- Lifecycle ----------
-onMounted(() => {
-    fetchProvinces();
+            if (!form.value.birthday) {
+                setValidationError('birthday', 'Birthday is required');
+                isValid = false;
+            } else if (!validateBirthday(form.value.birthday)) {
+                setValidationError('birthday', 'Cannot select future date');
+                isValid = false;
+            } else {
+                clearValidationError('birthday');
+            }
 
-    supabase.auth.onAuthStateChange((event) => {
-        if (event === 'PASSWORD_RECOVERY') {
-            mode.value = 'reset';
+            if (!form.value.sex) {
+                errorMsg.value = 'Please select your sex';
+                isValid = false;
+            }
+
+            return isValid;
+        }
+
+        function validateDriverPersonal() {
+            let isValid = true;
+
+            if (!form.value.driverFirstName) {
+                setValidationError('driverFirstName', 'First name is required');
+                isValid = false;
+            } else if (!validateName(form.value.driverFirstName)) {
+                setValidationError('driverFirstName', 'Only letters allowed');
+                isValid = false;
+            } else {
+                clearValidationError('driverFirstName');
+            }
+
+            if (!form.value.driverLastName) {
+                setValidationError('driverLastName', 'Last name is required');
+                isValid = false;
+            } else if (!validateName(form.value.driverLastName)) {
+                setValidationError('driverLastName', 'Only letters allowed');
+                isValid = false;
+            } else {
+                clearValidationError('driverLastName');
+            }
+
+            if (
+                form.value.driverMiddleInitial &&
+                !validateMiddleInitial(form.value.driverMiddleInitial)
+            ) {
+                setValidationError(
+                    'driverMiddleInitial',
+                    'Only 1 letter allowed',
+                );
+                isValid = false;
+            } else {
+                clearValidationError('driverMiddleInitial');
+            }
+
+            if (!form.value.driverEmail) {
+                setValidationError('driverEmail', 'Email is required');
+                isValid = false;
+            } else if (!validateEmail(form.value.driverEmail)) {
+                setValidationError('driverEmail', 'Invalid email format');
+                isValid = false;
+            } else {
+                clearValidationError('driverEmail');
+            }
+
+            if (!form.value.driverContactNo) {
+                setValidationError(
+                    'driverContactNo',
+                    'Contact number is required',
+                );
+                isValid = false;
+            } else if (!validateContactNumber(form.value.driverContactNo)) {
+                setValidationError(
+                    'driverContactNo',
+                    'Must start with 09 and be 11 digits',
+                );
+                isValid = false;
+            } else {
+                clearValidationError('driverContactNo');
+            }
+
+            if (!form.value.driverBirthday) {
+                setValidationError('driverBirthday', 'Birthday is required');
+                isValid = false;
+            } else if (!validateBirthday(form.value.driverBirthday)) {
+                setValidationError(
+                    'driverBirthday',
+                    'Cannot select future date',
+                );
+                isValid = false;
+            } else {
+                clearValidationError('driverBirthday');
+            }
+
+            if (!form.value.driverSex) {
+                errorMsg.value = 'Please select your sex';
+                isValid = false;
+            }
+
+            return isValid;
+        }
+
+        function validateAddressFields() {
+            const { province, municipality, barangay, street } = form.value;
+
+            if (!province || !municipality || !barangay || !street) {
+                errorMsg.value = 'Please fill in all address fields.';
+
+                return false;
+            }
+
+            return true;
+        }
+
+        function validateDriverAddressFields() {
+            const { province, municipality, barangay, street } = form.value;
+
+            if (!province || !municipality || !barangay || !street) {
+                errorMsg.value = 'Please fill in all address fields.';
+
+                return false;
+            }
+
+            return true;
+        }
+
+        function validateSecurityFields() {
+            let isValid = true;
+
+            if (!password.value) {
+                setValidationError('password', 'Password is required');
+                isValid = false;
+            } else if (!validatePassword(password.value)) {
+                setValidationError('password', 'Min 8 characters');
+                isValid = false;
+            } else {
+                clearValidationError('password');
+            }
+
+            if (!confirmPassword.value) {
+                setValidationError(
+                    'confirmPassword',
+                    'Please confirm password',
+                );
+                isValid = false;
+            } else if (password.value !== confirmPassword.value) {
+                setValidationError('confirmPassword', 'Passwords do not match');
+                isValid = false;
+            } else {
+                clearValidationError('confirmPassword');
+            }
+
+            return isValid;
+        }
+
+        function validateDriverSecurityFields() {
+            let isValid = true;
+
+            if (!form.value.driverPassword) {
+                setValidationError('driverPassword', 'Password is required');
+                isValid = false;
+            } else if (!validatePassword(form.value.driverPassword)) {
+                setValidationError('driverPassword', 'Min 8 characters');
+                isValid = false;
+            } else {
+                clearValidationError('driverPassword');
+            }
+
+            if (!form.value.driverConfirmPassword) {
+                setValidationError(
+                    'driverConfirmPassword',
+                    'Please confirm password',
+                );
+                isValid = false;
+            } else if (
+                form.value.driverPassword !== form.value.driverConfirmPassword
+            ) {
+                setValidationError(
+                    'driverConfirmPassword',
+                    'Passwords do not match',
+                );
+                isValid = false;
+            } else {
+                clearValidationError('driverConfirmPassword');
+            }
+
+            return isValid;
+        }
+
+        function validateDocuments() {
+            if (selectedRole.value === 'buyer' && !form.value.idFile) {
+                errorMsg.value = 'Please upload an ID.';
+
+                return false;
+            }
+
+            if (selectedRole.value === 'seller') {
+                if (
+                    !form.value.idFile ||
+                    !form.value.businessPermit ||
+                    !form.value.businessName ||
+                    !form.value.lineOfBusiness
+                ) {
+                    errorMsg.value =
+                        'Please fill in all seller documents and business info.';
+
+                    return false;
+                }
+
+                const allowedLines = [
+                    'Pet Supplies',
+                    'Kids and Baby',
+                    'Electronics and Gadgets',
+                    'House and Garden',
+                    "Woman's Apparel",
+                    "Men's Apparel",
+                    'Sports and Outdoors',
+                    'Health and Beauty',
+                ];
+
+                if (!allowedLines.includes(form.value.lineOfBusiness)) {
+                    errorMsg.value = 'Please select a valid line of business.';
+
+                    return false;
+                }
+            }
+
+            if (selectedRole.value === 'courier') {
+                if (
+                    !form.value.vehicle ||
+                    !form.value.plateNumber ||
+                    !form.value.orcrFile ||
+                    !form.value.licenseFile
+                ) {
+                    errorMsg.value =
+                        'Please fill in all courier documents and vehicle info.';
+
+                    return false;
+                }
+            }
+
+            if (selectedRole.value === 'driver') {
+                if (
+                    !form.value.driverVehicle ||
+                    !form.value.driverPlateNumber ||
+                    !form.value.driverOrcrFile ||
+                    !form.value.driverLicenseFile ||
+                    !form.value.driverIdFile
+                ) {
+                    errorMsg.value =
+                        'Please fill in all driver documents and vehicle info.';
+
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        // Logistics validations
+        function validateCompany() {
+            const {
+                companyName,
+                companyContactNo,
+                companyEmail,
+                companyTIN,
+                companyRegion,
+            } = form.value;
+
+            if (
+                !companyName ||
+                !companyContactNo ||
+                !companyEmail ||
+                !companyTIN ||
+                !companyRegion
+            ) {
+                errorMsg.value = 'Please fill in all required company fields.';
+
+                return false;
+            }
+
+            if (!validateEmail(companyEmail)) {
+                errorMsg.value = 'Invalid company email format.';
+
+                return false;
+            }
+
+            if (!validateContactNumber(companyContactNo)) {
+                errorMsg.value =
+                    'Contact number must start with 09 and be 11 digits.';
+
+                return false;
+            }
+
+            return true;
+        }
+
+        function validateOwner() {
+            const { ownerLastName, ownerFirstName, ownerSex, ownerBirthday } =
+                form.value;
+
+            if (
+                !ownerLastName ||
+                !ownerFirstName ||
+                !ownerSex ||
+                !ownerBirthday
+            ) {
+                errorMsg.value = 'Please fill in all required owner details.';
+
+                return false;
+            }
+
+            if (!validateName(ownerFirstName) || !validateName(ownerLastName)) {
+                errorMsg.value = 'Names should only contain letters.';
+
+                return false;
+            }
+
+            if (!validateBirthday(ownerBirthday)) {
+                errorMsg.value = 'Cannot select future date for birthday.';
+
+                return false;
+            }
+
+            return true;
+        }
+
+        function validateLogisticsAddress() {
+            const {
+                companyProvince,
+                companyMunicipality,
+                companyBarangay,
+                companyStreet,
+            } = form.value;
+
+            if (
+                !companyProvince ||
+                !companyMunicipality ||
+                !companyBarangay ||
+                !companyStreet
+            ) {
+                errorMsg.value = 'Please fill in all address fields.';
+
+                return false;
+            }
+
+            return true;
+        }
+
+        function validateLogisticsSecurity() {
+            if (password.value.length < 8) {
+                errorMsg.value = 'Password must be at least 8 characters.';
+
+                return false;
+            }
+
+            if (password.value !== confirmPassword.value) {
+                errorMsg.value = 'Passwords do not match.';
+
+                return false;
+            }
+
+            return true;
+        }
+
+        function validateLogisticsDocuments() {
+            if (
+                !form.value.ownerIdFile ||
+                !form.value.businessPermitFile ||
+                !form.value.mayorPermitFile ||
+                !form.value.dtiRegFile
+            ) {
+                errorMsg.value = 'Please upload all required documents.';
+
+                return false;
+            }
+
+            return true;
+        }
+
+        // ---------- Signup Email Verification Functions ----------
+        function getSignupEmailForVerification() {
+            if (isLogisticsSignup.value) {
+                return form.value.companyEmail;
+            }
+
+            if (selectedRole.value === 'driver') {
+                return form.value.driverEmail;
+            }
+
+            return email.value;
+        }
+
+        async function sendSignupVerificationCode() {
+            const targetEmail = getSignupEmailForVerification();
+
+            if (!targetEmail || !validateEmail(targetEmail)) {
+                return false;
+            }
+
+            isSendingSignupCode.value = true;
+
+            try {
+                const csrfToken =
+                    document
+                        .querySelector('meta[name="csrf-token"]')
+                        ?.getAttribute('content') || '';
+                const response = await fetch('/api/signup/send-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        email: targetEmail.trim().toLowerCase(),
+                    }),
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    let errorMessage = 'Could not send verification code.';
+
+                    try {
+                        const data = JSON.parse(text);
+                        errorMessage =
+                            data.message || data.error || errorMessage;
+                    } catch {
+                        errorMessage = `Server error: ${response.status} ${response.statusText}`;
+                    }
+
+                    throw new Error(errorMessage);
+                }
+
+                signupVerifyCode.value = '';
+                signupEmailVerified.value = false;
+                successMsg.value =
+                    'A verification code has been sent to your email.';
+
+                return true;
+            } catch (err) {
+                console.error('Failed to send verification code:', err);
+                errorMsg.value =
+                    err.message || 'Could not send code. Please try again.';
+
+                return false;
+            } finally {
+                isSendingSignupCode.value = false;
+            }
+        }
+
+        async function verifySignupCode() {
+            if (
+                !signupVerifyCode.value ||
+                signupVerifyCode.value.length !== 6
+            ) {
+                errorMsg.value = 'Please enter the 6-digit verification code.';
+
+                return false;
+            }
+
+            isVerifyingSignupCode.value = true;
+
+            try {
+                const csrfToken =
+                    document
+                        .querySelector('meta[name="csrf-token"]')
+                        ?.getAttribute('content') || '';
+                const targetEmail = getSignupEmailForVerification();
+
+                const response = await fetch('/api/signup/verify-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        email: targetEmail.trim().toLowerCase(),
+                        code: signupVerifyCode.value.trim(),
+                    }),
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    let errorMessage = 'Invalid code. Please try again.';
+
+                    try {
+                        const data = JSON.parse(text);
+                        errorMessage =
+                            data.message || data.error || errorMessage;
+                    } catch {
+                        errorMessage = `Server error: ${response.status} ${response.statusText}`;
+                    }
+
+                    throw new Error(errorMessage);
+                }
+
+                signupEmailVerified.value = true;
+                successMsg.value = 'Email verified!';
+
+                return true;
+            } catch (err) {
+                console.error('Verification error:', err);
+                errorMsg.value = err.message || 'Invalid or expired code.';
+
+                return false;
+            } finally {
+                isVerifyingSignupCode.value = false;
+            }
+        }
+
+        async function resendSignupVerificationCode() {
+            const targetEmail = getSignupEmailForVerification();
+
+            if (!targetEmail || !validateEmail(targetEmail)) {
+                errorMsg.value = 'Please enter a valid email address.';
+
+                return;
+            }
+
+            try {
+                const csrfToken =
+                    document
+                        .querySelector('meta[name="csrf-token"]')
+                        ?.getAttribute('content') || '';
+                const response = await fetch('/api/signup/resend-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        email: targetEmail.trim().toLowerCase(),
+                    }),
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    let errorMessage = 'Could not resend code.';
+
+                    try {
+                        const data = JSON.parse(text);
+                        errorMessage =
+                            data.message || data.error || errorMessage;
+                    } catch {
+                        errorMessage = `Server error: ${response.status} ${response.statusText}`;
+                    }
+
+                    throw new Error(errorMessage);
+                }
+
+                signupVerifyCode.value = '';
+                signupEmailVerified.value = false;
+                successMsg.value = 'New verification code sent to your email.';
+            } catch (err) {
+                console.error('Resend error:', err);
+                errorMsg.value =
+                    err.message || 'Could not resend code. Please try again.';
+            }
+        }
+
+        // ---------- Registration Functions ----------
+        // Both functions below post to Laravel endpoints that use the Supabase
+        // service role key server-side (see AuthController@registerUser /
+        // registerLogistics). No admin-privileged Supabase call happens in the
+        // browser anymore.
+        async function submitUserRegistration() {
+            try {
+                const isDriver = selectedRole.value === 'driver';
+                const userEmail = isDriver
+                    ? form.value.driverEmail
+                    : email.value;
+                const userPassword = isDriver
+                    ? form.value.driverPassword
+                    : password.value;
+                const userRole = selectedRole.value || 'buyer';
+
+                const fd = new FormData();
+                fd.append('email', (userEmail || '').trim().toLowerCase());
+                fd.append('password', userPassword || '');
+                fd.append('role', userRole);
+
+                if (isDriver) {
+                    fd.append('first_name', form.value.driverFirstName || '');
+                    fd.append('last_name', form.value.driverLastName || '');
+                    fd.append(
+                        'middle_initial',
+                        form.value.driverMiddleInitial || '',
+                    );
+                    fd.append('sex', form.value.driverSex || '');
+                    fd.append('contact_no', form.value.driverContactNo || '');
+                    fd.append('birthday', form.value.driverBirthday || '');
+                } else {
+                    fd.append('first_name', form.value.firstName || '');
+                    fd.append('last_name', form.value.lastName || '');
+                    fd.append('middle_initial', form.value.middleInitial || '');
+                    fd.append('sex', form.value.sex || '');
+                    fd.append('contact_no', form.value.contactNo || '');
+                    fd.append('birthday', form.value.birthday || '');
+                }
+
+                if (
+                    form.value.provinceCode &&
+                    form.value.municipalityCode &&
+                    form.value.barangay
+                ) {
+                    fd.append('province_code', form.value.provinceCode);
+                    fd.append('province_name', form.value.province || '');
+                    fd.append('municipality_code', form.value.municipalityCode);
+                    fd.append(
+                        'municipality_name',
+                        form.value.municipality || '',
+                    );
+                    fd.append('barangay', form.value.barangay);
+                    fd.append('street', form.value.street || '');
+
+                    if (form.value.houseNo) {
+                        fd.append('house_no', form.value.houseNo);
+                    }
+                }
+
+                if (userRole === 'seller') {
+                    fd.append('business_name', form.value.businessName || '');
+                    fd.append(
+                        'line_of_business',
+                        form.value.lineOfBusiness || '',
+                    );
+                } else if (userRole === 'courier') {
+                    fd.append('vehicle', form.value.vehicle || '');
+                    fd.append('plate_number', form.value.plateNumber || '');
+                } else if (userRole === 'driver') {
+                    fd.append('driver_vehicle', form.value.driverVehicle || '');
+                    fd.append(
+                        'driver_plate_number',
+                        form.value.driverPlateNumber || '',
+                    );
+
+                    if (form.value.driverLicenseNumber) {
+                        fd.append(
+                            'driver_license_number',
+                            form.value.driverLicenseNumber,
+                        );
+                    }
+                }
+
+                // Files — field names match AuthController::fileMapForRole()
+                if (userRole === 'driver') {
+                    if (form.value.driverIdFile) {
+                        fd.append('id_file', form.value.driverIdFile);
+                    }
+
+                    if (form.value.driverLicenseFile) {
+                        fd.append('license_file', form.value.driverLicenseFile);
+                    }
+
+                    if (form.value.driverOrcrFile) {
+                        fd.append('orcr_file', form.value.driverOrcrFile);
+                    }
+                } else {
+                    if (form.value.idFile) {
+                        fd.append('id_file', form.value.idFile);
+                    }
+
+                    if (form.value.businessPermit) {
+                        fd.append('business_permit', form.value.businessPermit);
+                    }
+
+                    if (form.value.orcrFile) {
+                        fd.append('orcr_file', form.value.orcrFile);
+                    }
+
+                    if (form.value.licenseFile) {
+                        fd.append('license_file', form.value.licenseFile);
+                    }
+                }
+
+                const csrfToken =
+                    document
+                        .querySelector('meta[name="csrf-token"]')
+                        ?.getAttribute('content') || '';
+                const response = await fetch('/api/signup/register', {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: fd,
+                });
+
+                const result = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error(
+                        result.message ||
+                            'Registration failed. Please try again.',
+                    );
+                }
+
+                console.log('✅ User registered:', result.user_id);
+                successMsg.value =
+                    result.message ||
+                    'Registration submitted! Please wait for administrator approval.';
+                signupStep.value = 'complete';
+            } catch (error) {
+                console.error('Registration error:', error);
+                errorMsg.value =
+                    error.message || 'Registration failed. Please try again.';
+            }
+        }
+
+        async function submitLogisticsRegistration() {
+            try {
+                const fd = new FormData();
+                fd.append(
+                    'company_email',
+                    (form.value.companyEmail || '').trim().toLowerCase(),
+                );
+                fd.append('password', password.value || '');
+                fd.append('company_name', form.value.companyName || '');
+                fd.append(
+                    'company_contact_no',
+                    form.value.companyContactNo || '',
+                );
+                fd.append('company_tin', form.value.companyTIN || '');
+
+                if (form.value.companySECReg) {
+                    fd.append(
+                        'company_sec_registration',
+                        form.value.companySECReg,
+                    );
+                }
+
+                if (form.value.companyRegion) {
+                    fd.append('company_region', form.value.companyRegion);
+                }
+
+                fd.append('owner_first_name', form.value.ownerFirstName || '');
+                fd.append('owner_last_name', form.value.ownerLastName || '');
+                fd.append(
+                    'owner_middle_initial',
+                    form.value.ownerMiddleInitial || '',
+                );
+                fd.append('owner_sex', form.value.ownerSex || '');
+                fd.append('owner_birthday', form.value.ownerBirthday || '');
+
+                if (form.value.companyProvinceCode) {
+                    fd.append(
+                        'company_province_code',
+                        form.value.companyProvinceCode,
+                    );
+                    fd.append(
+                        'company_province_name',
+                        form.value.companyProvince || '',
+                    );
+                    fd.append(
+                        'company_municipality_code',
+                        form.value.companyMunicipalityCode || '',
+                    );
+                    fd.append(
+                        'company_municipality_name',
+                        form.value.companyMunicipality || '',
+                    );
+                    fd.append(
+                        'company_barangay',
+                        form.value.companyBarangay || '',
+                    );
+                    fd.append('company_street', form.value.companyStreet || '');
+
+                    if (form.value.companyHouseNo) {
+                        fd.append(
+                            'company_house_no',
+                            form.value.companyHouseNo,
+                        );
+                    }
+                }
+
+                if (form.value.ownerIdFile) {
+                    fd.append('owner_id_file', form.value.ownerIdFile);
+                }
+
+                if (form.value.businessPermitFile) {
+                    fd.append(
+                        'business_permit_file',
+                        form.value.businessPermitFile,
+                    );
+                }
+
+                if (form.value.mayorPermitFile) {
+                    fd.append('mayor_permit_file', form.value.mayorPermitFile);
+                }
+
+                if (form.value.dtiRegFile) {
+                    fd.append('dti_reg_file', form.value.dtiRegFile);
+                }
+
+                const csrfToken =
+                    document
+                        .querySelector('meta[name="csrf-token"]')
+                        ?.getAttribute('content') || '';
+                const response = await fetch('/api/signup/register-logistics', {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: fd,
+                });
+
+                const result = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error(
+                        result.message ||
+                            'Registration failed. Please try again.',
+                    );
+                }
+
+                console.log(
+                    '✅ Logistics company registered:',
+                    result.company_id,
+                );
+                successMsg.value =
+                    result.message ||
+                    'Logistics company registration submitted! Please wait for administrator approval.';
+                signupStep.value = 'complete';
+            } catch (error) {
+                console.error('Logistics registration error:', error);
+                errorMsg.value =
+                    error.message || 'Registration failed. Please try again.';
+            }
+        }
+
+        function submitRegistration() {
+            resetMessages();
+
+            if (isSubmitting.value) {
+                return;
+            }
+
+            isSubmitting.value = true;
+
+            try {
+                if (isLogisticsSignup.value) {
+                    if (!validateLogisticsDocuments()) {
+                        isSubmitting.value = false;
+
+                        return;
+                    }
+
+                    submitLogisticsRegistration();
+                    isSubmitting.value = false;
+
+                    return;
+                }
+
+                if (selectedRole.value === 'driver') {
+                    if (
+                        !validateDriverPersonal() ||
+                        !validateDriverSecurityFields() ||
+                        !validateDocuments()
+                    ) {
+                        isSubmitting.value = false;
+
+                        return;
+                    }
+                } else {
+                    if (!validateDocuments()) {
+                        isSubmitting.value = false;
+
+                        return;
+                    }
+                }
+
+                submitUserRegistration();
+            } catch (error) {
+                console.error('Submit error:', error);
+                errorMsg.value =
+                    error.message || 'Registration failed. Please try again.';
+            } finally {
+                isSubmitting.value = false;
+            }
+        }
+
+        // ---------- PSGC API Functions ----------
+        const provinceCache = { value: [] };
+
+        function dedupeByCodeOrName(items = []) {
+            const seen = new Map();
+
+            for (const item of items) {
+                if (!item || typeof item !== 'object') {
+                    continue;
+                }
+
+                const code = String(item.code ?? '').trim();
+                const name = String(item.name ?? '').trim();
+
+                if (!code && !name) {
+                    continue;
+                }
+
+                const key = code || name.toLowerCase().replace(/\s+/g, ' ');
+
+                if (!seen.has(key)) {
+                    seen.set(key, item);
+                }
+            }
+
+            return Array.from(seen.values()).sort((a, b) =>
+                a.name.localeCompare(b.name),
+            );
+        }
+
+        async function fetchProvinces() {
+            if (provinceCache.value.length > 0) {
+                provinceOptions.value = provinceCache.value;
+                companyProvinceOptions.value = provinceCache.value;
+
+                return;
+            }
+
+            loadingProvinces.value = true;
+            loadingCompanyProvinces.value = true;
+            addressApiError.value = '';
+
+            try {
+                const regionsRes = await fetch(
+                    `${PSGC_BASE}/regions?limit=100`,
+                );
+
+                if (!regionsRes.ok) {
+                    throw new Error('Request failed: ' + regionsRes.status);
+                }
+
+                const regionsJson = await regionsRes.json();
+                const regions = regionsJson.data || [];
+
+                const provinceResults = await Promise.all(
+                    regions.map(async (r) => {
+                        try {
+                            const res = await fetch(
+                                `${PSGC_BASE}/provinces?region_code=${r.code}`,
+                            );
+
+                            if (!res.ok) {
+                                return [];
+                            }
+
+                            const json = await res.json();
+
+                            return json.data || [];
+                        } catch {
+                            return [];
+                        }
+                    }),
+                );
+
+                const allProvinces = dedupeByCodeOrName(provinceResults.flat());
+
+                if (allProvinces.length === 0) {
+                    throw new Error('No provinces returned');
+                }
+
+                provinceCache.value = allProvinces;
+                provinceOptions.value = allProvinces;
+                companyProvinceOptions.value = allProvinces;
+            } catch {
+                addressApiError.value =
+                    'Could not load provinces from the PSGC API. Check your connection and retry.';
+            } finally {
+                loadingProvinces.value = false;
+                loadingCompanyProvinces.value = false;
+            }
+        }
+
+        async function fetchMunicipalities(provinceCode, isCompany = false) {
+            if (isCompany) {
+                companyMunicipalityOptions.value = [];
+                companyBarangayOptions.value = [];
+                form.value.companyMunicipalityCode = '';
+                form.value.companyMunicipality = '';
+                form.value.companyBarangay = '';
+            } else {
+                municipalityOptions.value = [];
+                barangayOptions.value = [];
+                form.value.municipalityCode = '';
+                form.value.municipality = '';
+                form.value.barangay = '';
+            }
+
+            if (!provinceCode) {
+                return;
+            }
+
+            if (isCompany) {
+                loadingCompanyMunicipalities.value = true;
+            } else {
+                loadingMunicipalities.value = true;
+            }
+
+            addressApiError.value = '';
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                const res = await fetch(
+                    `${PSGC_BASE}/cities-municipalities?province_code=${provinceCode}`,
+                    {
+                        signal: controller.signal,
+                    },
+                );
+                clearTimeout(timeoutId);
+
+                if (!res.ok) {
+                    throw new Error('Request failed: ' + res.status);
+                }
+
+                const json = await res.json();
+                const data = (json.data || [])
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name));
+
+                if (isCompany) {
+                    companyMunicipalityOptions.value = data;
+                } else {
+                    municipalityOptions.value = data;
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    addressApiError.value =
+                        'Request timed out. Please try again.';
+                } else {
+                    addressApiError.value =
+                        'Could not load cities/municipalities. Please try again.';
+                }
+            } finally {
+                if (isCompany) {
+                    loadingCompanyMunicipalities.value = false;
+                } else {
+                    loadingMunicipalities.value = false;
+                }
+            }
+        }
+
+        async function fetchBarangays(municipalityCode, isCompany = false) {
+            if (isCompany) {
+                companyBarangayOptions.value = [];
+                form.value.companyBarangay = '';
+            } else {
+                barangayOptions.value = [];
+                form.value.barangay = '';
+            }
+
+            if (!municipalityCode) {
+                return;
+            }
+
+            if (isCompany) {
+                loadingCompanyBarangays.value = true;
+            } else {
+                loadingBarangays.value = true;
+            }
+
+            addressApiError.value = '';
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+                const res = await fetch(
+                    `${PSGC_BASE}/barangays?city_municipality_code=${municipalityCode}&limit=500`,
+                    {
+                        signal: controller.signal,
+                    },
+                );
+                clearTimeout(timeoutId);
+
+                if (!res.ok) {
+                    let detail = '';
+
+                    try {
+                        detail = await res.text();
+                    } catch {}
+
+                    throw new Error(
+                        'Request failed: ' +
+                            res.status +
+                            (detail ? ' — ' + detail : ''),
+                    );
+                }
+
+                const json = await res.json();
+                const data = (json.data || [])
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name));
+
+                if (isCompany) {
+                    companyBarangayOptions.value = data;
+                } else {
+                    barangayOptions.value = data;
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    addressApiError.value =
+                        'Request timed out. Please try again.';
+                } else {
+                    addressApiError.value =
+                        'Could not load barangays. Please try again.';
+                }
+            } finally {
+                if (isCompany) {
+                    loadingCompanyBarangays.value = false;
+                } else {
+                    loadingBarangays.value = false;
+                }
+            }
+        }
+
+        // Address Change Handlers
+        function onProvinceChange() {
+            const selected = provinceOptions.value.find(
+                (p) => p.code === form.value.provinceCode,
+            );
+            form.value.province = selected ? selected.name : '';
+            fetchMunicipalities(form.value.provinceCode, false);
+        }
+
+        function onMunicipalityChange() {
+            const selected = municipalityOptions.value.find(
+                (m) => m.code === form.value.municipalityCode,
+            );
+            form.value.municipality = selected ? selected.name : '';
+            fetchBarangays(form.value.municipalityCode, false);
+        }
+
+        function onCompanyProvinceChange() {
+            const selected = companyProvinceOptions.value.find(
+                (p) => p.code === form.value.companyProvinceCode,
+            );
+            form.value.companyProvince = selected ? selected.name : '';
+            fetchMunicipalities(form.value.companyProvinceCode, true);
+        }
+
+        function onCompanyMunicipalityChange() {
+            const selected = companyMunicipalityOptions.value.find(
+                (m) => m.code === form.value.companyMunicipalityCode,
+            );
+            form.value.companyMunicipality = selected ? selected.name : '';
+            fetchBarangays(form.value.companyMunicipalityCode, true);
+        }
+
+        function retryAddressLoad() {
+            if (!form.value.provinceCode) {
+                fetchProvinces();
+            } else if (!form.value.municipalityCode) {
+                fetchMunicipalities(form.value.provinceCode, false);
+            } else {
+                fetchBarangays(form.value.municipalityCode, false);
+            }
+        }
+
+        // ---------- Navigation Functions ----------
+        function resetMessages() {
+            errorMsg.value = '';
+            successMsg.value = '';
+        }
+
+        function switchMode(next) {
+            mode.value = next;
+            signupStep.value = 'role';
+            selectedRole.value = null;
+            isLogisticsSignup.value = false;
+            resetMessages();
+            resetStep.value = 1;
+            resetEmail.value = '';
+            resetCode.value = '';
+            newPassword.value = '';
+            newConfirmPassword.value = '';
+            forgotEmail.value = '';
+            isSubmitting.value = false;
+            signupVerifyCode.value = '';
+            signupEmailVerified.value = false;
+            isSendingSignupCode.value = false;
+            isVerifyingSignupCode.value = false;
+
+            form.value = {
+                lastName: '',
+                firstName: '',
+                middleInitial: '',
+                sex: '',
+                contactNo: '',
+                birthday: '',
+                provinceCode: '',
+                province: '',
+                municipalityCode: '',
+                municipality: '',
+                barangay: '',
+                street: '',
+                houseNo: '',
+                idFile: null,
+                businessName: '',
+                lineOfBusiness: '',
+                businessPermit: null,
+                vehicle: '',
+                plateNumber: '',
+                orcrFile: null,
+                licenseFile: null,
+                companyName: '',
+                companyAddress: '',
+                companyRegion: '',
+                companyProvinceCode: '',
+                companyProvince: '',
+                companyMunicipalityCode: '',
+                companyMunicipality: '',
+                companyBarangay: '',
+                companyStreet: '',
+                companyHouseNo: '',
+                companyContactNo: '',
+                companyEmail: '',
+                companyTIN: '',
+                companySECReg: '',
+                ownerLastName: '',
+                ownerFirstName: '',
+                ownerMiddleInitial: '',
+                ownerSex: '',
+                ownerBirthday: '',
+                ownerIdFile: null,
+                businessPermitFile: null,
+                mayorPermitFile: null,
+                dtiRegFile: null,
+                driverFirstName: '',
+                driverLastName: '',
+                driverMiddleInitial: '',
+                driverSex: '',
+                driverBirthday: '',
+                driverContactNo: '',
+                driverEmail: '',
+                driverPassword: '',
+                driverConfirmPassword: '',
+                driverIdFile: null,
+                driverLicenseFile: null,
+                driverVehicle: '',
+                driverPlateNumber: '',
+                driverOrcrFile: null,
+                driverLicenseNumber: '',
+            };
+
+            Object.keys(validationErrors.value).forEach((key) => {
+                validationErrors.value[key] = '';
+            });
+
+            municipalityOptions.value = [];
+            barangayOptions.value = [];
+            companyMunicipalityOptions.value = [];
+            companyBarangayOptions.value = [];
+            addressApiError.value = '';
+            email.value = '';
+            password.value = '';
+            confirmPassword.value = '';
+        }
+
+        function startLogisticsSignup() {
+            isLogisticsSignup.value = true;
+            signupStep.value = 'company';
             resetMessages();
         }
-    });
 
-    // ========== ADD THIS: Check existing session ==========
-    // ========== Check existing session ==========
-// ========== Check existing session ==========
-const sessionCookie = getCookie('nexmart_session');
-if (sessionCookie) {
-    try {
-        const userData = JSON.parse(sessionCookie);
-        loggedInUser.value = userData;
-        
-        // Redirect based on role
-        switch (userData.role) {
-            case 'admin':
-                window.location.href = '/admin/dashboard';
-                break;
-            case 'logistics':
-            case 'logistics_admin':
-                window.location.href = '/logistics/dashboard';
-                break;
-            case 'seller':
-                window.location.href = '/seller/dashboard';
-                break;
-            case 'courier':
-                window.location.href = '/pickup-courier';
-                break;
-            case 'driver':
-                window.location.href = '/';
-                break;
-            default:
-                window.location.href = '/buyer/dashboard';
+        function selectRole(role) {
+            selectedRole.value = role;
+            resetMessages();
+
+            Object.keys(validationErrors.value).forEach((key) => {
+                validationErrors.value[key] = '';
+            });
+
+            if (role === 'driver') {
+                signupStep.value = 'driverPersonal';
+            } else {
+                signupStep.value = 'personal';
+            }
         }
-    } catch (e) {
-        console.log('Invalid session cookie');
-    }
-}
-    // ========== END ADD ==========
-});
 
-    // ---------- Return ----------
-    return {
-      mode, showPassword, rememberMe, email, password, confirmPassword,
-      forgotEmail, errorMsg, successMsg, loggedInUser, roles, selectedRole, signupStep,
-      form, steps, logisticsSteps, driverSteps, currentStepIndex, isLogisticsSignup,
-      provinceOptions, municipalityOptions, barangayOptions,
-      companyProvinceOptions, companyMunicipalityOptions, companyBarangayOptions,
-      loadingProvinces, loadingMunicipalities, loadingBarangays,
-      loadingCompanyProvinces, loadingCompanyMunicipalities, loadingCompanyBarangays,
-      addressApiError, validationErrors, isSubmitting,
-      signupVerifyCode, isSendingSignupCode, isVerifyingSignupCode, signupEmailVerified,
-      resendSignupVerificationCode,
-      stepKeys, driverStepKeys, logisticsStepKeys,
-      onProvinceChange, onMunicipalityChange, onCompanyProvinceChange, onCompanyMunicipalityChange,
-      retryAddressLoad,
-      switchMode, handleLogin, selectRole, goToStep,
-      handleFileUpload, submitRegistration, logout, startLogisticsSignup,
-      formatContactNumber, formatName, formatMiddleInitial,
-      validatePersonalFields, validateDriverPersonal, validateSecurityFields,
-      validateDriverSecurityFields, validateAddressFields, validateDocuments,
-      resetStep, resetEmail, resetCode, newPassword, newConfirmPassword, isVerifying,
-      handleSendCode, handleVerifyCode, handleResetPassword, handleResendCode, goToResetStep
-    };
-  },
-  
-  // ---------- Template ----------
-  template: `
+        async function goToStep(step) {
+            if (selectedRole.value === 'driver') {
+                if (
+                    step === 'driverVerifyEmail' &&
+                    signupStep.value === 'driverPersonal'
+                ) {
+                    if (!validateDriverPersonal()) {
+                        return;
+                    }
+
+                    signupStep.value = step;
+                    resetMessages();
+                    sendSignupVerificationCode();
+
+                    return;
+                }
+
+                if (
+                    step === 'driverAddress' &&
+                    signupStep.value === 'driverVerifyEmail'
+                ) {
+                    const verified = await verifySignupCode();
+
+                    if (!verified) {
+                        return;
+                    }
+
+                    signupStep.value = step;
+                    resetMessages();
+
+                    return;
+                }
+
+                if (
+                    step === 'driverSecurity' &&
+                    signupStep.value === 'driverAddress'
+                ) {
+                    if (!validateDriverAddressFields()) {
+                        return;
+                    }
+                }
+
+                if (
+                    step === 'driverDocuments' &&
+                    signupStep.value === 'driverSecurity'
+                ) {
+                    if (!validateDriverSecurityFields()) {
+                        return;
+                    }
+                }
+            } else if (!isLogisticsSignup.value) {
+                if (step === 'verifyEmail' && signupStep.value === 'personal') {
+                    if (!validatePersonalFields()) {
+                        return;
+                    }
+
+                    signupStep.value = step;
+                    resetMessages();
+                    sendSignupVerificationCode();
+
+                    return;
+                }
+
+                if (step === 'address' && signupStep.value === 'verifyEmail') {
+                    const verified = await verifySignupCode();
+
+                    if (!verified) {
+                        return;
+                    }
+
+                    signupStep.value = step;
+                    resetMessages();
+
+                    return;
+                }
+
+                if (step === 'security' && signupStep.value === 'address') {
+                    if (!validateAddressFields()) {
+                        return;
+                    }
+                }
+
+                if (step === 'documents' && signupStep.value === 'security') {
+                    if (!validateSecurityFields()) {
+                        return;
+                    }
+                }
+            } else {
+                if (
+                    step === 'companyVerifyEmail' &&
+                    signupStep.value === 'company'
+                ) {
+                    if (!validateCompany()) {
+                        return;
+                    }
+
+                    signupStep.value = step;
+                    resetMessages();
+                    sendSignupVerificationCode();
+
+                    return;
+                }
+
+                if (
+                    step === 'owner' &&
+                    signupStep.value === 'companyVerifyEmail'
+                ) {
+                    const verified = await verifySignupCode();
+
+                    if (!verified) {
+                        return;
+                    }
+
+                    signupStep.value = step;
+                    resetMessages();
+
+                    return;
+                }
+
+                if (step === 'address' && signupStep.value === 'owner') {
+                    if (!validateOwner()) {
+                        return;
+                    }
+                }
+
+                if (step === 'security' && signupStep.value === 'address') {
+                    if (!validateLogisticsAddress()) {
+                        return;
+                    }
+                }
+
+                if (step === 'documents' && signupStep.value === 'security') {
+                    if (!validateLogisticsSecurity()) {
+                        return;
+                    }
+                }
+            }
+
+            signupStep.value = step;
+            resetMessages();
+        }
+
+        function handleFileUpload(event, field) {
+            const file = event.target.files[0];
+
+            if (file) {
+                form.value[field] = file;
+            }
+        }
+
+        // ---------- Login Functions ----------
+        // ---------- Login Functions ----------
+        async function handleLogin() {
+            resetMessages();
+
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email: email.value.trim().toLowerCase(),
+                password: password.value,
+            });
+
+            if (error) {
+                console.log('Supabase auth error:', error);
+                errorMsg.value = 'Email or password is incorrect.';
+
+                return;
+            }
+
+            const user = data.user;
+
+            const { data: profile, error: profileError } = await supabase
+                .from('profiles')
+                .select(
+                    'role, first_name, last_name, email, account_status, status',
+                )
+                .eq('id', user.id)
+                .single();
+
+            if (profileError) {
+                console.log('Profile error:', profileError);
+                errorMsg.value = 'Could not fetch user profile.';
+
+                return;
+            }
+
+            // Check account status
+            if (profile.account_status === 'suspended') {
+                errorMsg.value =
+                    'Your account has been suspended. Please contact support.';
+                await supabase.auth.signOut();
+
+                return;
+            }
+
+            if (profile.account_status === 'deactivated') {
+                errorMsg.value =
+                    'Your account has been deactivated. Please contact support.';
+                await supabase.auth.signOut();
+
+                return;
+            }
+
+            if (
+                profile.account_status === 'pending' ||
+                profile.status === 'pending'
+            ) {
+                errorMsg.value =
+                    'Your account is pending approval. Please wait for the administrator to approve your account.';
+                await supabase.auth.signOut();
+
+                return;
+            }
+
+            if (profile.status === 'rejected') {
+                errorMsg.value =
+                    'Your account has been rejected. Please contact support.';
+                await supabase.auth.signOut();
+
+                return;
+            }
+
+            const userRole =
+                profile?.role || user.user_metadata?.role || 'buyer';
+
+            loggedInUser.value = {
+                email: user.email,
+                role: userRole,
+                status: profile.account_status || profile.status,
+            };
+
+            setCookie(
+                'nexmart_session',
+                JSON.stringify(loggedInUser.value),
+                rememberMe.value ? 30 : 1,
+            );
+
+            // Redirect based on role
+            switch (userRole) {
+                case 'admin':
+                    window.location.href = '/admin/dashboard';
+                    break;
+                case 'logistics':
+                case 'logistics_admin':
+                    window.location.href = '/logistics/dashboard';
+                    break;
+                case 'seller':
+                    window.location.href = '/seller/dashboard';
+                    break;
+                case 'courier':
+                    // Independent courier - goes to pickup courier page
+                    window.location.href = '/pickup-courier';
+                    break;
+                case 'driver':
+                    window.location.href = '/';
+                    break;
+                default: // buyer
+                    window.location.href = '/buyer/dashboard';
+            }
+        }
+
+        // ---------- Password Reset Functions ----------
+        async function handleSendCode() {
+            resetMessages();
+
+            if (!forgotEmail.value) {
+                errorMsg.value = 'Please enter your email address.';
+
+                return;
+            }
+
+            try {
+                const csrfToken =
+                    document
+                        .querySelector('meta[name="csrf-token"]')
+                        ?.getAttribute('content') || '';
+
+                const response = await fetch('/api/password/send-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        email: forgotEmail.value.trim().toLowerCase(),
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || 'Something went wrong');
+                }
+
+                resetEmail.value = forgotEmail.value;
+                forgotEmail.value = '';
+                resetStep.value = 2;
+                successMsg.value =
+                    'A verification code has been sent to your email.';
+            } catch (err) {
+                errorMsg.value =
+                    err.message || 'Could not send code. Please try again.';
+            }
+        }
+
+        async function handleVerifyCode() {
+            resetMessages();
+
+            if (!resetCode.value || resetCode.value.length !== 6) {
+                errorMsg.value = 'Please enter the 6-digit verification code.';
+
+                return;
+            }
+
+            isVerifying.value = true;
+
+            try {
+                const csrfToken =
+                    document
+                        .querySelector('meta[name="csrf-token"]')
+                        ?.getAttribute('content') || '';
+
+                const response = await fetch('/api/password/verify-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        email: resetEmail.value,
+                        code: resetCode.value,
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(
+                        data.message || 'Invalid code. Please try again.',
+                    );
+                }
+
+                resetStep.value = 3;
+                successMsg.value =
+                    'Code verified! Please enter your new password.';
+            } catch (err) {
+                errorMsg.value =
+                    err.message ||
+                    'Invalid or expired code. Please request a new one.';
+            } finally {
+                isVerifying.value = false;
+            }
+        }
+
+        async function handleResetPassword() {
+            resetMessages();
+
+            if (!newPassword.value || newPassword.value.length < 8) {
+                errorMsg.value = 'Password must be at least 8 characters.';
+
+                return;
+            }
+
+            if (newPassword.value !== newConfirmPassword.value) {
+                errorMsg.value = 'Passwords do not match.';
+
+                return;
+            }
+
+            try {
+                const csrfToken =
+                    document
+                        .querySelector('meta[name="csrf-token"]')
+                        ?.getAttribute('content') || '';
+
+                const response = await fetch('/api/password/reset', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        email: resetEmail.value,
+                        code: resetCode.value,
+                        password: newPassword.value,
+                        password_confirmation: newConfirmPassword.value,
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(
+                        data.message || 'Failed to reset password.',
+                    );
+                }
+
+                resetCode.value = '';
+                newPassword.value = '';
+                newConfirmPassword.value = '';
+                resetEmail.value = '';
+                resetStep.value = 1;
+                mode.value = 'login';
+                successMsg.value =
+                    'Password reset successfully! You can now log in.';
+            } catch (err) {
+                errorMsg.value =
+                    err.message ||
+                    'Could not reset password. Please try again.';
+            }
+        }
+
+        async function handleResendCode() {
+            resetMessages();
+
+            if (!resetEmail.value) {
+                errorMsg.value = 'Email address not found. Please start over.';
+                resetStep.value = 1;
+
+                return;
+            }
+
+            try {
+                const csrfToken =
+                    document
+                        .querySelector('meta[name="csrf-token"]')
+                        ?.getAttribute('content') || '';
+
+                const response = await fetch('/api/password/resend-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        email: resetEmail.value,
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || 'Could not resend code.');
+                }
+
+                successMsg.value = 'New verification code sent to your email.';
+            } catch (err) {
+                errorMsg.value =
+                    err.message || 'Could not resend code. Please try again.';
+            }
+        }
+
+        function goToResetStep(step) {
+            resetStep.value = step;
+            resetMessages();
+        }
+
+        function logout() {
+            loggedInUser.value = null;
+            deleteCookie('nexmart_session');
+            resetMessages();
+            supabase.auth.signOut();
+        }
+
+        // Input handlers
+        function formatContactNumber(event, field) {
+            let value = event.target.value;
+            value = value.replace(/\D/g, '');
+
+            if (value.length > 11) {
+                value = value.slice(0, 11);
+            }
+
+            event.target.value = value;
+
+            if (field) {
+                form.value[field] = value;
+            }
+        }
+
+        function formatName(event, field) {
+            let value = event.target.value;
+            value = value.replace(/[^A-Za-z\s\-]/g, '');
+            event.target.value = value;
+
+            if (field) {
+                form.value[field] = value;
+            }
+        }
+
+        function formatMiddleInitial(event, field) {
+            let value = event.target.value;
+            value = value.replace(/[^A-Za-z]/g, '');
+
+            if (value.length > 1) {
+                value = value.slice(0, 1);
+            }
+
+            value = value.toUpperCase();
+            event.target.value = value;
+
+            if (field) {
+                form.value[field] = value;
+            }
+        }
+
+        // ---------- Lifecycle ----------
+        onMounted(() => {
+            fetchProvinces();
+
+            supabase.auth.onAuthStateChange((event) => {
+                if (event === 'PASSWORD_RECOVERY') {
+                    mode.value = 'reset';
+                    resetMessages();
+                }
+            });
+
+            // ========== Check existing session ==========
+            const sessionCookie = getCookie('nexmart_session');
+
+            if (sessionCookie) {
+                try {
+                    const userData = JSON.parse(sessionCookie);
+                    loggedInUser.value = userData;
+
+                    // Redirect based on role
+                    switch (userData.role) {
+                        case 'admin':
+                            window.location.href = '/admin/dashboard';
+                            break;
+                        case 'logistics':
+                        case 'logistics_admin':
+                            window.location.href = '/logistics/dashboard';
+                            break;
+                        case 'seller':
+                            window.location.href = '/seller/dashboard';
+                            break;
+                        case 'courier':
+                            window.location.href = '/pickup-courier';
+                            break;
+                        case 'driver':
+                            window.location.href = '/';
+                            break;
+                        default:
+                            window.location.href = '/buyer/dashboard';
+                    }
+                } catch (e) {
+                    console.log('Invalid session cookie');
+                }
+            }
+        });
+
+        // ---------- Return ----------
+        return {
+            mode,
+            showPassword,
+            rememberMe,
+            email,
+            password,
+            confirmPassword,
+            forgotEmail,
+            errorMsg,
+            successMsg,
+            loggedInUser,
+            roles,
+            selectedRole,
+            signupStep,
+            form,
+            steps,
+            logisticsSteps,
+            driverSteps,
+            currentStepIndex,
+            isLogisticsSignup,
+            provinceOptions,
+            municipalityOptions,
+            barangayOptions,
+            companyProvinceOptions,
+            companyMunicipalityOptions,
+            companyBarangayOptions,
+            loadingProvinces,
+            loadingMunicipalities,
+            loadingBarangays,
+            loadingCompanyProvinces,
+            loadingCompanyMunicipalities,
+            loadingCompanyBarangays,
+            addressApiError,
+            validationErrors,
+            isSubmitting,
+            signupVerifyCode,
+            isSendingSignupCode,
+            isVerifyingSignupCode,
+            signupEmailVerified,
+            resendSignupVerificationCode,
+            stepKeys,
+            driverStepKeys,
+            logisticsStepKeys,
+            onProvinceChange,
+            onMunicipalityChange,
+            onCompanyProvinceChange,
+            onCompanyMunicipalityChange,
+            retryAddressLoad,
+            switchMode,
+            handleLogin,
+            selectRole,
+            goToStep,
+            handleFileUpload,
+            submitRegistration,
+            logout,
+            startLogisticsSignup,
+            formatContactNumber,
+            formatName,
+            formatMiddleInitial,
+            validatePersonalFields,
+            validateDriverPersonal,
+            validateSecurityFields,
+            validateDriverSecurityFields,
+            validateAddressFields,
+            validateDocuments,
+            resetStep,
+            resetEmail,
+            resetCode,
+            newPassword,
+            newConfirmPassword,
+            isVerifying,
+            handleSendCode,
+            handleVerifyCode,
+            handleResetPassword,
+            handleResendCode,
+            goToResetStep,
+        };
+    },
+
+    // ---------- Template ----------
+    template: `
   <div class="min-h-screen flex flex-col md:flex-row" style="height:100vh;overflow:hidden;">
 
     <!-- LEFT PANEL -->
@@ -1836,15 +2512,15 @@ if (sessionCookie) {
                   <p class="text-xs text-slate-500 mt-1 leading-snug">{{ r.desc }}</p>
                 </button>
               </div>
-              
+
               <!-- Logistics Company Link -->
               <div class="mt-4 pt-4 border-t border-slate-200">
                 <p class="text-center text-sm text-slate-600">
-                  Have your own logistics company? 
+                  Have your own logistics company?
                   <a href="#" @click.prevent="startLogisticsSignup" class="logistics-link">Sign up here</a>
                 </p>
               </div>
-              
+
               <p class="text-center text-sm text-slate-500">Already have an account? <a href="#" @click.prevent="switchMode('login')" class="text-teal-600 font-semibold hover:underline">Log in</a></p>
             </div>
 
@@ -1994,7 +2670,7 @@ if (sessionCookie) {
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
 
-                
+
               </div>
 
               <!-- Navigation -->
@@ -2029,7 +2705,7 @@ if (sessionCookie) {
                   <div class="form-grid">
                     <div class="full-width"><label class="field-label">Company Name <span class="text-teal-500">*</span></label><input v-model="form.companyName" placeholder="ABC Logistics Inc." class="field-input" /></div>
                     <div class="full-width"><label class="field-label">Company Email <span class="text-teal-500">*</span></label><input v-model="form.companyEmail" type="email" placeholder="info@abclogistics.com" class="field-input" /></div>
-                    
+
                     <div class="full-width">
                       <label class="field-label">Region <span class="text-teal-500">*</span></label>
                       <select v-model="form.companyRegion" class="field-input">
@@ -2040,7 +2716,7 @@ if (sessionCookie) {
                       </select>
                     </div>
 
-                    
+
                     <div><label class="field-label">Contact No. <span class="text-teal-500">*</span></label><input v-model="form.companyContactNo" @input="formatContactNumber($event, 'companyContactNo')" placeholder="09XXXXXXXXX" class="field-input" /></div>
                     <div><label class="field-label">TIN <span class="text-teal-500">*</span></label><input v-model="form.companyTIN" placeholder="123-456-789-000" class="field-input" /></div>
                     <div class="full-width"><label class="field-label">SEC Registration #</label><input v-model="form.companySECReg" placeholder="SEC Reg. No. (if applicable)" class="field-input" /></div>
@@ -2346,7 +3022,7 @@ if (sessionCookie) {
       </div>
     </div>
   </div>
-  `
+  `,
 };
 
 // Mount the app

@@ -14,13 +14,15 @@ class OrderItem extends Model
 
     protected $fillable = [
         'order_id', 'product_id', 'product_name', 'category', 'sku',
-        'variant', 'unit_price', 'quantity', 'subtotal',
+        'variant', 'variant_id', 'variant_sku', 'variant_options',
+        'unit_price', 'quantity', 'subtotal',
     ];
 
     protected $casts = [
         'unit_price' => 'decimal:2',
         'subtotal' => 'decimal:2',
         'quantity' => 'integer',
+        'variant_options' => 'array',
     ];
 
     public function order(): BelongsTo

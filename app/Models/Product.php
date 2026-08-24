@@ -11,19 +11,26 @@ class Product extends Model
     protected $table = 'products';
 
     public $incrementing = false;
-
     protected $keyType = 'string';
 
     protected $fillable = [
         'seller_id', 'name', 'description', 'category', 'sku',
+        'brand', 'condition', 'dimensions', 'weight', 'low_stock_threshold',
+        'specifications',
         'price', 'compare_price', 'promo_code', 'stock', 'images', 'status',
+        'has_variants',
     ];
 
     protected $casts = [
         'price' => 'decimal:2',
         'compare_price' => 'decimal:2',
         'stock' => 'integer',
+        'low_stock_threshold' => 'integer',
+        'weight' => 'decimal:3',
         'images' => 'array',
+        'dimensions' => 'array',
+        'specifications' => 'array',
+        'has_variants' => 'boolean',
     ];
 
     public function seller(): BelongsTo
@@ -34,5 +41,26 @@ class Product extends Model
     public function complianceActions(): HasMany
     {
         return $this->hasMany(SellerComplianceAction::class);
+    }
+
+    public function options(): HasMany
+    {
+        return $this->hasMany(ProductOption::class)->orderBy('position');
+    }
+
+    public function variants(): HasMany
+    {
+        return $this->hasMany(ProductVariant::class);
+    }
+
+    /**
+     * Products buyers are allowed to browse/purchase. Sellers can set
+     * status to something other than 'active' (e.g. 'disabled') to hide a
+     * listing without deleting it — see Seller\ProductController@destroy,
+     * which soft-hides rather than hard-deletes for that reason.
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('status', 'active');
     }
 }
