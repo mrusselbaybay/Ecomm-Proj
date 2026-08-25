@@ -434,7 +434,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, onActivated, onBeforeUnmount, reactive, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 
 const { adminFetch } = useAdmin();
@@ -644,7 +644,12 @@ async function saveUpdate() {
     }
 }
 
-onMounted(() => loadComplaints());
+// This component is kept alive by AdminLayout's <KeepAlive>, so
+// onActivated (not onMounted) fires both on first visit and every time the
+// admin returns to this tab — reloading the current page/filters instead of
+// showing a case list that may have since changed (new complaint, another
+// admin's update, etc.).
+onActivated(() => loadComplaints(pagination.value.current_page));
 onBeforeUnmount(() => clearTimeout(searchTimer));
 </script>
 

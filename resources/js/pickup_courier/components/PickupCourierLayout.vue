@@ -780,8 +780,17 @@ async function viewMyResume(app) {
 }
 
 async function logout() {
-  await supabase.auth.signOut();
-  window.location.href = '/';
+  try {
+    await supabase.auth.signOut();
+  } finally {
+    // The login page reads this cookie to auto-redirect signed-in visitors
+    // back to their dashboard. Leaving it behind after sign-out sent
+    // couriers straight back to /pickup-courier with no real session,
+    // which showed "Access Denied" before they could reach the login form.
+    document.cookie =
+      'nexmart_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
+    window.location.href = '/';
+  }
 }
 
 onMounted(() => {

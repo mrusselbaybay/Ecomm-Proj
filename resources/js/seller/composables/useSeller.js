@@ -310,9 +310,16 @@ async function confirmLogout() {
     try {
         const supabase = getSupabase();
         await supabase.auth.signOut();
-        window.location.href = '/';
     } catch (err) {
         console.error('Logout error:', err);
+    } finally {
+        // The login page reads this cookie to auto-redirect signed-in
+        // visitors back to their dashboard. Leaving it behind after
+        // sign-out sent people straight back to /seller/dashboard with no
+        // real session, which showed "Access Denied" before they could
+        // reach the login form.
+        document.cookie =
+            'nexmart_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
         window.location.href = '/';
     }
 }

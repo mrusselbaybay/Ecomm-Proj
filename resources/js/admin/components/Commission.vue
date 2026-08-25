@@ -160,7 +160,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onActivated, onBeforeUnmount, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 
 const { adminFetch } = useAdmin();
@@ -252,7 +252,11 @@ async function loadCommissions(page = 1) {
     }
 }
 
-onMounted(() => loadCommissions());
+// This component is kept alive by AdminLayout's <KeepAlive>, so
+// onActivated (not onMounted) fires both on first visit and every time the
+// admin returns to this tab — reloading the current page/filters instead of
+// showing commission figures that may be out of date.
+onActivated(() => loadCommissions(pagination.value.current_page));
 onBeforeUnmount(() => clearTimeout(searchTimer));
 </script>
 

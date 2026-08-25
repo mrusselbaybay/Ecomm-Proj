@@ -480,7 +480,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 
 const { accounts, statusBadgeClass, formatDate, adminFetch, supabase } =
@@ -699,14 +699,22 @@ async function submitStatusChange() {
     }
 }
 
+// currentAdminId never changes for the life of this session, so it only
+// needs fetching once — unlike the account list below, it doesn't belong in
+// onActivated.
 onMounted(async () => {
     const {
         data: { user },
     } = await supabase.auth.getUser();
 
     currentAdminId.value = user?.id || null;
-    await loadAccounts();
 });
+
+// This component is kept alive by AdminLayout's <KeepAlive>, so
+// onActivated fires both on first visit and every time the admin returns to
+// this tab — reloading the current page/filters so account status changes
+// made elsewhere (or by another admin) show up instead of a stale list.
+onActivated(() => loadAccounts(pagination.value.current_page));
 
 onBeforeUnmount(() => clearTimeout(searchTimer));
 </script>

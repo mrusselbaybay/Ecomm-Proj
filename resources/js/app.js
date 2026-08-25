@@ -1,7 +1,14 @@
 import '../css/app.css';
 
 // resources/js/app.js
-const { createApp, ref, computed, onMounted } = Vue;
+// This file builds its component with an inline `template:` string (see the
+// bottom of this file) rather than a compiled .vue SFC, so it needs Vue's
+// runtime *compiler*, not just the runtime. The plain "vue" package resolves
+// to the compiler-less runtime build in a bundler context (the compiler is
+// normally handled by @vitejs/plugin-vue at build time for .vue files) —
+// importing the esm-bundler build directly restores template compilation
+// without going back to the unpkg.com CDN build this replaced.
+import { createApp, ref, computed, onMounted } from 'vue/dist/vue.esm-bundler.js';
 
 // ---------- Configuration ----------
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -1665,6 +1672,10 @@ const App = {
             isLogisticsSignup.value = true;
             signupStep.value = 'company';
             resetMessages();
+            // Company step needs companyProvinceOptions — fetch now instead
+            // of on every page load (fetchProvinces() is cache-guarded, so
+            // this is a no-op if it already ran for this session).
+            fetchProvinces();
         }
 
         function selectRole(role) {
@@ -1680,6 +1691,11 @@ const App = {
             } else {
                 signupStep.value = 'personal';
             }
+
+            // Kick off the province list now, in the background, so it's
+            // ready by the time the wizard reaches the address step —
+            // without loading it for every visitor who's just logging in.
+            fetchProvinces();
         }
 
         async function goToStep(step) {
@@ -2191,8 +2207,12 @@ const App = {
         }
 
         // ---------- Lifecycle ----------
-        onMounted(() => {
-            fetchProvinces();
+        onMounted(async () => {
+            // Note: fetchProvinces() is intentionally NOT called here. It's
+            // only needed once the visitor commits to signing up (see
+            // selectRole()/startLogisticsSignup()) — fetching the full PH
+            // province list on every login-page load, for every visitor,
+            // was pure wasted work slowing this page down.
 
             supabase.auth.onAuthStateChange((event) => {
                 if (event === 'PASSWORD_RECOVERY') {
@@ -2202,37 +2222,63 @@ const App = {
             });
 
             // ========== Check existing session ==========
+            // The 'nexmart_session' cookie is only a UI hint (used to show
+            // "You're in!" instantly without waiting on Supabase). It must
+            // never be trusted on its own to redirect: if it's stale (e.g.
+            // left behind by a logout on another role page) we'd bounce the
+            // visitor to a role dashboard they're no longer authenticated
+            // for, which shows "Access Denied" before it sends them back
+            // here. Always verify the real Supabase session first.
             const sessionCookie = getCookie('nexmart_session');
 
-            if (sessionCookie) {
-                try {
-                    const userData = JSON.parse(sessionCookie);
-                    loggedInUser.value = userData;
+            if (!sessionCookie) {
+                return;
+            }
 
-                    // Redirect based on role
-                    switch (userData.role) {
-                        case 'admin':
-                            window.location.href = '/admin/dashboard';
-                            break;
-                        case 'logistics':
-                        case 'logistics_admin':
-                            window.location.href = '/logistics/dashboard';
-                            break;
-                        case 'seller':
-                            window.location.href = '/seller/dashboard';
-                            break;
-                        case 'courier':
-                            window.location.href = '/pickup-courier';
-                            break;
-                        case 'driver':
-                            window.location.href = '/';
-                            break;
-                        default:
-                            window.location.href = '/buyer/dashboard';
-                    }
-                } catch (e) {
-                    console.log('Invalid session cookie');
-                }
+            let userData;
+
+            try {
+                userData = JSON.parse(sessionCookie);
+            } catch {
+                deleteCookie('nexmart_session');
+
+                return;
+            }
+
+            const {
+                data: { session },
+            } = await supabase.auth.getSession();
+
+            if (!session) {
+                // Stale cookie from an earlier logout — clear it so it
+                // doesn't keep tricking this check on future visits.
+                deleteCookie('nexmart_session');
+
+                return;
+            }
+
+            loggedInUser.value = userData;
+
+            // Redirect based on role
+            switch (userData.role) {
+                case 'admin':
+                    window.location.href = '/admin/dashboard';
+                    break;
+                case 'logistics':
+                case 'logistics_admin':
+                    window.location.href = '/logistics/dashboard';
+                    break;
+                case 'seller':
+                    window.location.href = '/seller/dashboard';
+                    break;
+                case 'courier':
+                    window.location.href = '/pickup-courier';
+                    break;
+                case 'driver':
+                    window.location.href = '/';
+                    break;
+                default:
+                    window.location.href = '/buyer/dashboard';
             }
         });
 
@@ -2366,10 +2412,7 @@ const App = {
         <!-- LOGGED IN -->
         <div v-if="loggedInUser" class="text-center" style="padding:2rem 0;">
           <h2 class="display-font text-3xl font-bold text-slate-900 mb-2">You're in!</h2>
-          <p class="text-slate-500 mb-6">
-            <span v-if="loggedInUser.email">Logged in as <strong>{{ loggedInUser.email }}</strong> ({{ loggedInUser.role }})</span>
-            <span v-else>Guest</span>
-          </p>
+          <p class="text-slate-500 mb-6">Redirecting you to your dashboard…</p>
           <button @click="logout" class="w-full border border-slate-300 text-slate-700 font-semibold py-3 rounded-lg hover:bg-slate-50">Log out</button>
         </div>
 

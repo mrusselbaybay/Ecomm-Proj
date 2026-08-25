@@ -114,6 +114,31 @@
             </table>
         </div>
 
+        <div
+            v-if="pagination.last_page > 1"
+            class="mt-4 flex items-center justify-between text-sm text-slate-500"
+        >
+            <span>
+                Page {{ pagination.current_page }} of {{ pagination.last_page }}
+            </span>
+            <div class="flex gap-2">
+                <button
+                    class="btn-outline"
+                    :disabled="pagination.current_page === 1"
+                    @click="loadData(pagination.current_page - 1)"
+                >
+                    Previous
+                </button>
+                <button
+                    class="btn-outline"
+                    :disabled="pagination.current_page === pagination.last_page"
+                    @click="loadData(pagination.current_page + 1)"
+                >
+                    Next
+                </button>
+            </div>
+        </div>
+
         <!-- Rejection Modal -->
         <div
             v-if="showRejectModal"
@@ -210,7 +235,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onActivated, onBeforeUnmount, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 
 const {
@@ -230,6 +255,10 @@ const showRejectModal = ref(false);
 const rejectUserData = ref(null);
 const selectedReason = ref('');
 const customReason = ref('');
+const pagination = ref({
+    current_page: 1,
+    last_page: 1,
+});
 let searchTimer;
 
 const rejectionReasons = [
@@ -264,13 +293,13 @@ const canReject = computed(
         (selectedReason.value !== 'others' || customReason.value.trim()),
 );
 
-async function loadData() {
+async function loadData(page = 1) {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(async () => {
         loading.value = true;
 
         try {
-            const params = new URLSearchParams();
+            const params = new URLSearchParams({ page: String(page) });
 
             if (search.value.trim()) {
                 params.set('search', search.value.trim());
@@ -291,6 +320,10 @@ async function loadData() {
 
             registrations.value = payload.applications.data;
             pendingCount.value = payload.counts.pending;
+            pagination.value = {
+                current_page: payload.applications.current_page,
+                last_page: payload.applications.last_page,
+            };
         } catch (error) {
             window.alert(error.message);
         } finally {
@@ -312,7 +345,7 @@ async function approveUser(user) {
         const payload = await response.json();
 
         window.alert(payload.message);
-        await loadData();
+        await loadData(pagination.value.current_page);
     } catch (error) {
         window.alert(`Failed to approve application: ${error.message}`);
     }
@@ -358,7 +391,7 @@ async function submitRejection() {
 
         closeRejectModal();
         window.alert(payload.message);
-        await loadData();
+        await loadData(pagination.value.current_page);
     } catch (error) {
         window.alert(`Failed to reject application: ${error.message}`);
     }
@@ -392,7 +425,12 @@ async function viewRegistration(user) {
     }
 }
 
-onMounted(loadData);
+// This component is kept alive by AdminLayout's <KeepAlive>, so
+// onActivated (not onMounted) fires both on first visit and every time the
+// admin returns to this tab — reloading the current page/filters instead of
+// leaving whatever list was showing when they left (which may since have
+// been approved/rejected by someone else).
+onActivated(() => loadData(pagination.value.current_page));
 
 onBeforeUnmount(() => clearTimeout(searchTimer));
 </script>

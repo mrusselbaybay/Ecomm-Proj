@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 
 import ProductDetails from './ProductDetails.vue';
 import Cart from './Cart.vue';
@@ -187,11 +187,75 @@ onMounted(() => {
     // carried over from the auth page); browsing itself stays public
     // either way — see useBuyerSession.js.
     loadSession();
+
+    window.addEventListener('popstate', handlePopState);
 });
 
 onUnmounted(() => {
     if (countdownTimer) {
         clearInterval(countdownTimer);
+    }
+
+    window.removeEventListener('popstate', handlePopState);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Overlay History
+|--------------------------------------------------------------------------
+|
+| This SPA never changes the URL — Account/Orders/Cart/Checkout/Product
+| Details are all just local flags — so the browser has no history entry
+| for them. Without this, pressing the physical Back button while any of
+| these is open skips straight past the dashboard to whatever page you
+| arrived from (e.g. sign-up), which reads as "Back takes me to sign up".
+|
+| Fix: push one history entry the moment any overlay opens, and pop it
+| again when the last one closes (however it closes — an in-app back
+| arrow, search, placing an order, etc. all count) so Back always has an
+| SPA-internal state to land on first. `closingViaPopState` distinguishes
+| "the browser already moved back, just update state" from "state closed
+| in-app, now consume the pushed entry" so the two paths don't fight.
+|
+*/
+
+const isOverlayOpen = computed(() =>
+    !!selectedProduct.value ||
+    showCart.value ||
+    showOrders.value ||
+    showAccount.value ||
+    checkoutItems.value.length > 0
+);
+
+let closingViaPopState = false;
+
+function handlePopState() {
+    if (!isOverlayOpen.value) {
+        return;
+    }
+
+    closingViaPopState = true;
+
+    selectedProduct.value = null;
+    showCart.value = false;
+    showOrders.value = false;
+    showAccount.value = false;
+    checkoutItems.value = [];
+}
+
+watch(isOverlayOpen, (open, wasOpen) => {
+    if (open && !wasOpen) {
+        history.pushState({ buyerOverlay: true }, '');
+
+        return;
+    }
+
+    if (!open && wasOpen) {
+        if (closingViaPopState) {
+            closingViaPopState = false;
+        } else {
+            history.back();
+        }
     }
 });
 

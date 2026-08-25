@@ -338,7 +338,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onActivated, onBeforeUnmount, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 
 const { adminFetch } = useAdmin();
@@ -513,7 +513,11 @@ async function submitAction() {
     }
 }
 
-onMounted(() => loadProducts());
+// This component is kept alive by AdminLayout's <KeepAlive>, so
+// onActivated (not onMounted) fires both on first visit and every time the
+// admin returns to this tab — reloading the current page/filters instead of
+// showing a product list that may have since changed.
+onActivated(() => loadProducts(pagination.value.current_page));
 
 onBeforeUnmount(() => clearTimeout(searchTimer));
 </script>

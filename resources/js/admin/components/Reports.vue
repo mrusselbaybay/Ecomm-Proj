@@ -179,7 +179,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onActivated, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 
 const { adminFetch } = useAdmin();
@@ -322,7 +322,11 @@ async function exportReport() {
     }
 }
 
-onMounted(() => loadReport());
+// This component is kept alive by AdminLayout's <KeepAlive>, so
+// onActivated (not onMounted) fires both on first visit and every time the
+// admin returns to this tab — reloading the current page/date range instead
+// of showing figures that may be out of date.
+onActivated(() => loadReport(pagination.value.current_page));
 </script>
 
 <style scoped>

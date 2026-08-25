@@ -46,7 +46,7 @@ class UserAccountController extends Controller
 
         $users = $query
             ->orderBy('last_name')
-            ->paginate(15)
+            ->paginate(5)
             ->withQueryString()
             ->through(fn (Profile $profile): array => $this->accountData($profile));
 

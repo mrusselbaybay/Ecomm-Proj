@@ -856,6 +856,11 @@ async function submitNewPassword() {
 }
 
 // ------------------------------------------------------------
+// Logout
+// ------------------------------------------------------------
+const showLogoutConfirm = ref(false);
+
+// ------------------------------------------------------------
 // Danger Zone — self-deactivation
 // ------------------------------------------------------------
 const showDeactivateStep1 = ref(false);
@@ -992,13 +997,23 @@ onBeforeUnmount(() => {
                 </p>
             </div>
 
-            <button
-                type="button"
-                class="account-back-button"
-                @click="emit('view-orders')"
-            >
-                My Orders
-            </button>
+            <div class="account-header-actions">
+                <button
+                    type="button"
+                    class="account-back-button"
+                    @click="emit('view-orders')"
+                >
+                    My Orders
+                </button>
+
+                <button
+                    type="button"
+                    class="account-back-button"
+                    @click="showLogoutConfirm = true"
+                >
+                    Log Out
+                </button>
+            </div>
         </header>
 
         <transition name="account-fade">
@@ -1566,6 +1581,29 @@ onBeforeUnmount(() => {
                     >
                         {{ deactivating ? 'Deactivating…' : deactivateCountdown > 0 ? `Confirm (${deactivateCountdown}s)` : 'Deactivate My Account' }}
                     </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================================================== -->
+        <!-- LOGOUT CONFIRM MODAL -->
+        <!-- ==================================================== -->
+        <div v-if="showLogoutConfirm" class="account-modal-overlay" @click.self="showLogoutConfirm = false">
+            <div class="account-modal-panel" role="dialog" aria-modal="true" aria-label="Log out">
+                <div class="account-modal-header">
+                    <h3>Log out?</h3>
+                    <button class="account-modal-close" aria-label="Close" @click="showLogoutConfirm = false">
+                        <span v-html="icons.close"></span>
+                    </button>
+                </div>
+
+                <p class="account-modal-desc">
+                    You'll need to sign in again to access your buyer account.
+                </p>
+
+                <div class="account-modal-actions">
+                    <button class="account-btn-outline" @click="showLogoutConfirm = false">Cancel</button>
+                    <button class="account-btn-primary" @click="confirmLogout">Log Out</button>
                 </div>
             </div>
         </div>

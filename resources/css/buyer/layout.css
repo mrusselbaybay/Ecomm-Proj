@@ -3249,6 +3249,16 @@
     font-size: 13.5px;
 }
 
+/* Higher specificity than `.account-page-header > div` (the title wrap)
+   below, which would otherwise also match this div and force flex:1 /
+   text-align:center onto it. */
+.account-page-header > div.account-header-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 10px;
+    text-align: right;
+}
+
 .account-back-button {
     flex-shrink: 0;
     padding: 10px 18px;
@@ -4116,6 +4126,11 @@
 
     .account-page-header > div {
         order: -1;
+    }
+
+    .account-page-header > div.account-header-actions {
+        order: 1;
+        justify-content: flex-end;
     }
 
     .account-profile-card {

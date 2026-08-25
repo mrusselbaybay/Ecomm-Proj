@@ -56,12 +56,16 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue';
+import { onActivated } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 
 const { stats, notifications, loadStats, loadNotifications } = useAdmin();
 
-onMounted(() => {
+// This component is kept alive by AdminLayout's <KeepAlive>, so
+// onActivated (not onMounted) is what fires both on first visit and every
+// time the admin switches back to this tab — refreshing stats/notifications
+// each time instead of showing whatever was current when they left.
+onActivated(() => {
     loadStats();
     loadNotifications();
 });

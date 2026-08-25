@@ -121,8 +121,17 @@
                         </div>
                     </div>
 
-                    <!-- Dynamic Component -->
-                    <component :is="currentComponent" />
+                    <!-- Dynamic Component. KeepAlive preserves each visited
+                         section's component instance (filters, pagination,
+                         loaded rows, scroll position) instead of tearing it
+                         down and refetching from scratch every time you
+                         switch tabs. Each section refreshes its own data on
+                         reactivation (see onActivated in its <script setup>)
+                         so what's shown is never more than one nav away
+                         from current. -->
+                    <KeepAlive>
+                        <component :is="currentComponent" />
+                    </KeepAlive>
                 </div>
             </main>
 
@@ -188,20 +197,26 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue';
+import { defineAsyncComponent, ref, computed, onMounted, watch, onBeforeUnmount } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 
-// Regular imports
-import Chat from './Chat.vue';
-import Commission from './Commission.vue';
-import Complaints from './Complaints.vue';
-import Compliance from './Compliance.vue';
-import Dashboard from './Dashboard.vue';
-import Profile from './Profile.vue';
-import Registrations from './Registrations.vue';
-import Reports from './Reports.vue';
-import Settings from './Settings.vue';
-import Users from './Users.vue';
+// Lazy-loaded: only one section is ever shown at a time (see
+// currentComponent below), but importing all ten of these directly used to
+// pull every section's code — Profile.vue and Users.vue alone are 1400+ and
+// 800+ lines — into the one bundle the admin panel downloads before it can
+// render anything, even the Dashboard. defineAsyncComponent makes Vite split
+// each into its own chunk that's only fetched the first time its section is
+// opened.
+const Chat = defineAsyncComponent(() => import('./Chat.vue'));
+const Commission = defineAsyncComponent(() => import('./Commission.vue'));
+const Complaints = defineAsyncComponent(() => import('./Complaints.vue'));
+const Compliance = defineAsyncComponent(() => import('./Compliance.vue'));
+const Dashboard = defineAsyncComponent(() => import('./Dashboard.vue'));
+const Profile = defineAsyncComponent(() => import('./Profile.vue'));
+const Registrations = defineAsyncComponent(() => import('./Registrations.vue'));
+const Reports = defineAsyncComponent(() => import('./Reports.vue'));
+const Settings = defineAsyncComponent(() => import('./Settings.vue'));
+const Users = defineAsyncComponent(() => import('./Users.vue'));
 
 // State
 const currentSection = ref('dashboard');
@@ -367,16 +382,22 @@ watch(
     },
 );
 
-onMounted(() => {
+onMounted(async () => {
     const initialPath = window.location.pathname;
     const initialSection = pathToSection[initialPath] || 'dashboard';
     currentSection.value = initialSection;
 
-    checkAuth();
-    loadStats();
-    loadNotifications();
-
     window.addEventListener('popstate', handlePopState);
+
+    await checkAuth();
+
+    // Only fetch dashboard data once we know this is actually an admin —
+    // checkAuth() redirects everyone else away, so firing these
+    // beforehand just wasted a round trip that gets thrown away.
+    if (isAuthenticated.value && isAdmin.value) {
+        loadStats();
+        loadNotifications();
+    }
 });
 
 onBeforeUnmount(() => {

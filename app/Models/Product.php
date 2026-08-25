@@ -38,14 +38,11 @@ class Product extends Model
         return $this->belongsTo(Profile::class, 'seller_id');
     }
 
-<<<<<<< HEAD
     public function complianceActions(): HasMany
     {
         return $this->hasMany(SellerComplianceAction::class);
     }
 
-=======
->>>>>>> bc83c9040949b88f3e15a7c6676765964c45bff3
     public function options(): HasMany
     {
         return $this->hasMany(ProductOption::class)->orderBy('position');
@@ -66,8 +63,4 @@ class Product extends Model
     {
         return $query->where('status', 'active');
     }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> bc83c9040949b88f3e15a7c6676765964c45bff3

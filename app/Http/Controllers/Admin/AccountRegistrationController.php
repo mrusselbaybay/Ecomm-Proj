@@ -43,7 +43,7 @@ class AccountRegistrationController extends Controller
 
         $applications = $query
             ->orderByDesc('created_at')
-            ->paginate(15)
+            ->paginate(5)
             ->withQueryString()
             ->through(fn (Profile $profile): array => $this->applicationData($profile));
 

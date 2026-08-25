@@ -367,7 +367,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, reactive, computed, onMounted, onActivated, onBeforeUnmount, nextTick } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 
 const { adminFetch, confirmLogout } = useAdmin();
@@ -890,8 +890,18 @@ closeDeactivateModals();
 }
 }
 
+// This component is kept alive by AdminLayout's <KeepAlive>, so onActivated
+// (not onMounted) is what fires both on first visit and every time the
+// admin returns to this tab. It's skipped while a personal-info edit is in
+// progress so switching tabs mid-edit and coming back doesn't silently
+// overwrite unsaved changes with the server copy.
+onActivated(() => {
+    if (!isEditingPersonal.value) {
+        loadProfile();
+    }
+});
+
 onMounted(() => {
-    loadProfile();
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('keydown', handleEscape);
 });
