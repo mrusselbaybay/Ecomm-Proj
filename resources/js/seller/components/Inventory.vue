@@ -1078,10 +1078,8 @@
                                         <thead>
                                             <tr>
                                                 <th>Combination</th>
-                                                <th>SKU</th>
                                                 <th>Price</th>
                                                 <th>Stock</th>
-                                                <th>Image</th>
                                                 <th>Status</th>
                                             </tr>
                                         </thead>
@@ -1097,18 +1095,9 @@
                                                     <input
                                                         type="text"
                                                         class="field-input"
-                                                        v-model="variant.sku"
-                                                        placeholder="Optional"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        step="0.01"
-                                                        class="field-input"
-                                                        v-model.number="variant.price"
-                                                        :placeholder="`₱${form.price || 0}`"
+                                                        :value="`₱${form.price || 0}`"
+                                                        disabled
+                                                        title="Set in Pricing & Inventory above."
                                                     />
                                                 </td>
                                                 <td>
@@ -1119,25 +1108,6 @@
                                                         class="field-input"
                                                         v-model.number="variant.stock"
                                                     />
-                                                </td>
-                                                <td>
-                                                    <label
-                                                        class="variant-image-cell"
-                                                    >
-                                                        <img
-                                                            v-if="variant.image?.url"
-                                                            :src="variant.image.url"
-                                                        />
-                                                        <span v-else>+</span>
-                                                        <input
-                                                            type="file"
-                                                            accept="image/*"
-                                                            style="display: none"
-                                                            @change="
-                                                                handleVariantImageUpload(vi, $event)
-                                                            "
-                                                        />
-                                                    </label>
                                                 </td>
                                                 <td>
                                                     <select
@@ -1156,13 +1126,6 @@
                                         </tbody>
                                     </table>
                                 </div>
-                                <p
-                                    v-if="duplicateSkuWarning"
-                                    class="save-msg error"
-                                >
-                                    Two or more variants share the same
-                                    SKU — SKUs must be unique.
-                                </p>
                             </div>
                         </section>
 
@@ -1319,7 +1282,7 @@
                             <button
                                 class="btn-primary"
                                 @click="handleSaveClick"
-                                :disabled="isSaving || !formIsValid || duplicateSkuWarning"
+                                :disabled="isSaving || !formIsValid"
                                 :title="saveDisabledReason"
                             >
                                 {{ isSaving ? 'Saving…' : 'Save Changes' }}
@@ -1834,9 +1797,6 @@ const saveDisabledReason = computed(() => {
     if (form.stock === null || form.stock === '') {
         return 'Enter a stock quantity to continue.';
     }
-    if (duplicateSkuWarning.value) {
-        return 'Fix the duplicate variant SKU above before saving.';
-    }
 
     return '';
 });
@@ -1990,40 +1950,13 @@ watch(
 
             return {
                 option_values: optionValues,
-                sku: '',
-                price: null,
                 stock: 0,
-                image: null,
                 status: 'active',
             };
         });
     },
     { deep: true },
 );
-
-const duplicateSkuWarning = computed(() => {
-    const skus = form.variants
-        .map((v) => (v.sku || '').trim().toLowerCase())
-        .filter(Boolean);
-
-    return new Set(skus).size !== skus.length;
-});
-
-function handleVariantImageUpload(variantIndex, e) {
-    const file = e.target.files?.[0];
-
-    if (!file) {
-        return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-        form.variants[variantIndex].image = { url: reader.result };
-    };
-    reader.readAsDataURL(file);
-
-    e.target.value = '';
-}
 
 // Pre-seeds form.specifications with every key from the current
 // category's template (blank by default), so each <select>/<input> has
@@ -2080,10 +2013,7 @@ function openEditProductSheet(product) {
         variants: Array.isArray(product.variants)
             ? product.variants.map((v) => ({
                   option_values: { ...v.option_values },
-                  sku: v.sku || '',
-                  price: v.price ?? null,
                   stock: v.stock ?? 0,
-                  image: v.image || null,
                   status: v.status || 'active',
               }))
             : [],
@@ -2124,7 +2054,7 @@ function confirmDiscard() {
 }
 
 function handleSaveClick() {
-    if (!formIsValid.value || duplicateSkuWarning.value) {
+    if (!formIsValid.value) {
         return;
     }
 
@@ -2151,7 +2081,7 @@ function handleImageUpload(e) {
 }
 
 async function handleSave() {
-    if (!formIsValid.value || duplicateSkuWarning.value) {
+    if (!formIsValid.value) {
         return;
     }
 
@@ -2167,10 +2097,11 @@ async function handleSave() {
             .map((o) => ({ name: o.name.trim(), values: o.values })),
         variants: form.variants.map((v) => ({
             option_values: v.option_values,
-            sku: v.sku ? v.sku.trim() : null,
-            price: v.price === '' || v.price === undefined ? null : v.price,
+            // Price isn't editable per-variant here — a variant's
+            // selling price always mirrors the product's own price,
+            // which is set in the Pricing & Inventory section above.
+            price: form.price,
             stock: v.stock ?? 0,
-            image: v.image || null,
             status: v.status || 'active',
         })),
     };
