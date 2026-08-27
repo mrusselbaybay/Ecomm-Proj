@@ -339,6 +339,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useSeller } from '../composables/useSeller';
+import { useMessaging } from '../composables/useMessaging';
 
 import CourierHandover from './CourierHandover.vue';
 import Dashboard from './Dashboard.vue';
@@ -355,6 +356,7 @@ import Reports from './Reports.vue';
 const showLogoutConfirm = ref(false);
 const currentSection = ref('dashboard');
 const selectedOrderId = ref(null);
+const ordersStatusFilter = ref(null);
 
 // /seller/orders/{id} is a dynamic sub-route of Orders that isn't a
 // literal entry in pathToSection/sectionToPath below (those are 1:1
@@ -374,6 +376,14 @@ const {
     refreshAll,
     confirmLogout,
 } = useSeller();
+
+// Polled independently of whether the seller is currently viewing the
+// Messages page, so the sidebar badge (see navItems below) stays live
+// while they're on Dashboard/Orders/etc. Right now this will just stay
+// at 0 — see useMessaging.js's docblock: there is no messaging backend
+// deployed yet, so /api/seller/messages/unread-count 404s and the poll
+// silently no-ops rather than showing a fake count.
+const { unreadBadgeCount, startUnreadPolling, stopUnreadPolling } = useMessaging();
 
 const pathToSection = {
     '/seller/dashboard': 'dashboard',
@@ -419,13 +429,19 @@ const currentComponent = computed(
 );
 
 // OrderDetails and PrepareOrders both need to know which order is
-// active; every other section ignores v-bind="{}" harmlessly.
+// active; Orders needs to know an optional incoming status filter (see
+// Reports.vue's order-breakdown click-through); every other section
+// ignores v-bind="{}" harmlessly.
 const currentComponentProps = computed(() => {
     if (
         currentSection.value === 'orderDetails' ||
         currentSection.value === 'prepareOrders'
     ) {
         return { orderId: selectedOrderId.value };
+    }
+
+    if (currentSection.value === 'orders') {
+        return { statusFilter: ordersStatusFilter.value };
     }
 
     return {};
@@ -469,6 +485,7 @@ const navItems = computed(() => [
         label: 'Messages',
         icon: 'mail',
         sectionBefore: 'Communication',
+        badge: unreadBadgeCount.value > 0 ? unreadBadgeCount.value : null,
     },
     {
         id: 'account',
@@ -495,7 +512,7 @@ function getIcon(iconName) {
     return icons[iconName] || '';
 }
 
-function navigateTo(sectionId, orderId = null) {
+function navigateTo(sectionId, orderId = null, statusFilter = null) {
     if (sectionId === 'orderDetails') {
         if (!orderId) {
             return;
@@ -526,6 +543,11 @@ function navigateTo(sectionId, orderId = null) {
         selectedOrderId.value = orderId;
     }
 
+    // Real status string (e.g. 'Delivered') from Reports.vue's order
+    // breakdown click-through — cleared on every other navigation so a
+    // stale filter from a previous visit never silently re-applies.
+    ordersStatusFilter.value = sectionId === 'orders' ? statusFilter : null;
+
     currentSection.value = sectionId;
 
     if (window.location.pathname !== path) {
@@ -554,17 +576,18 @@ function handlePopState() {
     selectedOrderId.value = orderId;
 }
 
-// Lets nested components (e.g. Dashboard's quick actions, or Orders.vue
-// linking into OrderDetails) request a tab switch without prop-drilling
-// a navigate() function through every level. Accepts either a plain
-// section string (legacy) or { section, orderId }.
+// Lets nested components (e.g. Dashboard's quick actions, Orders.vue
+// linking into OrderDetails, or Reports.vue's order-breakdown
+// click-through) request a tab switch without prop-drilling a
+// navigate() function through every level. Accepts either a plain
+// section string (legacy) or { section, orderId, statusFilter }.
 function handleSellerNav(event) {
     const detail = event.detail;
 
     if (typeof detail === 'string') {
         navigateTo(detail);
     } else if (detail && typeof detail === 'object') {
-        navigateTo(detail.section, detail.orderId);
+        navigateTo(detail.section, detail.orderId, detail.statusFilter);
     }
 }
 
@@ -577,6 +600,7 @@ onMounted(async () => {
 
     if (isSeller.value) {
         await refreshAll();
+        startUnreadPolling();
     }
 
     window.addEventListener('popstate', handlePopState);
@@ -586,6 +610,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
     window.removeEventListener('popstate', handlePopState);
     window.removeEventListener('seller-nav', handleSellerNav);
+    stopUnreadPolling();
 });
 </script>
 

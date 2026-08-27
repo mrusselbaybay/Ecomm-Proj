@@ -328,6 +328,15 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useOrders } from '../composables/useOrders';
 
+const props = defineProps({
+    // Real order status string (e.g. 'Delivered', 'In Transit') passed
+    // from Reports.vue's order-breakdown click-through — see
+    // SellerLayout.vue's currentComponentProps and the reverse of
+    // statusFilterMap below for how the real status maps to this
+    // page's own filter-tab id.
+    statusFilter: { type: String, default: null },
+});
+
 const {
     orders: mockOrders,
     loadError,
@@ -390,6 +399,21 @@ const statusFilterMap = {
     delivered: 'Delivered',
     cancelled: 'Cancelled',
 };
+
+// Applies an incoming real-status deep link (see the `statusFilter`
+// prop above, set by Reports.vue's order-breakdown click-through) on
+// arrival and on any later change, since SellerLayout keeps this
+// component mounted/reused across seller-nav events rather than
+// remounting it.
+watch(
+    () => props.statusFilter,
+    (status) => {
+        if (!status) return;
+        const match = Object.entries(statusFilterMap).find(([, real]) => real === status);
+        if (match) activeFilter.value = match[0];
+    },
+    { immediate: true },
+);
 
 const filteredOrders = computed(() => {
     let list = mockOrders.value;
