@@ -9,7 +9,8 @@ const props = defineProps({
     | activeCategory
     |----------------------------------------------------------------------
     |
-    | On the dashboard this is the live filter ('All', 'Electronics', ...).
+    | On the dashboard this is the live filter ('All', 'Electronics and
+    | Gadgets', ...).
     | On other pages (e.g. Product Details) pass the current product's
     | category so the matching subnav tab highlights; pass '' to highlight
     | nothing.

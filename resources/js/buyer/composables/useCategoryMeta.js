@@ -8,16 +8,26 @@
 | filtering logic. Extracted from Dashboard.vue so every buyer page shares
 | the same icons/colors instead of redefining them.
 |
+| These MUST mirror seller_details.line_of_business (see the CHECK
+| constraint on that column, and app/Support/CategoryFieldConfig.php).
+| Every product's `category` is force-set server-side to its seller's
+| line_of_business (see the enforce_product_status_workflow trigger /
+| 2026_08_23_000002 migration), so the buyer-facing filter list has to use
+| those exact strings or a seller's own products would never match their
+| own category tab.
+|
 */
 
 export const categories = [
     'All',
-    'Electronics',
-    'Fashion',
-    'Home & Living',
-    'Beauty',
-    'Sports',
-    'Groceries'
+    'Pet Supplies',
+    'Kids and Baby',
+    'Electronics and Gadgets',
+    'House and Garden',
+    "Woman's Apparel",
+    "Men's Apparel",
+    'Sports and Outdoors',
+    'Health and Beauty'
 ];
 
 const ICON_SVG = {
@@ -27,17 +37,20 @@ const ICON_SVG = {
     sofa: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v3"/><path d="M2 16a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v1.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5V11a2 2 0 0 0-4 0z"/><path d="M4 18v2"/><path d="M20 18v2"/><path d="M12 4v9"/></svg>',
     sparkles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></svg>',
     trophy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14.66V17a1 1 0 0 1-1 1 2 2 0 0 0-2 2v2"/><path d="M14 14.66V17a1 1 0 0 0 1 1 2 2 0 0 1 2 2v2"/><path d="M17.916 10H19.5A2.5 2.5 0 0 0 22 7.5V5a1 1 0 0 0-1-1h-3"/><path d="M4 22h16"/><path d="M6 9a6 6 0 0 0 12 0V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1z"/><path d="M6.084 10H4.5A2.5 2.5 0 0 1 2 7.5V5a1 1 0 0 1 1-1h3"/></svg>',
-    apple: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.528V3a1 1 0 0 1 1-1h0"/><path d="M18.237 21A15 15 0 0 0 22 11a6 6 0 0 0-10-4.472A6 6 0 0 0 2 11a15.1 15.1 0 0 0 3.763 10 3 3 0 0 0 3.648.648 5.5 5.5 0 0 1 5.178 0A3 3 0 0 0 18.237 21"/></svg>'
+    paw: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/></svg>',
+    baby: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 16c.5.3 1.2.5 2 .5s1.5-.2 2-.5"/><path d="M15 12h.01"/><path d="M19.38 6.813A9 9 0 0 1 20.8 10.2a2 2 0 0 1 0 3.6 9 9 0 0 1-17.6 0 2 2 0 0 1 0-3.6A9 9 0 0 1 12 3c2 0 3.5 1.1 3.5 2.5s-.9 2.5-2 2.5c-.8 0-1.5-.4-1.5-1"/><path d="M9 12h.01"/></svg>'
 };
 
 const categoryMeta = {
     'All': { icon: ICON_SVG.bag, accent: 'slate' },
-    'Electronics': { icon: ICON_SVG.cpu, accent: 'blue' },
-    'Fashion': { icon: ICON_SVG.shirt, accent: 'pink' },
-    'Home & Living': { icon: ICON_SVG.sofa, accent: 'amber' },
-    'Beauty': { icon: ICON_SVG.sparkles, accent: 'purple' },
-    'Sports': { icon: ICON_SVG.trophy, accent: 'green' },
-    'Groceries': { icon: ICON_SVG.apple, accent: 'teal' }
+    'Pet Supplies': { icon: ICON_SVG.paw, accent: 'teal' },
+    'Kids and Baby': { icon: ICON_SVG.baby, accent: 'orange' },
+    'Electronics and Gadgets': { icon: ICON_SVG.cpu, accent: 'indigo' },
+    'House and Garden': { icon: ICON_SVG.sofa, accent: 'amber' },
+    "Woman's Apparel": { icon: ICON_SVG.shirt, accent: 'pink' },
+    "Men's Apparel": { icon: ICON_SVG.shirt, accent: 'blue' },
+    'Sports and Outdoors': { icon: ICON_SVG.trophy, accent: 'green' },
+    'Health and Beauty': { icon: ICON_SVG.sparkles, accent: 'purple' }
 };
 
 export function metaFor(category) {
@@ -82,11 +95,11 @@ export function formatPrice(value) {
 */
 
 export function defaultVariationFor(category) {
-    if (category === 'Fashion') {
-        return 'Medium';
+    if (category === "Woman's Apparel" || category === "Men's Apparel") {
+        return 'M';
     }
 
-    if (category === 'Electronics') {
+    if (category === 'Electronics and Gadgets') {
         return 'Black';
     }
 

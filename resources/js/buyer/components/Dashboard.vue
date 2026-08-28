@@ -4,6 +4,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import ProductDetails from './ProductDetails.vue';
 import Cart from './Cart.vue';
 import Checkout from './Checkout.vue';
+import CategoryListing from './CategoryListing.vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
@@ -49,6 +50,11 @@ const { loadSession } = useBuyerSession();
 
 const searchQuery = ref('');
 const selectedCategory = ref('All');
+
+// Set to a specific category name to show CategoryListing (the dedicated
+// browse-by-category page) instead of the homepage — see selectCategory()
+// below. Stays null while selectedCategory is 'All'.
+const browsingCategory = ref(null);
 
 const selectedProduct = ref(null);
 const showCart = ref(false);
@@ -96,6 +102,29 @@ const filteredProducts = computed(() => {
 
         return matchesCategory && matchesSearch;
     });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Category Listing Page
+|--------------------------------------------------------------------------
+|
+| Every product already in memory (see useBuyerProducts.js) narrowed to
+| whatever category is currently being browsed — passed to
+| CategoryListing.vue as a prop rather than having that component fetch
+| its own copy, so it can never overwrite the shared `products` list the
+| homepage itself depends on.
+|
+*/
+
+const categoryProducts = computed(() => {
+    if (!browsingCategory.value) {
+        return [];
+    }
+
+    return products.value.filter(
+        product => product.category === browsingCategory.value
+    );
 });
 
 /*
@@ -182,7 +211,14 @@ function pad(value) {
 onMounted(() => {
     countdownTimer = setInterval(tickCountdown, 1000);
 
-    loadProducts();
+    // per_page bumped to the API's max (see ProductController@index) so
+    // CategoryListing — which filters this same in-memory list rather
+    // than issuing its own request (see categoryProducts above) — has
+    // as full a picture of each category as this endpoint can give
+    // without pagination support. Real limit worth flagging: a category
+    // with more than 100 live products would still only show the first
+    // 100 until the catalog endpoint grows real server-side pagination.
+    loadProducts({ per_page: 100 });
     // Populates buyerProfile if a Supabase session already exists (e.g.
     // carried over from the auth page); browsing itself stays public
     // either way — see useBuyerSession.js.
@@ -199,10 +235,25 @@ onUnmounted(() => {
 |--------------------------------------------------------------------------
 | Category
 |--------------------------------------------------------------------------
+|
+| Choosing 'All' behaves as it always has (go/stay home, filter the
+| homepage's own grid). Choosing any real category now navigates to the
+| dedicated CategoryListing page for it — from the homepage's category
+| cards, from the header's subnav on ANY page, all the same entry point.
+|--------------------------------------------------------------------------
 */
 
 function selectCategory(category) {
     selectedCategory.value = category;
+
+    selectedProduct.value = null;
+    showCart.value = false;
+    showOrders.value = false;
+    showAccount.value = false;
+    checkoutItems.value = [];
+    checkoutSource.value = null;
+
+    browsingCategory.value = category === 'All' ? null : category;
 }
 
 /*
@@ -230,6 +281,8 @@ function backToProducts() {
 function openCart() {
     selectedProduct.value = null;
     checkoutItems.value = [];
+    showOrders.value = false;
+    showAccount.value = false;
     showCart.value = true;
 }
 
@@ -409,6 +462,7 @@ function handleSelectCategory(category) {
 
 function handleBrowseAll() {
     selectedCategory.value = 'All';
+    browsingCategory.value = null;
     backToProducts();
 }
 
@@ -463,6 +517,9 @@ function closeOrders() {
         v-else-if="showAccount"
         @back="closeAccount"
         @view-orders="openOrders"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
     />
 
     <!-- ================================================================ -->
@@ -510,6 +567,27 @@ function closeOrders() {
         @search="handleSearch"
         @select-category="handleSelectCategory"
         @open-cart="openCart"
+        @browse-all="handleBrowseAll"
+        @browse-categories="handleBrowseAll"
+    />
+
+    <!-- ================================================================ -->
+    <!-- CATEGORY LISTING -->
+    <!-- ================================================================ -->
+
+    <CategoryListing
+        v-else-if="browsingCategory"
+        :key="browsingCategory"
+        :category="browsingCategory"
+        :products="categoryProducts"
+        :is-loading="isLoadingProducts"
+        :load-error="productsLoadError"
+        @back="handleBrowseAll"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+        @account-click="openAccount"
+        @select-product="viewProduct"
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
     />
@@ -592,6 +670,7 @@ function closeOrders() {
                             'accent-' + metaFor(category).accent,
                             { active: selectedCategory === category }
                         ]"
+                        :aria-pressed="selectedCategory === category"
                         @click="selectCategory(category)"
                     >
                         <span
@@ -727,8 +806,14 @@ function closeOrders() {
 
                 <div class="info-banner-left">
 
-                    <div class="info-banner-icon">
-                        🚚
+                    <div class="info-banner-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/>
+                            <path d="M15 18H9"/>
+                            <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/>
+                            <circle cx="17" cy="18" r="2"/>
+                            <circle cx="7" cy="18" r="2"/>
+                        </svg>
                     </div>
 
                     <div class="info-banner-text">
