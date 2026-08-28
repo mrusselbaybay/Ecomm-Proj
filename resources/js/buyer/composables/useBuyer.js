@@ -2,7 +2,35 @@ import { ref, computed } from 'vue';
 import { authHeaders } from './useBuyerSession';
 
 const cart = ref([]);
-const favorites = ref([]);
+
+// Persisted client-side only — there's no buyer-scoped favorites table/
+// endpoint yet, so this can't follow a buyer across devices or survive
+// clearing site data, but at least it survives a normal page refresh
+// (previously this was in-memory only and reset on every reload, which
+// is a bad experience for a feature specifically about "save this for
+// later"). Real per-buyer server-side favorites is a reasonable next step.
+const FAVORITES_STORAGE_KEY = 'nexmart_buyer_favorites';
+
+function loadStoredFavorites() {
+    try {
+        const stored = JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY) || '[]');
+        return Array.isArray(stored) ? stored : [];
+    } catch (err) {
+        return [];
+    }
+}
+
+const favorites = ref(loadStoredFavorites());
+
+function persistFavorites() {
+    try {
+        localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites.value));
+    } catch (err) {
+        // Storage unavailable (private browsing etc.) — favorites just
+        // won't survive a refresh this session; nothing to recover from
+        // mid-click.
+    }
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -165,6 +193,8 @@ function toggleFavorite(productId) {
     } else {
         favorites.value.push(productId);
     }
+
+    persistFavorites();
 }
 
 const favoriteCount = computed(() => {
@@ -290,26 +320,115 @@ async function cancelOrder() {
 
 /*
 |--------------------------------------------------------------------------
-| Reviews / Returns
+| Reviews
 |--------------------------------------------------------------------------
 |
-| NOT backed by a real subsystem yet — there is no reviews or
-| return_requests table in the current schema (see the schema dump this
-| project was built against), so these intentionally do not persist
-| anything. They exist only so OrderDetails.vue's review/return modals
-| (built before this backend pass) don't throw when opened. Building the
-| real thing needs new tables + endpoints, called out in the final report.
+| Backed by Buyer\ReviewController (routes/buyer.php) and the real
+| `reviews` table — this used to be a local-only stub that didn't persist
+| anything ("there is no reviews table/endpoint yet"), which was stale:
+| the table already existed on the real database, there just wasn't an
+| endpoint wired up to it yet. See ReviewController's docblock.
 |
 */
 
-function submitReview(orderId, itemIndex, review) {
-    console.warn(
-        'submitReview() is a stub — there is no reviews table/endpoint yet. Not persisted:',
-        { orderId, itemIndex, review },
-    );
+const reviews = ref([]);
+const isLoadingReviews = ref(false);
+const reviewsLoadError = ref('');
 
-    return { ...review, orderId, itemIndex, submittedAt: new Date().toISOString() };
+async function loadReviews() {
+    isLoadingReviews.value = true;
+    reviewsLoadError.value = '';
+
+    try {
+        reviews.value = await apiFetch('/buyer/reviews');
+    } catch (err) {
+        console.error('Error loading reviews:', err);
+        reviewsLoadError.value = err?.message || 'Something went wrong while loading your reviews.';
+        reviews.value = [];
+    } finally {
+        isLoadingReviews.value = false;
+    }
 }
+
+/**
+ * `orderItemId` is the real order_items.id (see OrderController's item
+ * transform) — not the orderId/itemIndex pair the old stub took, which
+ * had no way to identify a specific line item to a real endpoint.
+ * Returns the created review on success, or null on failure (the caller
+ * is responsible for surfacing the thrown error's message).
+ */
+async function submitReview(orderItemId, review) {
+    try {
+        const created = await apiFetch('/buyer/reviews', {
+            method: 'POST',
+            body: JSON.stringify({
+                order_item_id: orderItemId,
+                rating: review.rating,
+                comment: review.comment || null,
+            }),
+        });
+
+        return created;
+    } catch (err) {
+        console.error('Error submitting review:', err);
+
+        throw err;
+    }
+}
+
+async function updateReview(reviewId, review) {
+    try {
+        const updated = await apiFetch(`/buyer/reviews/${encodeURIComponent(reviewId)}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                rating: review.rating,
+                comment: review.comment || null,
+            }),
+        });
+
+        const index = reviews.value.findIndex(r => r.id === reviewId);
+
+        if (index !== -1) {
+            reviews.value[index] = updated;
+        }
+
+        return updated;
+    } catch (err) {
+        console.error('Error updating review:', err);
+
+        throw err;
+    }
+}
+
+async function deleteReview(reviewId) {
+    try {
+        await apiFetch(`/buyer/reviews/${encodeURIComponent(reviewId)}`, {
+            method: 'DELETE',
+        });
+
+        reviews.value = reviews.value.filter(r => r.id !== reviewId);
+
+        return true;
+    } catch (err) {
+        console.error('Error deleting review:', err);
+
+        throw err;
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Returns
+|--------------------------------------------------------------------------
+|
+| NOT backed by a real subsystem yet — there is no return_requests table
+| in the current schema (unlike reviews, which turned out to already have
+| one), so this intentionally does not persist anything. It exists only
+| so OrderDetails.vue's return-request modal (built before this backend
+| pass) doesn't throw when opened. Building the real thing needs a new
+| table + endpoint.
+|
+*/
 
 function submitReturnRequest(orderId, itemIndex, request) {
     console.warn(
@@ -361,7 +480,15 @@ export function useBuyer() {
         getOrderById,
         placeOrder,
         cancelOrder,
+
+        reviews,
+        isLoadingReviews,
+        reviewsLoadError,
+        loadReviews,
         submitReview,
+        updateReview,
+        deleteReview,
+
         submitReturnRequest
     };
 }

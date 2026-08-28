@@ -10,6 +10,8 @@ import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
 import Orders from './Orders.vue';
 import Account from './Account.vue';
+import Wishlist from './Wishlist.vue';
+import Reviews from './Reviews.vue';
 
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerProducts } from '../composables/useBuyerProducts';
@@ -60,6 +62,8 @@ const selectedProduct = ref(null);
 const showCart = ref(false);
 const showOrders = ref(false);
 const showAccount = ref(false);
+const showWishlist = ref(false);
+const showReviews = ref(false);
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
 
@@ -250,6 +254,8 @@ function selectCategory(category) {
     showCart.value = false;
     showOrders.value = false;
     showAccount.value = false;
+    showWishlist.value = false;
+    showReviews.value = false;
     checkoutItems.value = [];
     checkoutSource.value = null;
 
@@ -265,6 +271,10 @@ function selectCategory(category) {
 function viewProduct(product) {
     selectedProduct.value = product;
     showCart.value = false;
+    showOrders.value = false;
+    showAccount.value = false;
+    showWishlist.value = false;
+    showReviews.value = false;
     checkoutItems.value = [];
 }
 
@@ -283,6 +293,8 @@ function openCart() {
     checkoutItems.value = [];
     showOrders.value = false;
     showAccount.value = false;
+    showWishlist.value = false;
+    showReviews.value = false;
     showCart.value = true;
 }
 
@@ -463,6 +475,11 @@ function handleSelectCategory(category) {
 function handleBrowseAll() {
     selectedCategory.value = 'All';
     browsingCategory.value = null;
+    showOrders.value = false;
+    showAccount.value = false;
+    showCart.value = false;
+    showWishlist.value = false;
+    showReviews.value = false;
     backToProducts();
 }
 
@@ -481,6 +498,8 @@ function openAccount() {
     selectedProduct.value = null;
     showCart.value = false;
     showOrders.value = false;
+    showWishlist.value = false;
+    showReviews.value = false;
     showAccount.value = true;
 }
 
@@ -490,11 +509,40 @@ function closeAccount() {
 
 function openOrders() {
     showAccount.value = false;
+    showWishlist.value = false;
+    showReviews.value = false;
     showOrders.value = true;
 }
 
 function closeOrders() {
     showOrders.value = false;
+}
+
+function openWishlist() {
+    selectedProduct.value = null;
+    showCart.value = false;
+    showOrders.value = false;
+    showAccount.value = false;
+    showReviews.value = false;
+    showWishlist.value = true;
+}
+
+function closeWishlist() {
+    showWishlist.value = false;
+    showReviews.value = false;
+}
+
+function openReviews() {
+    selectedProduct.value = null;
+    showCart.value = false;
+    showOrders.value = false;
+    showAccount.value = false;
+    showWishlist.value = false;
+    showReviews.value = true;
+}
+
+function closeReviews() {
+    showReviews.value = false;
 }
 </script>
 
@@ -507,6 +555,13 @@ function closeOrders() {
     <Orders
         v-if="showOrders"
         @back="closeOrders"
+        @go-home="handleBrowseAll"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+        @view-profile="openAccount"
+        @view-wishlist="openWishlist"
+        @view-reviews="openReviews"
     />
 
     <!-- ================================================================ -->
@@ -517,6 +572,41 @@ function closeOrders() {
         v-else-if="showAccount"
         @back="closeAccount"
         @view-orders="openOrders"
+        @view-wishlist="openWishlist"
+        @view-reviews="openReviews"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+    />
+
+    <!-- ================================================================ -->
+    <!-- WISHLIST -->
+    <!-- ================================================================ -->
+
+    <Wishlist
+        v-else-if="showWishlist"
+        @back="closeWishlist"
+        @go-home="handleBrowseAll"
+        @view-profile="openAccount"
+        @view-orders="openOrders"
+        @view-reviews="openReviews"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+        @select-product="viewProduct"
+    />
+
+    <!-- ================================================================ -->
+    <!-- REVIEWS -->
+    <!-- ================================================================ -->
+
+    <Reviews
+        v-else-if="showReviews"
+        @back="closeReviews"
+        @go-home="handleBrowseAll"
+        @view-profile="openAccount"
+        @view-orders="openOrders"
+        @view-wishlist="openWishlist"
         @search="handleSearch"
         @select-category="handleSelectCategory"
         @open-cart="openCart"

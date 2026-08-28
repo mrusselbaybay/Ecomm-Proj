@@ -25,6 +25,30 @@ class Profile extends Model
     // Roles that go through the registration/approval workflow.
     public const REGISTRABLE_ROLES = ['buyer', 'seller', 'courier'];
 
+    public const ROLE_ADMIN = 'admin';
+
+    /**
+     * Defense-in-depth: block any Eloquent-level attempt to (re)assign
+     * the admin role from an HTTP request lifecycle. Admin accounts are
+     * provisioned out-of-band (console/seeder) only. This does not cover
+     * profile rows inserted directly by the Supabase auth.users trigger -
+     * that path is guarded separately in AuthController::register().
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Profile $profile) {
+            if (
+                $profile->role === self::ROLE_ADMIN
+                && $profile->isDirty('role')
+                && ! app()->runningInConsole()
+            ) {
+                throw new \RuntimeException(
+                    'Admin accounts cannot be created or modified through the application. Provision them via the console.'
+                );
+            }
+        });
+    }
+
     public function address(): HasOne
     {
         return $this->hasOne(Address::class, 'profile_id')->where('owner_kind', 'profile');

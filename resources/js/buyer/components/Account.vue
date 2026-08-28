@@ -12,13 +12,21 @@
 | profile ("Juan Dela Cruz") with zero matching CSS anywhere in the
 | project — see useBuyerAccount.js for the data-layer half of this fix.
 |
-| Sidebar nav mirrors the reference's structure, but only "My Profile" and
-| "My Orders" go anywhere real. Wishlist / My Reviews / Saved Addresses /
-| Payment Methods / Order Tracking don't have a page (or, for Payment
-| Methods, any real storage) to send someone to yet, so they're shown
-| clearly disabled with a "Soon" badge rather than as dead clicks or, worse,
-| forms that imply data is being saved when nothing is. "Notifications"
-| scrolls to the real section further down this same page instead.
+| Sidebar nav mirrors the reference's structure, but only "My Profile",
+| "My Orders", and now "Wishlist" go anywhere real. My Reviews / Saved
+| Addresses / Payment Methods don't have a page (or, for Payment Methods,
+| any real storage) to send someone to yet, so they're shown clearly
+| disabled with a "Soon" badge rather than as dead clicks or, worse, forms
+| that imply data is being saved when nothing is. "Notifications" scrolls
+| to the real section further down this same page instead.
+|
+| "Order Tracking" deliberately isn't listed here at all, real or
+| disabled — it only means anything once a specific order is in view
+| (OrderDetails.vue / OrderTracking.vue), and showing it as a generic
+| destination from a page with no order selected was worse than not
+| showing it: clicking it just detours to My Orders, where the exact same
+| label then appears again for real, reading as broken rather than as a
+| deliberate handoff.
 |
 */
 import { ref, reactive, computed, onMounted } from 'vue';
@@ -29,6 +37,8 @@ import { useBuyerAccount } from '../composables/useBuyerAccount';
 const emit = defineEmits([
     'back',
     'view-orders',
+    'view-wishlist',
+    'view-reviews',
     'search',
     'select-category',
     'open-cart'
@@ -302,9 +312,6 @@ function scrollToSection(id) {
 }
 
 const comingSoonNav = [
-    { label: 'Order Tracking', icon: 'truck' },
-    { label: 'Wishlist', icon: 'heart' },
-    { label: 'My Reviews', icon: 'star' },
     { label: 'Saved Addresses', icon: 'map-pin' },
     { label: 'Payment Methods', icon: 'credit-card' }
 ];
@@ -408,6 +415,28 @@ function handleHeaderSelectCategory(category) {
                         <button
                             type="button"
                             class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
+                            @click="emit('view-wishlist')"
+                        >
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
+                            </svg>
+                            Wishlist
+                        </button>
+
+                        <button
+                            type="button"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
+                            @click="emit('view-reviews')"
+                        >
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" />
+                            </svg>
+                            My Reviews
+                        </button>
+
+                        <button
+                            type="button"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
                             @click="scrollToSection('notifications-section')"
                         >
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -425,18 +454,7 @@ function handleHeaderSelectCategory(category) {
                                 title="Coming soon"
                             >
                                 <span class="flex items-center gap-3">
-                                    <svg v-if="item.icon === 'truck'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" /><path d="M15 18H9" />
-                                        <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14" />
-                                        <circle cx="17" cy="18" r="2" /><circle cx="7" cy="18" r="2" />
-                                    </svg>
-                                    <svg v-else-if="item.icon === 'heart'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
-                                    </svg>
-                                    <svg v-else-if="item.icon === 'star'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" />
-                                    </svg>
-                                    <svg v-else-if="item.icon === 'map-pin'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <svg v-if="item.icon === 'map-pin'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" />
                                     </svg>
                                     <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
