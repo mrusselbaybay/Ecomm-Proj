@@ -894,6 +894,24 @@
     transform: scale(1.08);
 }
 
+/* Real product photo — fills the same square tile the icon sat in, so the
+   card layout is unchanged whether a product has an image or not. */
+.product-image-photo {
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+
+    transition: transform 0.3s ease;
+}
+
+.product-card:hover .product-image-photo {
+    transform: scale(1.05);
+}
+
 .product-discount-badge {
     position: absolute;
     top: 12px;

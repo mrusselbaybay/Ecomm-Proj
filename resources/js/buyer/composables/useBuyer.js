@@ -1,19 +1,20 @@
 import { ref, computed } from 'vue';
-import { authHeaders } from './useBuyerSession';
+import { buyerApi } from './useBuyerApi';
+import { getSupabase } from './useBuyerSession';
 
 const cart = ref([]);
 
-// Persisted client-side only — there's no buyer-scoped favorites table/
-// endpoint yet, so this can't follow a buyer across devices or survive
-// clearing site data, but at least it survives a normal page refresh
-// (previously this was in-memory only and reset on every reload, which
-// is a bad experience for a feature specifically about "save this for
-// later"). Real per-buyer server-side favorites is a reasonable next step.
+// Backed by the Laravel Buyer API (/api/buyer/wishlist ->
+// App\Http\Controllers\Buyer\WishlistController, buyer_wishlist_items
+// table). localStorage is kept only as an offline cache and as the store
+// for a signed-out visitor's favorites, which are merged up to the server
+// by loadWishlist() once they sign in.
 const FAVORITES_STORAGE_KEY = 'nexmart_buyer_favorites';
 
 function loadStoredFavorites() {
     try {
         const stored = JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY) || '[]');
+
         return Array.isArray(stored) ? stored : [];
     } catch (err) {
         return [];
@@ -61,6 +62,7 @@ function addToCart(product, variant, quantity) {
 
     if (existingItem) {
         existingItem.quantity += quantity;
+
         return;
     }
 
@@ -183,18 +185,75 @@ function toggleSelectAll(selected) {
 |--------------------------------------------------------------------------
 */
 
+let wishlistLoaded = false;
+
 function isFavorite(productId) {
     return favorites.value.includes(productId);
 }
 
+/**
+ * Pulls the signed-in buyer's saved wishlist and merges it with anything
+ * they favorited while signed out (pushing those up to the server). Safe
+ * to call when signed out — it just 401s and leaves the local list alone.
+ */
+async function loadWishlist({ force = false } = {}) {
+    if (wishlistLoaded && !force) {
+        return;
+    }
+
+    try {
+        const serverIds = await apiFetch('/buyer/wishlist');
+        const serverSet = new Set(serverIds);
+        const localOnly = favorites.value.filter(id => !serverSet.has(id));
+
+        favorites.value = [...serverIds, ...localOnly];
+        persistFavorites();
+        wishlistLoaded = true;
+
+        // Adopt favorites made while signed out.
+        for (const productId of localOnly) {
+            apiFetch('/buyer/wishlist', {
+                method: 'POST',
+                body: JSON.stringify({ product_id: productId }),
+            }).catch(() => {});
+        }
+    } catch (err) {
+        // Signed out or transient — keep the local list as-is.
+    }
+}
+
 function toggleFavorite(productId) {
-    if (isFavorite(productId)) {
+    const wasFavorite = isFavorite(productId);
+
+    if (wasFavorite) {
         favorites.value = favorites.value.filter(id => id !== productId);
     } else {
         favorites.value.push(productId);
     }
 
     persistFavorites();
+
+    const request = wasFavorite
+        ? apiFetch(`/buyer/wishlist/${encodeURIComponent(productId)}`, { method: 'DELETE' })
+        : apiFetch('/buyer/wishlist', {
+            method: 'POST',
+            body: JSON.stringify({ product_id: productId }),
+        });
+
+    request.catch(err => {
+        // 401 => signed out, favorites stay local-only (merged in on next
+        // sign-in via loadWishlist). Any other failure: roll back so the
+        // heart reflects what's actually stored.
+        if (err?.status && err.status !== 401) {
+            if (wasFavorite) {
+                favorites.value.push(productId);
+            } else {
+                favorites.value = favorites.value.filter(id => id !== productId);
+            }
+
+            persistFavorites();
+        }
+    });
 }
 
 const favoriteCount = computed(() => {
@@ -235,17 +294,9 @@ const ordersLoadError = ref('');
 const isPlacingOrder = ref(false);
 const checkoutError = ref('');
 
-async function apiFetch(path, options = {}) {
-    const headers = await authHeaders();
-    const response = await fetch(`/api${path}`, { ...options, headers });
-    const body = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-        throw new Error(body.message || 'Request failed.');
-    }
-
-    return body.data;
-}
+// Thin alias kept so the call sites below read unchanged — the shared
+// implementation now lives in useBuyerApi.js.
+const apiFetch = buyerApi;
 
 async function loadOrders() {
     isLoadingOrders.value = true;
@@ -303,19 +354,36 @@ async function placeOrder(payload) {
 }
 
 /**
- * There is intentionally no buyer-facing "cancel" endpoint yet: order
- * status changes are a privileged, auditable action handled by
- * Seller\SellerOrderController (see routes/seller.php), scoped to the
- * seller who owns the order. A buyer-initiated cancellation would need
- * its own endpoint + authorization rule (e.g. only while status is
- * "New") rather than reusing the seller route. Surfaced clearly here so
- * OrderDetails.vue's "Cancel Order" button fails loudly instead of
- * silently pretending to work.
+ * Buyer-initiated cancellation \u2014 POST /api/buyer/orders/{id}/cancel
+ * (App\Http\Controllers\Buyer\OrderController@cancel). The server only
+ * allows it while the order is still "New", restores stock, and writes
+ * the same order_status_history entry the seller backend expects.
+ * Returns the updated order on success, null on failure (message left in
+ * checkoutError).
+ *
+ * @param {string} orderId  the display id, e.g. "#SN-40412"
+ * @param {string} [reason]
  */
-async function cancelOrder() {
-    checkoutError.value = 'Cancelling isn\u2019t available yet \u2014 please contact the seller.';
+async function cancelOrder(orderId, reason) {
+    checkoutError.value = '';
 
-    return null;
+    const number = String(orderId || '').replace(/^#/, '');
+
+    try {
+        const updated = await apiFetch(`/buyer/orders/${encodeURIComponent(number)}/cancel`, {
+            method: 'POST',
+            body: JSON.stringify({ reason: reason || null }),
+        });
+
+        await loadOrders();
+
+        return updated;
+    } catch (err) {
+        console.error('Error cancelling order:', err);
+        checkoutError.value = err?.message || 'Could not cancel this order.';
+
+        return null;
+    }
 }
 
 /*
@@ -418,25 +486,98 @@ async function deleteReview(reviewId) {
 
 /*
 |--------------------------------------------------------------------------
-| Returns
+| Returns / refunds
 |--------------------------------------------------------------------------
 |
-| NOT backed by a real subsystem yet — there is no return_requests table
-| in the current schema (unlike reviews, which turned out to already have
-| one), so this intentionally does not persist anything. It exists only
-| so OrderDetails.vue's return-request modal (built before this backend
-| pass) doesn't throw when opened. Building the real thing needs a new
-| table + endpoint.
+| Backed by Buyer\ReturnController (POST /api/buyer/returns) and the
+| order_return_requests table.
+|
+| Evidence images: each file is uploaded to the Supabase Storage bucket
+| `return-evidence` (path: <buyer-uid>/<random>.<ext>) and the resulting
+| public URL is what's stored on the request. If the bucket / policy
+| isn't set up yet the upload fails and we fall back to an inline data:
+| URL for that file — same behavior as before, just no longer the only
+| option. Either way ReturnController stores plain strings and the
+| frontend binds them straight to <img :src>.
+|
+| To activate real storage: create a PUBLIC bucket `return-evidence` and
+| add a Storage policy letting `authenticated` INSERT into
+| `return-evidence/{auth.uid()}/*`.
 |
 */
 
-function submitReturnRequest(orderId, itemIndex, request) {
-    console.warn(
-        'submitReturnRequest() is a stub — there is no returns table/endpoint yet. Not persisted:',
-        { orderId, itemIndex, request },
+const RETURN_EVIDENCE_BUCKET = 'return-evidence';
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error || new Error('Could not read file.'));
+        reader.readAsDataURL(file);
+    });
+}
+
+async function uploadEvidenceFile(file) {
+    try {
+        const supabase = getSupabase();
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+            throw new Error('not signed in');
+        }
+
+        const ext = (file.name?.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
+
+        const { error } = await supabase.storage
+            .from(RETURN_EVIDENCE_BUCKET)
+            .upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false });
+
+        if (error) {
+            throw error;
+        }
+
+        return supabase.storage.from(RETURN_EVIDENCE_BUCKET).getPublicUrl(path).data.publicUrl;
+    } catch (err) {
+        // Bucket / policy not set up (or offline) — keep the buyer's
+        // submission working by inlining the image instead.
+        console.warn('return-evidence upload failed, falling back to inline image:', err?.message || err);
+
+        return readFileAsDataUrl(file);
+    }
+}
+
+/**
+ * @param {string} orderItemId  real order_items.id (see OrderController's item transform)
+ * @param {{ requestType: string, quantity: number, reason: string, details: string, evidence: File[] }} request
+ * @returns {Promise<object>} the created return request
+ */
+async function submitReturnRequest(orderItemId, request) {
+    const evidence = await Promise.all(
+        (request.evidence || []).map(file => uploadEvidenceFile(file)),
     );
 
-    return { ...request, orderId, itemIndex, submittedAt: new Date().toISOString() };
+    try {
+        const created = await apiFetch('/buyer/returns', {
+            method: 'POST',
+            body: JSON.stringify({
+                order_item_id: orderItemId,
+                request_type: request.requestType,
+                reason: request.reason,
+                details: request.details,
+                quantity: request.quantity,
+                evidence,
+            }),
+        });
+
+        await loadOrders();
+
+        return created;
+    } catch (err) {
+        console.error('Error submitting return request:', err);
+
+        throw err;
+    }
 }
 
 /*
@@ -446,6 +587,10 @@ function submitReturnRequest(orderId, itemIndex, request) {
 */
 
 export function useBuyer() {
+    // Merge the server-side wishlist in once per page load (no-op when
+    // signed out).
+    loadWishlist();
+
     return {
         cart,
         sellers,
@@ -469,6 +614,7 @@ export function useBuyer() {
 
         isFavorite,
         toggleFavorite,
+        loadWishlist,
 
         ORDER_STATUSES,
         orders,

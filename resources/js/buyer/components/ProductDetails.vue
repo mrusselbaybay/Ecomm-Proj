@@ -1,14 +1,15 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
+import { useBuyerChat } from '../composables/useBuyerChat';
 import {
     metaFor,
     discountPercent as sharedDiscountPercent,
     ratingStars as sharedRatingStars,
     formatPrice as sharedFormatPrice
 } from '../composables/useCategoryMeta';
-import Header from './Header.vue';
 import Footer from './Footer.vue';
+import Header from './Header.vue';
 import ProductCard from './ProductCard.vue';
 
 const props = defineProps({
@@ -29,6 +30,7 @@ const emit = defineEmits([
     'search',
     'select-category',
     'open-cart',
+    'view-profile',
     'browse-all',
     'browse-categories'
 ]);
@@ -342,22 +344,26 @@ function validateSelection() {
     if (hasVariants.value) {
         if (!allOptionsSelected.value) {
             alert('Please select an option for every variant before continuing.');
+
             return false;
         }
 
         if (!selectedVariant.value || selectedVariantUnavailable.value) {
             alert('That combination is currently unavailable.');
+
             return false;
         }
     }
 
     if (inStock.value === false) {
         alert('This product is currently out of stock.');
+
         return false;
     }
 
     if (availableStock.value !== null && quantity.value > availableStock.value) {
         alert(`Only ${availableStock.value} left in stock.`);
+
         return false;
     }
 
@@ -417,6 +423,60 @@ function goBack() {
 
 /*
 |--------------------------------------------------------------------------
+| Message Seller
+|--------------------------------------------------------------------------
+|
+| Opens an inline composer for the first message, then hands off to
+| useBuyerChat.startConversation() — which finds/creates the buyer<->seller
+| thread for this product's seller and pops the messaging popup open on it.
+|
+*/
+
+const { startConversation } = useBuyerChat();
+
+const messageOpen = ref(false);
+const messageDraft = ref('');
+const messageSending = ref(false);
+const messageError = ref('');
+const messageInput = ref(null);
+
+function toggleMessageComposer() {
+    messageOpen.value = !messageOpen.value;
+    messageError.value = '';
+
+    if (messageOpen.value) {
+        nextTick(() => messageInput.value?.focus());
+    }
+}
+
+async function sendSellerMessage() {
+    const body = messageDraft.value.trim();
+
+    if (!body || !props.product?.seller_id) {
+        return;
+    }
+
+    messageSending.value = true;
+    messageError.value = '';
+
+    try {
+        await startConversation({
+            sellerId: props.product.seller_id,
+            productId: props.product.id,
+            body
+        });
+
+        messageDraft.value = '';
+        messageOpen.value = false;
+    } catch (err) {
+        messageError.value = err?.message || 'Could not send your message. Please sign in and try again.';
+    } finally {
+        messageSending.value = false;
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
 | Header relay
 |--------------------------------------------------------------------------
 |
@@ -470,6 +530,7 @@ function selectRelatedProduct(item) {
             :active-category="product ? product.category : ''"
             @select-category="handleHeaderSelectCategory"
             @cart-click="emit('open-cart')"
+            @account-click="emit('view-profile')"
             @logo-click="goBack"
             @search="handleHeaderSearch"
         />
@@ -739,6 +800,53 @@ function selectRelatedProduct(item) {
                 </div>
 
                 <!-- ==================================================== -->
+                <!-- MESSAGE SELLER -->
+                <!-- ==================================================== -->
+
+                <div
+                    v-if="product.seller_id"
+                    class="message-seller"
+                >
+                    <button
+                        type="button"
+                        class="message-seller-toggle"
+                        @click="toggleMessageComposer"
+                    >
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                        </svg>
+                        {{ messageOpen ? 'Cancel' : `Message ${product.seller || 'Seller'}` }}
+                    </button>
+
+                    <div
+                        v-if="messageOpen"
+                        class="message-seller-composer"
+                    >
+                        <textarea
+                            ref="messageInput"
+                            v-model="messageDraft"
+                            rows="3"
+                            :placeholder="`Ask ${product.seller || 'the seller'} about “${product.name}”…`"
+                            @keydown.enter.exact.prevent="sendSellerMessage"
+                        ></textarea>
+                        <p
+                            v-if="messageError"
+                            class="message-seller-error"
+                        >
+                            {{ messageError }}
+                        </p>
+                        <button
+                            type="button"
+                            class="message-seller-send"
+                            :disabled="messageSending || !messageDraft.trim()"
+                            @click="sendSellerMessage"
+                        >
+                            {{ messageSending ? 'Sending…' : 'Send Message' }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ==================================================== -->
                 <!-- SHIPPING / RETURNS -->
                 <!-- ==================================================== -->
 
@@ -910,3 +1018,79 @@ function selectRelatedProduct(item) {
     </div>
 
 </template>
+
+<style scoped>
+.message-seller {
+    margin-top: 1rem;
+}
+
+.message-seller-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.75rem;
+    background: #fff;
+    color: #0f766e;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.message-seller-toggle:hover {
+    background: #f0fdfa;
+    border-color: #0d9488;
+}
+
+.message-seller-composer {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.message-seller-composer textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.75rem;
+    font: inherit;
+    font-size: 0.875rem;
+    resize: vertical;
+}
+
+.message-seller-composer textarea:focus {
+    outline: none;
+    border-color: #0d9488;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
+}
+
+.message-seller-error {
+    color: #dc2626;
+    font-size: 0.8rem;
+}
+
+.message-seller-send {
+    align-self: flex-start;
+    padding: 0.6rem 1.25rem;
+    border: none;
+    border-radius: 0.75rem;
+    background: #0d9488;
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.message-seller-send:hover:not(:disabled) {
+    background: #0f766e;
+}
+
+.message-seller-send:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+</style>

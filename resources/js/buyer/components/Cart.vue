@@ -22,7 +22,8 @@ const emit = defineEmits([
     'select-category',
     'browse-all',
     'browse-categories',
-    'select-product'
+    'select-product',
+    'view-profile'
 ]);
 
 const {
@@ -121,6 +122,7 @@ const cartTotal = computed(() => cartSubtotal.value);
         <Header
             @select-category="handleHeaderSelectCategory"
             @cart-click="() => {}"
+            @account-click="emit('view-profile')"
             @logo-click="emit('back')"
             @search="handleHeaderSearch"
         />

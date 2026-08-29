@@ -27,10 +27,9 @@
 |     there's no stored card/payment-method vault to draw that from.
 |
 */
-import { computed, ref } from 'vue';
-import Header from './Header.vue';
-import Footer from './Footer.vue';
+import { computed, nextTick, ref } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
+import { useBuyerChat } from '../composables/useBuyerChat';
 import { metaFor } from '../composables/useCategoryMeta';
 import {
     trackingSteps,
@@ -40,8 +39,10 @@ import {
     isTrackingStepCompleted,
     timelineTimestamp
 } from '../composables/useOrderTimeline';
-import ReviewModal from './ReviewModal.vue';
+import Footer from './Footer.vue';
+import Header from './Header.vue';
 import ReturnRequestModal from './ReturnRequestModal.vue';
+import ReviewModal from './ReviewModal.vue';
 
 const props = defineProps({
     order: {
@@ -59,6 +60,8 @@ const emit = defineEmits([
     'view-profile',
     'view-wishlist',
     'view-reviews',
+    'view-addresses',
+    'view-payments',
     'track-order'
 ]);
 
@@ -221,6 +224,7 @@ async function handleCancelOrder() {
 
     if (!canCancelOrder.value) {
         alert('This order can no longer be cancelled.');
+
         return;
     }
 
@@ -234,8 +238,19 @@ async function handleCancelOrder() {
 
     if (!cancelled) {
         alert('Unable to cancel this order right now \u2014 please contact the seller.');
+
         return;
     }
+
+    // props.order is the same live object Orders.vue holds (and passes on
+    // to OrderTracking), so reflecting the new status/history here updates
+    // every view that shares it without a re-fetch \u2014 same pattern as the
+    // review/return handlers below.
+    Object.assign(props.order, {
+        status: cancelled.status,
+        payment_status: cancelled.payment_status,
+        statusHistory: cancelled.statusHistory
+    });
 
     alert('Order cancelled successfully.');
 }
@@ -293,20 +308,24 @@ function closeReturnModal() {
     selectedReturnItemIndex.value = -1;
 }
 
-function handleReturnSubmit(requestData) {
-    if (!props.order || selectedReturnItemIndex.value < 0) {
+async function handleReturnSubmit(requestData) {
+    if (!props.order || selectedReturnItemIndex.value < 0 || !selectedReturnItem.value) {
         return;
     }
 
-    const returnRequest = submitReturnRequest(props.order.orderId, selectedReturnItemIndex.value, requestData);
+    try {
+        const returnRequest = await submitReturnRequest(selectedReturnItem.value.id, requestData);
 
-    if (!returnRequest) {
-        alert('Unable to submit this request. The product may already have a request or the order is not eligible.');
-        return;
+        // Same reasoning as handleReviewSubmit: props.order is the live
+        // object Orders.vue holds, so mutating the item here shows the
+        // submitted request without a full re-fetch.
+        props.order.items[selectedReturnItemIndex.value].returnRequest = returnRequest;
+
+        closeReturnModal();
+        alert('Return / refund request submitted successfully.');
+    } catch (err) {
+        alert(err?.message || 'Unable to submit this request. The item may already have an open request or the order is not eligible.');
     }
-
-    closeReturnModal();
-    alert('Return / refund request submitted successfully.');
 }
 
 /*
@@ -328,6 +347,60 @@ const needHelpMailtoHref = computed(() => {
     return `mailto:support@nexmart.com?subject=${subject}&body=${body}`;
 });
 
+/*
+|--------------------------------------------------------------------------
+| Message Seller
+|--------------------------------------------------------------------------
+|
+| Opens (or reuses) the buyer<->seller thread for this order's seller via
+| useBuyerChat.startConversation(), which pops the messaging popup open on
+| it. The order id is attached so the seller sees which order it's about.
+*/
+
+const { startConversation } = useBuyerChat();
+
+const messageOpen = ref(false);
+const messageDraft = ref('');
+const messageSending = ref(false);
+const messageError = ref('');
+const messageInput = ref(null);
+
+function toggleMessageComposer() {
+    messageOpen.value = !messageOpen.value;
+    messageError.value = '';
+
+    if (messageOpen.value) {
+        nextTick(() => messageInput.value?.focus());
+    }
+}
+
+async function sendSellerMessage() {
+    const body = messageDraft.value.trim();
+
+    if (!body || !props.order?.seller_id) {
+        return;
+    }
+
+    messageSending.value = true;
+    messageError.value = '';
+
+    try {
+        await startConversation({
+            sellerId: props.order.seller_id,
+            orderNumber: props.order.orderId,
+            subject: `Order ${props.order.orderId}`,
+            body
+        });
+
+        messageDraft.value = '';
+        messageOpen.value = false;
+    } catch (err) {
+        messageError.value = err?.message || 'Could not send your message. Please try again.';
+    } finally {
+        messageSending.value = false;
+    }
+}
+
 // Small inline copy icon lives next to the tracking number itself in the
 // Shipping Information card below — a more natural home for it than a
 // standalone header button once there's a real tracking page to link to.
@@ -341,7 +414,9 @@ async function copyTrackingNumber() {
     try {
         await navigator.clipboard.writeText(props.order.tracking_number);
         trackingCopied.value = true;
-        setTimeout(() => { trackingCopied.value = false; }, 2000);
+        setTimeout(() => {
+ trackingCopied.value = false; 
+}, 2000);
     } catch (err) {
         // Clipboard permission denied/unavailable — nothing to recover
         // from mid-click; the number is still visible to copy by hand.
@@ -380,14 +455,14 @@ function handleHeaderSelectCategory(category) {
         />
 
         <main class="max-w-7xl mx-auto w-full px-4 lg:px-8 py-10">
-            <div class="flex flex-col lg:flex-row gap-8">
+            <div class="flex flex-col lg:flex-row lg:items-start gap-8">
 
                 <!-- ==================================================== -->
                 <!-- SIDEBAR NAV -->
                 <!-- ==================================================== -->
 
-                <aside class="w-full lg:w-64 shrink-0">
-                    <nav class="bg-white rounded-3xl p-4 border border-slate-100 space-y-1 lg:sticky lg:top-28" style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);">
+                <aside class="w-full lg:w-64 shrink-0 lg:sticky lg:top-36">
+                    <nav class="bg-white rounded-3xl p-4 border border-slate-100 space-y-1" style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);">
 
                         <button
                             type="button"
@@ -445,17 +520,27 @@ function handleHeaderSelectCategory(category) {
                             My Reviews
                         </button>
 
-                        <div class="pt-1 mt-1 border-t border-slate-50 space-y-1">
-                            <div
-                                v-for="item in ['Saved Addresses', 'Payment Methods']"
-                                :key="item"
-                                class="flex items-center justify-between gap-2 px-4 py-3 rounded-2xl text-slate-300 cursor-not-allowed select-none"
-                                title="Coming soon"
-                            >
-                                <span>{{ item }}</span>
-                                <span class="text-[9px] font-bold uppercase tracking-wide bg-slate-100 text-slate-400 px-2 py-0.5 rounded-full shrink-0">Soon</span>
-                            </div>
-                        </div>
+                        <button
+                            type="button"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
+                            @click="emit('view-addresses')"
+                        >
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" />
+                            </svg>
+                            Saved Addresses
+                        </button>
+
+                        <button
+                            type="button"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
+                            @click="emit('view-payments')"
+                        >
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" />
+                            </svg>
+                            Payment Methods
+                        </button>
 
                     </nav>
                 </aside>
@@ -482,6 +567,18 @@ function handleHeaderSelectCategory(category) {
                             <h1 class="text-3xl font-bold text-slate-900 tracking-tight">Order {{ order.orderId }}</h1>
                         </div>
                         <div class="flex items-center gap-3">
+                            <button
+                                v-if="order.seller_id"
+                                type="button"
+                                class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#0d9488] hover:bg-slate-50 transition-all flex items-center gap-2"
+                                style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                                @click="toggleMessageComposer"
+                            >
+                                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                                </svg>
+                                {{ messageOpen ? 'Cancel' : 'Message Seller' }}
+                            </button>
                             <a
                                 :href="needHelpMailtoHref"
                                 class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 transition-all"
@@ -501,6 +598,33 @@ function handleHeaderSelectCategory(category) {
                                     <circle cx="17" cy="18" r="2" /><circle cx="7" cy="18" r="2" />
                                 </svg>
                                 Track Package
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Message Seller composer -->
+                    <div
+                        v-if="messageOpen"
+                        class="bg-white rounded-3xl p-6 border border-slate-100"
+                        style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                    >
+                        <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Message the seller about this order</label>
+                        <textarea
+                            ref="messageInput"
+                            v-model="messageDraft"
+                            rows="3"
+                            placeholder="Type your message…"
+                            class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all resize-y"
+                        ></textarea>
+                        <p v-if="messageError" class="text-xs text-red-500 mt-2">{{ messageError }}</p>
+                        <div class="mt-3 flex justify-end">
+                            <button
+                                type="button"
+                                class="px-6 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                :disabled="messageSending || !messageDraft.trim()"
+                                @click="sendSellerMessage"
+                            >
+                                {{ messageSending ? 'Sending…' : 'Send Message' }}
                             </button>
                         </div>
                     </div>

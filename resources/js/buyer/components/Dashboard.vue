@@ -12,6 +12,9 @@ import Orders from './Orders.vue';
 import Account from './Account.vue';
 import Wishlist from './Wishlist.vue';
 import Reviews from './Reviews.vue';
+import SavedAddresses from './SavedAddresses.vue';
+import PaymentMethods from './PaymentMethods.vue';
+import Chat from './Chat.vue';
 
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerProducts } from '../composables/useBuyerProducts';
@@ -64,6 +67,8 @@ const showOrders = ref(false);
 const showAccount = ref(false);
 const showWishlist = ref(false);
 const showReviews = ref(false);
+const showAddresses = ref(false);
+const showPayments = ref(false);
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
 
@@ -76,10 +81,10 @@ const checkoutSource = ref(null);
 | see useBuyerProducts.js. `products` itself is the ref returned by that
 | composable; loaded on mount below.
 |
-| rating/reviewCount are NOT part of the real product shape (no reviews
-| table exists yet — see useBuyer.js's submitReview() note), so anything
-| that used to read product.rating/reviewCount falls back gracefully
-| rather than fabricating numbers.
+| Each product carries a real `rating` (average, or null when it has no
+| reviews) and `reviewCount` aggregated server-side from the reviews
+| table, plus a normalized `image` URL — no fabricated numbers, and the
+| card still renders "No reviews yet" when rating is null.
 |
 */
 
@@ -137,13 +142,15 @@ const categoryProducts = computed(() => {
 |--------------------------------------------------------------------------
 |
 | There is no orders/sales-aggregation endpoint yet to drive a *real*
-| "recommended" or "best seller" ranking (that would need aggregating
-| order_items across all sellers), so these are reasonable proxies over
-| real data rather than fabricated flags:
+| units-sold ranking (that would need aggregating order_items across all
+| sellers), so these are explainable proxies over real data rather than
+| fabricated flags:
 |   - flashDeals: real products currently on sale (has a compare_price)
 |   - recommendedProducts: most recently listed in-stock products
-|   - bestSellers: highest-stock in-category products, as a stand-in
-| Flagged in the final report as a real gap, not hidden.
+|   - bestSellers: in-stock products ranked by real review count, then
+|     average rating — the strongest popularity signal available until a
+|     sales aggregate exists.
+| Flagged in the final report as a partial gap, not hidden.
 |
 */
 
@@ -162,7 +169,11 @@ const recommendedProducts = computed(() => {
 const bestSellers = computed(() => {
     return [...products.value]
         .filter(product => product.stock > 0)
-        .sort((a, b) => (b.stock || 0) - (a.stock || 0))
+        .sort((a, b) =>
+            (b.reviewCount || 0) - (a.reviewCount || 0)
+            || (b.rating || 0) - (a.rating || 0)
+            || (b.stock || 0) - (a.stock || 0),
+        )
         .slice(0, 8);
 });
 
@@ -247,17 +258,28 @@ onUnmounted(() => {
 |--------------------------------------------------------------------------
 */
 
-function selectCategory(category) {
-    selectedCategory.value = category;
-
+// Drops every full-screen sub-view (cart, orders, account, wishlist,
+// reviews, product details, checkout) back to the dashboard. Anything
+// that navigates the buyer "somewhere else" — a category, a global
+// search, the logo — has to run this first, otherwise the old view stays
+// mounted on top and the click looks like it did nothing.
+function closeAllSubViews() {
     selectedProduct.value = null;
     showCart.value = false;
     showOrders.value = false;
     showAccount.value = false;
     showWishlist.value = false;
     showReviews.value = false;
+    showAddresses.value = false;
+    showPayments.value = false;
     checkoutItems.value = [];
     checkoutSource.value = null;
+}
+
+function selectCategory(category) {
+    selectedCategory.value = category;
+
+    closeAllSubViews();
 
     browsingCategory.value = category === 'All' ? null : category;
 }
@@ -269,13 +291,8 @@ function selectCategory(category) {
 */
 
 function viewProduct(product) {
+    closeAllSubViews();
     selectedProduct.value = product;
-    showCart.value = false;
-    showOrders.value = false;
-    showAccount.value = false;
-    showWishlist.value = false;
-    showReviews.value = false;
-    checkoutItems.value = [];
 }
 
 function backToProducts() {
@@ -289,12 +306,7 @@ function backToProducts() {
 */
 
 function openCart() {
-    selectedProduct.value = null;
-    checkoutItems.value = [];
-    showOrders.value = false;
-    showAccount.value = false;
-    showWishlist.value = false;
-    showReviews.value = false;
+    closeAllSubViews();
     showCart.value = true;
 }
 
@@ -464,23 +476,23 @@ const relatedProducts = computed(() => {
 
 function handleSearch(query) {
     searchQuery.value = query;
-    backToProducts();
+
+    // A search from the header is global — leave whatever sub-view the
+    // buyer was on (Orders, Order Details, Order Tracking, Account, ...)
+    // and land back on the product grid with the query applied.
+    selectedCategory.value = 'All';
+    browsingCategory.value = null;
+    closeAllSubViews();
 }
 
 function handleSelectCategory(category) {
     selectCategory(category);
-    backToProducts();
 }
 
 function handleBrowseAll() {
     selectedCategory.value = 'All';
     browsingCategory.value = null;
-    showOrders.value = false;
-    showAccount.value = false;
-    showCart.value = false;
-    showWishlist.value = false;
-    showReviews.value = false;
-    backToProducts();
+    closeAllSubViews();
 }
 
 /*
@@ -495,11 +507,7 @@ function handleBrowseAll() {
 */
 
 function openAccount() {
-    selectedProduct.value = null;
-    showCart.value = false;
-    showOrders.value = false;
-    showWishlist.value = false;
-    showReviews.value = false;
+    closeAllSubViews();
     showAccount.value = true;
 }
 
@@ -508,9 +516,7 @@ function closeAccount() {
 }
 
 function openOrders() {
-    showAccount.value = false;
-    showWishlist.value = false;
-    showReviews.value = false;
+    closeAllSubViews();
     showOrders.value = true;
 }
 
@@ -519,11 +525,7 @@ function closeOrders() {
 }
 
 function openWishlist() {
-    selectedProduct.value = null;
-    showCart.value = false;
-    showOrders.value = false;
-    showAccount.value = false;
-    showReviews.value = false;
+    closeAllSubViews();
     showWishlist.value = true;
 }
 
@@ -533,16 +535,30 @@ function closeWishlist() {
 }
 
 function openReviews() {
-    selectedProduct.value = null;
-    showCart.value = false;
-    showOrders.value = false;
-    showAccount.value = false;
-    showWishlist.value = false;
+    closeAllSubViews();
     showReviews.value = true;
 }
 
 function closeReviews() {
     showReviews.value = false;
+}
+
+function openAddresses() {
+    closeAllSubViews();
+    showAddresses.value = true;
+}
+
+function closeAddresses() {
+    showAddresses.value = false;
+}
+
+function openPayments() {
+    closeAllSubViews();
+    showPayments.value = true;
+}
+
+function closePayments() {
+    showPayments.value = false;
 }
 </script>
 
@@ -562,6 +578,8 @@ function closeReviews() {
         @view-profile="openAccount"
         @view-wishlist="openWishlist"
         @view-reviews="openReviews"
+        @view-addresses="openAddresses"
+        @view-payments="openPayments"
     />
 
     <!-- ================================================================ -->
@@ -574,6 +592,8 @@ function closeReviews() {
         @view-orders="openOrders"
         @view-wishlist="openWishlist"
         @view-reviews="openReviews"
+        @view-addresses="openAddresses"
+        @view-payments="openPayments"
         @search="handleSearch"
         @select-category="handleSelectCategory"
         @open-cart="openCart"
@@ -590,6 +610,8 @@ function closeReviews() {
         @view-profile="openAccount"
         @view-orders="openOrders"
         @view-reviews="openReviews"
+        @view-addresses="openAddresses"
+        @view-payments="openPayments"
         @search="handleSearch"
         @select-category="handleSelectCategory"
         @open-cart="openCart"
@@ -607,6 +629,44 @@ function closeReviews() {
         @view-profile="openAccount"
         @view-orders="openOrders"
         @view-wishlist="openWishlist"
+        @view-addresses="openAddresses"
+        @view-payments="openPayments"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+    />
+
+    <!-- ================================================================ -->
+    <!-- SAVED ADDRESSES -->
+    <!-- ================================================================ -->
+
+    <SavedAddresses
+        v-else-if="showAddresses"
+        @back="closeAddresses"
+        @go-home="handleBrowseAll"
+        @view-profile="openAccount"
+        @view-orders="openOrders"
+        @view-wishlist="openWishlist"
+        @view-reviews="openReviews"
+        @view-payments="openPayments"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+    />
+
+    <!-- ================================================================ -->
+    <!-- PAYMENT METHODS -->
+    <!-- ================================================================ -->
+
+    <PaymentMethods
+        v-else-if="showPayments"
+        @back="closePayments"
+        @go-home="handleBrowseAll"
+        @view-profile="openAccount"
+        @view-orders="openOrders"
+        @view-wishlist="openWishlist"
+        @view-reviews="openReviews"
+        @view-addresses="openAddresses"
         @search="handleSearch"
         @select-category="handleSelectCategory"
         @open-cart="openCart"
@@ -641,6 +701,7 @@ function closeReviews() {
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
         @select-product="viewProduct"
+        @view-profile="openAccount"
     />
 
     <!-- ================================================================ -->
@@ -657,6 +718,7 @@ function closeReviews() {
         @search="handleSearch"
         @select-category="handleSelectCategory"
         @open-cart="openCart"
+        @view-profile="openAccount"
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
     />
@@ -1025,5 +1087,10 @@ function closeReviews() {
         />
 
     </div>
+
+    <!-- Messaging popup — mounted once here, outside the view switch above,
+         so it stays alive on every buyer page. The header's message icon
+         drives it straight through useBuyerChat; nothing to wire per page. -->
+    <Chat />
 
 </template>

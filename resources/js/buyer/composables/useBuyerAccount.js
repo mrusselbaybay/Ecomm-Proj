@@ -1,4 +1,5 @@
 import { computed } from 'vue';
+import { buyerApi } from './useBuyerApi';
 import { useBuyerSession, getSupabase } from './useBuyerSession';
 
 /*
@@ -13,13 +14,13 @@ import { useBuyerSession, getSupabase } from './useBuyerSession';
 | Supabase Auth + a real `profiles` row — see loadSession() there), so
 | there's a single source of truth instead of two.
 |
-| Writes go straight from the browser to Supabase, same as sellers already
-| do for their own products (see useSellerProducts.js) — not through a
-| Laravel endpoint. This assumes an UPDATE RLS policy on public.profiles
-| letting a signed-in buyer update their own row (auth.uid() = id), mirroring
-| whatever SELECT policy already lets loadSession() read it; if that policy
-| doesn't exist yet, updateBuyerProfile()/changePassword() below will
-| surface Supabase's real error message rather than silently no-op'ing.
+| Profile writes go through the Laravel Buyer API
+| (PUT /api/buyer/account/profile -> App\Http\Controllers\Buyer\
+| AccountController), NOT straight to Supabase: the direct-to-Supabase
+| path bypassed Profile::booted()'s guard against role escalation. The
+| endpoint whitelists exactly the editable fields and runs that guard.
+| changePassword() still goes to Supabase Auth's updateUser() — that's
+| the auth record, not this table.
 |
 | Column names match the real `profiles` table (see the schema this app
 | was built from): first_name, middle_initial, last_name, sex, contact_no,
@@ -107,33 +108,34 @@ async function updateBuyerProfile(draft) {
         return { data: null, error: 'You need to be signed in to update your profile.' };
     }
 
-    const supabase = getSupabase();
+    try {
+        const data = await buyerApi('/buyer/account/profile', {
+            method: 'PUT',
+            body: JSON.stringify({
+                first_name: draft.firstName?.trim() || '',
+                last_name: draft.lastName?.trim() || '',
+                middle_initial: draft.middleInitial?.trim() || null,
+                sex: draft.sex || null,
+                contact_no: draft.contactNumber?.trim() || null,
+                birthday: draft.birthday || null,
+            }),
+        });
 
-    const { data, error } = await supabase
-        .from('profiles')
-        .update({
-            first_name: draft.firstName?.trim() || null,
-            middle_initial: draft.middleInitial
-                ? draft.middleInitial.trim().charAt(0).toUpperCase()
-                : null,
-            last_name: draft.lastName?.trim() || null,
-            sex: draft.sex || null,
-            contact_no: draft.contactNumber?.trim() || null,
-            birthday: draft.birthday || null,
-        })
-        .eq('id', buyerProfile.value.id)
-        .select()
-        .single();
+        // Merge onto the existing row so fields the endpoint doesn't
+        // return (it returns a safe subset) aren't dropped from the
+        // in-memory profile.
+        buyerProfile.value = { ...buyerProfile.value, ...data };
 
-    if (error) {
-        console.error('Error updating buyer profile:', error);
+        return { data: buyerProfile.value, error: null };
+    } catch (err) {
+        console.error('Error updating buyer profile:', err);
 
-        return { data: null, error: error.message || 'Could not save your changes.' };
+        const first = err?.body?.errors
+            ? Object.values(err.body.errors).flat()[0]
+            : null;
+
+        return { data: null, error: first || err?.message || 'Could not save your changes.' };
     }
-
-    buyerProfile.value = data;
-
-    return { data, error: null };
 }
 
 /*

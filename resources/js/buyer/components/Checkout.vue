@@ -1,9 +1,10 @@
 <script setup>
-import { computed, reactive, ref } from 'vue';
-import { metaFor } from '../composables/useCategoryMeta';
+import { computed, reactive, ref, watch } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
-import Header from './Header.vue';
+import { useBuyerAddresses } from '../composables/useBuyerAddresses';
+import { metaFor } from '../composables/useCategoryMeta';
 import Footer from './Footer.vue';
+import Header from './Header.vue';
 
 // Renamed on import: this component's own placeOrder() below is the
 // click handler (validates the form, builds the payload); it calls this
@@ -22,6 +23,7 @@ const emit = defineEmits([
     'place-order',
     'search',
     'select-category',
+    'view-profile',
     'browse-all',
     'browse-categories'
 ]);
@@ -42,6 +44,43 @@ const checkoutForm = reactive({
     shippingMethod: 'standard',
     paymentMethod: 'cod'
 });
+
+/*
+|--------------------------------------------------------------------------
+| Prefill from the buyer's default saved address
+|--------------------------------------------------------------------------
+|
+| Non-destructive: fills the existing form fields (which stay fully
+| editable) from useBuyerAddresses' default the moment it loads, unless
+| the buyer has already typed something. No new markup — the same three
+| fields, just not blank when there's a saved address to start from.
+|
+*/
+
+const { defaultAddress } = useBuyerAddresses();
+
+function applyDefaultAddress(address) {
+    if (!address) {
+        return;
+    }
+
+    if (!checkoutForm.recipientName) {
+        checkoutForm.recipientName = address.fullName || '';
+    }
+
+    if (!checkoutForm.contactNumber) {
+        checkoutForm.contactNumber = address.phone || '';
+    }
+
+    if (!checkoutForm.address) {
+        checkoutForm.address = [address.line1, address.city, address.province, address.postalCode]
+            .filter(Boolean)
+            .join(', ');
+    }
+}
+
+applyDefaultAddress(defaultAddress.value);
+watch(defaultAddress, applyDefaultAddress);
 
 /*
 |--------------------------------------------------------------------------
@@ -197,6 +236,7 @@ function applyVoucher() {
 
     if (!code) {
         alert('Please enter a voucher code.');
+
         return;
     }
 
@@ -206,6 +246,7 @@ function applyVoucher() {
         };
 
         alert('Voucher applied successfully.');
+
         return;
     }
 
@@ -247,31 +288,37 @@ function handleHeaderSelectCategory(category) {
 async function placeOrder() {
     if (props.items.length === 0) {
         alert('There are no items to checkout.');
+
         return;
     }
 
     if (!checkoutForm.recipientName.trim()) {
         alert('Please enter the recipient name.');
+
         return;
     }
 
     if (!checkoutForm.contactNumber.trim()) {
         alert('Please enter the contact number.');
+
         return;
     }
 
     if (!checkoutForm.address.trim()) {
         alert('Please enter the delivery address.');
+
         return;
     }
 
     if (!checkoutForm.shippingMethod) {
         alert('Please select a shipping method.');
+
         return;
     }
 
     if (!checkoutForm.paymentMethod) {
         alert('Please select a payment method.');
+
         return;
     }
 
@@ -342,6 +389,7 @@ async function placeOrder() {
         <Header
             @select-category="handleHeaderSelectCategory"
             @cart-click="() => {}"
+            @account-click="emit('view-profile')"
             @logo-click="emit('back')"
             @search="handleHeaderSearch"
         />

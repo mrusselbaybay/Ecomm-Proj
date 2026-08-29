@@ -17,8 +17,8 @@
 | Addresses / Payment Methods don't have a page (or, for Payment Methods,
 | any real storage) to send someone to yet, so they're shown clearly
 | disabled with a "Soon" badge rather than as dead clicks or, worse, forms
-| that imply data is being saved when nothing is. "Notifications" scrolls
-| to the real section further down this same page instead.
+| that imply data is being saved when nothing is. The Notifications &
+| Marketing preferences live in their own section further down this page.
 |
 | "Order Tracking" deliberately isn't listed here at all, real or
 | disabled — it only means anything once a specific order is in view
@@ -39,6 +39,8 @@ const emit = defineEmits([
     'view-orders',
     'view-wishlist',
     'view-reviews',
+    'view-addresses',
+    'view-payments',
     'search',
     'select-category',
     'open-cart'
@@ -311,11 +313,6 @@ function scrollToSection(id) {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-const comingSoonNav = [
-    { label: 'Saved Addresses', icon: 'map-pin' },
-    { label: 'Payment Methods', icon: 'credit-card' }
-];
-
 /*
 |--------------------------------------------------------------------------
 | Header Relay
@@ -379,15 +376,15 @@ function handleHeaderSelectCategory(category) {
             <!-- Loaded -->
             <div
                 v-else
-                class="flex flex-col md:flex-row gap-8"
+                class="flex flex-col md:flex-row md:items-start gap-8"
             >
 
                 <!-- ==================================================== -->
                 <!-- SIDEBAR NAV -->
                 <!-- ==================================================== -->
 
-                <aside class="w-full md:w-64 shrink-0">
-                    <nav class="bg-white rounded-3xl border border-slate-100 p-4 space-y-1 md:sticky md:top-28" style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);">
+                <aside class="w-full md:w-64 shrink-0 md:sticky md:top-36">
+                    <nav class="bg-white rounded-3xl border border-slate-100 p-4 space-y-1" style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);">
 
                         <button
                             type="button"
@@ -437,34 +434,24 @@ function handleHeaderSelectCategory(category) {
                         <button
                             type="button"
                             class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
-                            @click="scrollToSection('notifications-section')"
+                            @click="emit('view-addresses')"
                         >
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M10.268 21a2 2 0 0 0 3.464 0" />
-                                <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />
+                                <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" />
                             </svg>
-                            Notifications
+                            Saved Addresses
                         </button>
 
-                        <div class="pt-1 mt-1 border-t border-slate-50 space-y-1">
-                            <div
-                                v-for="item in comingSoonNav"
-                                :key="item.label"
-                                class="flex items-center justify-between gap-2 px-4 py-3 rounded-2xl text-slate-300 cursor-not-allowed select-none"
-                                title="Coming soon"
-                            >
-                                <span class="flex items-center gap-3">
-                                    <svg v-if="item.icon === 'map-pin'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" />
-                                    </svg>
-                                    <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" />
-                                    </svg>
-                                    {{ item.label }}
-                                </span>
-                                <span class="text-[9px] font-bold uppercase tracking-wide bg-slate-100 text-slate-400 px-2 py-0.5 rounded-full shrink-0">Soon</span>
-                            </div>
-                        </div>
+                        <button
+                            type="button"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
+                            @click="emit('view-payments')"
+                        >
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" />
+                            </svg>
+                            Payment Methods
+                        </button>
 
                     </nav>
                 </aside>
