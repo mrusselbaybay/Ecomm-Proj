@@ -3,13 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Profile extends Model
 {
     protected $table = 'profiles';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -76,9 +78,43 @@ class Profile extends Model
             ->orderByDesc('created_at');
     }
 
+    // ---- Buyer-owned collections (added for the buyer backend; additive,
+    // no existing relation/method/cast changed) ----
+
+    public function buyerAddresses(): HasMany
+    {
+        return $this->hasMany(BuyerAddress::class, 'buyer_profile_id');
+    }
+
+    public function wishlistItems(): HasMany
+    {
+        return $this->hasMany(WishlistItem::class, 'buyer_profile_id');
+    }
+
+    public function paymentMethods(): HasMany
+    {
+        return $this->hasMany(BuyerPaymentMethod::class, 'buyer_profile_id');
+    }
+
+    public function returnRequests(): HasMany
+    {
+        return $this->hasMany(OrderReturnRequest::class, 'buyer_profile_id');
+    }
+
+    public function conversationsAsBuyer(): HasMany
+    {
+        return $this->hasMany(Conversation::class, 'buyer_id');
+    }
+
+    public function conversationsAsSeller(): HasMany
+    {
+        return $this->hasMany(Conversation::class, 'seller_id');
+    }
+
     public function getFullNameAttribute(): string
     {
         $mi = $this->middle_initial ? "{$this->middle_initial}. " : '';
+
         return trim("{$this->first_name} {$mi}{$this->last_name}");
     }
 }

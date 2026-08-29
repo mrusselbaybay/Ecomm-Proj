@@ -32,6 +32,7 @@ class Order extends Model
     protected $table = 'orders';
 
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     public const STATUSES = ['New', 'Processing', 'In Transit', 'Delivered', 'Cancelled'];
@@ -88,6 +89,18 @@ class Order extends Model
     public function buyer(): BelongsTo
     {
         return $this->belongsTo(Profile::class, 'buyer_profile_id');
+    }
+
+    // Added for the buyer backend (returns + messaging). Additive — no
+    // existing relation, const, cast or method changed.
+    public function returnRequests(): HasMany
+    {
+        return $this->hasMany(OrderReturnRequest::class, 'order_id');
+    }
+
+    public function conversations(): HasMany
+    {
+        return $this->hasMany(Conversation::class, 'order_id');
     }
 
     public function canTransitionTo(string $status): bool
