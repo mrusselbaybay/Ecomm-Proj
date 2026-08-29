@@ -11,6 +11,7 @@ class Order extends Model
     protected $table = 'orders';
 
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -64,6 +65,18 @@ class Order extends Model
     public function statusHistory(): HasMany
     {
         return $this->hasMany(OrderStatusHistory::class, 'order_id')->orderBy('created_at');
+    }
+
+    // Added for the buyer backend (returns + messaging). Additive — no
+    // existing relation, const, cast or method changed.
+    public function returnRequests(): HasMany
+    {
+        return $this->hasMany(OrderReturnRequest::class, 'order_id');
+    }
+
+    public function conversations(): HasMany
+    {
+        return $this->hasMany(Conversation::class, 'order_id');
     }
 
     public function canTransitionTo(string $status): bool
