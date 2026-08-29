@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 class PsgcProxyController extends Controller
 {
     private const BASE = 'https://psgc.gitlab.io/api';
+
     private const CACHE_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 
     /**
@@ -26,7 +27,10 @@ class PsgcProxyController extends Controller
      */
     public function provinces(Request $request): JsonResponse
     {
-        return $this->proxy('/provinces', $request->only(['region_code']));
+        // De-duplicate by code and sort by name: the upstream feed can
+        // return the same province twice, and address dropdowns want it
+        // alphabetical. (See PsgcProxyTest.)
+        return $this->proxy('/provinces', $request->only(['region_code']), dedupeAndSort: true);
     }
 
     /**
@@ -45,31 +49,31 @@ class PsgcProxyController extends Controller
     {
         // Support both parameter names for compatibility
         $params = [];
-        
+
         if ($request->has('city_municipality_code')) {
             $params['city_municipality_code'] = $request->input('city_municipality_code');
         } elseif ($request->has('municipality_code')) {
             $params['city_municipality_code'] = $request->input('municipality_code');
         }
-        
+
         if ($request->has('limit')) {
             $params['limit'] = $request->input('limit');
         }
-        
+
         return $this->proxy('/barangays', $params);
     }
 
     /**
      * Proxy request to PSGC API with caching
      */
-    private function proxy(string $path, array $query): JsonResponse
+    private function proxy(string $path, array $query, bool $dedupeAndSort = false): JsonResponse
     {
-        $cacheKey = 'psgc:' . $path . ':' . http_build_query($query);
+        $cacheKey = 'psgc:'.$path.':'.http_build_query($query);
         $cacheKey = str_replace(['[', ']'], '', $cacheKey); // Clean cache key
 
         try {
             $payload = Cache::remember($cacheKey, self::CACHE_TTL_SECONDS, function () use ($path, $query) {
-                $url = self::BASE . $path;
+                $url = self::BASE.$path;
                 Log::info('PSGC Proxy Request', ['url' => $url, 'query' => $query]);
 
                 $response = Http::timeout(30)->get($url, $query);
@@ -85,7 +89,7 @@ class PsgcProxyController extends Controller
                         'body' => $response->body(),
                     ]);
 
-                    throw new \RuntimeException('PSGC upstream request failed: ' . $response->status());
+                    throw new \RuntimeException('PSGC upstream request failed: '.$response->status());
                 }
 
                 $responseData = $response->json();
@@ -94,23 +98,34 @@ class PsgcProxyController extends Controller
                 if (isset($responseData['data']) && is_array($responseData['data'])) {
                     // Filter the data if needed
                     $filtered = $this->filterPayloadByQuery($responseData['data'], $query);
+
                     return ['data' => $filtered];
                 }
 
                 // If response is a list, wrap it in our format
                 if (is_array($responseData) && array_is_list($responseData)) {
                     $filtered = $this->filterPayloadByQuery($responseData, $query);
+
                     return ['data' => $filtered];
                 }
 
                 // If response is an object with data property, use it directly
                 if (is_array($responseData) && isset($responseData['data'])) {
                     $filtered = $this->filterPayloadByQuery($responseData['data'], $query);
+
                     return ['data' => $filtered];
                 }
 
                 return ['data' => $responseData];
             });
+
+            if ($dedupeAndSort && isset($payload['data']) && is_array($payload['data']) && array_is_list($payload['data'])) {
+                $payload['data'] = collect($payload['data'])
+                    ->unique(fn ($item) => is_array($item) ? ($item['code'] ?? json_encode($item)) : $item)
+                    ->sortBy(fn ($item) => is_array($item) ? ($item['name'] ?? '') : $item)
+                    ->values()
+                    ->all();
+            }
 
             return response()->json($payload);
 
@@ -157,6 +172,7 @@ class PsgcProxyController extends Controller
                 }
 
                 $itemProvinceCode = (string) ($item['provinceCode'] ?? $item['province_code'] ?? '');
+
                 return $itemProvinceCode === $provinceCode;
             }));
         }
@@ -169,15 +185,15 @@ class PsgcProxyController extends Controller
                     return false;
                 }
 
-                $itemMunicipalityCode = (string) ($item['municipalityCode'] ?? 
-                    $item['cityCode'] ?? 
-                    $item['city_municipality_code'] ?? 
-                    $item['municipality_code'] ?? 
+                $itemMunicipalityCode = (string) ($item['municipalityCode'] ??
+                    $item['cityCode'] ??
+                    $item['city_municipality_code'] ??
+                    $item['municipality_code'] ??
                     '');
-                
+
                 $itemCode = (string) ($item['code'] ?? '');
 
-                return $itemMunicipalityCode === $municipalityCode || 
+                return $itemMunicipalityCode === $municipalityCode ||
                        str_starts_with($itemCode, substr($municipalityCode, 0, 7));
             }));
         }
@@ -196,10 +212,11 @@ class PsgcProxyController extends Controller
     public function clearCache(Request $request): JsonResponse
     {
         $path = $request->input('path');
-        
+
         if ($path) {
-            $cacheKey = 'psgc:' . $path;
+            $cacheKey = 'psgc:'.$path;
             Cache::forget($cacheKey);
+
             return response()->json(['message' => "Cache cleared for: {$path}"]);
         }
 
@@ -208,7 +225,7 @@ class PsgcProxyController extends Controller
         foreach ($keys as $key) {
             Cache::forget($key);
         }
-        
+
         return response()->json(['message' => 'All PSGC cache cleared']);
     }
 }
