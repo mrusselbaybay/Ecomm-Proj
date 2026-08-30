@@ -88,6 +88,7 @@ Route::prefix('signup')->name('signup.')->group(function () {
 // ============================================================
 Route::prefix('psgc')->name('psgc.')->group(function () {
     Route::get('/regions', [PsgcProxyController::class, 'regions'])->name('regions');
+    Route::get('/provinces/all', [PsgcProxyController::class, 'allProvinces'])->name('provinces.all');
     Route::get('/provinces', [PsgcProxyController::class, 'provinces'])->name('provinces');
     Route::get('/cities-municipalities', [PsgcProxyController::class, 'citiesMunicipalities'])->name('cities-municipalities');
     Route::get('/barangays', [PsgcProxyController::class, 'barangays'])->name('barangays');

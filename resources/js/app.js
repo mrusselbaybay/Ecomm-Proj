@@ -100,6 +100,13 @@ const App = {
                 : null,
         );
         const isLogisticsSignup = ref(false);
+        // Set when a Google sign-in lands on an account with no `profiles`
+        // row yet — see completeLogin()/beginGoogleOnboarding() below. It
+        // trims the normal buyer/seller/courier wizard down to the fields
+        // Google didn't already give us (no email verification, no
+        // password, since the Supabase session already exists).
+        const isGoogleSignup = ref(false);
+        const googleUser = ref(null);
         const isSubmitting = ref(false);
 
         // Signup Email Verification
@@ -269,6 +276,22 @@ const App = {
             'security',
             'documents',
         ];
+        // Google onboarding skips email verification (Google already
+        // proved it) and password (no password on this account) — just
+        // the personal fields Google didn't give us, address, and docs.
+        const googleSteps = ['Personal', 'Address', 'Documents'];
+        const googleStepKeys = ['personal', 'address', 'documents'];
+
+        // The buyer/seller/courier wizard's step labels/keys, swapped to
+        // the shorter Google set when onboarding a Google sign-in with no
+        // profile yet. Everything else about that wizard (template,
+        // validation) is shared as-is.
+        const activeSteps = computed(() =>
+            isGoogleSignup.value ? googleSteps : steps,
+        );
+        const activeStepKeys = computed(() =>
+            isGoogleSignup.value ? googleStepKeys : stepKeys,
+        );
 
         // Computed: Current Step Index
         const currentStepIndex = computed(() => {
@@ -293,6 +316,12 @@ const App = {
                     driverSecurity: 3,
                     driverDocuments: 4,
                 };
+
+                return stepMap[signupStep.value] !== undefined
+                    ? stepMap[signupStep.value]
+                    : -1;
+            } else if (isGoogleSignup.value) {
+                const stepMap = { personal: 0, address: 1, documents: 2 };
 
                 return stepMap[signupStep.value] !== undefined
                     ? stepMap[signupStep.value]
@@ -333,10 +362,10 @@ const App = {
                 icon: 'truck',
             },
             {
-                id: 'driver',
-                label: 'Driver',
-                desc: 'Drive & deliver for logistics companies',
-                icon: 'car',
+                id: 'logistics',
+                label: 'Logistics',
+                desc: 'Run a logistics company & manage your fleet',
+                icon: 'building',
             },
         ];
 
@@ -1116,6 +1145,118 @@ const App = {
             }
         }
 
+        // Finishes a Google-onboarding signup. Unlike submitUserRegistration,
+        // this never creates a Supabase auth user — Google sign-in already
+        // did that during the OAuth callback — it just fills in the role,
+        // profile details, and documents on the account that's already
+        // signed in (see AuthController::completeGoogleSignup).
+        async function submitGoogleSignup() {
+            try {
+                const userRole = selectedRole.value || 'buyer';
+
+                const fd = new FormData();
+                fd.append('role', userRole);
+                fd.append('first_name', form.value.firstName || '');
+                fd.append('last_name', form.value.lastName || '');
+                fd.append('middle_initial', form.value.middleInitial || '');
+                fd.append('sex', form.value.sex || '');
+                fd.append('contact_no', form.value.contactNo || '');
+                fd.append('birthday', form.value.birthday || '');
+
+                if (
+                    form.value.provinceCode &&
+                    form.value.municipalityCode &&
+                    form.value.barangay
+                ) {
+                    fd.append('province_code', form.value.provinceCode);
+                    fd.append('province_name', form.value.province || '');
+                    fd.append('municipality_code', form.value.municipalityCode);
+                    fd.append(
+                        'municipality_name',
+                        form.value.municipality || '',
+                    );
+                    fd.append('barangay', form.value.barangay);
+                    fd.append('street', form.value.street || '');
+
+                    if (form.value.houseNo) {
+                        fd.append('house_no', form.value.houseNo);
+                    }
+                }
+
+                if (userRole === 'seller') {
+                    fd.append('business_name', form.value.businessName || '');
+                    fd.append(
+                        'line_of_business',
+                        form.value.lineOfBusiness || '',
+                    );
+                } else if (userRole === 'courier') {
+                    fd.append('vehicle', form.value.vehicle || '');
+                    fd.append('plate_number', form.value.plateNumber || '');
+                }
+
+                // Files — field names match AuthController::fileMapForRole()
+                if (form.value.idFile) {
+                    fd.append('id_file', form.value.idFile);
+                }
+
+                if (form.value.businessPermit) {
+                    fd.append('business_permit', form.value.businessPermit);
+                }
+
+                if (form.value.orcrFile) {
+                    fd.append('orcr_file', form.value.orcrFile);
+                }
+
+                if (form.value.licenseFile) {
+                    fd.append('license_file', form.value.licenseFile);
+                }
+
+                const {
+                    data: { session },
+                } = await supabase.auth.getSession();
+
+                const csrfToken =
+                    document
+                        .querySelector('meta[name="csrf-token"]')
+                        ?.getAttribute('content') || '';
+
+                const response = await fetch('/api/signup/complete-google', {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        Authorization: 'Bearer ' + (session?.access_token || ''),
+                    },
+                    body: fd,
+                });
+
+                const result = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error(
+                        result.message ||
+                            'Registration failed. Please try again.',
+                    );
+                }
+
+                // The account is created but pending approval — sign out of
+                // the live session from the Google callback so a later real
+                // login correctly hits the "pending approval" gate below,
+                // the same as any other new signup.
+                await supabase.auth.signOut();
+
+                console.log('✅ Google signup completed:', result.user_id);
+                successMsg.value =
+                    result.message ||
+                    'Registration submitted! Please wait for administrator approval.';
+                signupStep.value = 'complete';
+            } catch (error) {
+                console.error('Google signup completion error:', error);
+                errorMsg.value =
+                    error.message || 'Registration failed. Please try again.';
+            }
+        }
+
         async function submitLogisticsRegistration() {
             try {
                 const fd = new FormData();
@@ -1261,6 +1402,19 @@ const App = {
                     return;
                 }
 
+                if (isGoogleSignup.value) {
+                    if (!validateDocuments()) {
+                        isSubmitting.value = false;
+
+                        return;
+                    }
+
+                    submitGoogleSignup();
+                    isSubmitting.value = false;
+
+                    return;
+                }
+
                 if (selectedRole.value === 'driver') {
                     if (
                         !validateDriverPersonal() ||
@@ -1332,38 +1486,24 @@ const App = {
             addressApiError.value = '';
 
             try {
-                const regionsRes = await fetch(
-                    `${PSGC_BASE}/regions?limit=100`,
-                );
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-                if (!regionsRes.ok) {
-                    throw new Error('Request failed: ' + regionsRes.status);
+                // One request instead of the old 1-regions + ~17-provinces
+                // fan-out every visitor used to trigger from the browser —
+                // that's now done server-side and cached for everyone (see
+                // PsgcProxyController::allProvinces).
+                const res = await fetch(`${PSGC_BASE}/provinces/all`, {
+                    signal: controller.signal,
+                });
+                clearTimeout(timeoutId);
+
+                if (!res.ok) {
+                    throw new Error('Request failed: ' + res.status);
                 }
 
-                const regionsJson = await regionsRes.json();
-                const regions = regionsJson.data || [];
-
-                const provinceResults = await Promise.all(
-                    regions.map(async (r) => {
-                        try {
-                            const res = await fetch(
-                                `${PSGC_BASE}/provinces?region_code=${r.code}`,
-                            );
-
-                            if (!res.ok) {
-                                return [];
-                            }
-
-                            const json = await res.json();
-
-                            return json.data || [];
-                        } catch {
-                            return [];
-                        }
-                    }),
-                );
-
-                const allProvinces = dedupeByCodeOrName(provinceResults.flat());
+                const json = await res.json();
+                const allProvinces = dedupeByCodeOrName(json.data || []);
 
                 if (allProvinces.length === 0) {
                     throw new Error('No provinces returned');
@@ -1575,10 +1715,19 @@ const App = {
         }
 
         function switchMode(next) {
+            if (isGoogleSignup.value) {
+                // Leaving mid-onboarding — drop the live Supabase session
+                // from the Google handshake rather than leave the browser
+                // authenticated with no completed profile.
+                supabase.auth.signOut();
+            }
+
             mode.value = next;
             signupStep.value = 'role';
             selectedRole.value = null;
             isLogisticsSignup.value = false;
+            isGoogleSignup.value = false;
+            googleUser.value = null;
             resetMessages();
             resetStep.value = 1;
             resetEmail.value = '';
@@ -1679,6 +1828,24 @@ const App = {
         }
 
         function selectRole(role) {
+            // Logistics companies use their own dedicated signup wizard
+            // (same one the old "Sign up here" link opened) rather than
+            // the generic buyer/seller/courier funnel below. That wizard
+            // registers its own email/password login unrelated to
+            // whichever personal Google account got them here, so drop
+            // the Google session first if one is active.
+            if (role === 'logistics') {
+                if (isGoogleSignup.value) {
+                    isGoogleSignup.value = false;
+                    googleUser.value = null;
+                    supabase.auth.signOut();
+                }
+
+                startLogisticsSignup();
+
+                return;
+            }
+
             selectedRole.value = role;
             resetMessages();
 
@@ -1686,11 +1853,7 @@ const App = {
                 validationErrors.value[key] = '';
             });
 
-            if (role === 'driver') {
-                signupStep.value = 'driverPersonal';
-            } else {
-                signupStep.value = 'personal';
-            }
+            signupStep.value = 'personal';
 
             // Kick off the province list now, in the background, so it's
             // ready by the time the wizard reaches the address step —
@@ -1749,6 +1912,32 @@ const App = {
                     }
                 }
             } else if (!isLogisticsSignup.value) {
+                // Google onboarding: skip straight personal -> address ->
+                // documents. No email to verify (Google already did) and
+                // no password step (this account doesn't have one).
+                if (isGoogleSignup.value) {
+                    if (
+                        step === 'address' &&
+                        signupStep.value === 'personal' &&
+                        !validatePersonalFields()
+                    ) {
+                        return;
+                    }
+
+                    if (
+                        step === 'documents' &&
+                        signupStep.value === 'address' &&
+                        !validateAddressFields()
+                    ) {
+                        return;
+                    }
+
+                    signupStep.value = step;
+                    resetMessages();
+
+                    return;
+                }
+
                 if (step === 'verifyEmail' && signupStep.value === 'personal') {
                     if (!validatePersonalFields()) {
                         return;
@@ -1850,23 +2039,35 @@ const App = {
 
         // ---------- Login Functions ----------
         // ---------- Login Functions ----------
-        async function handleLogin() {
+        // First-time Google sign-in: Supabase already created the auth
+        // account during the callback, but there's no `profiles` row yet
+        // since nobody has chosen a role. Drop them into the same
+        // buyer/seller/courier wizard everyone else uses, pre-filled with
+        // whatever Google gave us, instead of erroring out.
+        function beginGoogleOnboarding(user) {
+            const meta = user.user_metadata || {};
+            const fullName = meta.full_name || meta.name || '';
+            const [firstGuess, ...restGuess] = fullName.trim().split(/\s+/);
+
+            googleUser.value = { id: user.id, email: user.email };
+            isGoogleSignup.value = true;
+            mode.value = 'signup';
+            signupStep.value = 'role';
+            selectedRole.value = null;
             resetMessages();
 
-            const { data, error } = await supabase.auth.signInWithPassword({
-                email: email.value.trim().toLowerCase(),
-                password: password.value,
-            });
+            email.value = user.email || '';
+            form.value.firstName = meta.given_name || firstGuess || '';
+            form.value.lastName =
+                meta.family_name || restGuess.join(' ') || '';
 
-            if (error) {
-                console.log('Supabase auth error:', error);
-                errorMsg.value = 'Email or password is incorrect.';
+            fetchProvinces();
+        }
 
-                return;
-            }
-
-            const user = data.user;
-
+        // Finishes a sign-in once Supabase has an authenticated user —
+        // shared by email/password login and Google login, since both
+        // land here via the SIGNED_IN listener in onMounted() below.
+        async function completeLogin(user, remember) {
             const { data: profile, error: profileError } = await supabase
                 .from('profiles')
                 .select(
@@ -1876,8 +2077,45 @@ const App = {
                 .single();
 
             if (profileError) {
+                // PGRST116 = "no rows" — kept as a defensive fallback, but
+                // in practice the Postgres trigger on auth.users always
+                // creates a stub row immediately (see the check below),
+                // so this rarely fires. Any other error keeps the existing
+                // safe behavior (message + sign out) rather than risk
+                // mistaking a real account's transient fetch failure for
+                // a brand-new signup.
+                if (
+                    user.app_metadata?.provider === 'google' &&
+                    profileError.code === 'PGRST116'
+                ) {
+                    beginGoogleOnboarding(user);
+
+                    return;
+                }
+
                 console.log('Profile error:', profileError);
                 errorMsg.value = 'Could not fetch user profile.';
+                await supabase.auth.signOut();
+
+                return;
+            }
+
+            // The Postgres trigger on auth.users creates a `profiles` row
+            // for every new account immediately — including a Google
+            // sign-in — before anyone has picked a role or filled in
+            // anything, defaulting role to 'buyer' and status to
+            // 'pending'. It reads first_name/last_name from metadata keys
+            // that only our own signup code ever sets (Google's OAuth data
+            // uses given_name/family_name/full_name instead), so a
+            // trigger-stubbed row from Google reliably has both empty,
+            // while every real completed signup always has them filled
+            // in. Treat an empty one as "still needs to onboard" instead
+            // of a pending account.
+            if (
+                user.app_metadata?.provider === 'google' &&
+                (!profile.first_name || !profile.last_name)
+            ) {
+                beginGoogleOnboarding(user);
 
                 return;
             }
@@ -1930,7 +2168,7 @@ const App = {
             setCookie(
                 'nexmart_session',
                 JSON.stringify(loggedInUser.value),
-                rememberMe.value ? 30 : 1,
+                remember ? 30 : 1,
             );
 
             // Redirect based on role
@@ -1955,6 +2193,38 @@ const App = {
                 default: // buyer
                     window.location.href = '/buyer/dashboard';
             }
+        }
+
+        async function handleLogin() {
+            resetMessages();
+
+            const { error } = await supabase.auth.signInWithPassword({
+                email: email.value.trim().toLowerCase(),
+                password: password.value,
+            });
+
+            if (error) {
+                console.log('Supabase auth error:', error);
+                errorMsg.value = 'Email or password is incorrect.';
+
+                return;
+            }
+
+            // Success falls through to the SIGNED_IN listener in
+            // onMounted(), which calls completeLogin() for us — the same
+            // path Google sign-in uses.
+        }
+
+        function handleGoogleLogin() {
+            resetMessages();
+
+            // Handshake goes through Laravel/Socialite now, not
+            // supabase.auth.signInWithOAuth directly — see
+            // AuthController::redirectToGoogle(). It ends by bouncing the
+            // browser back here with a Supabase session already attached
+            // (or a ?google_error=1 flag on failure, read in onMounted()),
+            // so this is a plain navigation, not an async Supabase call.
+            window.location.href = '/auth/google/redirect';
         }
 
         // ---------- Password Reset Functions ----------
@@ -2214,10 +2484,47 @@ const App = {
             // province list on every login-page load, for every visitor,
             // was pure wasted work slowing this page down.
 
-            supabase.auth.onAuthStateChange((event) => {
+            // Surface a failed Google sign-in (Socialite/Supabase exchange
+            // error redirected here with ?google_error=1 — see
+            // AuthController::handleGoogleCallback), then strip the flag
+            // so a page refresh doesn't keep re-showing it.
+            const queryParams = new URLSearchParams(window.location.search);
+
+            if (queryParams.get('google_error')) {
+                mode.value = 'login';
+                errorMsg.value =
+                    'Could not sign you in with Google. Please try again.';
+                queryParams.delete('google_error');
+
+                const cleanQuery = queryParams.toString();
+                window.history.replaceState(
+                    {},
+                    '',
+                    window.location.pathname +
+                        (cleanQuery ? `?${cleanQuery}` : '') +
+                        window.location.hash,
+                );
+            }
+
+            supabase.auth.onAuthStateChange((event, session) => {
                 if (event === 'PASSWORD_RECOVERY') {
                     mode.value = 'reset';
                     resetMessages();
+
+                    return;
+                }
+
+                // Fires for both a fresh email/password sign-in and a
+                // Google sign-in landing back on this page. Guarded on
+                // "no cookie yet" so it only runs once per real sign-in —
+                // a returning visitor with an already-verified session is
+                // handled separately below, not through this event.
+                if (
+                    event === 'SIGNED_IN' &&
+                    session?.user &&
+                    !getCookie('nexmart_session')
+                ) {
+                    completeLogin(session.user, rememberMe.value);
                 }
             });
 
@@ -2303,6 +2610,10 @@ const App = {
             driverSteps,
             currentStepIndex,
             isLogisticsSignup,
+            isGoogleSignup,
+            googleUser,
+            activeSteps,
+            activeStepKeys,
             provinceOptions,
             municipalityOptions,
             barangayOptions,
@@ -2333,6 +2644,7 @@ const App = {
             retryAddressLoad,
             switchMode,
             handleLogin,
+            handleGoogleLogin,
             selectRole,
             goToStep,
             handleFileUpload,
@@ -2390,7 +2702,7 @@ const App = {
               <svg v-if="r.icon === 'bag'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
               <svg v-if="r.icon === 'house'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/></svg>
               <svg v-if="r.icon === 'truck'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h1"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
-              <svg v-if="r.icon === 'car'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
+              <svg v-if="r.icon === 'building'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
             </div>
             <div>
               <p class="text-sm font-semibold">{{ r.label }}</p>
@@ -2534,34 +2846,42 @@ const App = {
             <p v-if="errorMsg" class="text-sm text-red-600">{{ errorMsg }}</p>
             <p v-if="successMsg" class="text-sm text-green-600">{{ successMsg }}</p>
             <button @click="handleLogin" class="btn-gradient w-full text-white font-semibold py-2.5 rounded-lg">Sign In</button>
+
+            <div class="relative my-1">
+              <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-slate-200"></div></div>
+              <div class="relative flex justify-center"><span class="bg-white px-3 text-xs font-medium text-slate-400">OR</span></div>
+            </div>
+
+            <button type="button" @click="handleGoogleLogin" class="google-btn w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 text-slate-700 font-semibold text-sm py-2.5 rounded-lg hover:bg-slate-50 hover:border-slate-400 hover:shadow-sm active:scale-[0.99] transition-all">
+              <svg width="18" height="18" viewBox="0 0 48 48" class="shrink-0">
+                <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
+                <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
+                <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/>
+                <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
+              </svg>
+              Continue with Google
+            </button>
+
             <p class="text-center text-sm text-slate-500 mt-2">Don't have an account? <a href="#" @click.prevent="switchMode('signup')" class="text-teal-600 font-semibold hover:underline">Sign up</a></p>
-            <p class="text-center text-xs text-slate-400">Try: juan@email.com / password123</p>
           </div>
 
           <!-- SIGNUP -->
           <div v-else-if="mode === 'signup'" style="display:flex;flex-direction:column;height:100%;">
             <!-- ROLE SELECTION -->
             <div v-if="signupStep === 'role' && !isLogisticsSignup" class="space-y-4" style="flex:1;display:flex;flex-direction:column;justify-content:center;">
-              <p class="text-sm text-slate-600">Select your role to start your registration.</p>
+              <p v-if="isGoogleSignup" class="text-sm text-slate-600">Signed in as <strong>{{ googleUser?.email }}</strong> with Google. Choose how you'd like to use NEXMART to finish setting up your account.</p>
+              <p v-else class="text-sm text-slate-600">Select your role to start your registration.</p>
               <div class="grid grid-cols-2 gap-3">
                 <button v-for="r in roles" :key="r.id" @click="selectRole(r.id)" class="signup-role-card rounded-xl p-4 text-center" :class="{ selected: selectedRole === r.id }">
                   <div class="w-9 h-9 mx-auto mb-2 flex items-center justify-center text-slate-400">
                     <svg v-if="r.icon === 'bag'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
                     <svg v-if="r.icon === 'house'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/></svg>
                     <svg v-if="r.icon === 'truck'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 18V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h1"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
-                    <svg v-if="r.icon === 'car'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
+                    <svg v-if="r.icon === 'building'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
                   </div>
                   <p class="text-sm font-bold text-slate-800">{{ r.label }}</p>
                   <p class="text-xs text-slate-500 mt-1 leading-snug">{{ r.desc }}</p>
                 </button>
-              </div>
-
-              <!-- Logistics Company Link -->
-              <div class="mt-4 pt-4 border-t border-slate-200">
-                <p class="text-center text-sm text-slate-600">
-                  Have your own logistics company?
-                  <a href="#" @click.prevent="startLogisticsSignup" class="logistics-link">Sign up here</a>
-                </p>
               </div>
 
               <p class="text-center text-sm text-slate-500">Already have an account? <a href="#" @click.prevent="switchMode('login')" class="text-teal-600 font-semibold hover:underline">Log in</a></p>
@@ -2876,17 +3196,17 @@ const App = {
             <div v-else-if="signupStep !== 'complete' && !isLogisticsSignup && selectedRole !== 'driver'" style="display:flex;flex-direction:column;height:100%;">
               <!-- Step indicator -->
               <div class="flex items-center gap-1 mb-3">
-                <div v-for="(s, idx) in steps" :key="idx" class="flex items-center flex-1">
+                <div v-for="(s, idx) in activeSteps" :key="idx" class="flex items-center flex-1">
                   <div class="step-dot" :class="{ 'bg-teal-500 text-white': currentStepIndex >= idx, 'bg-slate-200 text-slate-500': currentStepIndex < idx }">{{ idx + 1 }}</div>
-                  <div v-if="idx < steps.length - 1" class="step-line" :class="{ 'active': currentStepIndex > idx }"></div>
+                  <div v-if="idx < activeSteps.length - 1" class="step-line" :class="{ 'active': currentStepIndex > idx }"></div>
                 </div>
               </div>
 
               <div class="flex items-center justify-between mb-2">
                 <p class="text-sm text-slate-500">Register as <span class="font-semibold text-slate-800 capitalize">{{ selectedRole }}</span></p>
-                <span class="text-sm font-medium text-teal-600">Step {{ currentStepIndex + 1 }} of 5</span>
+                <span class="text-sm font-medium text-teal-600">Step {{ currentStepIndex + 1 }} of {{ activeSteps.length }}</span>
               </div>
-              <h3 class="display-font text-xl font-bold text-slate-900 mb-3">{{ steps[currentStepIndex] }} Info</h3>
+              <h3 class="display-font text-xl font-bold text-slate-900 mb-3">{{ activeSteps[currentStepIndex] }} Info</h3>
 
               <div class="fields-container">
                 <!-- PERSONAL INFO -->
@@ -2925,8 +3245,9 @@ const App = {
                     </div>
                     <div class="full-width">
                       <label class="field-label">Email <span class="text-teal-500">*</span></label>
-                      <input v-model="email" type="email" placeholder="juan@email.com" class="field-input" :class="{ 'border-red-500': validationErrors.email }" />
-                      <span v-if="validationErrors.email" class="text-xs text-red-500">{{ validationErrors.email }}</span>
+                      <input v-model="email" type="email" placeholder="juan@email.com" class="field-input" :class="{ 'border-red-500': validationErrors.email }" :disabled="isGoogleSignup" />
+                      <span v-if="isGoogleSignup" class="text-xs text-slate-400">Linked to your Google account</span>
+                      <span v-else-if="validationErrors.email" class="text-xs text-red-500">{{ validationErrors.email }}</span>
                     </div>
                   </div>
                 </div>
@@ -3046,9 +3367,9 @@ const App = {
               <!-- Navigation -->
               <div class="nav-container">
                 <div class="flex gap-3">
-                  <button v-if="currentStepIndex > 0" @click="goToStep(stepKeys[currentStepIndex - 1])" class="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-lg hover:bg-slate-50">Back</button>
-                  <button v-if="currentStepIndex < 4" @click="goToStep(stepKeys[currentStepIndex + 1])" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Next</button>
-                  <button v-if="currentStepIndex === 4" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg" :disabled="isSubmitting">Submit</button>
+                  <button v-if="currentStepIndex > 0" @click="goToStep(activeStepKeys[currentStepIndex - 1])" class="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-lg hover:bg-slate-50">Back</button>
+                  <button v-if="currentStepIndex < activeStepKeys.length - 1" @click="goToStep(activeStepKeys[currentStepIndex + 1])" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Next</button>
+                  <button v-if="currentStepIndex === activeStepKeys.length - 1" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg" :disabled="isSubmitting">Submit</button>
                 </div>
               </div>
             </div>

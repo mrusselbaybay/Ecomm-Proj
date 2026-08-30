@@ -42,4 +42,13 @@ return [
         'service_role_key' => env('SUPABASE_SERVICE_ROLE_KEY'), // For backend operations
     ],
 
+    // Socialite driver config for "Continue with Google". Only used to
+    // talk to Google — the resulting identity is bridged into a real
+    // Supabase session (see AuthController::handleGoogleCallback).
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI'),
+    ],
+
 ];

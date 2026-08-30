@@ -16,6 +16,14 @@ Route::get('/', [AuthController::class, 'index'])->name('home');
 Route::get('/login', [AuthController::class, 'index'])->name('login');
 Route::get('/signup', [AuthController::class, 'index'])->name('signup');
 
+// ---------- Google Sign-In (Socialite handshake -> Supabase session) ----------
+// Socialite only talks to Google here; handleGoogleCallback() exchanges the
+// resulting identity for a real Supabase session so the rest of the app
+// (profiles, RLS, role-based redirects) keeps working exactly as it does
+// for email/password login. See AuthController for details.
+Route::get('/auth/google/redirect', [AuthController::class, 'redirectToGoogle'])->name('auth.google.redirect');
+Route::get('/auth/google/callback', [AuthController::class, 'handleGoogleCallback'])->name('auth.google.callback');
+
 // ---------- Pickup Courier SPA ----------
 Route::prefix('pickup-courier')->name('pickup_courier.')->group(function () {
     // Main SPA route - serves the Vue app
@@ -99,6 +107,7 @@ if (file_exists($buyerRoutes)) {
 Route::prefix('api/signup')->name('api.signup.')->group(function () {
     Route::post('/register', [AuthController::class, 'registerUser'])->name('register');
     Route::post('/register-logistics', [AuthController::class, 'registerLogistics'])->name('register-logistics');
+    Route::post('/complete-google', [AuthController::class, 'completeGoogleSignup'])->name('complete-google');
 });
 // ---------- Buyer SPA ----------
 Route::prefix('buyer')->name('buyer.')->group(function () {

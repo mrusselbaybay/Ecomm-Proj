@@ -11,7 +11,12 @@ use Illuminate\Support\Facades\Log;
 class PsgcProxyController extends Controller
 {
     private const BASE = 'https://psgc.gitlab.io/api';
-    private const CACHE_TTL_SECONDS = 60 * 60 * 24; // 24 hours
+    // PSGC codes are effectively static reference data (they change on
+    // the order of years, not days), so caching for a day was making
+    // every signup pay the slow upstream-refresh cost once a day for
+    // every unique query combination. A month cuts that down drastically
+    // for everyone hitting these endpoints, not just one browser session.
+    private const CACHE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
     /**
      * Get all regions
@@ -27,6 +32,106 @@ class PsgcProxyController extends Controller
     public function provinces(Request $request): JsonResponse
     {
         return $this->proxy('/provinces', $request->only(['region_code']));
+    }
+
+    /**
+     * Get every province across every region in one response.
+     *
+     * The signup wizard's fetchProvinces() (resources/js/app.js) used to
+     * do this fan-out itself: one request for /regions, then one more
+     * request per region (~17) for that region's provinces, all from the
+     * browser. Even with each individual call cached, that's 18 separate
+     * HTTP round-trips — and a full framework bootstrap — for every
+     * visitor who reaches the signup wizard, which is exactly the kind of
+     * thing that shows up as "the address step keeps timing out". This
+     * does the same fan-out once, server-side, with real concurrency via
+     * Http::pool() (not dependent on the browser's per-origin connection
+     * limit or how many requests the dev server can run at once), and
+     * caches the combined result under a single key — so after the very
+     * first request from anyone, every subsequent visitor gets it in one
+     * fast local round-trip instead of 18.
+     */
+    public function allProvinces(): JsonResponse
+    {
+        try {
+            $provinces = Cache::remember('psgc:all-provinces', self::CACHE_TTL_SECONDS, function () {
+                $regionsResponse = Http::timeout(30)->get(self::BASE . '/regions', ['limit' => 100]);
+
+                if (! $regionsResponse->successful()) {
+                    throw new \RuntimeException('PSGC regions request failed: ' . $regionsResponse->status());
+                }
+
+                $regions = $this->extractList($regionsResponse->json());
+
+                $responses = Http::pool(fn ($pool) => collect($regions)
+                    ->map(fn ($region) => $pool->as($region['code'] ?? uniqid('region_', true))
+                        ->timeout(15)
+                        ->get(self::BASE . '/provinces', ['region_code' => $region['code'] ?? null]))
+                    ->all());
+
+                $provinces = [];
+
+                foreach ($responses as $response) {
+                    if ($response instanceof \Illuminate\Http\Client\Response && $response->successful()) {
+                        $provinces = array_merge($provinces, $this->extractList($response->json()));
+                    }
+                }
+
+                if (empty($provinces)) {
+                    throw new \RuntimeException('No provinces returned from any region.');
+                }
+
+                return $this->dedupeByCode($provinces);
+            });
+
+            return response()->json(['data' => $provinces]);
+        } catch (\Throwable $e) {
+            Log::error('PSGC allProvinces failed', ['message' => $e->getMessage()]);
+
+            return response()->json([
+                'error' => 'Failed to fetch provinces from PSGC API',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Pull the list out of whatever shape the upstream response is in.
+     */
+    private function extractList(mixed $responseData): array
+    {
+        if (is_array($responseData) && isset($responseData['data']) && is_array($responseData['data'])) {
+            return $responseData['data'];
+        }
+
+        if (is_array($responseData) && array_is_list($responseData)) {
+            return $responseData;
+        }
+
+        return [];
+    }
+
+    /**
+     * De-duplicate by province code (regions occasionally overlap at the
+     * boundaries in the upstream data) while preserving order.
+     */
+    private function dedupeByCode(array $items): array
+    {
+        $seen = [];
+        $result = [];
+
+        foreach ($items as $item) {
+            $key = is_array($item) ? ($item['code'] ?? $item['name'] ?? null) : null;
+
+            if ($key === null || isset($seen[$key])) {
+                continue;
+            }
+
+            $seen[$key] = true;
+            $result[] = $item;
+        }
+
+        return $result;
     }
 
     /**

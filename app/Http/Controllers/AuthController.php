@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use App\Models\Profile;
+use Laravel\Socialite\Facades\Socialite;
 
 class AuthController extends Controller
 {
@@ -17,6 +18,264 @@ class AuthController extends Controller
                 'supabase_anon_key' => config('services.supabase.anon_key'),
             ]
         ]);
+    }
+
+    /**
+     * Send the browser to Google. Socialite's job stops at getting a
+     * verified Google identity back in handleGoogleCallback() below — it
+     * never logs anyone into a Laravel session. This app's real auth stays
+     * Supabase-only (see routes/web.php), the same as every other login
+     * path.
+     */
+    public function redirectToGoogle()
+    {
+        return Socialite::driver('google')
+            ->scopes(['openid', 'email', 'profile'])
+            ->redirect();
+    }
+
+    /**
+     * Exchange the Google identity Socialite just verified for a real
+     * Supabase session, via Supabase's own `grant_type=id_token` endpoint.
+     * Supabase validates the id_token's audience against the Google Client
+     * ID(s) configured under Authentication > Providers > Google in the
+     * Supabase dashboard, then creates the auth.users row on a first
+     * sign-in (same as any OAuth signup) or matches the existing one — the
+     * downstream Postgres trigger that populates `profiles` fires exactly
+     * as it does for email/password registration.
+     *
+     * The resulting tokens are handed to the browser as a URL fragment on
+     * the login page, in the same shape supabase-js's own OAuth redirect
+     * produces. That means the existing client-side detectSessionInUrl +
+     * onAuthStateChange('SIGNED_IN') listener in app.js picks it up with
+     * no changes on that side.
+     */
+    public function handleGoogleCallback(Request $request)
+    {
+        // Socialite's own user() call maps the token endpoint's response
+        // down to a plain User object (access_token, refresh_token,
+        // expires_in, scope) and throws the rest away — id_token included,
+        // which is the one field this method actually needs. So the token
+        // endpoint is hit directly via getAccessTokenResponse() instead,
+        // with the CSRF state check user() would otherwise have done for
+        // us replicated here (same session key, same comparison it uses).
+        $state = $request->session()->pull('state');
+
+        if (empty($state) || !hash_equals((string) $state, (string) $request->input('state', ''))) {
+            Log::warning('Google callback state mismatch');
+
+            return redirect()->route('login', ['google_error' => 1]);
+        }
+
+        try {
+            $tokenResponse = Socialite::driver('google')
+                ->getAccessTokenResponse($request->input('code'));
+        } catch (\Throwable $e) {
+            Log::error('Google Socialite callback failed', ['error' => $e->getMessage()]);
+
+            return redirect()->route('login', ['google_error' => 1]);
+        }
+
+        $idToken = $tokenResponse['id_token'] ?? null;
+
+        if (!$idToken) {
+            Log::error('Google callback missing id_token', ['response_keys' => array_keys($tokenResponse ?? [])]);
+
+            return redirect()->route('login', ['google_error' => 1]);
+        }
+
+        $response = Http::withHeaders([
+            'apikey'       => config('services.supabase.anon_key'),
+            'Content-Type' => 'application/json',
+        ])->post(config('services.supabase.url') . '/auth/v1/token?grant_type=id_token', [
+            'provider' => 'google',
+            'id_token' => $idToken,
+        ]);
+
+        if (!$response->successful()) {
+            Log::error('Supabase id_token exchange failed', ['body' => $response->body()]);
+
+            return redirect()->route('login', ['google_error' => 1]);
+        }
+
+        $session = $response->json();
+
+        $fragment = http_build_query([
+            'access_token'  => $session['access_token'],
+            'refresh_token' => $session['refresh_token'],
+            'expires_in'    => $session['expires_in'],
+            'token_type'    => $session['token_type'] ?? 'bearer',
+        ]);
+
+        return redirect()->to(route('login') . '#' . $fragment);
+    }
+
+    /**
+     * Finishes onboarding a Google sign-in that had no `profiles` row yet.
+     *
+     * The Supabase auth account already exists — created during the
+     * id_token exchange above — with no password and its email already
+     * verified by Google, so unlike registerUser() this never creates an
+     * auth user or touches email/password. It just attaches the role and
+     * profile details the wizard collected to the account the caller is
+     * already signed into as (verified via their Supabase bearer token),
+     * then lets the same admin approval queue as any other signup pick it
+     * up from there.
+     *
+     * SECURITY: only usable by a session Supabase itself reports as
+     * Google-authenticated — anyone else must use registerUser()/
+     * registerLogistics() instead. `role` is restricted to the roles this
+     * wizard actually collects fields for (no 'admin', no 'driver', no
+     * 'logistics' — the latter two are self-registration surfaces this
+     * endpoint intentionally doesn't mirror).
+     */
+    public function completeGoogleSignup(Request $request)
+    {
+        $token = $request->bearerToken();
+
+        if (!$token) {
+            return response()->json(['message' => 'Not authenticated.'], 401);
+        }
+
+        $userResponse = Http::withHeaders([
+            'apikey'        => config('services.supabase.anon_key'),
+            'Authorization' => 'Bearer ' . $token,
+        ])->get(config('services.supabase.url') . '/auth/v1/user');
+
+        if (!$userResponse->successful()) {
+            return response()->json(['message' => 'Not authenticated.'], 401);
+        }
+
+        $authUser = $userResponse->json();
+        $userId = $authUser['id'] ?? null;
+        $email = $authUser['email'] ?? null;
+        $provider = $authUser['app_metadata']['provider'] ?? null;
+
+        if (!$userId || !$email) {
+            return response()->json(['message' => 'Not authenticated.'], 401);
+        }
+
+        if ($provider !== 'google') {
+            return response()->json(['message' => 'Invalid signup method.'], 403);
+        }
+
+        $data = $request->validate([
+            'role' => 'required|string|in:buyer,seller,courier',
+
+            'first_name'     => 'required|string',
+            'last_name'      => 'required|string',
+            'middle_initial' => 'nullable|string',
+            'sex'            => 'nullable|string',
+            'contact_no'     => 'nullable|string',
+            'birthday'       => 'nullable|date',
+
+            'province_code'      => 'nullable|string',
+            'province_name'      => 'nullable|string',
+            'municipality_code'  => 'nullable|string',
+            'municipality_name'  => 'nullable|string',
+            'barangay'           => 'nullable|string',
+            'street'             => 'nullable|string',
+            'house_no'           => 'nullable|string',
+
+            // seller
+            'business_name'    => 'required_if:role,seller|string',
+            'line_of_business' => 'required_if:role,seller|string',
+
+            // courier
+            'vehicle'      => 'required_if:role,courier|string',
+            'plate_number' => 'required_if:role,courier|string',
+
+            // files
+            'id_file'         => 'nullable|file|max:10240',
+            'business_permit' => 'nullable|file|max:10240',
+            'orcr_file'       => 'nullable|file|max:10240',
+            'license_file'    => 'nullable|file|max:10240',
+        ]);
+
+        try {
+            // Keep user_metadata.role in sync — app.js's completeLogin()
+            // falls back to it if profiles.role is ever missing, same as
+            // for a normal email/password registration.
+            Http::withHeaders([
+                'apikey'        => config('services.supabase.service_role_key'),
+                'Authorization' => 'Bearer ' . config('services.supabase.service_role_key'),
+                'Content-Type'  => 'application/json',
+            ])->put(config('services.supabase.url') . '/auth/v1/admin/users/' . $userId, [
+                'user_metadata' => [
+                    'role'           => $data['role'],
+                    'first_name'     => $data['first_name'],
+                    'last_name'      => $data['last_name'],
+                    'middle_initial' => $data['middle_initial'] ?? '',
+                    'sex'            => $data['sex'] ?? null,
+                    'contact_no'     => $data['contact_no'] ?? null,
+                    'birthday'       => $data['birthday'] ?? null,
+                    'status'         => 'pending',
+                ],
+            ]);
+
+            // Create (or update, if the auth.users trigger already stubbed
+            // one out from Google's own metadata) the profiles row
+            // directly — safer than assuming that trigger re-fires on an
+            // UPDATE the way it does on the original INSERT.
+            $this->supabaseUpsertProfile([
+                'id'             => $userId,
+                'email'          => $email,
+                'role'           => $data['role'],
+                'first_name'     => $data['first_name'],
+                'last_name'      => $data['last_name'],
+                'middle_initial' => $data['middle_initial'] ?? '',
+                'sex'            => $data['sex'] ?? null,
+                'contact_no'     => $data['contact_no'] ?? null,
+                'birthday'       => $data['birthday'] ?? null,
+                'status'         => 'pending',
+            ]);
+
+            if (!empty($data['province_code']) && !empty($data['municipality_code']) && !empty($data['barangay'])) {
+                $this->supabaseInsert('addresses', [
+                    'owner_kind'         => 'profile',
+                    'profile_id'         => $userId,
+                    'province_code'      => $data['province_code'],
+                    'province_name'      => $data['province_name'] ?? '',
+                    'municipality_code'  => $data['municipality_code'],
+                    'municipality_name'  => $data['municipality_name'] ?? '',
+                    'barangay'           => $data['barangay'],
+                    'street'             => $data['street'] ?? '',
+                    'house_no'           => $data['house_no'] ?? null,
+                ]);
+            }
+
+            if ($data['role'] === 'seller') {
+                $this->supabaseInsert('seller_details', [
+                    'profile_id'       => $userId,
+                    'business_name'    => $data['business_name'],
+                    'line_of_business' => $data['line_of_business'],
+                ]);
+            } elseif ($data['role'] === 'courier') {
+                $this->supabaseInsert('courier_details', [
+                    'profile_id'   => $userId,
+                    'vehicle'      => $data['vehicle'],
+                    'plate_number' => $data['plate_number'],
+                ]);
+            }
+
+            $fileMap = $this->fileMapForRole($data['role'], $request);
+            foreach ($fileMap as $docType => $file) {
+                if (!$file) {
+                    continue;
+                }
+                $this->uploadProfileDocument($userId, $docType, $file);
+            }
+
+            return response()->json([
+                'message' => 'Registration submitted! Please wait for administrator approval.',
+                'user_id' => $userId,
+            ], 201);
+
+        } catch (\Throwable $e) {
+            Log::error('completeGoogleSignup failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+
+            return response()->json(['message' => 'Registration failed. Please try again.'], 422);
+        }
     }
 
     /**
@@ -461,6 +720,29 @@ class AuthController extends Controller
         }
 
         return $response->json();
+    }
+
+    /**
+     * Upsert a row into `profiles` keyed on id — used only for Google
+     * onboarding (see completeGoogleSignup), where the Postgres trigger on
+     * auth.users may or may not have already stubbed the row out from
+     * Google's own metadata (it never saw the role/details collected
+     * here), unlike supabaseInsert()'s plain INSERT used for brand-new
+     * rows everywhere else.
+     */
+    private function supabaseUpsertProfile(array $payload): void
+    {
+        $response = Http::withHeaders([
+            'apikey'        => config('services.supabase.service_role_key'),
+            'Authorization' => 'Bearer ' . config('services.supabase.service_role_key'),
+            'Content-Type'  => 'application/json',
+            'Prefer'        => 'resolution=merge-duplicates,return=minimal',
+        ])->post(config('services.supabase.url') . '/rest/v1/profiles?on_conflict=id', $payload);
+
+        if (!$response->successful()) {
+            Log::error('Supabase profiles upsert failed', ['body' => $response->body()]);
+            throw new \RuntimeException('Failed to save profile.');
+        }
     }
 
     /**

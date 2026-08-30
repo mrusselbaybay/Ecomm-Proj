@@ -325,29 +325,138 @@
             class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
             @click.self="closeStatusModal"
         >
-            <div class="modal-card w-full max-w-md p-6">
-                <h3 class="text-lg font-bold text-slate-900 capitalize">
-                    {{ statusAction }} account
-                </h3>
-                <p class="mt-1 text-sm text-slate-500">
-                    Update {{ statusAccount.full_name }}'s account access.
-                </p>
+            <div class="modal-card w-full max-w-lg p-6">
+                <div class="flex items-start gap-3">
+                    <div
+                        class="status-modal-icon"
+                        :class="statusModalMeta.iconClass"
+                    >
+                        <svg
+                            v-if="statusModalMeta.icon === 'check'"
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="m8.5 12.5 2.5 2.5 4.5-5" />
+                        </svg>
+                        <svg
+                            v-else-if="statusModalMeta.icon === 'pause'"
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <circle cx="12" cy="12" r="9" />
+                            <line x1="10" y1="9" x2="10" y2="15" />
+                            <line x1="14" y1="9" x2="14" y2="15" />
+                        </svg>
+                        <svg
+                            v-else
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="m9.5 9.5 5 5" />
+                            <path d="m14.5 9.5-5 5" />
+                        </svg>
+                    </div>
+                    <div>
+                        <h3
+                            class="text-lg font-bold text-slate-900 capitalize"
+                        >
+                            {{ statusAction }} account
+                        </h3>
+                        <p class="mt-0.5 text-sm text-slate-500">
+                            {{ statusModalMeta.description }}
+                        </p>
+                    </div>
+                </div>
 
-                <div v-if="statusAction !== 'activate'" class="mt-4">
-                    <label class="field-label" for="status-reason">
-                        Reason
-                    </label>
-                    <textarea
-                        id="status-reason"
-                        v-model="statusReason"
-                        rows="4"
-                        class="field-input"
-                        placeholder="Provide a reason for this action..."
-                    ></textarea>
-                    <p class="mt-1 text-xs text-slate-400">
-                        At least 5 characters. This is recorded and included in
-                        the email notification.
+                <div
+                    v-if="statusAction === 'activate'"
+                    class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600"
+                >
+                    They'll be notified by email that their account is
+                    active again — no reason needed for reactivation.
+                </div>
+
+                <div v-else class="mt-4">
+                    <label class="field-label">Reason</label>
+                    <p class="mb-2 text-xs text-slate-400">
+                        Recorded on the account and included in the email
+                        notification sent to {{ statusAccount.full_name }}.
                     </p>
+
+                    <div class="space-y-2">
+                        <div
+                            v-for="reason in accountStatusReasons"
+                            :key="reason.value"
+                            class="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-3 text-sm transition-colors hover:bg-slate-50"
+                            :class="{
+                                'border-teal-500 bg-teal-50':
+                                    selectedStatusReason === reason.value,
+                            }"
+                            @click="selectedStatusReason = reason.value"
+                        >
+                            <input
+                                type="radio"
+                                :value="reason.value"
+                                v-model="selectedStatusReason"
+                                class="mt-1"
+                            />
+                            <div>
+                                <p class="font-medium text-slate-800">
+                                    {{ reason.label }}
+                                </p>
+                                <p class="text-xs text-slate-500">
+                                    {{ reason.description }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div
+                            class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 text-sm"
+                            :class="{
+                                'border-teal-500 bg-teal-50':
+                                    selectedStatusReason === 'others',
+                            }"
+                        >
+                            <input
+                                type="radio"
+                                value="others"
+                                v-model="selectedStatusReason"
+                                class="mt-1"
+                            />
+                            <div class="flex-1">
+                                <p class="font-medium text-slate-800">
+                                    Others
+                                </p>
+                                <textarea
+                                    v-if="selectedStatusReason === 'others'"
+                                    v-model="customStatusReason"
+                                    rows="3"
+                                    class="field-input mt-2"
+                                    placeholder="Type the reason in your own words..."
+                                ></textarea>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="mt-5 flex justify-end gap-2">
@@ -355,7 +464,7 @@
                         Cancel
                     </button>
                     <button
-                        class="btn-primary"
+                        :class="statusModalMeta.confirmClass"
                         :disabled="!canSubmitStatus || savingStatus"
                         @click="submitStatusChange"
                     >
@@ -498,7 +607,8 @@ const currentAdminId = ref(null);
 const selectedAccount = ref(null);
 const statusAccount = ref(null);
 const statusAction = ref('');
-const statusReason = ref('');
+const selectedStatusReason = ref('');
+const customStatusReason = ref('');
 const message = ref('');
 const messageType = ref('success');
 const summary = ref({
@@ -529,11 +639,75 @@ const summaryCards = computed(() => [
     { label: 'Deactivated', value: summary.value.deactivated },
 ]);
 
+// Shared between suspend and deactivate — same "why is this account being
+// acted on" set applies to a temporary hold or a permanent one. Mirrors
+// the canned-reason + freeform "Others" pattern from the registration
+// rejection modal (Registrations.vue) for consistency across admin.
+const accountStatusReasons = [
+    {
+        value: 'policy_violation',
+        label: 'Violation of platform policies',
+        description:
+            "The account holder violated NEXMART's terms of service or seller/buyer guidelines.",
+    },
+    {
+        value: 'fraudulent_activity',
+        label: 'Suspicious or fraudulent activity',
+        description:
+            'Unusual transactions, chargebacks, or other activity consistent with fraud were detected.',
+    },
+    {
+        value: 'complaint_investigation',
+        label: 'Under investigation due to complaints',
+        description:
+            'Multiple complaints have been filed against this account pending investigation.',
+    },
+    {
+        value: 'user_requested',
+        label: 'Requested by the account holder',
+        description: 'The user asked for their account to be suspended or closed.',
+    },
+];
+
 const canSubmitStatus = computed(
     () =>
         statusAction.value === 'activate' ||
-        statusReason.value.trim().length >= 5,
+        (selectedStatusReason.value &&
+            (selectedStatusReason.value !== 'others' ||
+                customStatusReason.value.trim().length >= 5)),
 );
+
+// Ties the status modal's icon, description, and confirm-button color to
+// which action is being taken, reusing the same green/amber/red language
+// as the account-status badges elsewhere on this page.
+const statusModalMeta = computed(() => {
+    const who = statusAccount.value?.full_name || 'This account';
+
+    if (statusAction.value === 'activate') {
+        return {
+            icon: 'check',
+            iconClass: 'bg-teal-100 text-teal-600',
+            confirmClass: 'btn-primary',
+            description: `${who} will regain full access immediately.`,
+        };
+    }
+
+    if (statusAction.value === 'suspend') {
+        return {
+            icon: 'pause',
+            iconClass: 'bg-amber-100 text-amber-600',
+            confirmClass: 'btn-warning',
+            description: `${who} will be temporarily blocked from logging in until reactivated.`,
+        };
+    }
+
+    return {
+        icon: 'x',
+        iconClass: 'bg-red-100 text-red-600',
+        confirmClass: 'btn-danger',
+        description: `${who}'s access will be revoked until reactivated.`,
+    };
+});
 
 function formatRole(role) {
     return role?.replaceAll('_', ' ') || 'Unknown';
@@ -658,18 +832,37 @@ async function viewAccount(account) {
 function openStatusModal(account, action) {
     statusAccount.value = account;
     statusAction.value = action;
-    statusReason.value = '';
+    selectedStatusReason.value = '';
+    customStatusReason.value = '';
 }
 
 function closeStatusModal() {
     statusAccount.value = null;
     statusAction.value = '';
-    statusReason.value = '';
+    selectedStatusReason.value = '';
+    customStatusReason.value = '';
 }
 
 async function submitStatusChange() {
     if (!canSubmitStatus.value) {
         return;
+    }
+
+    // Activating needs no reason at all — only suspend/deactivate compose
+    // one, either from the chosen canned reason (with its description, so
+    // the emailed reason reads as a full sentence, not just a label) or
+    // the admin's own wording under "Others".
+    let reason = null;
+
+    if (statusAction.value !== 'activate') {
+        if (selectedStatusReason.value === 'others') {
+            reason = customStatusReason.value.trim();
+        } else {
+            const reasonDefinition = accountStatusReasons.find(
+                (r) => r.value === selectedStatusReason.value,
+            );
+            reason = `${reasonDefinition.label} — ${reasonDefinition.description}`;
+        }
     }
 
     savingStatus.value = true;
@@ -682,7 +875,7 @@ async function submitStatusChange() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     action: statusAction.value,
-                    reason: statusReason.value.trim() || null,
+                    reason,
                 }),
             },
         );
@@ -785,6 +978,15 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
     border-radius: 0.85rem;
     background: white;
     box-shadow: 0 24px 64px rgb(15 23 42 / 25%);
+}
+.status-modal-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    flex-shrink: 0;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 .btn-outline,
 .btn-success,

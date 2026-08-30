@@ -162,7 +162,7 @@
                     <div
                         v-for="reason in rejectionReasons"
                         :key="reason.value"
-                        class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-slate-50"
+                        class="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-3 transition-colors hover:bg-slate-50"
                         :class="{
                             'border-orange-500 bg-orange-50':
                                 selectedReason === reason.value,
@@ -187,7 +187,7 @@
 
                     <!-- Others option with text box -->
                     <div
-                        class="flex items-start gap-3 rounded-lg border p-3"
+                        class="flex items-start gap-3 rounded-lg border border-slate-200 p-3"
                         :class="{
                             'border-orange-500 bg-orange-50':
                                 selectedReason === 'others',
@@ -231,6 +231,34 @@
                 </div>
             </div>
         </div>
+
+        <!-- Approve/Reject Result Modal -->
+        <div
+            v-if="showResultModal"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            @click.self="closeResultModal"
+        >
+            <div class="card w-96 p-6 text-center">
+                <div
+                    class="result-icon"
+                    :class="resultModalIsError ? 'result-icon-error' : 'result-icon-success'"
+                >
+                    {{ resultModalIsError ? '!' : '✓' }}
+                </div>
+                <h3 class="mb-2 font-bold text-slate-900">
+                    {{ resultModalIsError ? 'Something went wrong' : 'Done' }}
+                </h3>
+                <p class="mb-5 text-sm text-slate-600">
+                    {{ resultModalMessage }}
+                </p>
+                <button
+                    @click="closeResultModal"
+                    class="btn-gradient w-full py-2"
+                >
+                    Close
+                </button>
+            </div>
+        </div>
     </div>
 </template>
 
@@ -255,6 +283,9 @@ const showRejectModal = ref(false);
 const rejectUserData = ref(null);
 const selectedReason = ref('');
 const customReason = ref('');
+const showResultModal = ref(false);
+const resultModalMessage = ref('');
+const resultModalIsError = ref(false);
 const pagination = ref({
     current_page: 1,
     last_page: 1,
@@ -332,6 +363,18 @@ async function loadData(page = 1) {
     }, 250);
 }
 
+function showResult(message, isError = false) {
+    resultModalMessage.value = message;
+    resultModalIsError.value = isError;
+    showResultModal.value = true;
+}
+
+function closeResultModal() {
+    showResultModal.value = false;
+    resultModalMessage.value = '';
+    resultModalIsError.value = false;
+}
+
 async function approveUser(user) {
     if (!window.confirm(`Approve ${user.full_name || user.email}?`)) {
         return;
@@ -344,10 +387,10 @@ async function approveUser(user) {
         );
         const payload = await response.json();
 
-        window.alert(payload.message);
+        showResult(payload.message);
         await loadData(pagination.value.current_page);
     } catch (error) {
-        window.alert(`Failed to approve application: ${error.message}`);
+        showResult(`Failed to approve application: ${error.message}`, true);
     }
 }
 
@@ -390,10 +433,10 @@ async function submitRejection() {
         const payload = await response.json();
 
         closeRejectModal();
-        window.alert(payload.message);
+        showResult(payload.message);
         await loadData(pagination.value.current_page);
     } catch (error) {
-        window.alert(`Failed to reject application: ${error.message}`);
+        showResult(`Failed to reject application: ${error.message}`, true);
     }
 }
 
@@ -557,5 +600,24 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
 }
 .status-dot.rejected {
     background: #ef4444;
+}
+.result-icon {
+    width: 3.5rem;
+    height: 3.5rem;
+    margin: 0 auto 1rem;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+.result-icon-success {
+    background: #dcfce7;
+    color: #15803d;
+}
+.result-icon-error {
+    background: #fee2e2;
+    color: #b91c1c;
 }
 </style>
