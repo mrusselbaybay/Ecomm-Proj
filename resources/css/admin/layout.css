@@ -159,7 +159,9 @@
     width: 2rem;
     height: 2rem;
     border-radius: 50%;
-    background: rgba(20, 184, 166, 0.2);
+    background-color: rgba(20, 184, 166, 0.2);
+    background-size: cover;
+    background-position: center;
     color: #5eead4;
     display: flex;
     align-items: center;
@@ -167,6 +169,7 @@
     font-size: 0.65rem;
     font-weight: 700;
     flex-shrink: 0;
+    overflow: hidden;
 }
 
 .profile-info {
@@ -407,6 +410,58 @@
     }
     100% {
         transform: rotate(360deg);
+    }
+}
+
+/* ============================================================
+   SKELETON LOADING STATES
+   Shared shimmer placeholders used across every admin page while its
+   data is still loading, in place of a spinner or "Loading..." text.
+   ============================================================ */
+
+.skeleton {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    background: #e2e8f0;
+    border-radius: 0.375rem;
+}
+
+.skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.65),
+        transparent
+    );
+    animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+.skeleton-text {
+    height: 0.7rem;
+}
+
+.skeleton-text + .skeleton-text {
+    margin-top: 0.5rem;
+}
+
+.skeleton-circle {
+    border-radius: 9999px;
+}
+
+@keyframes skeleton-shimmer {
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton::after {
+        animation: none;
     }
 }
 

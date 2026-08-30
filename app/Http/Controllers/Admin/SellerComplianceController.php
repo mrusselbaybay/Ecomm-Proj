@@ -91,13 +91,24 @@ class SellerComplianceController extends Controller
             ->withQueryString()
             ->through(fn (Product $product): array => $this->productData($product));
 
+        // One conditional-aggregation query replaces four separate COUNT(*)
+        // scans over the products table.
+        $productCounts = Product::query()
+            ->selectRaw(
+                'count(*) as total, '
+                ."coalesce(sum(case when status = 'active' then 1 else 0 end), 0) as active, "
+                ."coalesce(sum(case when status = 'pending_review' then 1 else 0 end), 0) as pending, "
+                ."coalesce(sum(case when status = 'archived' then 1 else 0 end), 0) as archived",
+            )
+            ->first();
+
         return response()->json([
             'products' => $products,
             'summary' => [
-                'total' => Product::query()->count(),
-                'active' => Product::query()->where('status', 'active')->count(),
-                'pending' => Product::query()->where('status', 'pending_review')->count(),
-                'archived' => Product::query()->where('status', 'archived')->count(),
+                'total' => (int) $productCounts->total,
+                'active' => (int) $productCounts->active,
+                'pending' => (int) $productCounts->pending,
+                'archived' => (int) $productCounts->archived,
                 'warnings' => SellerComplianceAction::query()
                     ->where('action', 'warn')
                     ->count(),

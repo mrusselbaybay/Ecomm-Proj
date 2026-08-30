@@ -1,30 +1,42 @@
-@import 'tailwindcss';
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700;800&display=swap');
+@import 'tailwindcss';
 
 /*
  * Layout/component CSS for the login-signup wizard (resources/js/app.js,
- * rendered via resources/views/auth/app.blade.php). app.js is a plain
- * template-literal Vue app, not an SFC, so it can't carry its own
- * scoped <style> block — these rules live here instead. They used to
- * live only in public/css/style.css, loaded by an old prototype view
- * (resources/auth/index.blade.php) that isn't used by any route anymore,
- * which meant the actual wizard was running with almost none of this.
+ * rendered via resources/views/auth/app.blade.php, mounted at #auth-app).
+ * app.js is a plain template-literal Vue app, not an SFC, so it can't
+ * carry its own scoped <style> block — these rules live here instead.
+ *
+ * Every selector below is scoped under #auth-app rather than left bare.
+ * This file is also pulled in by the buyer, admin, and pickup-courier
+ * bundles (they share the Tailwind build), and generic-sounding names
+ * like `.field-input` or `.step-dot` are exactly the kind of class a
+ * component on those other pages would independently define in its own
+ * scoped styles — an unscoped rule here would silently fight with theirs.
+ * The #auth-app prefix guarantees these only ever match inside this one
+ * page's own markup.
+ *
+ * (This used to live only in public/css/style.css, loaded by an old
+ * prototype view — resources/auth/index.blade.php — that no route points
+ * to anymore, which meant the real wizard ran with almost none of this.
+ * A first pass at porting it back used a bare `body { height:100vh;
+ * overflow:hidden }` rule, which fixed this page but broke scrolling on
+ * every other page sharing this file — hence the #auth-app scoping here.)
  */
 
-body {
-  font-family: 'Inter', system-ui, sans-serif;
-  background: #fafafc;
-  margin: 0;
+#auth-app {
   height: 100vh;
   overflow: hidden;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #fafafc;
 }
 
-.display-font {
+#auth-app .display-font {
   font-family: 'Playfair Display', serif;
 }
 
 /* Side Panel with Gradient Background */
-.side-panel {
+#auth-app .side-panel {
   background-color: #0f1420;
   background-image:
     radial-gradient(circle at 15% 25%, rgba(234,88,12,0.12) 0, transparent 45%),
@@ -34,53 +46,53 @@ body {
 }
 
 /* Role Cards in Side Panel */
-.role-card {
+#auth-app .role-card {
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.08);
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.role-card:hover {
+#auth-app .role-card:hover {
   background: rgba(255,255,255,0.06);
   border-color: rgba(234,88,12,0.35);
 }
 
 /* Signup Role Selection Cards */
-.signup-role-card {
+#auth-app .signup-role-card {
   border: 1.5px solid #e5e7eb;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
   cursor: pointer;
 }
 
-.signup-role-card.selected {
+#auth-app .signup-role-card.selected {
   border-color: #ea580c;
   background: #fff7ed;
   box-shadow: 0 0 0 1px #ea580c;
 }
 
 /* Gradient Button */
-.btn-gradient {
+#auth-app .btn-gradient {
   background: linear-gradient(90deg, #ea580c, #f59e0b);
 }
 
-.btn-gradient:hover {
+#auth-app .btn-gradient:hover {
   filter: brightness(1.05);
 }
 
 /* Tab Pills */
-.tab-pill {
+#auth-app .tab-pill {
   transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   cursor: pointer;
 }
 
 /* Form Inputs */
-.field-input:focus {
+#auth-app .field-input:focus {
   outline: none;
   border-color: #ea580c;
   box-shadow: 0 0 0 3px rgba(234,88,12,0.12);
 }
 
-.field-input {
+#auth-app .field-input {
   width: 100%;
   padding: 0.4rem 0.6rem;
   font-size: 0.8rem;
@@ -90,13 +102,13 @@ body {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.field-input:disabled {
+#auth-app .field-input:disabled {
   background: #f1f5f9;
   color: #94a3b8;
   cursor: not-allowed;
 }
 
-.field-label {
+#auth-app .field-label {
   font-size: 0.65rem;
   font-weight: 700;
   color: #64748b;
@@ -107,18 +119,18 @@ body {
 }
 
 /* Select Dropdowns */
-select.field-input {
+#auth-app select.field-input {
   appearance: auto;
 }
 
-select.field-input:disabled {
+#auth-app select.field-input:disabled {
   background: #f1f5f9;
   color: #94a3b8;
   cursor: not-allowed;
 }
 
 /* Step Wizard Dots */
-.step-dot {
+#auth-app .step-dot {
   width: 28px;
   height: 28px;
   border-radius: 9999px;
@@ -131,7 +143,7 @@ select.field-input:disabled {
   flex-shrink: 0;
 }
 
-.step-line {
+#auth-app .step-line {
   flex: 1;
   height: 2px;
   background: #e5e7eb;
@@ -139,23 +151,23 @@ select.field-input:disabled {
   margin: 0 4px;
 }
 
-.step-line.active {
+#auth-app .step-line.active {
   background: #ea580c;
 }
 
 /* Form Grid Layout */
-.form-grid {
+#auth-app .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
 }
 
-.form-grid .full-width {
+#auth-app .form-grid .full-width {
   grid-column: 1 / -1;
 }
 
 /* Layout Containers */
-.right-panel-content {
+#auth-app .right-panel-content {
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -163,7 +175,7 @@ select.field-input:disabled {
   padding: 1.5rem 2rem;
 }
 
-.form-container {
+#auth-app .form-container {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -172,24 +184,229 @@ select.field-input:disabled {
   overflow: hidden;
 }
 
-.fields-container {
+#auth-app .fields-container {
   flex: 1;
   overflow: visible;
   padding: 0.25rem 0;
 }
 
-.nav-container {
+#auth-app .nav-container {
   flex-shrink: 0;
   padding-top: 0.75rem;
   border-top: 1px solid #f1f5f9;
   margin-top: 0.5rem;
 }
 
+/* Documents step (buyer/seller/courier and logistics) — the ID Type
+   dropdowns plus the taller drag-and-drop dropzones can add up to more
+   than the wizard card has room for, so this scrolls internally instead
+   of silently clipping against .form-container's max-height, while the
+   step heading above and the Back/Next buttons below stay in place. */
+#auth-app .doc-scroll {
+  max-height: 38vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  padding-right: 0.35rem;
+}
+
+/* Gender Segmented Control */
+#auth-app .gender-select {
+  display: flex;
+}
+
+#auth-app .gender-option {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.4rem;
+  border: 1.5px solid #d1d5db;
+  background: white;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+#auth-app .gender-option:first-child {
+  border-radius: 0.375rem 0 0 0.375rem;
+}
+
+#auth-app .gender-option:last-child {
+  border-radius: 0 0.375rem 0.375rem 0;
+  margin-left: -1.5px;
+}
+
+#auth-app .gender-option:hover {
+  border-color: #ea580c;
+  z-index: 1;
+}
+
+#auth-app .gender-option.selected {
+  border-color: #ea580c;
+  background: #fff7ed;
+  color: #ea580c;
+  z-index: 1;
+}
+
+#auth-app .gender-select--error .gender-option {
+  border-color: #ef4444;
+}
+
+/* File Upload Dropzone */
+#auth-app .dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-height: 108px;
+  padding: 1.25rem 1rem;
+  border: 1.5px dashed #d1d5db;
+  border-radius: 0.6rem;
+  background: #f8fafc;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+#auth-app .dropzone:hover,
+#auth-app .dropzone:focus-visible {
+  border-color: #ea580c;
+  background: #fff7ed;
+  outline: none;
+}
+
+#auth-app .dropzone--drag {
+  border-color: #ea580c;
+  background: #fff7ed;
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+}
+
+#auth-app .dropzone--filled {
+  cursor: default;
+  min-height: 0;
+  padding: 0.75rem 0.9rem;
+  border-style: solid;
+  border-color: #d1d5db;
+  background: white;
+}
+
+/* Children never receive pointer events so dragenter/dragleave only ever
+   fire on the dropzone itself — without this, dragging over the icon or
+   text inside would fire spurious dragleave/dragenter pairs and make the
+   highlight flicker. The remove button opts back in below. */
+#auth-app .dropzone * {
+  pointer-events: none;
+}
+
+#auth-app .dropzone-input {
+  display: none;
+}
+
+/* Tailwind's preflight sets svg { display: block }, which drops the cloud
+   icon out of the centered inline flow text-align:center on .dropzone
+   relies on for everything else here — it was landing flush left instead
+   of centered above the text. Laying this out as its own centered flex
+   column fixes that regardless of what display an icon or a <p> defaults
+   to. */
+#auth-app .dropzone-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+#auth-app .dropzone-icon {
+  color: #94a3b8;
+}
+
+#auth-app .dropzone-text {
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+#auth-app .dropzone-link {
+  color: #ea580c;
+  font-weight: 700;
+}
+
+#auth-app .dropzone-hint {
+  font-size: 0.66rem;
+  color: #94a3b8;
+  margin-top: 0.1rem;
+}
+
+#auth-app .dropzone-file {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+}
+
+#auth-app .dropzone-file-icon {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 0.5rem;
+  background: #fff7ed;
+  color: #ea580c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#auth-app .dropzone-file-info {
+  flex: 1;
+  min-width: 0;
+}
+
+#auth-app .dropzone-file-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#auth-app .dropzone-file-size {
+  font-size: 0.62rem;
+  color: #94a3b8;
+}
+
+#auth-app .dropzone-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  background: #f1f5f9;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+#auth-app .dropzone-remove:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
 /* Animations */
-.fade-enter-active, .fade-leave-active {
+#auth-app .fade-enter-active, #auth-app .fade-leave-active {
   transition: opacity 0.15s ease;
 }
 
-.fade-enter-from, .fade-leave-to {
+#auth-app .fade-enter-from, #auth-app .fade-leave-to {
   opacity: 0;
 }

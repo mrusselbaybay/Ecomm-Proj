@@ -17,9 +17,14 @@ class ReportController extends Controller
     {
         $type = $request->validated('type');
         $query = $this->reportQuery($request);
-        $summaryQuery = clone $query;
-        $subtotal = (float) (clone $summaryQuery)->sum('subtotal');
-        $discount = (float) (clone $summaryQuery)->sum('discount');
+
+        // One aggregate query (count + both sums) replaces three separate
+        // round trips over the same filtered order set.
+        $summaryRow = (clone $query)
+            ->selectRaw('count(*) as orders_count, coalesce(sum(subtotal), 0) as subtotal_sum, coalesce(sum(discount), 0) as discount_sum')
+            ->first();
+        $subtotal = (float) $summaryRow->subtotal_sum;
+        $discount = (float) $summaryRow->discount_sum;
         $basis = CommissionCalculator::basis($subtotal, $discount);
 
         $records = $query->with('seller:id,first_name,last_name,email')
@@ -32,7 +37,7 @@ class ReportController extends Controller
             'type' => $type,
             'records' => $records,
             'summary' => [
-                'orders' => (clone $summaryQuery)->count(),
+                'orders' => (int) $summaryRow->orders_count,
                 'gross_merchandise' => round($subtotal, 2),
                 'discounts' => round($discount, 2),
                 'net_merchandise' => $basis,

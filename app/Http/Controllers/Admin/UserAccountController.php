@@ -50,22 +50,25 @@ class UserAccountController extends Controller
             ->withQueryString()
             ->through(fn (Profile $profile): array => $this->accountData($profile));
 
+        // One conditional-aggregation query replaces four separate COUNT(*)
+        // scans over the same approved-accounts set.
+        $summary = Profile::query()
+            ->where('status', 'approved')
+            ->selectRaw(
+                'count(*) as total, '
+                ."coalesce(sum(case when account_status = 'active' then 1 else 0 end), 0) as active, "
+                ."coalesce(sum(case when account_status = 'suspended' then 1 else 0 end), 0) as suspended, "
+                ."coalesce(sum(case when account_status = 'deactivated' then 1 else 0 end), 0) as deactivated",
+            )
+            ->first();
+
         return response()->json([
             'accounts' => $users,
             'summary' => [
-                'total' => Profile::query()->where('status', 'approved')->count(),
-                'active' => Profile::query()
-                    ->where('status', 'approved')
-                    ->where('account_status', 'active')
-                    ->count(),
-                'suspended' => Profile::query()
-                    ->where('status', 'approved')
-                    ->where('account_status', 'suspended')
-                    ->count(),
-                'deactivated' => Profile::query()
-                    ->where('status', 'approved')
-                    ->where('account_status', 'deactivated')
-                    ->count(),
+                'total' => (int) $summary->total,
+                'active' => (int) $summary->active,
+                'suspended' => (int) $summary->suspended,
+                'deactivated' => (int) $summary->deactivated,
             ],
         ]);
     }

@@ -88,11 +88,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-if="loading">
-                        <td colspan="7" class="py-8 text-center text-slate-500">
-                            Loading complaints...
-                        </td>
-                    </tr>
+                    <SkeletonRows v-if="loading && !hasLoadedOnce" :columns="7" :rows="5" />
                     <tr v-else-if="complaints.length === 0">
                         <td colspan="7" class="py-8 text-center text-slate-500">
                             No complaints match these filters.
@@ -205,9 +201,24 @@
 
                 <div
                     v-if="detailLoading"
-                    class="p-10 text-center text-slate-500"
+                    class="grid gap-6 p-5 lg:grid-cols-[1.15fr_0.85fr]"
+                    aria-hidden="true"
                 >
-                    Loading case details...
+                    <div class="space-y-5">
+                        <section v-for="n in 3" :key="n" class="case-section">
+                            <div class="skeleton skeleton-text" style="width: 35%; height: 1rem"></div>
+                            <div class="skeleton skeleton-text" style="width: 100%; margin-top: 0.75rem"></div>
+                            <div class="skeleton skeleton-text" style="width: 90%"></div>
+                            <div class="skeleton skeleton-text" style="width: 70%"></div>
+                        </section>
+                    </div>
+                    <div class="case-section space-y-4">
+                        <div class="skeleton skeleton-text" style="width: 40%; height: 1rem"></div>
+                        <div v-for="n in 4" :key="n">
+                            <div class="skeleton skeleton-text" style="width: 30%; height: 0.6rem"></div>
+                            <div class="skeleton" style="width: 100%; height: 2.2rem; margin-top: 0.4rem"></div>
+                        </div>
+                    </div>
                 </div>
                 <div v-else class="grid gap-6 p-5 lg:grid-cols-[1.15fr_0.85fr]">
                     <div class="space-y-5">
@@ -436,12 +447,20 @@
 <script setup>
 import { computed, onActivated, onBeforeUnmount, reactive, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
+import SkeletonRows from './SkeletonRows.vue';
 
 const { adminFetch } = useAdmin();
 const complaints = ref([]);
 const selectedComplaint = ref(null);
 const admins = ref([]);
 const loading = ref(false);
+// This component stays kept-alive across tab switches, so onActivated below
+// reruns loadComplaints() on every revisit, not just the first. Without
+// this flag, the skeleton would wipe out rows that are already loaded and
+// on screen just because a background refresh set "loading" true again —
+// gating it on "loading && !hasLoadedOnce" instead lets that refresh
+// update the table in place once it resolves.
+const hasLoadedOnce = ref(false);
 const detailLoading = ref(false);
 const saving = ref(false);
 const search = ref('');
@@ -575,6 +594,7 @@ async function loadComplaints(page = 1) {
         showMessage(error.message, 'error');
     } finally {
         loading.value = false;
+        hasLoadedOnce.value = true;
     }
 }
 

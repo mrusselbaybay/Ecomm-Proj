@@ -22,6 +22,6 @@
     @vite(['resources/js/app.js'])
 </head>
 <body>
-    <div id="app"></div>
+    <div id="auth-app"></div>
 </body>
 </html>

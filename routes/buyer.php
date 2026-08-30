@@ -30,6 +30,7 @@ Route::middleware(['supabase.auth', 'buyer'])->prefix('api/buyer')->name('api.bu
     // pattern as the admin account settings page.
     Route::get('/profile', [BuyerProfileController::class, 'show'])->name('profile.show');
     Route::put('/profile', [BuyerProfileController::class, 'update'])->name('profile.update');
+    Route::post('/profile/avatar', [BuyerProfileController::class, 'uploadAvatar'])->name('profile.avatar');
     Route::delete('/account/deactivate', [BuyerProfileController::class, 'deactivate'])
         ->middleware('throttle:5,1')
         ->name('account.deactivate');

@@ -47,17 +47,21 @@ class AccountRegistrationController extends Controller
             ->withQueryString()
             ->through(fn (Profile $profile): array => $this->applicationData($profile));
 
+        // One conditional-aggregation query replaces two separate COUNT(*)
+        // scans over the same registrable-roles set.
+        $counts = Profile::query()
+            ->whereIn('role', Profile::REGISTRABLE_ROLES)
+            ->selectRaw(
+                "coalesce(sum(case when status = 'pending' then 1 else 0 end), 0) as pending, "
+                ."coalesce(sum(case when status = 'rejected' then 1 else 0 end), 0) as rejected",
+            )
+            ->first();
+
         return response()->json([
             'applications' => $applications,
             'counts' => [
-                'pending' => Profile::query()
-                    ->whereIn('role', Profile::REGISTRABLE_ROLES)
-                    ->where('status', 'pending')
-                    ->count(),
-                'rejected' => Profile::query()
-                    ->whereIn('role', Profile::REGISTRABLE_ROLES)
-                    ->where('status', 'rejected')
-                    ->count(),
+                'pending' => (int) $counts->pending,
+                'rejected' => (int) $counts->rejected,
             ],
         ]);
     }
@@ -204,6 +208,7 @@ class AccountRegistrationController extends Controller
             'documents' => $profile->documents->map(fn (Document $document): array => [
                 'id' => $document->id,
                 'doc_type' => $document->doc_type,
+                'id_type' => $document->id_type,
                 'storage_path' => $document->storage_path,
                 'status' => $document->status,
                 'reviewed_at' => $document->reviewed_at?->toIso8601String(),

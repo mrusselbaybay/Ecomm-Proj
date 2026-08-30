@@ -12,12 +12,12 @@
                 v-model="search"
                 placeholder="Search applicants..."
                 class="field-input w-64"
-                @input="loadData"
+                @input="scheduleLoad"
             />
             <select
                 v-model="roleFilter"
                 class="field-input w-40"
-                @change="loadData"
+                @change="loadData()"
             >
                 <option value="">All Roles</option>
                 <option value="buyer">Buyer</option>
@@ -28,14 +28,14 @@
             <select
                 v-model="statusFilter"
                 class="field-input w-40"
-                @change="loadData"
+                @change="loadData()"
             >
                 <option value="">All Status</option>
                 <option value="pending">Pending</option>
                 <option value="rejected">Rejected</option>
             </select>
             <button
-                @click="loadData"
+                @click="loadData()"
                 class="btn-gradient rounded-lg px-4 py-2 text-white"
             >
                 Filter
@@ -55,11 +55,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-if="loading">
-                        <td colspan="6" class="py-4 text-center text-slate-500">
-                            Loading...
-                        </td>
-                    </tr>
+                    <SkeletonRows v-if="loading && !hasLoadedOnce" :columns="6" :rows="5" />
                     <tr v-else-if="registrations.length === 0">
                         <td colspan="6" class="py-4 text-center text-slate-500">
                             No pending registrations found.
@@ -88,7 +84,7 @@
                         <td>
                             <div class="flex gap-2">
                                 <button
-                                    @click="approveUser(user)"
+                                    @click="openApproveModal(user)"
                                     class="btn-sm-gradient"
                                     :disabled="user.status === 'approved'"
                                 >
@@ -102,7 +98,7 @@
                                     Reject
                                 </button>
                                 <button
-                                    @click="viewRegistration(user)"
+                                    @click="openDocsModal(user)"
                                     class="btn-outline"
                                 >
                                     View Docs
@@ -139,12 +135,54 @@
             </div>
         </div>
 
+        <!-- Approve Confirmation Modal -->
+        <div
+            v-if="showApproveModal"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            @click.self="closeApproveModal"
+        >
+            <div class="card w-96 p-6">
+                <h3 class="mb-2 font-bold text-slate-900">
+                    Approve Application
+                </h3>
+                <p class="mb-5 text-sm text-slate-500">
+                    Approve
+                    <strong>{{
+                        approveUserData?.full_name ||
+                        approveUserData?.first_name ||
+                        approveUserData?.email
+                    }}</strong>
+                    as a
+                    <span
+                        class="font-semibold capitalize text-slate-700"
+                        >{{ approveUserData?.role }}</span
+                    >? They'll be notified by email and gain access
+                    immediately.
+                </p>
+                <div class="flex gap-2">
+                    <button
+                        @click="closeApproveModal"
+                        class="btn-outline flex-1 py-2"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        @click="confirmApprove"
+                        class="btn-gradient flex-1 py-2"
+                        :disabled="isApproving"
+                    >
+                        {{ isApproving ? 'Approving…' : 'Approve' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Rejection Modal -->
         <div
             v-if="showRejectModal"
             class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
         >
-            <div class="card max-h-[90vh] w-96 overflow-y-auto p-6">
+            <div class="card max-h-[90vh] w-[34rem] overflow-y-auto p-6">
                 <h3 class="mb-2 font-bold text-slate-900">
                     Reject Application
                 </h3>
@@ -259,12 +297,136 @@
                 </button>
             </div>
         </div>
+
+        <!-- Documents Modal -->
+        <div
+            v-if="showDocsModal"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            @click.self="closeDocsModal"
+        >
+            <div class="card max-h-[85vh] w-[30rem] overflow-y-auto p-6">
+                <div class="mb-4 flex items-center justify-between">
+                    <h3 class="font-bold text-slate-900">
+                        Documents —
+                        {{
+                            docsUser?.full_name ||
+                            docsUser?.first_name ||
+                            docsUser?.email
+                        }}
+                    </h3>
+                    <button
+                        @click="closeDocsModal"
+                        class="modal-x"
+                        aria-label="Close"
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                <div
+                    v-if="!docsUser?.documents?.length"
+                    class="py-8 text-center text-sm text-slate-500"
+                >
+                    This applicant has not submitted any documents.
+                </div>
+                <div v-else class="space-y-2">
+                    <div
+                        v-for="doc in docsUser.documents"
+                        :key="doc.id"
+                        class="doc-row"
+                    >
+                        <div>
+                            <p class="doc-type">
+                                {{ formatDocType(doc.doc_type) }}
+                            </p>
+                            <p v-if="doc.id_type" class="doc-sub">
+                                ID type: {{ doc.id_type }}
+                            </p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span
+                                class="badge"
+                                :class="statusBadgeClass(doc.status)"
+                                >{{ doc.status }}</span
+                            >
+                            <button
+                                @click="viewDocument(doc)"
+                                class="btn-outline"
+                                :disabled="previewLoadingId === doc.id"
+                            >
+                                {{
+                                    previewLoadingId === doc.id
+                                        ? 'Opening…'
+                                        : 'View'
+                                }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <button
+                        @click="closeDocsModal"
+                        class="btn-outline w-full py-2"
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Document Preview Modal -->
+        <div
+            v-if="previewDoc"
+            class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+            @click.self="closePreview"
+        >
+            <div
+                class="card flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden p-0"
+            >
+                <div
+                    class="flex items-center justify-between border-b border-slate-100 px-5 py-3"
+                >
+                    <h3 class="font-bold text-slate-900">
+                        {{ formatDocType(previewDoc.doc_type) }}
+                    </h3>
+                    <button
+                        @click="closePreview"
+                        class="modal-x"
+                        aria-label="Close"
+                    >
+                        ✕
+                    </button>
+                </div>
+                <div class="preview-body">
+                    <div
+                        v-if="previewLoading"
+                        class="preview-skeleton"
+                        aria-hidden="true"
+                    >
+                        <div class="skeleton" style="width: 100%; height: 100%"></div>
+                    </div>
+                    <iframe
+                        v-else-if="previewUrl && previewIsPdf"
+                        :src="previewUrl"
+                        class="preview-frame"
+                    ></iframe>
+                    <img
+                        v-else-if="previewUrl"
+                        :src="previewUrl"
+                        class="preview-image"
+                        alt="Document preview"
+                    />
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
 <script setup>
 import { computed, onActivated, onBeforeUnmount, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
+import SkeletonRows from './SkeletonRows.vue';
 
 const {
     registrations,
@@ -279,6 +441,13 @@ const search = ref('');
 const roleFilter = ref('');
 const statusFilter = ref('');
 const loading = ref(false);
+// This component stays kept-alive across tab switches, so onActivated below
+// reruns loadData() on every revisit, not just the first. Without this
+// flag, the skeleton would wipe out rows that are already loaded and on
+// screen just because a background refresh set "loading" true again —
+// gating it on "loading && !hasLoadedOnce" instead lets that refresh
+// update the table in place once it resolves.
+const hasLoadedOnce = ref(false);
 const showRejectModal = ref(false);
 const rejectUserData = ref(null);
 const selectedReason = ref('');
@@ -324,43 +493,51 @@ const canReject = computed(
         (selectedReason.value !== 'others' || customReason.value.trim()),
 );
 
-async function loadData(page = 1) {
+// Debounced wrapper used only by the search input's @input handler — every
+// other trigger (filter selects, the Filter button, pagination, and the
+// post-approve/reject refresh) calls loadData() directly below so those
+// don't pick up an unnecessary 250ms delay just because they happen to
+// share the same loader as free-typed search.
+function scheduleLoad() {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(async () => {
-        loading.value = true;
+    searchTimer = setTimeout(() => loadData(), 250);
+}
 
-        try {
-            const params = new URLSearchParams({ page: String(page) });
+async function loadData(page = 1) {
+    loading.value = true;
 
-            if (search.value.trim()) {
-                params.set('search', search.value.trim());
-            }
+    try {
+        const params = new URLSearchParams({ page: String(page) });
 
-            if (roleFilter.value) {
-                params.set('role', roleFilter.value);
-            }
-
-            if (statusFilter.value) {
-                params.set('status', statusFilter.value);
-            }
-
-            const response = await adminFetch(
-                `/api/admin/registrations?${params.toString()}`,
-            );
-            const payload = await response.json();
-
-            registrations.value = payload.applications.data;
-            pendingCount.value = payload.counts.pending;
-            pagination.value = {
-                current_page: payload.applications.current_page,
-                last_page: payload.applications.last_page,
-            };
-        } catch (error) {
-            window.alert(error.message);
-        } finally {
-            loading.value = false;
+        if (search.value.trim()) {
+            params.set('search', search.value.trim());
         }
-    }, 250);
+
+        if (roleFilter.value) {
+            params.set('role', roleFilter.value);
+        }
+
+        if (statusFilter.value) {
+            params.set('status', statusFilter.value);
+        }
+
+        const response = await adminFetch(
+            `/api/admin/registrations?${params.toString()}`,
+        );
+        const payload = await response.json();
+
+        registrations.value = payload.applications.data;
+        pendingCount.value = payload.counts.pending;
+        pagination.value = {
+            current_page: payload.applications.current_page,
+            last_page: payload.applications.last_page,
+        };
+    } catch (error) {
+        window.alert(error.message);
+    } finally {
+        loading.value = false;
+        hasLoadedOnce.value = true;
+    }
 }
 
 function showResult(message, isError = false) {
@@ -375,10 +552,28 @@ function closeResultModal() {
     resultModalIsError.value = false;
 }
 
-async function approveUser(user) {
-    if (!window.confirm(`Approve ${user.full_name || user.email}?`)) {
+const showApproveModal = ref(false);
+const approveUserData = ref(null);
+const isApproving = ref(false);
+
+function openApproveModal(user) {
+    approveUserData.value = user;
+    showApproveModal.value = true;
+}
+
+function closeApproveModal() {
+    showApproveModal.value = false;
+    approveUserData.value = null;
+}
+
+async function confirmApprove() {
+    const user = approveUserData.value;
+
+    if (!user || isApproving.value) {
         return;
     }
+
+    isApproving.value = true;
 
     try {
         const response = await adminFetch(
@@ -387,10 +582,13 @@ async function approveUser(user) {
         );
         const payload = await response.json();
 
+        closeApproveModal();
         showResult(payload.message);
         await loadData(pagination.value.current_page);
     } catch (error) {
         showResult(`Failed to approve application: ${error.message}`, true);
+    } finally {
+        isApproving.value = false;
     }
 }
 
@@ -440,32 +638,82 @@ async function submitRejection() {
     }
 }
 
-async function viewRegistration(user) {
-    if (!user.documents?.length) {
-        window.alert('This applicant has not submitted any documents.');
+// Document types come back as snake_case doc_type values (see
+// AuthController::fileMapForRole) — mapped to readable labels here, with a
+// generic title-case fallback for anything not explicitly listed.
+const DOC_TYPE_LABELS = {
+    valid_id: 'Valid ID',
+    business_permit: 'Business Permit',
+    orcr: 'OR/CR',
+    drivers_license: "Driver's License",
+    mayors_permit: "Mayor's Permit",
+    dti_sec_registration: 'DTI / SEC Registration',
+};
 
-        return;
+function formatDocType(docType) {
+    if (!docType) {
+        return 'Document';
     }
+
+    return (
+        DOC_TYPE_LABELS[docType] ||
+        docType
+            .split('_')
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ')
+    );
+}
+
+const showDocsModal = ref(false);
+const docsUser = ref(null);
+
+function openDocsModal(user) {
+    docsUser.value = user;
+    showDocsModal.value = true;
+}
+
+function closeDocsModal() {
+    showDocsModal.value = false;
+    docsUser.value = null;
+}
+
+const previewDoc = ref(null);
+const previewUrl = ref('');
+const previewLoading = ref(false);
+const previewLoadingId = ref(null);
+
+const previewIsPdf = computed(() =>
+    (previewDoc.value?.storage_path || '').toLowerCase().endsWith('.pdf'),
+);
+
+async function viewDocument(doc) {
+    previewDoc.value = doc;
+    previewUrl.value = '';
+    previewLoading.value = true;
+    previewLoadingId.value = doc.id;
 
     try {
         const { data, error } = await supabase.storage
             .from('documents')
-            .createSignedUrl(user.documents[0].storage_path, 300);
+            .createSignedUrl(doc.storage_path, 300);
 
         if (error) {
             throw error;
         }
 
-        window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
-
-        if (user.documents.length > 1) {
-            window.alert(
-                `Opened the first of ${user.documents.length} submitted documents.`,
-            );
-        }
+        previewUrl.value = data.signedUrl;
     } catch (error) {
         window.alert(`Unable to open document: ${error.message}`);
+        previewDoc.value = null;
+    } finally {
+        previewLoading.value = false;
+        previewLoadingId.value = null;
     }
+}
+
+function closePreview() {
+    previewDoc.value = null;
+    previewUrl.value = '';
 }
 
 // This component is kept alive by AdminLayout's <KeepAlive>, so
@@ -619,5 +867,58 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
 .result-icon-error {
     background: #fee2e2;
     color: #b91c1c;
+}
+.modal-x {
+    color: #94a3b8;
+    font-size: 0.9rem;
+    line-height: 1;
+    padding: 0.25rem;
+}
+.modal-x:hover {
+    color: #334155;
+}
+.doc-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.6rem;
+}
+.doc-type {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1e293b;
+}
+.doc-sub {
+    font-size: 0.72rem;
+    color: #64748b;
+    margin-top: 0.1rem;
+}
+.preview-body {
+    flex: 1;
+    overflow: auto;
+    background: #0f1420;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 320px;
+}
+.preview-image {
+    max-width: 100%;
+    max-height: 80vh;
+    object-fit: contain;
+}
+.preview-frame {
+    width: 100%;
+    height: 80vh;
+    border: none;
+}
+.preview-skeleton {
+    width: 100%;
+    max-width: 32rem;
+    height: 60vh;
+    padding: 1rem;
 }
 </style>

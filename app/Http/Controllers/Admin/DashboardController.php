@@ -12,19 +12,25 @@ class DashboardController extends Controller
 {
     public function stats(): JsonResponse
     {
-        $registrableProfiles = Profile::query()
-            ->whereIn('role', Profile::REGISTRABLE_ROLES);
+        // A single conditional-aggregation query replaces three separate
+        // COUNT(*) scans over profiles (total / active sellers / pending
+        // registrations) — this endpoint is hit on every dashboard visit and
+        // tab switch back to it, so the round-trips add up.
+        $roleBindings = implode(',', array_fill(0, count(Profile::REGISTRABLE_ROLES), '?'));
+
+        $profileCounts = Profile::query()
+            ->selectRaw(
+                'count(*) as total_users, '
+                .'coalesce(sum(case when role = ? and status = ? and account_status = ? then 1 else 0 end), 0) as active_sellers, '
+                ."coalesce(sum(case when role in ({$roleBindings}) and status = ? then 1 else 0 end), 0) as pending_registrations",
+                ['seller', 'approved', 'active', ...Profile::REGISTRABLE_ROLES, 'pending'],
+            )
+            ->first();
 
         return response()->json([
-            'total_users' => Profile::query()->count(),
-            'active_sellers' => Profile::query()
-                ->where('role', 'seller')
-                ->where('status', 'approved')
-                ->where('account_status', 'active')
-                ->count(),
-            'pending_registrations' => (clone $registrableProfiles)
-                ->where('status', 'pending')
-                ->count(),
+            'total_users' => (int) $profileCounts->total_users,
+            'active_sellers' => (int) $profileCounts->active_sellers,
+            'pending_registrations' => (int) $profileCounts->pending_registrations,
             'open_complaints' => Complaint::query()
                 ->whereNotIn('status', ['resolved', 'dismissed'])
                 ->count(),

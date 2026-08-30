@@ -8,6 +8,7 @@ import {
     ref
 } from 'vue';
 import { useBuyerAccount } from '../composables/useBuyerAccount';
+import AvatarCropper from './AvatarCropper.vue';
 
 const emit = defineEmits(['back', 'view-orders']);
 
@@ -23,6 +24,7 @@ const {
     calculateAge,
     loadBuyerAccount,
     updateBuyerProfile,
+    uploadBuyerAvatar,
     deactivateBuyerAccount,
     confirmLogout
 } = useBuyerAccount();
@@ -39,7 +41,8 @@ const icons = {
     close: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
     alert: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
     lock: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
-    location: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" /><circle cx="12" cy="10" r="3" /></svg>`
+    location: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" /><circle cx="12" cy="10" r="3" /></svg>`,
+    camera: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg>`
 };
 
 // ------------------------------------------------------------
@@ -62,6 +65,42 @@ function showMessage(text, type = 'success') {
 }
 
 // ------------------------------------------------------------
+// Profile picture
+// ------------------------------------------------------------
+const avatarInput = ref(null);
+const uploadingAvatar = ref(false);
+const cropFile = ref(null); // the just-picked File, shown in AvatarCropper until cropped or cancelled
+
+function triggerAvatarUpload() {
+    avatarInput.value?.click();
+}
+
+function onAvatarSelected(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (file) {
+        cropFile.value = file;
+    }
+}
+
+function cancelAvatarCrop() {
+    cropFile.value = null;
+}
+
+async function onAvatarCropped(blob) {
+    cropFile.value = null;
+    uploadingAvatar.value = true;
+    const ok = await uploadBuyerAvatar(blob);
+    uploadingAvatar.value = false;
+
+    showMessage(
+        ok ? 'Profile picture updated.' : 'Failed to upload profile picture. Please try again.',
+        ok ? 'success' : 'error'
+    );
+}
+
+// ------------------------------------------------------------
 // Personal Information + Home Address (single edit toggle)
 // ------------------------------------------------------------
 const isEditing = ref(false);
@@ -75,6 +114,8 @@ const draft = reactive({
     contactNumber: '',
     birthday: '',
 
+    regionCode: '',
+    regionName: '',
     provinceCode: '',
     provinceName: '',
     municipalityCode: '',
@@ -111,7 +152,8 @@ const fullAddressOnFile = computed(() => {
         address.value.street,
         address.value.barangay,
         address.value.municipality_name,
-        address.value.province_name
+        address.value.province_name,
+        address.value.region_name
     ].filter(Boolean).join(', ') || 'No address on file yet.';
 });
 
@@ -126,6 +168,8 @@ function copyStateToDraft() {
     }
 
     if (address.value) {
+        draft.regionCode = address.value.region_code || '';
+        draft.regionName = address.value.region_name || '';
         draft.provinceCode = address.value.province_code || '';
         draft.provinceName = address.value.province_name || '';
         draft.municipalityCode = address.value.municipality_code || '';
@@ -134,6 +178,8 @@ function copyStateToDraft() {
         draft.street = address.value.street || '';
         draft.houseNo = address.value.house_no || '';
     } else {
+        draft.regionCode = '';
+        draft.regionName = '';
         draft.provinceCode = '';
         draft.provinceName = '';
         draft.municipalityCode = '';
@@ -221,6 +267,10 @@ function validateProfile() {
         nextErrors.birthday = 'Enter a valid birthday.';
     }
 
+    if (!draft.regionCode) {
+        nextErrors.region = 'Please select a region.';
+    }
+
     if (!draft.provinceCode) {
         nextErrors.province = 'Please select a province.';
     }
@@ -255,6 +305,8 @@ async function saveProfile() {
         birthday: draft.birthday,
         contact_no: draft.contactNumber.replace(/[\s-]/g, ''),
 
+        region_code: draft.regionCode,
+        region_name: draft.regionName,
         province_code: draft.provinceCode,
         province_name: draft.provinceName,
         municipality_code: draft.municipalityCode,
@@ -289,6 +341,12 @@ async function saveProfile() {
 //     the in-memory cache, so a repeat visit this session skips the
 //     network entirely instead of re-fetching on every mount.
 // ------------------------------------------------------------
+// Same three-way Luzon/Visayas/Mindanao split already used by the
+// logistics company signup form (resources/js/app.js) — not the PSGC
+// API's own 17-region breakdown (NCR, CAR, Region I-XIII, BARMM), which
+// would be a different, unrelated field.
+const REGION_OPTIONS = ['Luzon', 'Visayas', 'Mindanao'];
+
 const provinceOptions = ref([]);
 const municipalityOptions = ref([]);
 const barangayOptions = ref([]);
@@ -300,6 +358,20 @@ const provinceCache = { value: [] };
 const municipalityCache = new Map();
 const barangayCache = new Map();
 const ADDRESS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+// Provinces scoped to the currently selected island group. Every province
+// the PSGC API returns already carries its own `islandGroupCode`
+// ('luzon' | 'visayas' | 'mindanao'), so this is a client-side filter over
+// the one full province list already fetched — no extra network call.
+const filteredProvinceOptions = computed(() => {
+    if (!draft.regionCode) {
+        return provinceOptions.value;
+    }
+
+    return provinceOptions.value.filter(
+        (p) => p.islandGroupCode === draft.regionCode.toLowerCase(),
+    );
+});
 
 function readAddressCache(key) {
     try {
@@ -382,6 +454,23 @@ function seedAddressOptionsFromDraft() {
     if (draft.barangay && !barangayOptions.value.some((b) => b.name === draft.barangay)) {
         barangayOptions.value = [{ code: 'current', name: draft.barangay }, ...barangayOptions.value];
     }
+}
+
+function onRegionChange() {
+    // Region and its "name" are the same static string here (Luzon/
+    // Visayas/Mindanao) — no separate code/name pair to look up, unlike
+    // province/municipality which come from the PSGC API.
+    draft.regionName = draft.regionCode;
+
+    // Changing region invalidates whatever province/municipality/barangay
+    // was previously selected — same cascade-reset the province/
+    // municipality handlers already do one level down.
+    draft.provinceCode = '';
+    draft.provinceName = '';
+    draft.municipalityCode = '';
+    draft.municipalityName = '';
+    barangayOptions.value = [];
+    draft.barangay = '';
 }
 
 async function fetchProvinces() {
@@ -1038,8 +1127,30 @@ onBeforeUnmount(() => {
 
             <template v-else>
                 <section class="account-profile-card">
-                    <div class="account-avatar">
-                        {{ buyerInitials }}
+                    <div class="account-avatar-wrap">
+                        <div
+                            class="account-avatar"
+                            :style="profile?.avatar_url ? { backgroundImage: `url(${profile.avatar_url})` } : {}"
+                        >
+                            <span v-if="!profile?.avatar_url">{{ buyerInitials }}</span>
+                        </div>
+                        <button
+                            type="button"
+                            class="account-avatar-edit"
+                            :disabled="uploadingAvatar"
+                            aria-label="Change profile picture"
+                            @click="triggerAvatarUpload"
+                        >
+                            <span v-html="icons.camera"></span>
+                        </button>
+                        <input
+                            ref="avatarInput"
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            class="account-avatar-input"
+                            tabindex="-1"
+                            @change="onAvatarSelected"
+                        >
                     </div>
 
                     <div class="account-profile-summary">
@@ -1203,17 +1314,33 @@ onBeforeUnmount(() => {
 
                             <div class="account-form-grid">
                                 <label class="account-field">
+                                    <span>Region *</span>
+                                    <select
+                                        v-model="draft.regionCode"
+                                        :disabled="!isEditing"
+                                        :class="{ invalid: errors.region }"
+                                        @change="onRegionChange"
+                                    >
+                                        <option value="">Select region</option>
+                                        <option v-for="r in REGION_OPTIONS" :key="r" :value="r">
+                                            {{ r }}
+                                        </option>
+                                    </select>
+                                    <small v-if="errors.region">{{ errors.region }}</small>
+                                </label>
+
+                                <label class="account-field">
                                     <span>Province *</span>
                                     <select
                                         v-model="draft.provinceCode"
-                                        :disabled="!isEditing || loadingProvinces"
+                                        :disabled="!isEditing || loadingProvinces || !draft.regionCode"
                                         :class="{ invalid: errors.province }"
                                         @change="onProvinceChange"
                                     >
                                         <option value="">
-                                            {{ loadingProvinces ? 'Loading provinces…' : 'Select province' }}
+                                            {{ loadingProvinces ? 'Loading provinces…' : (draft.regionCode ? 'Select province' : 'Select a region first') }}
                                         </option>
-                                        <option v-for="p in provinceOptions" :key="p.code" :value="p.code">
+                                        <option v-for="p in filteredProvinceOptions" :key="p.code" :value="p.code">
                                             {{ p.name }}
                                         </option>
                                     </select>
@@ -1388,6 +1515,8 @@ onBeforeUnmount(() => {
                 </div>
             </template>
         </main>
+
+        <AvatarCropper :file="cropFile" @cancel="cancelAvatarCrop" @crop="onAvatarCropped" />
 
         <!-- ==================================================== -->
         <!-- PASSWORD CHANGE MODAL -->

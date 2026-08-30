@@ -35,9 +35,13 @@ class CommissionController extends Controller
             });
         }
 
-        $summaryQuery = clone $query;
-        $grossSales = (float) (clone $summaryQuery)->sum('subtotal');
-        $discounts = (float) (clone $summaryQuery)->sum('discount');
+        // One aggregate query (count + both sums) replaces three separate
+        // round trips over the same eligible-orders set.
+        $summaryRow = (clone $query)
+            ->selectRaw('count(*) as orders_count, coalesce(sum(subtotal), 0) as gross_sales, coalesce(sum(discount), 0) as discounts')
+            ->first();
+        $grossSales = (float) $summaryRow->gross_sales;
+        $discounts = (float) $summaryRow->discounts;
         $commissionBasis = CommissionCalculator::basis($grossSales, $discounts);
 
         $orders = $query
@@ -61,7 +65,7 @@ class CommissionController extends Controller
             'orders' => $orders,
             'rate' => CommissionCalculator::RATE,
             'summary' => [
-                'eligible_orders' => (clone $summaryQuery)->count(),
+                'eligible_orders' => (int) $summaryRow->orders_count,
                 'gross_sales' => round($grossSales, 2),
                 'commission_basis' => $commissionBasis,
                 'platform_commission' => CommissionCalculator::commission($grossSales, $discounts),

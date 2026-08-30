@@ -89,11 +89,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-if="loading">
-                        <td colspan="5" class="py-8 text-center text-slate-500">
-                            Loading accounts...
-                        </td>
-                    </tr>
+                    <SkeletonRows v-if="loading && !hasLoadedOnce" :columns="5" :rows="6" />
                     <tr v-else-if="accounts.length === 0">
                         <td colspan="5" class="py-8 text-center text-slate-500">
                             No approved accounts match these filters.
@@ -216,11 +212,27 @@
                     </button>
                 </div>
 
-                <div
-                    v-if="profileLoading"
-                    class="p-8 text-center text-slate-500"
-                >
-                    Loading profile...
+                <div v-if="profileLoading" class="space-y-6 p-5" aria-hidden="true">
+                    <dl class="grid gap-4 text-sm sm:grid-cols-2">
+                        <div v-for="n in 4" :key="n">
+                            <div class="skeleton skeleton-text" style="width: 40%; height: 0.6rem"></div>
+                            <div class="skeleton skeleton-text" style="width: 75%; margin-top: 0.5rem"></div>
+                        </div>
+                    </dl>
+                    <section>
+                        <div class="skeleton skeleton-text" style="width: 30%; height: 1rem"></div>
+                        <div class="mt-3 space-y-2">
+                            <div
+                                v-for="n in 2"
+                                :key="n"
+                                class="rounded-lg border border-slate-200 p-3"
+                            >
+                                <div class="skeleton skeleton-text" style="width: 55%"></div>
+                                <div class="skeleton skeleton-text" style="width: 85%"></div>
+                                <div class="skeleton skeleton-text" style="width: 35%"></div>
+                            </div>
+                        </div>
+                    </section>
                 </div>
                 <div v-else class="space-y-6 p-5">
                     <dl class="grid gap-4 text-sm sm:grid-cols-2">
@@ -591,6 +603,7 @@
 <script setup>
 import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
+import SkeletonRows from './SkeletonRows.vue';
 
 const { accounts, statusBadgeClass, formatDate, adminFetch, supabase } =
     useAdmin();
@@ -599,6 +612,13 @@ const search = ref('');
 const roleFilter = ref('');
 const accountStatusFilter = ref('');
 const loading = ref(false);
+// This component stays kept-alive across tab switches, so onActivated below
+// reruns loadAccounts() on every revisit, not just the first. Without this
+// flag, the skeleton would wipe out rows that are already loaded and on
+// screen just because a background refresh set "loading" true again —
+// gating it on "loading && !hasLoadedOnce" instead lets that refresh
+// update the table in place once it resolves.
+const hasLoadedOnce = ref(false);
 const profileLoading = ref(false);
 const savingStatus = ref(false);
 const creatingStaff = ref(false);
@@ -809,6 +829,7 @@ async function loadAccounts(page = 1) {
         showMessage(error.message, 'error');
     } finally {
         loading.value = false;
+        hasLoadedOnce.value = true;
     }
 }
 

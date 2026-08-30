@@ -107,11 +107,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-if="loading">
-                        <td colspan="6" class="py-8 text-center text-slate-500">
-                            Loading products...
-                        </td>
-                    </tr>
+                    <SkeletonRows v-if="loading && !hasLoadedOnce" :columns="6" :rows="5" />
                     <tr v-else-if="products.length === 0">
                         <td colspan="6" class="py-8 text-center text-slate-500">
                             No products match these filters.
@@ -340,6 +336,7 @@
 <script setup>
 import { computed, onActivated, onBeforeUnmount, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
+import SkeletonRows from './SkeletonRows.vue';
 
 const { adminFetch } = useAdmin();
 
@@ -349,6 +346,13 @@ const categoryState = ref('');
 const productStatus = ref('');
 const showingHistory = ref(false);
 const loading = ref(false);
+// This component stays kept-alive across tab switches, so onActivated below
+// reruns loadProducts() on every revisit, not just the first. Without this
+// flag, the skeleton would wipe out rows that are already loaded and on
+// screen just because a background refresh set "loading" true again —
+// gating it on "loading && !hasLoadedOnce" instead lets that refresh
+// update the table in place once it resolves.
+const hasLoadedOnce = ref(false);
 const saving = ref(false);
 const selectedProduct = ref(null);
 const selectedAction = ref('');
@@ -470,6 +474,7 @@ async function loadProducts(page = 1) {
         showMessage(error.message, 'error');
     } finally {
         loading.value = false;
+        hasLoadedOnce.value = true;
     }
 }
 

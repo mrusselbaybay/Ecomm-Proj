@@ -53,13 +53,24 @@ class ComplaintController extends Controller
             ->withQueryString()
             ->through(fn (Complaint $complaint): array => $this->complaintData($complaint));
 
+        // One conditional-aggregation query replaces four separate COUNT(*)
+        // scans over the complaints table.
+        $summary = Complaint::query()
+            ->selectRaw(
+                "coalesce(sum(case when status not in ('resolved', 'dismissed') then 1 else 0 end), 0) as open, "
+                ."coalesce(sum(case when status = 'pending' then 1 else 0 end), 0) as pending, "
+                ."coalesce(sum(case when status in ('under_review', 'awaiting_response') then 1 else 0 end), 0) as under_review, "
+                ."coalesce(sum(case when status = 'resolved' then 1 else 0 end), 0) as resolved",
+            )
+            ->first();
+
         return response()->json([
             'complaints' => $complaints,
             'summary' => [
-                'open' => Complaint::query()->whereNotIn('status', ['resolved', 'dismissed'])->count(),
-                'pending' => Complaint::query()->where('status', 'pending')->count(),
-                'under_review' => Complaint::query()->whereIn('status', ['under_review', 'awaiting_response'])->count(),
-                'resolved' => Complaint::query()->where('status', 'resolved')->count(),
+                'open' => (int) $summary->open,
+                'pending' => (int) $summary->pending,
+                'under_review' => (int) $summary->under_review,
+                'resolved' => (int) $summary->resolved,
             ],
         ]);
     }

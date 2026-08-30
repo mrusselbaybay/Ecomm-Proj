@@ -1,15 +1,80 @@
 <!-- resources/js/admin/components/AdminLayout.vue -->
 <template>
     <div class="admin-app">
-        <!-- Loading State -->
+        <!-- Loading State: mirrors the real sidebar + content shell below so
+             there's no layout jump once the auth check resolves. -->
         <div
             v-if="isLoading"
-            class="flex min-h-screen items-center justify-center"
+            class="flex min-h-screen"
+            style="height: 100vh; overflow: hidden"
+            aria-hidden="true"
         >
-            <div class="text-center">
-                <div class="loading-spinner mx-auto mb-4"></div>
-                <p class="text-slate-500">Loading admin panel...</p>
-            </div>
+            <aside class="side-panel">
+                <div class="sidebar-top">
+                    <div class="sidebar-logo">
+                        <div
+                            class="skeleton"
+                            style="width: 2.25rem; height: 2.25rem; border-radius: 0.6rem; background: rgba(255, 255, 255, 0.08)"
+                        ></div>
+                        <div>
+                            <div
+                                class="skeleton skeleton-text"
+                                style="width: 5rem; height: 0.75rem; background: rgba(255, 255, 255, 0.14)"
+                            ></div>
+                            <div
+                                class="skeleton skeleton-text"
+                                style="width: 4rem; height: 0.55rem; background: rgba(255, 255, 255, 0.08)"
+                            ></div>
+                        </div>
+                    </div>
+                    <nav class="sidebar-nav">
+                        <div v-for="n in 10" :key="n" class="sidebar-link">
+                            <span
+                                class="skeleton skeleton-circle"
+                                style="width: 1.1rem; height: 1.1rem; background: rgba(255, 255, 255, 0.1)"
+                            ></span>
+                            <span
+                                class="skeleton skeleton-text"
+                                style="width: 65%; background: rgba(255, 255, 255, 0.1)"
+                            ></span>
+                        </div>
+                    </nav>
+                </div>
+            </aside>
+
+            <main class="main-content">
+                <div class="content-wrapper">
+                    <div class="content-header">
+                        <div>
+                            <div class="skeleton skeleton-text" style="width: 6rem; height: 0.6rem"></div>
+                            <div class="skeleton skeleton-text" style="width: 11rem; height: 1.4rem; margin-top: 0.6rem"></div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-6">
+                        <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                            <article
+                                v-for="n in 4"
+                                :key="n"
+                                class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+                            >
+                                <div class="skeleton skeleton-text" style="width: 55%; height: 0.6rem"></div>
+                                <div class="skeleton skeleton-text" style="width: 40%; height: 1.9rem; margin-top: 0.6rem"></div>
+                                <div class="skeleton skeleton-text" style="width: 70%; height: 0.6rem; margin-top: 0.55rem"></div>
+                            </article>
+                        </section>
+
+                        <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div class="skeleton skeleton-text" style="width: 30%; height: 1rem"></div>
+                            <div class="mt-4">
+                                <div class="skeleton skeleton-text" style="width: 100%"></div>
+                                <div class="skeleton skeleton-text" style="width: 88%"></div>
+                                <div class="skeleton skeleton-text" style="width: 76%"></div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </main>
         </div>
 
         <!-- Admin Panel -->
@@ -96,7 +161,16 @@
 
                     <!-- Admin Profile -->
                     <div class="admin-profile">
-                        <div class="profile-avatar">{{ adminInitials }}</div>
+                        <div
+                            class="profile-avatar"
+                            :style="
+                                adminProfile.avatar_url
+                                    ? { backgroundImage: `url(${adminProfile.avatar_url})` }
+                                    : {}
+                            "
+                        >
+                            <span v-if="!adminProfile.avatar_url">{{ adminInitials }}</span>
+                        </div>
                         <div class="profile-info">
                             <p class="profile-name">{{ adminProfile.name }}</p>
                             <p class="profile-role">Platform Admin</p>
@@ -330,21 +404,25 @@ const adminInitials = computed(() => {
     return parts[0].substring(0, 2).toUpperCase();
 });
 
-function getIcon(iconName) {
-    const icons = {
-        grid: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
-        userCheck: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m17 11 2 2 4-4"/></svg>`,
-        users: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
-        shield: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>`,
-        alert: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
-        percent: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>`,
-        file: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>`,
-        settings: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>`,
-        chat: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></svg>`,
-        userCog: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h3"/><circle cx="18" cy="17" r="3"/><path d="M18 14.5v0M18 19.5v0M20.6 15.5l0 0M15.4 18.5l0 0M20.6 18.5l0 0M15.4 15.5l0 0"/></svg>`,
-    };
+// Hoisted out of getIcon() below so this object (10 inline SVG strings) is
+// built once per module load instead of being reallocated on every call —
+// getIcon() runs once per nav item on every re-render of navItems (which
+// itself recomputes whenever pendingCount changes).
+const NAV_ICONS = {
+    grid: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
+    userCheck: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m17 11 2 2 4-4"/></svg>`,
+    users: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+    shield: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>`,
+    alert: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+    percent: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>`,
+    file: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>`,
+    settings: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>`,
+    chat: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></svg>`,
+    userCog: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h3"/><circle cx="18" cy="17" r="3"/><path d="M18 14.5v0M18 19.5v0M20.6 15.5l0 0M15.4 18.5l0 0M20.6 18.5l0 0M15.4 15.5l0 0"/></svg>`,
+};
 
-    return icons[iconName] || '';
+function getIcon(iconName) {
+    return NAV_ICONS[iconName] || '';
 }
 
 // Navigation with URL sync

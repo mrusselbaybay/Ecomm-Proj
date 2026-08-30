@@ -79,6 +79,116 @@ function validatePassword(password) {
     return password.length >= 8;
 }
 
+// ---------- File Dropzone Component ----------
+// A click-to-browse / drag-and-drop file picker. Every document upload in
+// the signup wizard (buyer/seller/courier/driver/logistics, and Google
+// onboarding, which reuses the same buyer/seller/courier "documents" step)
+// shares this one component instead of a bare <input type="file">.
+const FileDropzone = {
+    props: {
+        modelValue: { type: File, default: null },
+        accept: { type: String, default: 'image/*,.pdf' },
+        hint: { type: String, default: 'JPG, PNG or PDF · Max 5MB' },
+    },
+    emits: ['update:modelValue'],
+    setup(props, { emit }) {
+        const inputEl = ref(null);
+        const isDragging = ref(false);
+
+        const formattedSize = computed(() => {
+            if (!props.modelValue) {
+                return '';
+            }
+
+            const bytes = props.modelValue.size;
+
+            if (bytes < 1024) {
+                return `${bytes} B`;
+            }
+
+            if (bytes < 1024 * 1024) {
+                return `${(bytes / 1024).toFixed(0)} KB`;
+            }
+
+            return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        });
+
+        function triggerBrowse() {
+            inputEl.value?.click();
+        }
+
+        function onChange(event) {
+            const file = event.target.files && event.target.files[0];
+
+            if (file) {
+                emit('update:modelValue', file);
+            }
+
+            // Reset so picking the same file again still fires a change
+            // event (e.g. after removing it and re-adding it).
+            event.target.value = '';
+        }
+
+        function onDrop(event) {
+            isDragging.value = false;
+
+            const file = event.dataTransfer.files && event.dataTransfer.files[0];
+
+            if (file) {
+                emit('update:modelValue', file);
+            }
+        }
+
+        function onRemove() {
+            emit('update:modelValue', null);
+        }
+
+        return {
+            inputEl,
+            isDragging,
+            formattedSize,
+            triggerBrowse,
+            onChange,
+            onDrop,
+            onRemove,
+        };
+    },
+    template: `
+      <div
+        class="dropzone"
+        :class="{ 'dropzone--drag': isDragging, 'dropzone--filled': modelValue }"
+        role="button"
+        tabindex="0"
+        @click="triggerBrowse"
+        @keydown.enter.prevent="triggerBrowse"
+        @keydown.space.prevent="triggerBrowse"
+        @dragenter.prevent="isDragging = true"
+        @dragover.prevent="isDragging = true"
+        @dragleave.prevent="isDragging = false"
+        @drop.prevent="onDrop"
+      >
+        <input ref="inputEl" type="file" class="dropzone-input" :accept="accept" @change="onChange" tabindex="-1" />
+        <div v-if="!modelValue" class="dropzone-empty">
+          <svg class="dropzone-icon" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></svg>
+          <p class="dropzone-text"><span class="dropzone-link">Click to upload</span> or drag &amp; drop</p>
+          <p class="dropzone-hint">{{ hint }}</p>
+        </div>
+        <div v-else class="dropzone-file">
+          <div class="dropzone-file-icon">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5Z"/><path d="M14 2v6h6"/></svg>
+          </div>
+          <div class="dropzone-file-info">
+            <p class="dropzone-file-name">{{ modelValue.name }}</p>
+            <p class="dropzone-file-size">{{ formattedSize }}</p>
+          </div>
+          <button type="button" class="dropzone-remove" @click.stop="onRemove" aria-label="Remove file">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>
+      </div>
+    `,
+};
+
 // ---------- Main Application ----------
 const App = {
     setup() {
@@ -159,6 +269,7 @@ const App = {
             sex: '',
             contactNo: '',
             birthday: '',
+            region: '',
             provinceCode: '',
             province: '',
             municipalityCode: '',
@@ -167,6 +278,7 @@ const App = {
             street: '',
             houseNo: '',
             idFile: null,
+            idType: '',
             businessName: '',
             lineOfBusiness: '',
             businessPermit: null,
@@ -194,6 +306,7 @@ const App = {
             ownerSex: '',
             ownerBirthday: '',
             ownerIdFile: null,
+            ownerIdType: '',
             businessPermitFile: null,
             mayorPermitFile: null,
             dtiRegFile: null,
@@ -207,6 +320,7 @@ const App = {
             driverPassword: '',
             driverConfirmPassword: '',
             driverIdFile: null,
+            driverIdType: '',
             driverLicenseFile: null,
             driverVehicle: '',
             driverPlateNumber: '',
@@ -367,6 +481,20 @@ const App = {
                 desc: 'Run a logistics company & manage your fleet',
                 icon: 'building',
             },
+        ];
+
+        // Options for every "ID Type" dropdown next to a valid-ID upload.
+        // Keep in sync with AuthController's ID_TYPES allow-list and the
+        // `documents.id_type` check constraint.
+        const ID_TYPES = [
+            "Passport",
+            "Driver's License",
+            'PRC ID',
+            'UMID',
+            'SSS ID',
+            'National ID',
+            'Student ID',
+            'Philippine Postal ID',
         ];
 
         // ---------- Validation Functions ----------
@@ -536,9 +664,10 @@ const App = {
         }
 
         function validateAddressFields() {
-            const { province, municipality, barangay, street } = form.value;
+            const { region, province, municipality, barangay, street } =
+                form.value;
 
-            if (!province || !municipality || !barangay || !street) {
+            if (!region || !province || !municipality || !barangay || !street) {
                 errorMsg.value = 'Please fill in all address fields.';
 
                 return false;
@@ -623,8 +752,11 @@ const App = {
         }
 
         function validateDocuments() {
-            if (selectedRole.value === 'buyer' && !form.value.idFile) {
-                errorMsg.value = 'Please upload an ID.';
+            if (
+                selectedRole.value === 'buyer' &&
+                (!form.value.idFile || !form.value.idType)
+            ) {
+                errorMsg.value = 'Please select an ID type and upload an ID.';
 
                 return false;
             }
@@ -632,6 +764,7 @@ const App = {
             if (selectedRole.value === 'seller') {
                 if (
                     !form.value.idFile ||
+                    !form.value.idType ||
                     !form.value.businessPermit ||
                     !form.value.businessName ||
                     !form.value.lineOfBusiness
@@ -665,7 +798,8 @@ const App = {
                     !form.value.vehicle ||
                     !form.value.plateNumber ||
                     !form.value.orcrFile ||
-                    !form.value.licenseFile
+                    !form.value.licenseFile ||
+                    !form.value.idType
                 ) {
                     errorMsg.value =
                         'Please fill in all courier documents and vehicle info.';
@@ -680,7 +814,8 @@ const App = {
                     !form.value.driverPlateNumber ||
                     !form.value.driverOrcrFile ||
                     !form.value.driverLicenseFile ||
-                    !form.value.driverIdFile
+                    !form.value.driverIdFile ||
+                    !form.value.driverIdType
                 ) {
                     errorMsg.value =
                         'Please fill in all driver documents and vehicle info.';
@@ -801,6 +936,7 @@ const App = {
         function validateLogisticsDocuments() {
             if (
                 !form.value.ownerIdFile ||
+                !form.value.ownerIdType ||
                 !form.value.businessPermitFile ||
                 !form.value.mayorPermitFile ||
                 !form.value.dtiRegFile
@@ -1041,6 +1177,10 @@ const App = {
                     form.value.municipalityCode &&
                     form.value.barangay
                 ) {
+                    if (form.value.region) {
+                        fd.append('region', form.value.region);
+                    }
+
                     fd.append('province_code', form.value.provinceCode);
                     fd.append('province_name', form.value.province || '');
                     fd.append('municipality_code', form.value.municipalityCode);
@@ -1093,6 +1233,10 @@ const App = {
                     if (form.value.driverOrcrFile) {
                         fd.append('orcr_file', form.value.driverOrcrFile);
                     }
+
+                    if (form.value.driverIdType) {
+                        fd.append('id_type', form.value.driverIdType);
+                    }
                 } else {
                     if (form.value.idFile) {
                         fd.append('id_file', form.value.idFile);
@@ -1108,6 +1252,10 @@ const App = {
 
                     if (form.value.licenseFile) {
                         fd.append('license_file', form.value.licenseFile);
+                    }
+
+                    if (form.value.idType) {
+                        fd.append('id_type', form.value.idType);
                     }
                 }
 
@@ -1168,6 +1316,10 @@ const App = {
                     form.value.municipalityCode &&
                     form.value.barangay
                 ) {
+                    if (form.value.region) {
+                        fd.append('region', form.value.region);
+                    }
+
                     fd.append('province_code', form.value.provinceCode);
                     fd.append('province_name', form.value.province || '');
                     fd.append('municipality_code', form.value.municipalityCode);
@@ -1209,6 +1361,10 @@ const App = {
 
                 if (form.value.licenseFile) {
                     fd.append('license_file', form.value.licenseFile);
+                }
+
+                if (form.value.idType) {
+                    fd.append('id_type', form.value.idType);
                 }
 
                 const {
@@ -1325,6 +1481,10 @@ const App = {
 
                 if (form.value.ownerIdFile) {
                     fd.append('owner_id_file', form.value.ownerIdFile);
+                }
+
+                if (form.value.ownerIdType) {
+                    fd.append('owner_id_type', form.value.ownerIdType);
                 }
 
                 if (form.value.businessPermitFile) {
@@ -2029,14 +2189,6 @@ const App = {
             resetMessages();
         }
 
-        function handleFileUpload(event, field) {
-            const file = event.target.files[0];
-
-            if (file) {
-                form.value[field] = file;
-            }
-        }
-
         // ---------- Login Functions ----------
         // ---------- Login Functions ----------
         // First-time Google sign-in: Supabase already created the auth
@@ -2439,6 +2591,17 @@ const App = {
             let value = event.target.value;
             value = value.replace(/\D/g, '');
 
+            // Philippine mobile numbers always start with "09" — auto-fill
+            // it in so the user only has to type the remaining 9 digits.
+            if (value && !value.startsWith('09')) {
+                if (value.startsWith('9')) {
+                    // Forgot the leading 0 — add just that back.
+                    value = `0${value}`;
+                } else if (!value.startsWith('0')) {
+                    value = `09${value}`;
+                }
+            }
+
             if (value.length > 11) {
                 value = value.slice(0, 11);
             }
@@ -2602,6 +2765,7 @@ const App = {
             successMsg,
             loggedInUser,
             roles,
+            ID_TYPES,
             selectedRole,
             signupStep,
             form,
@@ -2647,7 +2811,6 @@ const App = {
             handleGoogleLogin,
             selectRole,
             goToStep,
-            handleFileUpload,
             submitRegistration,
             logout,
             startLogisticsSignup,
@@ -2757,7 +2920,7 @@ const App = {
                 <div class="step-dot" :class="{ 'bg-teal-500 text-white': resetStep >= 2, 'bg-slate-200 text-slate-500': resetStep < 2 }">2</div>
                 <div class="step-line" :class="{ 'active': resetStep > 2 }"></div>
               </div>
-              <div class="flex items-center flex-1">
+              <div class="flex items-center">
                 <div class="step-dot" :class="{ 'bg-teal-500 text-white': resetStep >= 3, 'bg-slate-200 text-slate-500': resetStep < 3 }">3</div>
               </div>
             </div>
@@ -2891,7 +3054,7 @@ const App = {
             <div v-else-if="selectedRole === 'driver' && signupStep !== 'complete'" style="display:flex;flex-direction:column;height:100%;">
               <!-- Step indicator -->
               <div class="flex items-center gap-1 mb-3">
-                <div v-for="(s, idx) in driverSteps" :key="idx" class="flex items-center flex-1">
+                <div v-for="(s, idx) in driverSteps" :key="idx" class="flex items-center" :class="{ 'flex-1': idx < driverSteps.length - 1 }">
                   <div class="step-dot" :class="{ 'bg-teal-500 text-white': currentStepIndex >= idx, 'bg-slate-200 text-slate-500': currentStepIndex < idx }">{{ idx + 1 }}</div>
                   <div v-if="idx < driverSteps.length - 1" class="step-line" :class="{ 'active': currentStepIndex > idx }"></div>
                 </div>
@@ -2924,9 +3087,16 @@ const App = {
                     </div>
                     <div>
                       <label class="field-label">Sex <span class="text-teal-500">*</span></label>
-                      <select v-model="form.driverSex" class="field-input" :class="{ 'border-red-500': !form.driverSex && errorMsg }">
-                        <option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option>
-                      </select>
+                      <div class="gender-select" :class="{ 'gender-select--error': !form.driverSex && errorMsg }">
+                        <button type="button" class="gender-option" :class="{ selected: form.driverSex === 'Male' }" @click="form.driverSex = 'Male'">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="14" r="6"/><path d="M14.5 9.5 20 4"/><path d="M15 4h5v5"/></svg>
+                          <span>Male</span>
+                        </button>
+                        <button type="button" class="gender-option" :class="{ selected: form.driverSex === 'Female' }" @click="form.driverSex = 'Female'">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M12 15v7"/><path d="M9 19h6"/></svg>
+                          <span>Female</span>
+                        </button>
+                      </div>
                     </div>
                     <div>
                       <label class="field-label">Birthday <span class="text-teal-500">*</span></label>
@@ -3026,9 +3196,16 @@ const App = {
                     </div>
                     <div class="full-width"><label class="field-label">Plate Number <span class="text-teal-500">*</span></label><input v-model="form.driverPlateNumber" placeholder="ABC-1234" class="field-input" /></div>
                     <div class="full-width"><label class="field-label">License Number</label><input v-model="form.driverLicenseNumber" placeholder="Driver's License #" class="field-input" /></div>
-                    <div class="full-width"><label class="field-label">Upload Valid ID <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'driverIdFile')" class="field-input text-sm p-1" /></div>
-                    <div class="full-width"><label class="field-label">Upload Driver's License <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'driverLicenseFile')" class="field-input text-sm p-1" /></div>
-                    <div class="full-width"><label class="field-label">Upload OR/CR <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'driverOrcrFile')" class="field-input text-sm p-1" /></div>
+                    <div class="full-width">
+                      <label class="field-label">ID Type <span class="text-teal-500">*</span></label>
+                      <select v-model="form.driverIdType" class="field-input">
+                        <option value="">Select ID type</option>
+                        <option v-for="t in ID_TYPES" :key="t" :value="t">{{ t }}</option>
+                      </select>
+                    </div>
+                    <div class="full-width"><label class="field-label">Upload Valid ID <span class="text-teal-500">*</span></label><file-dropzone v-model="form.driverIdFile" /></div>
+                    <div class="full-width"><label class="field-label">Upload Driver's License <span class="text-teal-500">*</span></label><file-dropzone v-model="form.driverLicenseFile" /></div>
+                    <div class="full-width"><label class="field-label">Upload OR/CR <span class="text-teal-500">*</span></label><file-dropzone v-model="form.driverOrcrFile" /></div>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
@@ -3050,7 +3227,7 @@ const App = {
             <div v-else-if="isLogisticsSignup && signupStep !== 'complete'" style="display:flex;flex-direction:column;height:100%;">
               <!-- Step indicator -->
               <div class="flex items-center gap-1 mb-3">
-                <div v-for="(s, idx) in logisticsSteps" :key="idx" class="flex items-center flex-1">
+                <div v-for="(s, idx) in logisticsSteps" :key="idx" class="flex items-center" :class="{ 'flex-1': idx < logisticsSteps.length - 1 }">
                   <div class="step-dot" :class="{ 'bg-teal-500 text-white': currentStepIndex >= idx, 'bg-slate-200 text-slate-500': currentStepIndex < idx }">{{ idx + 1 }}</div>
                   <div v-if="idx < logisticsSteps.length - 1" class="step-line" :class="{ 'active': currentStepIndex > idx }"></div>
                 </div>
@@ -3107,9 +3284,16 @@ const App = {
                     <div><label class="field-label">Owner First Name <span class="text-teal-500">*</span></label><input v-model="form.ownerFirstName" @input="formatName($event, 'ownerFirstName')" placeholder="Juan" class="field-input" /></div>
                     <div><label class="field-label">M.I.</label><input v-model="form.ownerMiddleInitial" @input="formatMiddleInitial($event, 'ownerMiddleInitial')" maxlength="1" placeholder="B" class="field-input" /></div>
                     <div><label class="field-label">Sex <span class="text-teal-500">*</span></label>
-                      <select v-model="form.ownerSex" class="field-input">
-                        <option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option>
-                      </select>
+                      <div class="gender-select">
+                        <button type="button" class="gender-option" :class="{ selected: form.ownerSex === 'Male' }" @click="form.ownerSex = 'Male'">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="14" r="6"/><path d="M14.5 9.5 20 4"/><path d="M15 4h5v5"/></svg>
+                          <span>Male</span>
+                        </button>
+                        <button type="button" class="gender-option" :class="{ selected: form.ownerSex === 'Female' }" @click="form.ownerSex = 'Female'">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M12 15v7"/><path d="M9 19h6"/></svg>
+                          <span>Female</span>
+                        </button>
+                      </div>
                     </div>
                     <div><label class="field-label">Birthday <span class="text-teal-500">*</span></label><input v-model="form.ownerBirthday" type="date" class="field-input" /></div>
                   </div>
@@ -3169,12 +3353,19 @@ const App = {
                 </div>
 
                 <!-- DOCUMENTS -->
-                <div v-if="signupStep === 'documents'">
+                <div v-if="signupStep === 'documents'" class="doc-scroll">
                   <div class="form-grid">
-                    <div class="full-width"><label class="field-label">Owner's Valid ID <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'ownerIdFile')" class="field-input text-sm p-1" /></div>
-                    <div class="full-width"><label class="field-label">Business Permit <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'businessPermitFile')" class="field-input text-sm p-1" /></div>
-                    <div class="full-width"><label class="field-label">Mayor's Permit <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'mayorPermitFile')" class="field-input text-sm p-1" /></div>
-                    <div class="full-width"><label class="field-label">DTI / SEC Registration <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'dtiRegFile')" class="field-input text-sm p-1" /></div>
+                    <div class="full-width">
+                      <label class="field-label">ID Type <span class="text-teal-500">*</span></label>
+                      <select v-model="form.ownerIdType" class="field-input">
+                        <option value="">Select ID type</option>
+                        <option v-for="t in ID_TYPES" :key="t" :value="t">{{ t }}</option>
+                      </select>
+                    </div>
+                    <div class="full-width"><label class="field-label">Owner's Valid ID <span class="text-teal-500">*</span></label><file-dropzone v-model="form.ownerIdFile" /></div>
+                    <div class="full-width"><label class="field-label">Business Permit <span class="text-teal-500">*</span></label><file-dropzone v-model="form.businessPermitFile" /></div>
+                    <div class="full-width"><label class="field-label">Mayor's Permit <span class="text-teal-500">*</span></label><file-dropzone v-model="form.mayorPermitFile" /></div>
+                    <div class="full-width"><label class="field-label">DTI / SEC Registration <span class="text-teal-500">*</span></label><file-dropzone v-model="form.dtiRegFile" /></div>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
@@ -3196,7 +3387,7 @@ const App = {
             <div v-else-if="signupStep !== 'complete' && !isLogisticsSignup && selectedRole !== 'driver'" style="display:flex;flex-direction:column;height:100%;">
               <!-- Step indicator -->
               <div class="flex items-center gap-1 mb-3">
-                <div v-for="(s, idx) in activeSteps" :key="idx" class="flex items-center flex-1">
+                <div v-for="(s, idx) in activeSteps" :key="idx" class="flex items-center" :class="{ 'flex-1': idx < activeSteps.length - 1 }">
                   <div class="step-dot" :class="{ 'bg-teal-500 text-white': currentStepIndex >= idx, 'bg-slate-200 text-slate-500': currentStepIndex < idx }">{{ idx + 1 }}</div>
                   <div v-if="idx < activeSteps.length - 1" class="step-line" :class="{ 'active': currentStepIndex > idx }"></div>
                 </div>
@@ -3229,9 +3420,16 @@ const App = {
                     </div>
                     <div>
                       <label class="field-label">Sex <span class="text-teal-500">*</span></label>
-                      <select v-model="form.sex" class="field-input" :class="{ 'border-red-500': !form.sex && errorMsg }">
-                        <option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option>
-                      </select>
+                      <div class="gender-select" :class="{ 'gender-select--error': !form.sex && errorMsg }">
+                        <button type="button" class="gender-option" :class="{ selected: form.sex === 'Male' }" @click="form.sex = 'Male'">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="14" r="6"/><path d="M14.5 9.5 20 4"/><path d="M15 4h5v5"/></svg>
+                          <span>Male</span>
+                        </button>
+                        <button type="button" class="gender-option" :class="{ selected: form.sex === 'Female' }" @click="form.sex = 'Female'">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M12 15v7"/><path d="M9 19h6"/></svg>
+                          <span>Female</span>
+                        </button>
+                      </div>
                     </div>
                     <div>
                       <label class="field-label">Birthday <span class="text-teal-500">*</span></label>
@@ -3268,6 +3466,15 @@ const App = {
                 <!-- ADDRESS -->
                 <div v-if="signupStep === 'address'">
                   <div class="form-grid">
+                    <div class="full-width">
+                      <label class="field-label">Region <span class="text-teal-500">*</span></label>
+                      <select v-model="form.region" class="field-input">
+                        <option value="">Select Region</option>
+                        <option value="Luzon">Luzon</option>
+                        <option value="Visayas">Visayas</option>
+                        <option value="Mindanao">Mindanao</option>
+                      </select>
+                    </div>
                     <div class="full-width">
                       <label class="field-label">Province <span class="text-teal-500">*</span></label>
                       <select v-model="form.provinceCode" @change="onProvinceChange" class="field-input" :disabled="loadingProvinces">
@@ -3323,10 +3530,17 @@ const App = {
                 </div>
 
                 <!-- DOCUMENTS -->
-                <div v-if="signupStep === 'documents'">
+                <div v-if="signupStep === 'documents'" class="doc-scroll">
                   <div class="form-grid">
                     <template v-if="selectedRole === 'buyer'">
-                      <div class="full-width"><label class="field-label">Upload ID <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'idFile')" class="field-input text-sm p-1" /></div>
+                      <div class="full-width">
+                        <label class="field-label">ID Type <span class="text-teal-500">*</span></label>
+                        <select v-model="form.idType" class="field-input">
+                          <option value="">Select ID type</option>
+                          <option v-for="t in ID_TYPES" :key="t" :value="t">{{ t }}</option>
+                        </select>
+                      </div>
+                      <div class="full-width"><label class="field-label">Upload ID <span class="text-teal-500">*</span></label><file-dropzone v-model="form.idFile" /></div>
                     </template>
                     <template v-if="selectedRole === 'seller'">
                       <div class="full-width"><label class="field-label">Business Name <span class="text-teal-500">*</span></label><input v-model="form.businessName" placeholder="My Store" class="field-input" /></div>
@@ -3344,8 +3558,15 @@ const App = {
                           <option value="Health and Beauty">Health and Beauty</option>
                         </select>
                       </div>
-                      <div class="full-width"><label class="field-label">Upload ID <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'idFile')" class="field-input text-sm p-1" /></div>
-                      <div class="full-width"><label class="field-label">Upload Business Permit <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'businessPermit')" class="field-input text-sm p-1" /></div>
+                      <div class="full-width">
+                        <label class="field-label">ID Type <span class="text-teal-500">*</span></label>
+                        <select v-model="form.idType" class="field-input">
+                          <option value="">Select ID type</option>
+                          <option v-for="t in ID_TYPES" :key="t" :value="t">{{ t }}</option>
+                        </select>
+                      </div>
+                      <div class="full-width"><label class="field-label">Upload ID <span class="text-teal-500">*</span></label><file-dropzone v-model="form.idFile" /></div>
+                      <div class="full-width"><label class="field-label">Upload Business Permit <span class="text-teal-500">*</span></label><file-dropzone v-model="form.businessPermit" /></div>
                     </template>
                     <template v-if="selectedRole === 'courier'">
                       <div class="full-width"><label class="field-label">Vehicle <span class="text-teal-500">*</span></label>
@@ -3354,8 +3575,15 @@ const App = {
                         </select>
                       </div>
                       <div class="full-width"><label class="field-label">Plate Number <span class="text-teal-500">*</span></label><input v-model="form.plateNumber" placeholder="ABC-1234" class="field-input" /></div>
-                      <div class="full-width"><label class="field-label">Upload OR/CR <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'orcrFile')" class="field-input text-sm p-1" /></div>
-                      <div class="full-width"><label class="field-label">Upload ID / Driver's License <span class="text-teal-500">*</span></label><input type="file" @change="handleFileUpload($event, 'licenseFile')" class="field-input text-sm p-1" /></div>
+                      <div class="full-width"><label class="field-label">Upload OR/CR <span class="text-teal-500">*</span></label><file-dropzone v-model="form.orcrFile" /></div>
+                      <div class="full-width">
+                        <label class="field-label">ID Type <span class="text-teal-500">*</span></label>
+                        <select v-model="form.idType" class="field-input">
+                          <option value="">Select ID type</option>
+                          <option v-for="t in ID_TYPES" :key="t" :value="t">{{ t }}</option>
+                        </select>
+                      </div>
+                      <div class="full-width"><label class="field-label">Upload ID / Driver's License <span class="text-teal-500">*</span></label><file-dropzone v-model="form.licenseFile" /></div>
                     </template>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
@@ -3390,4 +3618,4 @@ const App = {
 };
 
 // Mount the app
-createApp(App).mount('#app');
+createApp(App).component('FileDropzone', FileDropzone).mount('#auth-app');

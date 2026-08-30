@@ -3324,6 +3324,11 @@
     box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 2px 8px -2px rgba(0, 0, 0, 0.04);
 }
 
+.account-avatar-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
 .account-avatar {
     flex-shrink: 0;
     width: 80px;
@@ -3335,10 +3340,51 @@
 
     border-radius: 50%;
     background: var(--nx-accent-soft);
+    background-size: cover;
+    background-position: center;
     color: var(--nx-accent-dark);
 
     font-size: 27px;
     font-weight: 800;
+    overflow: hidden;
+}
+
+.account-avatar-edit {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    background: var(--nx-accent);
+    color: #ffffff;
+    cursor: pointer;
+
+    transition: background 0.15s ease;
+}
+
+.account-avatar-edit:hover {
+    background: var(--nx-accent-dark);
+}
+
+.account-avatar-edit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.account-avatar-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .account-profile-summary {

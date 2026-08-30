@@ -103,11 +103,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-if="loading">
-                        <td colspan="7" class="py-8 text-center text-slate-500">
-                            Loading report...
-                        </td>
-                    </tr>
+                    <SkeletonRows v-if="loading && !hasLoadedOnce" :columns="7" :rows="6" />
                     <tr v-else-if="records.length === 0">
                         <td colspan="7" class="py-8 text-center text-slate-500">
                             No completed sales were found for this period.
@@ -181,6 +177,7 @@
 <script setup>
 import { computed, onActivated, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
+import SkeletonRows from './SkeletonRows.vue';
 
 const { adminFetch } = useAdmin();
 const reportType = ref('sales');
@@ -188,6 +185,13 @@ const fromDate = ref('');
 const toDate = ref('');
 const records = ref([]);
 const loading = ref(false);
+// This component stays kept-alive across tab switches, so onActivated below
+// reruns loadReport() on every revisit, not just the first. Without this
+// flag, the skeleton would wipe out rows that are already loaded and on
+// screen just because a background refresh set "loading" true again —
+// gating it on "loading && !hasLoadedOnce" instead lets that refresh
+// update the table in place once it resolves.
+const hasLoadedOnce = ref(false);
 const exporting = ref(false);
 const message = ref('');
 const summary = ref({
@@ -297,6 +301,7 @@ async function loadReport(page = 1) {
         message.value = error.message;
     } finally {
         loading.value = false;
+        hasLoadedOnce.value = true;
     }
 }
 

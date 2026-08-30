@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\DeactivateAdminAccountRequest;
 use App\Http\Requests\Admin\UpdateAdminProfileRequest;
 use App\Mail\AccountStatusChanged;
+use App\Models\Address;
 use App\Models\Profile;
 use App\Models\StatusAuditLog;
 use Illuminate\Http\JsonResponse;
@@ -30,8 +31,13 @@ class AdminProfileController extends Controller
 {
     public function show(Request $request): JsonResponse
     {
+        /** @var Profile $profile */
+        $profile = $request->user();
+        $profile->loadMissing('address');
+
         return response()->json([
-            'profile' => $this->profileData($request->user()),
+            'profile' => $this->profileData($profile),
+            'address' => $this->addressData($profile->address),
         ]);
     }
 
@@ -39,16 +45,84 @@ class AdminProfileController extends Controller
     {
         /** @var Profile $profile */
         $profile = $request->user();
+        $address = $profile->address;
 
-        $profile->update([
-            'first_name' => $request->validated('first_name'),
-            'last_name' => $request->validated('last_name'),
-            'middle_initial' => $request->validated('middle_initial'),
-        ]);
+        DB::transaction(function () use ($request, $profile, &$address): void {
+            $profile->update([
+                'first_name' => $request->validated('first_name'),
+                'last_name' => $request->validated('last_name'),
+                'middle_initial' => $request->validated('middle_initial'),
+            ]);
+
+            // Address is optional for admins (internal staff, not a
+            // delivery destination) — only touch the record if the caller
+            // actually sent address fields, so an admin who never fills
+            // this in simply never gets an addresses row.
+            $addressPayload = array_filter([
+                'region_code' => $request->validated('region_code'),
+                'region_name' => $request->validated('region_name'),
+                'province_code' => $request->validated('province_code'),
+                'province_name' => $request->validated('province_name'),
+                'municipality_code' => $request->validated('municipality_code'),
+                'municipality_name' => $request->validated('municipality_name'),
+                'barangay' => $request->validated('barangay'),
+                'street' => $request->validated('street'),
+                'house_no' => $request->validated('house_no'),
+            ], fn ($value) => $value !== null && $value !== '');
+
+            if (!empty($addressPayload)) {
+                $address = Address::updateOrCreate(
+                    ['owner_kind' => 'profile', 'profile_id' => $profile->id],
+                    $addressPayload,
+                );
+            }
+        });
 
         return response()->json([
             'message' => 'Profile updated successfully.',
             'profile' => $this->profileData($profile->fresh()),
+            'address' => $this->addressData($address),
+        ]);
+    }
+
+    /**
+     * Upload/replace the admin's profile picture. Mirrors
+     * BuyerProfileController::uploadAvatar — same public `avatars` bucket,
+     * same fixed `{profile id}/avatar.{ext}` path so re-uploading
+     * overwrites in place.
+     */
+    public function uploadAvatar(Request $request): JsonResponse
+    {
+        $request->validate([
+            'avatar' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ]);
+
+        /** @var Profile $profile */
+        $profile = $request->user();
+        $file = $request->file('avatar');
+        $path = $profile->id.'/avatar.'.$file->getClientOriginalExtension();
+
+        $response = Http::withHeaders([
+            'apikey' => config('services.supabase.service_role_key'),
+            'Authorization' => 'Bearer '.config('services.supabase.service_role_key'),
+            'Content-Type' => $file->getClientMimeType(),
+            'x-upsert' => 'true',
+        ])->withBody(
+            file_get_contents($file->getRealPath()),
+            $file->getClientMimeType(),
+        )->post(config('services.supabase.url')."/storage/v1/object/avatars/{$path}");
+
+        if (!$response->successful()) {
+            Log::error('Avatar upload failed', ['body' => $response->body()]);
+
+            return response()->json(['message' => 'Failed to upload profile picture.'], 500);
+        }
+
+        $profile->update(['avatar_path' => $path]);
+
+        return response()->json([
+            'message' => 'Profile picture updated.',
+            'avatar_url' => $profile->avatar_url,
         ]);
     }
 
@@ -155,7 +229,31 @@ class AdminProfileController extends Controller
             'email' => $profile->email,
             'role' => $profile->role,
             'account_status' => $profile->account_status,
+            'avatar_url' => $profile->avatar_url,
             'created_at' => $profile->created_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function addressData(?Address $address): ?array
+    {
+        if (!$address) {
+            return null;
+        }
+
+        return [
+            'region_code' => $address->region_code,
+            'region_name' => $address->region_name,
+            'province_code' => $address->province_code,
+            'province_name' => $address->province_name,
+            'municipality_code' => $address->municipality_code,
+            'municipality_name' => $address->municipality_name,
+            'barangay' => $address->barangay,
+            'street' => $address->street,
+            'house_no' => $address->house_no,
+            'full_address' => $address->full_address,
         ];
     }
 }

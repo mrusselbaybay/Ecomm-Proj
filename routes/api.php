@@ -143,6 +143,7 @@ Route::middleware(['supabase.auth', 'admin'])
         // (email verification code flow) rather than a duplicate here.
         Route::get('/profile', [AdminProfileController::class, 'show'])->name('profile.show');
         Route::put('/profile', [AdminProfileController::class, 'update'])->name('profile.update');
+        Route::post('/profile/avatar', [AdminProfileController::class, 'uploadAvatar'])->name('profile.avatar');
         Route::delete('/account/deactivate', [AdminProfileController::class, 'deactivate'])
             ->middleware('throttle:5,1')
             ->name('account.deactivate');

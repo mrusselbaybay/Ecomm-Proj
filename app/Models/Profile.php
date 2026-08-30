@@ -29,7 +29,7 @@ class Profile extends Model
     protected $fillable = [
         'id', 'role', 'status', 'account_status',
         'last_name', 'first_name', 'middle_initial', 'sex',
-        'contact_no', 'birthday', 'email',
+        'contact_no', 'birthday', 'email', 'avatar_path',
     ];
 
     protected $casts = [
@@ -115,5 +115,20 @@ class Profile extends Model
         $mi = $this->middle_initial ? "{$this->middle_initial}. " : '';
 
         return trim("{$this->first_name} {$mi}{$this->last_name}");
+    }
+
+    /**
+     * Public URL for the avatar, if one has been uploaded. The `avatars`
+     * storage bucket is public, so this is a stable URL — no signed link
+     * to regenerate, unlike the private `documents` bucket.
+     */
+    public function getAvatarUrlAttribute(): ?string
+    {
+        if (!$this->avatar_path) {
+            return null;
+        }
+
+        return rtrim(config('services.supabase.url'), '/')
+            .'/storage/v1/object/public/avatars/'.$this->avatar_path;
     }
 }

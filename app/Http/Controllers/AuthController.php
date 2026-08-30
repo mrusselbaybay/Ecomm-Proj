@@ -5,11 +5,40 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 use App\Models\Profile;
 use Laravel\Socialite\Facades\Socialite;
 
 class AuthController extends Controller
 {
+    /**
+     * Accepted values for the "ID Type" dropdown next to every valid-ID
+     * upload in the signup wizard. Keep in sync with resources/js/app.js's
+     * ID_TYPES and the `documents.id_type` check constraint in Supabase.
+     */
+    private const ID_TYPES = [
+        'Passport',
+        "Driver's License",
+        'PRC ID',
+        'UMID',
+        'SSS ID',
+        'National ID',
+        'Student ID',
+        'Philippine Postal ID',
+    ];
+
+    /**
+     * Which uploaded doc_type (see fileMapForRole()) the "ID Type" dropdown
+     * describes, per role — the one document that's actually a piece of
+     * government/personal ID rather than a permit or vehicle document.
+     */
+    private const PRIMARY_ID_DOC_TYPE = [
+        'buyer'   => 'valid_id',
+        'seller'  => 'valid_id',
+        'courier' => 'drivers_license',
+        'driver'  => 'valid_id',
+    ];
+
     public function index()
     {
         return view('auth.app', [
@@ -169,6 +198,7 @@ class AuthController extends Controller
             'contact_no'     => 'nullable|string',
             'birthday'       => 'nullable|date',
 
+            'region'              => 'nullable|string|in:Luzon,Visayas,Mindanao',
             'province_code'      => 'nullable|string',
             'province_name'      => 'nullable|string',
             'municipality_code'  => 'nullable|string',
@@ -190,6 +220,7 @@ class AuthController extends Controller
             'business_permit' => 'nullable|file|max:10240',
             'orcr_file'       => 'nullable|file|max:10240',
             'license_file'    => 'nullable|file|max:10240',
+            'id_type'         => ['nullable', 'string', Rule::in(self::ID_TYPES)],
         ]);
 
         try {
@@ -234,6 +265,7 @@ class AuthController extends Controller
                 $this->supabaseInsert('addresses', [
                     'owner_kind'         => 'profile',
                     'profile_id'         => $userId,
+                    'region_name'        => $data['region'] ?? null,
                     'province_code'      => $data['province_code'],
                     'province_name'      => $data['province_name'] ?? '',
                     'municipality_code'  => $data['municipality_code'],
@@ -259,11 +291,13 @@ class AuthController extends Controller
             }
 
             $fileMap = $this->fileMapForRole($data['role'], $request);
+            $primaryIdDocType = self::PRIMARY_ID_DOC_TYPE[$data['role']] ?? null;
             foreach ($fileMap as $docType => $file) {
                 if (!$file) {
                     continue;
                 }
-                $this->uploadProfileDocument($userId, $docType, $file);
+                $idType = $docType === $primaryIdDocType ? ($data['id_type'] ?? null) : null;
+                $this->uploadProfileDocument($userId, $docType, $file, $idType);
             }
 
             return response()->json([
@@ -360,6 +394,7 @@ class AuthController extends Controller
             'contact_no'     => 'nullable|string',
             'birthday'       => 'nullable|date',
 
+            'region'              => 'nullable|string|in:Luzon,Visayas,Mindanao',
             'province_code'      => 'nullable|string',
             'province_name'      => 'nullable|string',
             'municipality_code'  => 'nullable|string',
@@ -386,6 +421,7 @@ class AuthController extends Controller
             'business_permit' => 'nullable|file|max:10240',
             'orcr_file'        => 'nullable|file|max:10240',
             'license_file'     => 'nullable|file|max:10240',
+            'id_type'          => ['nullable', 'string', Rule::in(self::ID_TYPES)],
         ]);
 
         $email = strtolower(trim($data['email']));
@@ -415,6 +451,7 @@ class AuthController extends Controller
                 $this->supabaseInsert('addresses', [
                     'owner_kind'         => 'profile',
                     'profile_id'         => $userId,
+                    'region_name'        => $data['region'] ?? null,
                     'province_code'      => $data['province_code'],
                     'province_name'      => $data['province_name'] ?? '',
                     'municipality_code'  => $data['municipality_code'],
@@ -450,11 +487,13 @@ class AuthController extends Controller
 
             // 4. Documents
             $fileMap = $this->fileMapForRole($data['role'], $request);
+            $primaryIdDocType = self::PRIMARY_ID_DOC_TYPE[$data['role']] ?? null;
             foreach ($fileMap as $docType => $file) {
                 if (!$file) {
                     continue;
                 }
-                $this->uploadProfileDocument($userId, $docType, $file);
+                $idType = $docType === $primaryIdDocType ? ($data['id_type'] ?? null) : null;
+                $this->uploadProfileDocument($userId, $docType, $file, $idType);
             }
 
             return response()->json([
@@ -510,6 +549,7 @@ class AuthController extends Controller
             'business_permit_file'  => 'nullable|file|max:10240',
             'mayor_permit_file'     => 'nullable|file|max:10240',
             'dti_reg_file'          => 'nullable|file|max:10240',
+            'owner_id_type'         => ['nullable', 'string', Rule::in(self::ID_TYPES)],
         ]);
 
         $email = strtolower(trim($data['company_email']));
@@ -571,7 +611,8 @@ class AuthController extends Controller
                 if (!$file) {
                     continue;
                 }
-                $this->uploadCompanyDocument($companyId, $docType, $file);
+                $idType = $docType === 'valid_id' ? ($data['owner_id_type'] ?? null) : null;
+                $this->uploadCompanyDocument($companyId, $docType, $file, $idType);
             }
 
             return response()->json([
@@ -749,7 +790,7 @@ class AuthController extends Controller
      * Upload a file to the Supabase "documents" storage bucket and record it
      * in the documents table, scoped to a profile.
      */
-    private function uploadProfileDocument(string $profileId, string $docType, $file): void
+    private function uploadProfileDocument(string $profileId, string $docType, $file, ?string $idType = null): void
     {
         $path = "profile/{$profileId}/{$docType}_" . now()->timestamp . '.' . $file->getClientOriginalExtension();
 
@@ -762,13 +803,14 @@ class AuthController extends Controller
             'storage_path'  => $path,
             'mime_type'     => $file->getClientMimeType(),
             'status'        => 'pending',
+            'id_type'       => $idType,
         ]);
     }
 
     /**
      * Same as uploadProfileDocument but scoped to a logistics company.
      */
-    private function uploadCompanyDocument(string $companyId, string $docType, $file): void
+    private function uploadCompanyDocument(string $companyId, string $docType, $file, ?string $idType = null): void
     {
         $path = "logistics_company/{$companyId}/{$docType}_" . now()->timestamp . '.' . $file->getClientOriginalExtension();
 
@@ -781,6 +823,7 @@ class AuthController extends Controller
             'storage_path'          => $path,
             'mime_type'             => $file->getClientMimeType(),
             'status'                => 'pending',
+            'id_type'               => $idType,
         ]);
     }
 

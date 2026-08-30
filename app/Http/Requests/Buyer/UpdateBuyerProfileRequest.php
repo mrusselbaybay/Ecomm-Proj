@@ -31,6 +31,8 @@ class UpdateBuyerProfileRequest extends FormRequest
             'birthday' => ['required', 'date', 'before:today'],
             'contact_no' => ['required', 'string', 'regex:/^09\d{9}$/'],
 
+            'region_code' => ['nullable', 'string', 'max:20'],
+            'region_name' => ['nullable', 'string', 'max:255'],
             'province_code' => ['required', 'string', 'max:20'],
             'province_name' => ['required', 'string', 'max:255'],
             'municipality_code' => ['required', 'string', 'max:20'],

@@ -181,7 +181,12 @@
                     </div>
 
                     <div class="seller-profile-mini">
-                        <div class="profile-avatar">{{ initials }}</div>
+                        <div
+                            class="profile-avatar"
+                            :style="avatarUrl ? { backgroundImage: `url(${avatarUrl})` } : {}"
+                        >
+                            <span v-if="!avatarUrl">{{ initials }}</span>
+                        </div>
                         <div class="profile-info">
                             <p class="profile-name">
                                 {{ sellerDetails?.business_name || fullName }}
@@ -258,8 +263,11 @@
                                             Seller Partner
                                         </p>
                                     </div>
-                                    <div class="header-profile-avatar">
-                                        {{ initials }}
+                                    <div
+                                        class="header-profile-avatar"
+                                        :style="avatarUrl ? { backgroundImage: `url(${avatarUrl})` } : {}"
+                                    >
+                                        <span v-if="!avatarUrl">{{ initials }}</span>
                                     </div>
                                 </div>
                             </div>
@@ -373,6 +381,7 @@ const {
     sellerDetails,
     fullName,
     initials,
+    avatarUrl,
     pendingDocsCount,
     checkAuth,
     refreshAll,

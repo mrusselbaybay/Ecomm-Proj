@@ -56,6 +56,8 @@ class BuyerProfileController extends Controller
             ]);
 
             $addressPayload = [
+                'region_code' => $request->validated('region_code'),
+                'region_name' => $request->validated('region_name'),
                 'province_code' => $request->validated('province_code'),
                 'province_name' => $request->validated('province_name'),
                 'municipality_code' => $request->validated('municipality_code'),
@@ -77,6 +79,48 @@ class BuyerProfileController extends Controller
             'message' => 'Profile updated successfully.',
             'profile' => $this->profileData($profile),
             'address' => $this->addressData($address),
+        ]);
+    }
+
+    /**
+     * Upload/replace the buyer's profile picture. Stored in the public
+     * `avatars` Supabase Storage bucket at `{profile id}/avatar.{ext}` —
+     * a fixed path per user (not a fresh filename each time) so
+     * re-uploading overwrites in place instead of accumulating orphaned
+     * files, and the public URL never changes once first set.
+     */
+    public function uploadAvatar(Request $request): JsonResponse
+    {
+        $request->validate([
+            'avatar' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ]);
+
+        /** @var Profile $profile */
+        $profile = $request->user();
+        $file = $request->file('avatar');
+        $path = $profile->id.'/avatar.'.$file->getClientOriginalExtension();
+
+        $response = Http::withHeaders([
+            'apikey' => config('services.supabase.service_role_key'),
+            'Authorization' => 'Bearer '.config('services.supabase.service_role_key'),
+            'Content-Type' => $file->getClientMimeType(),
+            'x-upsert' => 'true',
+        ])->withBody(
+            file_get_contents($file->getRealPath()),
+            $file->getClientMimeType(),
+        )->post(config('services.supabase.url')."/storage/v1/object/avatars/{$path}");
+
+        if (!$response->successful()) {
+            Log::error('Avatar upload failed', ['body' => $response->body()]);
+
+            return response()->json(['message' => 'Failed to upload profile picture.'], 500);
+        }
+
+        $profile->update(['avatar_path' => $path]);
+
+        return response()->json([
+            'message' => 'Profile picture updated.',
+            'avatar_url' => $profile->avatar_url,
         ]);
     }
 
@@ -188,6 +232,7 @@ class BuyerProfileController extends Controller
             'role' => $profile->role,
             'account_status' => $profile->account_status,
             'status' => $profile->status,
+            'avatar_url' => $profile->avatar_url,
             'created_at' => $profile->created_at?->toIso8601String(),
             'updated_at' => $profile->updated_at?->toIso8601String(),
         ];
@@ -203,6 +248,8 @@ class BuyerProfileController extends Controller
         }
 
         return [
+            'region_code' => $address->region_code,
+            'region_name' => $address->region_name,
             'province_code' => $address->province_code,
             'province_name' => $address->province_name,
             'municipality_code' => $address->municipality_code,

@@ -88,11 +88,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-if="loading">
-                        <td colspan="7" class="py-8 text-center text-slate-500">
-                            Loading commissions...
-                        </td>
-                    </tr>
+                    <SkeletonRows v-if="loading && !hasLoadedOnce" :columns="7" :rows="6" />
                     <tr v-else-if="orders.length === 0">
                         <td colspan="7" class="py-8 text-center text-slate-500">
                             No eligible delivered orders match these filters.
@@ -162,6 +158,7 @@
 <script setup>
 import { computed, onActivated, onBeforeUnmount, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
+import SkeletonRows from './SkeletonRows.vue';
 
 const { adminFetch } = useAdmin();
 const orders = ref([]);
@@ -169,6 +166,13 @@ const search = ref('');
 const fromDate = ref('');
 const toDate = ref('');
 const loading = ref(false);
+// This component stays kept-alive across tab switches, so onActivated below
+// reruns loadCommissions() on every revisit, not just the first. Without
+// this flag, the skeleton would wipe out rows that are already loaded and
+// on screen just because a background refresh set "loading" true again —
+// gating it on "loading && !hasLoadedOnce" instead lets that refresh
+// update the table in place once it resolves.
+const hasLoadedOnce = ref(false);
 const message = ref('');
 const summary = ref({
     eligible_orders: 0,
@@ -249,6 +253,7 @@ async function loadCommissions(page = 1) {
         message.value = error.message;
     } finally {
         loading.value = false;
+        hasLoadedOnce.value = true;
     }
 }
 

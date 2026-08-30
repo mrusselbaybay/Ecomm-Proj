@@ -46,7 +46,31 @@
                 <section id="section-profile" class="card acct-section">
                     <div class="acct-section-head">
                         <div class="flex items-center gap-4">
-                            <div class="acct-avatar">{{ initials }}</div>
+                            <div class="acct-avatar-wrap">
+                                <div
+                                    class="acct-avatar"
+                                    :style="avatarUrl ? { backgroundImage: `url(${avatarUrl})` } : {}"
+                                >
+                                    <span v-if="!avatarUrl">{{ initials }}</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    class="acct-avatar-edit"
+                                    :disabled="uploadingAvatar"
+                                    aria-label="Change profile picture"
+                                    @click="triggerAvatarUpload"
+                                >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg>
+                                </button>
+                                <input
+                                    ref="avatarInput"
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    class="acct-avatar-input"
+                                    tabindex="-1"
+                                    @change="onAvatarSelected"
+                                >
+                            </div>
                             <div>
                                 <h3>{{ fullName }}</h3>
                                 <p class="acct-section-sub">
@@ -264,6 +288,27 @@
                         <div class="form-grid">
                             <div>
                                 <label class="field-label"
+                                    >Region
+                                    <span style="color: var(--teal-500)">*</span></label
+                                >
+                                <select
+                                    v-model="formData.region_code"
+                                    @change="onRegionChange"
+                                    class="field-input"
+                                    :disabled="!isEditing"
+                                >
+                                    <option value="">Select region</option>
+                                    <option
+                                        v-for="r in REGION_OPTIONS"
+                                        :key="r"
+                                        :value="r"
+                                    >
+                                        {{ r }}
+                                    </option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="field-label"
                                     >Province
                                     <span style="color: var(--teal-500)">*</span></label
                                 >
@@ -271,17 +316,17 @@
                                     v-model="formData.province_code"
                                     @change="onProvinceChange"
                                     class="field-input"
-                                    :disabled="!isEditing || loadingProvinces"
+                                    :disabled="!isEditing || loadingProvinces || !formData.region_code"
                                 >
                                     <option value="">
                                         {{
                                             loadingProvinces
                                                 ? 'Loading provinces…'
-                                                : 'Select province'
+                                                : (formData.region_code ? 'Select province' : 'Select a region first')
                                         }}
                                     </option>
                                     <option
-                                        v-for="p in provinceOptions"
+                                        v-for="p in filteredProvinceOptions"
                                         :key="p.code"
                                         :value="p.code"
                                     >
@@ -593,6 +638,8 @@
                 </div>
             </div>
 
+        <AvatarCropper :file="cropFile" @cancel="cancelAvatarCrop" @crop="onAvatarCropped" />
+
         <!-- ============================================================
          DEACTIVATION MODAL — STEP 1 (reuses existing .modal-* classes)
          ============================================================ -->
@@ -694,6 +741,7 @@ import {
     onBeforeUnmount,
 } from 'vue';
 import { useSeller, getSupabase } from '../composables/useSeller';
+import AvatarCropper from './AvatarCropper.vue';
 
 const {
     profile,
@@ -707,7 +755,9 @@ const {
     fullName,
     initials,
     age,
+    avatarUrl,
     saveProfile,
+    uploadAvatar,
     formatDate,
     docTypeLabel,
     statusBadgeClass,
@@ -741,6 +791,8 @@ function emptyFormData() {
         sex: '',
         birthday: '',
         contact_no: '',
+        region_code: '',
+        region_name: '',
         province_code: '',
         province_name: '',
         municipality_code: '',
@@ -756,6 +808,12 @@ function emptyFormData() {
 const formData = reactive(emptyFormData());
 const savedFormData = reactive(emptyFormData());
 
+// Same three-way Luzon/Visayas/Mindanao split already used by the
+// logistics company signup form (resources/js/app.js) — not the PSGC
+// API's own 17-region breakdown (NCR, CAR, Region I-XIII, BARMM), which
+// would be a different, unrelated field.
+const REGION_OPTIONS = ['Luzon', 'Visayas', 'Mindanao'];
+
 const provinceOptions = ref([]);
 const municipalityOptions = ref([]);
 const barangayOptions = ref([]);
@@ -767,6 +825,20 @@ const provinceCache = { value: [] };
 const municipalityCache = new Map();
 const barangayCache = new Map();
 const ADDRESS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+// Every province the PSGC API returns already carries its own
+// `islandGroupCode` ('luzon' | 'visayas' | 'mindanao') — filtering the one
+// already-fetched full province list client-side avoids a second network
+// call per region change.
+const filteredProvinceOptions = computed(() => {
+    if (!formData.region_code) {
+        return provinceOptions.value;
+    }
+
+    return provinceOptions.value.filter(
+        (p) => p.islandGroupCode === formData.region_code.toLowerCase(),
+    );
+});
 
 function readAddressCache(key) {
     try {
@@ -806,6 +878,8 @@ const PROFILE_FIELDS = [
     'contact_no',
 ];
 const ADDRESS_FIELDS = [
+    'region_code',
+    'region_name',
     'province_code',
     'province_name',
     'municipality_code',
@@ -1233,6 +1307,23 @@ async function fetchBarangays(
     }
 }
 
+function onRegionChange() {
+    // Region and its "name" are the same static string here (Luzon/
+    // Visayas/Mindanao) — no separate code/name pair to look up, unlike
+    // province/municipality which come from the PSGC API.
+    formData.region_name = formData.region_code;
+
+    // Changing region invalidates whatever province/municipality/barangay
+    // was previously selected.
+    formData.province_code = '';
+    formData.province_name = '';
+    formData.municipality_code = '';
+    formData.municipality_name = '';
+    municipalityOptions.value = [];
+    barangayOptions.value = [];
+    formData.barangay = '';
+}
+
 function onProvinceChange() {
     const selected = provinceOptions.value.find(
         (p) => p.code === formData.province_code,
@@ -1327,6 +1418,40 @@ async function handleSave() {
     }
 
     showToast(saveSuccess.value || saveError.value, !saveSuccess.value);
+}
+
+// ---------- profile picture ----------
+const avatarInput = ref(null);
+const uploadingAvatar = ref(false);
+const cropFile = ref(null); // the just-picked File, shown in AvatarCropper until cropped or cancelled
+
+function triggerAvatarUpload() {
+    avatarInput.value?.click();
+}
+
+function onAvatarSelected(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (file) {
+        cropFile.value = file;
+    }
+}
+
+function cancelAvatarCrop() {
+    cropFile.value = null;
+}
+
+async function onAvatarCropped(blob) {
+    cropFile.value = null;
+    uploadingAvatar.value = true;
+    const ok = await uploadAvatar(blob);
+    uploadingAvatar.value = false;
+
+    showToast(
+        ok ? 'Profile picture updated.' : saveError.value || 'Failed to upload profile picture.',
+        !ok,
+    );
 }
 
 // ---------- floating save-feedback toast ----------

@@ -20,209 +20,242 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // (see App\Http\Controllers\Admin\AccountRegistrationController and
 // App\Http\Controllers\Admin\UserAccountController)
 
-export function useAdmin() {
-    const isLoading = ref(true);
-    const isAuthenticated = ref(false);
-    const isAdmin = ref(false);
-    const adminUser = ref(null);
-    const adminProfile = ref({
-        name: 'Admin User',
-        email: '',
-        role: 'Platform Administrator',
-    });
-    const pendingCount = ref(0);
-    const registrations = ref([]);
-    const accounts = ref([]);
-    const stats = ref([
-        { label: 'Total Users', value: '0', delta: 'Loading...' },
-        { label: 'Active Sellers', value: '0', delta: 'Loading...' },
-        {
-            label: 'Pending Registrations',
-            value: '0',
-            delta: 'Awaiting review',
-        },
-        { label: 'Open Complaints', value: '0', delta: 'No open complaints' },
-    ]);
-    const notifications = ref([]);
+// ------------------------------------------------------------
+// Module-scoped (singleton) state — every component that calls useAdmin()
+// below shares these same refs instead of getting its own private copy.
+// This matters because several of them are written from one component and
+// read from another: AdminLayout.vue renders the sidebar's "pending
+// registrations" badge from `pendingCount`, but it's Dashboard.vue and
+// Registrations.vue that actually refresh that number after a load,
+// approval, or rejection. If each component held its own copy (i.e. if
+// these refs were declared inside the useAdmin() function body instead of
+// here), the sidebar badge would only ever reflect whatever value existed
+// at the moment AdminLayout.vue itself last fetched it — never anyone
+// else's update.
+// ------------------------------------------------------------
+const isLoading = ref(true);
+const isAuthenticated = ref(false);
+const isAdmin = ref(false);
+const adminUser = ref(null);
+const adminProfile = ref({
+    name: 'Admin User',
+    email: '',
+    role: 'Platform Administrator',
+    avatar_url: null,
+});
+const pendingCount = ref(0);
+const registrations = ref([]);
+const accounts = ref([]);
+const stats = ref([
+    { label: 'Total Users', value: '0', delta: 'Loading...' },
+    { label: 'Active Sellers', value: '0', delta: 'Loading...' },
+    {
+        label: 'Pending Registrations',
+        value: '0',
+        delta: 'Awaiting review',
+    },
+    { label: 'Open Complaints', value: '0', delta: 'No open complaints' },
+]);
+const notifications = ref([]);
 
-    async function checkAuth() {
-        isLoading.value = true;
+async function checkAuth() {
+    isLoading.value = true;
 
-        try {
-            const {
-                data: { user },
-                error,
-            } = await supabase.auth.getUser();
-
-            if (error || !user) {
-                window.location.href = '/';
-
-                return;
-            }
-
-            const { data: profile, error: profileError } = await supabase
-                .from('profiles')
-                .select('role, first_name, last_name, email')
-                .eq('id', user.id)
-                .single();
-
-            if (profileError || !profile || profile.role !== 'admin') {
-                window.location.href = '/';
-
-                return;
-            }
-
-            isAuthenticated.value = true;
-            isAdmin.value = true;
-            adminUser.value = user;
-            adminProfile.value = {
-                name: `${profile.first_name || 'Admin'} ${profile.last_name || 'User'}`,
-                email: profile.email || user.email,
-                role: 'Platform Administrator',
-            };
-        } catch (error) {
-            console.error('Auth error:', error);
-            window.location.href = '/';
-        } finally {
-            isLoading.value = false;
-        }
-    }
-
-    async function adminFetch(url, options = {}) {
+    try {
         const {
-            data: { session },
-            error: sessionError,
-        } = await supabase.auth.getSession();
+            data: { user },
+            error,
+        } = await supabase.auth.getUser();
 
-        if (sessionError || !session?.access_token) {
-            throw new Error(
-                'Your admin session has expired. Please sign in again.',
-            );
-        }
-
-        const headers = new Headers(options.headers || {});
-        headers.set('Accept', 'application/json');
-        headers.set('Authorization', `Bearer ${session.access_token}`);
-
-        const response = await fetch(url, {
-            ...options,
-            headers,
-        });
-
-        if (response.status === 401) {
-            window.location.href = '/login';
-            throw new Error('Your admin session has expired.');
-        }
-
-        if (response.status === 403) {
-            throw new Error(
-                'You do not have permission to perform this action.',
-            );
-        }
-
-        if (!response.ok) {
-            const payload = await response.json().catch(() => ({}));
-            throw new Error(payload.message || 'The admin request failed.');
-        }
-
-        return response;
-    }
-
-    async function loadStats() {
-        try {
-            const response = await adminFetch('/api/admin/dashboard/stats');
-            const data = await response.json();
-
-            stats.value = [
-                {
-                    label: 'Total Users',
-                    value: data.total_users,
-                    delta: 'All registered accounts',
-                },
-                {
-                    label: 'Active Sellers',
-                    value: data.active_sellers,
-                    delta: 'Approved and active',
-                },
-                {
-                    label: 'Pending Registrations',
-                    value: data.pending_registrations,
-                    delta: 'Awaiting review',
-                },
-                {
-                    label: 'Open Complaints',
-                    value: data.open_complaints,
-                    delta: 'Awaiting resolution',
-                },
-            ];
-
-            pendingCount.value = data.pending_registrations;
-        } catch (error) {
-            console.error('Error loading admin dashboard stats:', error);
-        }
-    }
-
-    async function loadNotifications() {
-        try {
-            const response = await adminFetch(
-                '/api/admin/dashboard/notifications',
-            );
-            notifications.value = await response.json();
-        } catch (error) {
-            console.error('Error loading admin notifications:', error);
-            notifications.value = [];
-        }
-    }
-
-    async function confirmLogout() {
-        try {
-            await supabase.auth.signOut();
-        } catch (error) {
-            console.error('Logout error:', error);
-        } finally {
-            // The login page reads this cookie to auto-redirect signed-in
-            // visitors back to their dashboard. Leaving it behind after
-            // sign-out sent people straight back to /admin/dashboard with
-            // no real session, which showed "Access Denied" before they
-            // could reach the login form.
-            document.cookie =
-                'nexmart_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
+        if (error || !user) {
             window.location.href = '/';
+
+            return;
         }
+
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('role, first_name, last_name, email')
+            .eq('id', user.id)
+            .single();
+
+        if (profileError || !profile || profile.role !== 'admin') {
+            window.location.href = '/';
+
+            return;
+        }
+
+        isAuthenticated.value = true;
+        isAdmin.value = true;
+        adminUser.value = user;
+        adminProfile.value = {
+            name: `${profile.first_name || 'Admin'} ${profile.last_name || 'User'}`,
+            email: profile.email || user.email,
+            role: 'Platform Administrator',
+            avatar_url: adminProfile.value.avatar_url,
+        };
+
+        // Fire-and-forget: the sidebar's mini profile picture wants the same
+        // avatar shown on Account Management, but that lives on the Laravel
+        // side (Profile::avatar_url, built from the uploaded avatar_path) —
+        // the Supabase `profiles` select above doesn't have it. This isn't
+        // awaited so a slow/failed fetch never holds up isLoading — the
+        // sidebar just falls back to initials until it resolves.
+        loadAdminAvatar();
+    } catch (error) {
+        console.error('Auth error:', error);
+        window.location.href = '/';
+    } finally {
+        isLoading.value = false;
+    }
+}
+
+async function loadAdminAvatar() {
+    try {
+        const response = await adminFetch('/api/admin/profile');
+        const data = await response.json();
+        adminProfile.value = { ...adminProfile.value, avatar_url: data.profile.avatar_url };
+    } catch (error) {
+        console.error('Error loading admin avatar:', error);
+    }
+}
+
+async function adminFetch(url, options = {}) {
+    const {
+        data: { session },
+        error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.access_token) {
+        throw new Error(
+            'Your admin session has expired. Please sign in again.',
+        );
     }
 
-    function statusBadgeClass(status) {
-        const s = status?.toLowerCase() || '';
+    const headers = new Headers(options.headers || {});
+    headers.set('Accept', 'application/json');
+    headers.set('Authorization', `Bearer ${session.access_token}`);
 
-        if (['active', 'approved', 'resolved', 'clear'].includes(s)) {
-            return 'badge-green';
-        }
+    const response = await fetch(url, {
+        ...options,
+        headers,
+    });
 
-        if (['pending', 'in review', 'warning', 'suspended'].includes(s)) {
-            return 'badge-amber';
-        }
-
-        if (['deactivated', 'escalated', 'rejected'].includes(s)) {
-            return 'badge-red';
-        }
-
-        return 'badge-slate';
+    if (response.status === 401) {
+        window.location.href = '/login';
+        throw new Error('Your admin session has expired.');
     }
 
-    function formatDate(date) {
-        if (!date) {
-            return 'N/A';
-        }
-
-        const d = new Date(date);
-
-        return d.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-        });
+    if (response.status === 403) {
+        throw new Error(
+            'You do not have permission to perform this action.',
+        );
     }
 
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.message || 'The admin request failed.');
+    }
+
+    return response;
+}
+
+async function loadStats() {
+    try {
+        const response = await adminFetch('/api/admin/dashboard/stats');
+        const data = await response.json();
+
+        stats.value = [
+            {
+                label: 'Total Users',
+                value: data.total_users,
+                delta: 'All registered accounts',
+            },
+            {
+                label: 'Active Sellers',
+                value: data.active_sellers,
+                delta: 'Approved and active',
+            },
+            {
+                label: 'Pending Registrations',
+                value: data.pending_registrations,
+                delta: 'Awaiting review',
+            },
+            {
+                label: 'Open Complaints',
+                value: data.open_complaints,
+                delta: 'Awaiting resolution',
+            },
+        ];
+
+        pendingCount.value = data.pending_registrations;
+    } catch (error) {
+        console.error('Error loading admin dashboard stats:', error);
+    }
+}
+
+async function loadNotifications() {
+    try {
+        const response = await adminFetch(
+            '/api/admin/dashboard/notifications',
+        );
+        notifications.value = await response.json();
+    } catch (error) {
+        console.error('Error loading admin notifications:', error);
+        notifications.value = [];
+    }
+}
+
+async function confirmLogout() {
+    try {
+        await supabase.auth.signOut();
+    } catch (error) {
+        console.error('Logout error:', error);
+    } finally {
+        // The login page reads this cookie to auto-redirect signed-in
+        // visitors back to their dashboard. Leaving it behind after
+        // sign-out sent people straight back to /admin/dashboard with
+        // no real session, which showed "Access Denied" before they
+        // could reach the login form.
+        document.cookie =
+            'nexmart_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
+        window.location.href = '/';
+    }
+}
+
+function statusBadgeClass(status) {
+    const s = status?.toLowerCase() || '';
+
+    if (['active', 'approved', 'resolved', 'clear'].includes(s)) {
+        return 'badge-green';
+    }
+
+    if (['pending', 'in review', 'warning', 'suspended'].includes(s)) {
+        return 'badge-amber';
+    }
+
+    if (['deactivated', 'escalated', 'rejected'].includes(s)) {
+        return 'badge-red';
+    }
+
+    return 'badge-slate';
+}
+
+function formatDate(date) {
+    if (!date) {
+        return 'N/A';
+    }
+
+    const d = new Date(date);
+
+    return d.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    });
+}
+
+export function useAdmin() {
     return {
         isLoading,
         isAuthenticated,

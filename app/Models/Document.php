@@ -14,6 +14,7 @@ class Document extends Model
     protected $fillable = [
         'owner_kind', 'profile_id', 'logistics_company_id',
         'doc_type', 'storage_path', 'status', 'reviewed_by', 'reviewed_at',
+        'id_type',
     ];
 
     protected $casts = [

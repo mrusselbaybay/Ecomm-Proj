@@ -80,6 +80,19 @@ const initials = computed(() => {
     return (f + l).toUpperCase() || 'SE';
 });
 
+// The `avatars` storage bucket is public, so this is a stable URL — no
+// signed link to regenerate, unlike private buckets. Mirrors
+// Profile::getAvatarUrlAttribute() on the Laravel side (used by the
+// buyer/admin pages, which go through the Laravel API instead of
+// talking to Supabase directly the way this composable does).
+const avatarUrl = computed(() => {
+    if (!profile.value?.avatar_path) {
+        return null;
+    }
+
+    return `${SUPABASE_URL}/storage/v1/object/public/avatars/${profile.value.avatar_path}`;
+});
+
 const age = computed(() => {
     const bday = profile.value?.birthday;
 
@@ -238,6 +251,8 @@ async function saveProfile(payload) {
             const { error: addrErr } = await supabase
                 .from('addresses')
                 .update({
+                    region_code: payload.region_code,
+                    region_name: payload.region_name,
                     province_code: payload.province_code,
                     province_name: payload.province_name,
                     municipality_code: payload.municipality_code,
@@ -258,6 +273,8 @@ async function saveProfile(payload) {
                 .insert({
                     owner_kind: 'profile',
                     profile_id: uid,
+                    region_code: payload.region_code,
+                    region_name: payload.region_name,
                     province_code: payload.province_code,
                     province_name: payload.province_name,
                     municipality_code: payload.municipality_code,
@@ -301,6 +318,68 @@ async function saveProfile(payload) {
         console.error('Error saving seller profile:', err);
         saveError.value =
             err?.message || 'Something went wrong while saving your profile.';
+    } finally {
+        savingProfile.value = false;
+    }
+}
+
+/**
+ * Uploads/replaces the seller's profile picture directly via the
+ * Supabase client (this composable talks to Supabase straight from the
+ * browser rather than through a Laravel endpoint, unlike the buyer/admin
+ * equivalents). Fixed `{uid}/avatar.{ext}` path with upsert so re-
+ * uploading overwrites in place; RLS policies on storage.objects restrict
+ * writes to a seller's own folder (see avatars_bucket_insert_own /
+ * avatars_bucket_update_own).
+ */
+async function uploadAvatar(file) {
+    if (!sellerUser.value || !file) {
+        return false;
+    }
+
+    savingProfile.value = true;
+    saveError.value = '';
+
+    try {
+        const supabase = getSupabase();
+        const uid = sellerUser.value.id;
+        // A fresh, uniquely-timestamped path per upload — not a fixed
+        // `{uid}/avatar.jpg` overwritten via upsert:true. Postgres RLS has
+        // a known rough edge with INSERT ... ON CONFLICT DO UPDATE (what
+        // upsert compiles down to): it can fail with "new row violates
+        // row-level security policy" even when both the INSERT and UPDATE
+        // policies individually allow the operation on their own. A plain
+        // INSERT under a new filename sidesteps that entirely — the same
+        // pattern the `documents` bucket already uses for verification
+        // uploads (see AuthController::uploadToSupabaseStorage), which
+        // never hits a conflict for the same reason.
+        const path = `${uid}/avatar_${Date.now()}.jpg`;
+
+        const { error: uploadErr } = await supabase.storage
+            .from('avatars')
+            .upload(path, file, { contentType: 'image/jpeg' });
+
+        if (uploadErr) {
+            throw uploadErr;
+        }
+
+        const { error: updateErr } = await supabase
+            .from('profiles')
+            .update({ avatar_path: path, updated_at: new Date().toISOString() })
+            .eq('id', uid);
+
+        if (updateErr) {
+            throw updateErr;
+        }
+
+        profile.value = { ...profile.value, avatar_path: path };
+
+        return true;
+    } catch (err) {
+        console.error('Error uploading seller avatar:', err);
+        saveError.value = err?.message || 'Failed to upload profile picture.';
+
+        return false;
     } finally {
         savingProfile.value = false;
     }
@@ -409,6 +488,7 @@ export function useSeller() {
         fullName,
         initials,
         age,
+        avatarUrl,
         verifiedDocsCount,
         pendingDocsCount,
         totalDocsCount,
@@ -417,6 +497,7 @@ export function useSeller() {
         loadActivityLog,
         refreshAll,
         saveProfile,
+        uploadAvatar,
         confirmLogout,
         formatDate,
         formatDateTime,

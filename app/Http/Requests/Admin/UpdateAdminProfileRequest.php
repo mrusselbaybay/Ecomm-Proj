@@ -23,6 +23,16 @@ class UpdateAdminProfileRequest extends FormRequest
             'first_name' => ['required', 'string', 'alpha', 'min:2', 'max:50'],
             'last_name' => ['required', 'string', 'alpha', 'min:2', 'max:50'],
             'middle_initial' => ['nullable', 'string', 'alpha', 'size:1'],
+
+            'region_code' => ['nullable', 'string', 'max:20'],
+            'region_name' => ['nullable', 'string', 'max:255'],
+            'province_code' => ['nullable', 'string', 'max:20'],
+            'province_name' => ['nullable', 'string', 'max:255'],
+            'municipality_code' => ['nullable', 'string', 'max:20'],
+            'municipality_name' => ['nullable', 'string', 'max:255'],
+            'barangay' => ['nullable', 'string', 'max:255'],
+            'street' => ['nullable', 'string', 'max:255'],
+            'house_no' => ['nullable', 'string', 'max:50'],
         ];
     }
 

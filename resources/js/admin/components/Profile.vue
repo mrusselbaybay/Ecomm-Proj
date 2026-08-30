@@ -16,11 +16,84 @@
             </div>
         </transition>
 
-        <div v-if="loading" class="flex justify-center py-16">
-            <div class="loading-spinner"></div>
+        <div v-if="loading && !hasLoadedOnce" class="profile-grid" aria-hidden="true">
+            <section class="card section-card profile-summary-card">
+                <div class="skeleton skeleton-circle" style="width: 4rem; height: 4rem; flex-shrink: 0"></div>
+                <div style="flex: 1">
+                    <div class="skeleton skeleton-text" style="width: 40%; height: 1.1rem"></div>
+                    <div class="skeleton skeleton-text" style="width: 55%; margin-top: 0.5rem"></div>
+                </div>
+            </section>
+
+            <section class="card section-card">
+                <div class="skeleton skeleton-text" style="width: 35%; height: 0.9rem"></div>
+                <div class="field-grid" style="margin-top: 1.1rem">
+                    <div v-for="n in 4" :key="n" :class="n === 4 ? 'field-email' : ''">
+                        <div class="skeleton skeleton-text" style="width: 40%; height: 0.6rem"></div>
+                        <div class="skeleton" style="width: 100%; height: 2.3rem; margin-top: 0.4rem"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card section-card">
+                <div class="skeleton skeleton-text" style="width: 30%; height: 0.9rem"></div>
+                <div class="field-grid" style="margin-top: 1.1rem">
+                    <div v-for="n in 6" :key="n">
+                        <div class="skeleton skeleton-text" style="width: 45%; height: 0.6rem"></div>
+                        <div class="skeleton" style="width: 100%; height: 2.3rem; margin-top: 0.4rem"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card section-card">
+                <div class="skeleton skeleton-text" style="width: 45%; height: 0.9rem"></div>
+                <div class="skeleton" style="width: 100%; height: 2.6rem; margin-top: 1rem"></div>
+                <div class="skeleton" style="width: 10rem; height: 2.3rem; margin-top: 0.9rem"></div>
+            </section>
         </div>
 
         <div v-else class="profile-grid">
+            <!-- ============================================================ -->
+            <!-- PROFILE SUMMARY -->
+            <!-- ============================================================ -->
+            <section class="card section-card profile-summary-card">
+                <div class="profile-avatar-wrap">
+                    <div
+                        class="profile-avatar"
+                        :style="profile.avatar_url ? { backgroundImage: `url(${profile.avatar_url})` } : {}"
+                    >
+                        <span v-if="!profile.avatar_url">{{ initials }}</span>
+                    </div>
+                    <button
+                        type="button"
+                        class="profile-avatar-edit"
+                        :disabled="uploadingAvatar"
+                        aria-label="Change profile picture"
+                        @click="triggerAvatarUpload"
+                    >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg>
+                    </button>
+                    <input
+                        ref="avatarInput"
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        class="profile-avatar-input"
+                        tabindex="-1"
+                        @change="onAvatarSelected"
+                    >
+                </div>
+
+                <div class="profile-summary-info">
+                    <div class="profile-summary-name-row">
+                        <h2>{{ fullName }}</h2>
+                        <span class="badge" :class="statusBadgeClass(profile.account_status)">
+                            {{ profile.account_status || 'active' }}
+                        </span>
+                    </div>
+                    <p>{{ profile.email }}</p>
+                </div>
+            </section>
+
             <!-- ============================================================ -->
             <!-- PERSONAL INFORMATION -->
             <!-- ============================================================ -->
@@ -98,6 +171,102 @@
                         {{ saving ? 'Saving...' : 'Save Changes' }}
                     </button>
                     <button class="btn-cancel px-4 py-2" :disabled="saving" @click="cancelEditingPersonal">
+                        Cancel
+                    </button>
+                </div>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- HOME ADDRESS -->
+            <!-- ============================================================ -->
+            <section class="card section-card">
+                <div class="section-title section-title-with-action">
+                    <div>
+                        <h3>Home Address</h3>
+                        <p class="section-subtitle">Optional — not used for anything customer-facing.</p>
+                    </div>
+                    <button v-if="!isEditingAddress" type="button" class="btn-edit" @click="startEditingAddress">
+                        <span v-html="icons.edit"></span> Edit
+                    </button>
+                </div>
+
+                <div class="field-grid">
+                    <div class="field">
+                        <label class="field-label" for="region_code">Region</label>
+                        <select
+                            id="region_code"
+                            v-model="addressForm.region_code"
+                            class="field-input"
+                            :disabled="!isEditingAddress"
+                            @change="onRegionChange"
+                        >
+                            <option value="">Select region</option>
+                            <option v-for="r in REGION_OPTIONS" :key="r" :value="r">{{ r }}</option>
+                        </select>
+                    </div>
+
+                    <div class="field">
+                        <label class="field-label" for="province_code">Province</label>
+                        <select
+                            id="province_code"
+                            v-model="addressForm.province_code"
+                            class="field-input"
+                            :disabled="!isEditingAddress || loadingProvinces || !addressForm.region_code"
+                            @change="onProvinceChange"
+                        >
+                            <option value="">
+                                {{ loadingProvinces ? 'Loading provinces…' : (addressForm.region_code ? 'Select province' : 'Select a region first') }}
+                            </option>
+                            <option v-for="p in filteredProvinceOptions" :key="p.code" :value="p.code">{{ p.name }}</option>
+                        </select>
+                    </div>
+
+                    <div class="field">
+                        <label class="field-label" for="municipality_code">Municipality / City</label>
+                        <select
+                            id="municipality_code"
+                            v-model="addressForm.municipality_code"
+                            class="field-input"
+                            :disabled="!isEditingAddress || loadingMunicipalities || !addressForm.province_code"
+                            @change="onMunicipalityChange"
+                        >
+                            <option value="">{{ loadingMunicipalities ? 'Loading…' : 'Select municipality/city' }}</option>
+                            <option v-for="m in municipalityOptions" :key="m.code" :value="m.code">{{ m.name }}</option>
+                        </select>
+                    </div>
+
+                    <div class="field">
+                        <label class="field-label" for="barangay">Barangay</label>
+                        <select
+                            id="barangay"
+                            v-model="addressForm.barangay"
+                            class="field-input"
+                            :disabled="!isEditingAddress || loadingBarangays || !addressForm.municipality_code"
+                        >
+                            <option value="">{{ loadingBarangays ? 'Loading…' : 'Select barangay' }}</option>
+                            <option v-for="b in barangayOptions" :key="b.code" :value="b.name">{{ b.name }}</option>
+                        </select>
+                    </div>
+
+                    <div class="field">
+                        <label class="field-label" for="street">Street</label>
+                        <input id="street" v-model="addressForm.street" class="field-input" :disabled="!isEditingAddress" placeholder="Rizal St." />
+                    </div>
+
+                    <div class="field">
+                        <label class="field-label" for="house_no">House / Unit No.</label>
+                        <input id="house_no" v-model="addressForm.house_no" class="field-input" :disabled="!isEditingAddress" placeholder="123" />
+                    </div>
+                </div>
+
+                <p v-if="addressApiError" class="field-error">{{ addressApiError }}</p>
+
+                <div v-if="isEditingAddress" class="section-actions">
+                    <button class="btn-sm-gradient px-4 py-2" :disabled="savingAddress" @click="saveAddressSection">
+                        <span v-if="savingAddress" class="btn-spinner"></span>
+                        {{ savingAddress ? 'Saving...' : 'Save Changes' }}
+                    </button>
+                    <button class="btn-cancel px-4 py-2" :disabled="savingAddress" @click="cancelEditingAddress">
                         Cancel
                     </button>
                 </div>
@@ -273,6 +442,8 @@
             </div>
         </div>
 
+        <AvatarCropper :file="cropFile" @cancel="cancelAvatarCrop" @crop="onAvatarCropped" />
+
         <!-- ============================================================ -->
         <!-- DEACTIVATION MODAL — STEP 1 -->
         <!-- ============================================================ -->
@@ -369,8 +540,10 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onActivated, onBeforeUnmount, nextTick } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
+import AvatarCropper from './AvatarCropper.vue';
 
-const { adminFetch, confirmLogout } = useAdmin();
+const { adminFetch, adminProfile, confirmLogout, statusBadgeClass } = useAdmin();
+const PSGC_BASE = '/api/psgc';
 
 // ------------------------------------------------------------
 // Icons (inline SVG, matching AdminLayout.vue's convention)
@@ -389,6 +562,13 @@ const icons = {
 // Profile load + edit
 // ------------------------------------------------------------
 const loading = ref(true);
+// This component stays kept-alive across tab switches, so onActivated below
+// reruns loadProfile() on every revisit, not just the first. Without this
+// flag, the full-page skeleton would wipe out a profile that's already
+// loaded and on screen just because a background refresh set "loading"
+// true again — gating it on "loading && !hasLoadedOnce" instead lets that
+// refresh update the page in place once it resolves.
+const hasLoadedOnce = ref(false);
 const saving = ref(false);
 const message = ref('');
 const messageType = ref('success');
@@ -400,6 +580,20 @@ const profile = reactive({
     email: '',
     role: '',
     account_status: '',
+    avatar_url: null,
+});
+
+const fullName = computed(() => {
+    const mi = profile.middle_initial ? `${profile.middle_initial}. ` : '';
+
+    return `${profile.first_name || ''} ${mi}${profile.last_name || ''}`.trim() || 'Admin';
+});
+
+const initials = computed(() => {
+    const f = profile.first_name?.[0] || '';
+    const l = profile.last_name?.[0] || '';
+
+    return (f + l).toUpperCase() || 'AD';
 });
 
 const form = reactive({ first_name: '', middle_initial: '', last_name: '' });
@@ -442,10 +636,66 @@ async function loadProfile() {
         const data = await response.json();
         Object.assign(profile, data.profile);
         syncFormFromProfile();
+        hydrateAddressFromServer(data.address);
     } catch (error) {
         showMessage(error.message, 'error');
     } finally {
         loading.value = false;
+        hasLoadedOnce.value = true;
+    }
+}
+
+// ------------------------------------------------------------
+// Profile picture
+// ------------------------------------------------------------
+const avatarInput = ref(null);
+const uploadingAvatar = ref(false);
+const cropFile = ref(null); // the just-picked File, shown in AvatarCropper until cropped or cancelled
+
+function triggerAvatarUpload() {
+    avatarInput.value?.click();
+}
+
+function onAvatarSelected(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (file) {
+        cropFile.value = file;
+    }
+}
+
+function cancelAvatarCrop() {
+    cropFile.value = null;
+}
+
+async function onAvatarCropped(blob) {
+    cropFile.value = null;
+    uploadingAvatar.value = true;
+
+    try {
+        const formData = new FormData();
+        // `blob` is always the cropped JPEG AvatarCropper.vue exports —
+        // it has no filename of its own (unlike a real File), so one is
+        // supplied explicitly here.
+        formData.append('avatar', blob, 'avatar.jpg');
+
+        const response = await adminFetch('/api/admin/profile/avatar', {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+        profile.avatar_url = data.avatar_url;
+        // Keep the sidebar's mini profile picture (AdminLayout.vue, driven
+        // by useAdmin's shared adminProfile) in sync immediately — otherwise
+        // it would keep showing the old avatar/initials until the next full
+        // page load re-runs checkAuth().
+        adminProfile.value = { ...adminProfile.value, avatar_url: data.avatar_url };
+        showMessage('Profile picture updated.');
+    } catch (error) {
+        showMessage(error.message, 'error');
+    } finally {
+        uploadingAvatar.value = false;
     }
 }
 
@@ -528,6 +778,317 @@ function handleBeforeUnload(event) {
         event.preventDefault();
         event.returnValue = '';
     }
+}
+
+// ------------------------------------------------------------
+// Home Address — optional for admins (internal staff, not a delivery
+// destination), edited independently of Personal Information above but
+// saved through the same PUT /api/admin/profile endpoint (the backend
+// only touches the addresses row when address fields are actually sent).
+// Region/province/municipality/barangay cascade mirrors the buyer/seller
+// account pages' PSGC lookups.
+// ------------------------------------------------------------
+const isEditingAddress = ref(false);
+const savingAddress = ref(false);
+
+function emptyAddressForm() {
+    return {
+        region_code: '',
+        region_name: '',
+        province_code: '',
+        province_name: '',
+        municipality_code: '',
+        municipality_name: '',
+        barangay: '',
+        street: '',
+        house_no: '',
+    };
+}
+
+const addressForm = reactive(emptyAddressForm());
+const savedAddressForm = reactive(emptyAddressForm());
+
+function hydrateAddressFromServer(address) {
+    const source = address || {};
+
+    for (const key of Object.keys(addressForm)) {
+        addressForm[key] = source[key] || '';
+        savedAddressForm[key] = source[key] || '';
+    }
+
+    seedAddressOptionsFromForm();
+}
+
+async function startEditingAddress() {
+    isEditingAddress.value = true;
+
+    await fetchProvinces();
+
+    if (addressForm.province_code) {
+        await fetchMunicipalities(addressForm.province_code, { preserveSelection: true });
+    }
+
+    if (addressForm.municipality_code) {
+        await fetchBarangays(addressForm.municipality_code, { preserveSelection: true });
+    }
+}
+
+function cancelEditingAddress() {
+    Object.assign(addressForm, savedAddressForm);
+    isEditingAddress.value = false;
+}
+
+async function saveAddressSection() {
+    savingAddress.value = true;
+
+    try {
+        const response = await adminFetch('/api/admin/profile', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                first_name: profile.first_name,
+                middle_initial: profile.middle_initial,
+                last_name: profile.last_name,
+                ...addressForm,
+            }),
+        });
+        const data = await response.json();
+
+        hydrateAddressFromServer(data.address);
+        isEditingAddress.value = false;
+        showMessage('Address updated successfully.');
+    } catch (error) {
+        showMessage(error.message, 'error');
+    } finally {
+        savingAddress.value = false;
+    }
+}
+
+// Same three-way Luzon/Visayas/Mindanao split already used by the
+// logistics company signup form (resources/js/app.js) — not the PSGC
+// API's own 17-region breakdown (NCR, CAR, Region I-XIII, BARMM), which
+// would be a different, unrelated field.
+const REGION_OPTIONS = ['Luzon', 'Visayas', 'Mindanao'];
+
+const provinceOptions = ref([]);
+const municipalityOptions = ref([]);
+const barangayOptions = ref([]);
+const loadingProvinces = ref(false);
+const loadingMunicipalities = ref(false);
+const loadingBarangays = ref(false);
+const addressApiError = ref('');
+const provinceCache = { value: [] };
+const municipalityCache = new Map();
+const barangayCache = new Map();
+
+// Every province the PSGC API returns already carries its own
+// `islandGroupCode` ('luzon' | 'visayas' | 'mindanao') — filtering the one
+// already-fetched full province list client-side avoids a second network
+// call per region change.
+const filteredProvinceOptions = computed(() => {
+    if (!addressForm.region_code) {
+        return provinceOptions.value;
+    }
+
+    return provinceOptions.value.filter(
+        (p) => p.islandGroupCode === addressForm.region_code.toLowerCase(),
+    );
+});
+
+function dedupeByCodeOrName(items = []) {
+    const seen = new Map();
+
+    for (const item of items) {
+        if (!item || typeof item !== 'object') {
+            continue;
+        }
+
+        const code = String(item.code ?? '').trim();
+        const name = String(item.name ?? '').trim();
+
+        if (!code && !name) {
+            continue;
+        }
+
+        const key = code || name.toLowerCase().replace(/\s+/g, ' ');
+
+        if (!seen.has(key)) {
+            seen.set(key, item);
+        }
+    }
+
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function seedAddressOptionsFromForm() {
+    if (addressForm.province_code && !provinceOptions.value.some((p) => p.code === addressForm.province_code)) {
+        provinceOptions.value = [
+            { code: addressForm.province_code, name: addressForm.province_name || addressForm.province_code },
+            ...provinceOptions.value,
+        ];
+    }
+
+    if (
+        addressForm.municipality_code &&
+        !municipalityOptions.value.some((m) => m.code === addressForm.municipality_code)
+    ) {
+        municipalityOptions.value = [
+            {
+                code: addressForm.municipality_code,
+                name: addressForm.municipality_name || addressForm.municipality_code,
+            },
+            ...municipalityOptions.value,
+        ];
+    }
+
+    if (addressForm.barangay && !barangayOptions.value.some((b) => b.name === addressForm.barangay)) {
+        barangayOptions.value = [{ code: 'current', name: addressForm.barangay }, ...barangayOptions.value];
+    }
+}
+
+
+async function fetchProvinces() {
+    if (provinceCache.value.length > 0) {
+        provinceOptions.value = provinceCache.value;
+
+        return;
+    }
+
+    loadingProvinces.value = true;
+    addressApiError.value = '';
+
+    try {
+        const res = await fetch(`${PSGC_BASE}/provinces/all`);
+
+        if (!res.ok) {
+            throw new Error('Request failed: ' + res.status);
+        }
+
+        const json = await res.json();
+        const allProvinces = dedupeByCodeOrName(json.data || []);
+
+        provinceCache.value = allProvinces;
+        provinceOptions.value = allProvinces;
+        seedAddressOptionsFromForm();
+    } catch {
+        addressApiError.value = 'Could not load provinces. Please try again.';
+    } finally {
+        loadingProvinces.value = false;
+    }
+}
+
+async function fetchMunicipalities(provinceCode, { preserveSelection = false } = {}) {
+    if (!preserveSelection) {
+        municipalityOptions.value = [];
+        barangayOptions.value = [];
+        addressForm.municipality_code = '';
+        addressForm.municipality_name = '';
+        addressForm.barangay = '';
+    }
+
+    if (!provinceCode) {
+        return;
+    }
+
+    const cached = municipalityCache.get(provinceCode);
+
+    if (cached) {
+        municipalityOptions.value = cached;
+        seedAddressOptionsFromForm();
+
+        return;
+    }
+
+    loadingMunicipalities.value = true;
+    addressApiError.value = '';
+
+    try {
+        const res = await fetch(`${PSGC_BASE}/cities-municipalities?province_code=${provinceCode}`);
+
+        if (!res.ok) {
+            throw new Error('Request failed: ' + res.status);
+        }
+
+        const json = await res.json();
+        const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+
+        municipalityCache.set(provinceCode, data);
+        municipalityOptions.value = data;
+        seedAddressOptionsFromForm();
+    } catch {
+        addressApiError.value = 'Could not load cities/municipalities. Please try again.';
+    } finally {
+        loadingMunicipalities.value = false;
+    }
+}
+
+async function fetchBarangays(municipalityCode, { preserveSelection = false } = {}) {
+    if (!preserveSelection) {
+        barangayOptions.value = [];
+        addressForm.barangay = '';
+    }
+
+    if (!municipalityCode) {
+        return;
+    }
+
+    const cached = barangayCache.get(municipalityCode);
+
+    if (cached) {
+        barangayOptions.value = cached;
+        seedAddressOptionsFromForm();
+
+        return;
+    }
+
+    loadingBarangays.value = true;
+    addressApiError.value = '';
+
+    try {
+        const res = await fetch(`${PSGC_BASE}/barangays?city_municipality_code=${municipalityCode}&limit=500`);
+
+        if (!res.ok) {
+            throw new Error('Request failed: ' + res.status);
+        }
+
+        const json = await res.json();
+        const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+
+        barangayCache.set(municipalityCode, data);
+        barangayOptions.value = data;
+        seedAddressOptionsFromForm();
+    } catch {
+        addressApiError.value = 'Could not load barangays. Please try again.';
+    } finally {
+        loadingBarangays.value = false;
+    }
+}
+
+function onRegionChange() {
+    // Region and its "name" are the same static string here (Luzon/
+    // Visayas/Mindanao) — no separate code/name pair to look up, unlike
+    // province/municipality which come from the PSGC API.
+    addressForm.region_name = addressForm.region_code;
+
+    addressForm.province_code = '';
+    addressForm.province_name = '';
+    addressForm.municipality_code = '';
+    addressForm.municipality_name = '';
+    municipalityOptions.value = [];
+    barangayOptions.value = [];
+    addressForm.barangay = '';
+}
+
+function onProvinceChange() {
+    const selected = provinceOptions.value.find((p) => p.code === addressForm.province_code);
+    addressForm.province_name = selected?.name || '';
+    fetchMunicipalities(addressForm.province_code);
+}
+
+function onMunicipalityChange() {
+    const selected = municipalityOptions.value.find((m) => m.code === addressForm.municipality_code);
+    addressForm.municipality_name = selected?.name || '';
+    fetchBarangays(addressForm.municipality_code);
 }
 
 // ------------------------------------------------------------
@@ -930,6 +1491,122 @@ onBeforeUnmount(() => {
     background: white;
     border: 1px solid #e5e7eb;
     border-radius: 0.75rem;
+}
+
+.profile-summary-card {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+}
+
+.profile-avatar-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.profile-avatar {
+    width: 4rem;
+    height: 4rem;
+    border-radius: 50%;
+    background: #f0fdfa;
+    background-size: cover;
+    background-position: center;
+    color: #0f766e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.15rem;
+    font-weight: 800;
+    overflow: hidden;
+}
+
+.profile-avatar-edit {
+    position: absolute;
+    right: -4px;
+    bottom: -4px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid white;
+    border-radius: 50%;
+    background: #0d9488;
+    color: white;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.profile-avatar-edit:hover {
+    background: #0f766e;
+}
+
+.profile-avatar-edit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.profile-avatar-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.profile-summary-info {
+    min-width: 0;
+}
+
+.profile-summary-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.profile-summary-name-row h2 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.profile-summary-info p {
+    margin: 0.2rem 0 0;
+    color: #64748b;
+    font-size: 0.82rem;
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.55rem;
+    border-radius: 9999px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: capitalize;
+}
+
+.badge-green {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.badge-amber {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.badge-red {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.badge-slate {
+    background: #f1f5f9;
+    color: #475569;
 }
 
 .section-card {
@@ -1400,14 +2077,5 @@ onBeforeUnmount(() => {
 .fade-enter-from,
 .fade-leave-to {
     opacity: 0;
-}
-
-.loading-spinner {
-    border: 3px solid #f3f3f3;
-    border-top: 3px solid #ea580c;
-    border-radius: 50%;
-    width: 40px;
-    height: 40px;
-    animation: spin 1s linear infinite;
 }
 </style>
