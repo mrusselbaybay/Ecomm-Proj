@@ -8,6 +8,7 @@ use App\Models\CourierApplication;
 use App\Models\LogisticsCompany;
 use App\Services\SupabaseStorageService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -16,9 +17,7 @@ use Illuminate\Support\Facades\Http;
 
 class LogisticsApplicationController extends Controller
 {
-    public function __construct(private readonly SupabaseStorageService $supabaseStorage)
-    {
-    }
+    public function __construct(private readonly SupabaseStorageService $supabaseStorage) {}
 
     /**
      * Return a short-lived signed URL for a courier's resume, scoped to the
@@ -104,12 +103,27 @@ class LogisticsApplicationController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $response = Http::timeout(10)
+        $supabaseRequest = Http::timeout(10)
             ->withHeaders([
                 'apikey' => config('services.supabase.anon_key'),
                 'Authorization' => "Bearer {$token}",
-            ])
-            ->get(config('services.supabase.url').'/auth/v1/user');
+            ]);
+
+        if (! config('services.supabase.verify_ssl', true)) {
+            $supabaseRequest->withoutVerifying();
+        }
+
+        try {
+            $response = $supabaseRequest->get(
+                rtrim((string) config('services.supabase.url'), '/').'/auth/v1/user'
+            );
+        } catch (ConnectionException $exception) {
+            report($exception);
+
+            return response()->json([
+                'message' => 'The authentication service is temporarily unavailable.',
+            ], 503);
+        }
 
         $profileId = $response->successful() ? $response->json('id') : null;
 

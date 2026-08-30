@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\Api\Courier\CourierApplicationController;
 use App\Http\Controllers\Api\Courier\CourierProfileController;
 use App\Http\Controllers\Api\Courier\LogisticsCompanyController;
+use App\Http\Controllers\Api\Logistics\DeliveryAreaController;
 use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
@@ -128,6 +129,14 @@ Route::prefix('logistics')->name('logistics.')->group(function () {
         ->name('applications.resume');
 });
 
+Route::middleware(['supabase.auth', 'logistics'])
+    ->prefix('logistics')
+    ->name('logistics.')
+    ->group(function () {
+        Route::apiResource('delivery-areas', DeliveryAreaController::class)
+            ->except('show');
+    });
+
 // ============================================================
 // ADMIN NOTIFICATION ROUTES
 // ============================================================
@@ -204,7 +213,7 @@ if (app()->environment('local')) {
             Mail::to('test@example.com')->send(new RegistrationApproved('Test User'));
 
             return response()->json(['message' => 'Email sent successfully!']);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
     });

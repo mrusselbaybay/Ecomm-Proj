@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
@@ -101,6 +102,15 @@ it('returns only applications sent to the signed-in logistics company', function
 it('rejects requests without a Supabase access token', function () {
     $this->getJson('/api/logistics/applications')
         ->assertUnauthorized();
+});
+
+it('returns a service unavailable response when Supabase authentication cannot be reached', function () {
+    Http::fake(fn () => throw new ConnectionException('TLS unavailable'));
+
+    $this->withToken('valid-access-token')
+        ->getJson('/api/logistics/applications')
+        ->assertServiceUnavailable()
+        ->assertJsonPath('message', 'The authentication service is temporarily unavailable.');
 });
 
 it('persists a courier application through the Laravel API', function () {

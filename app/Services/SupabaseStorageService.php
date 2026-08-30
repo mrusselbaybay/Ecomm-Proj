@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -18,6 +20,7 @@ class SupabaseStorageService
     private const BUCKET = 'documents';
 
     private string $url;
+
     private string $serviceRoleKey;
 
     public function __construct()
@@ -46,13 +49,15 @@ class SupabaseStorageService
             throw new RuntimeException('Could not read the uploaded file.');
         }
 
-        $response = Http::withHeaders([
-            'apikey' => $this->serviceRoleKey,
-            'Authorization' => "Bearer {$this->serviceRoleKey}",
-            'x-upsert' => 'true',
-        ])
-            ->withBody($contents, $file->getMimeType() ?: 'application/octet-stream')
-            ->post("{$this->url}/storage/v1/object/".self::BUCKET."/{$path}");
+        try {
+            $response = $this->request(['x-upsert' => 'true'])
+                ->withBody($contents, $file->getMimeType() ?: 'application/octet-stream')
+                ->post("{$this->url}/storage/v1/object/".self::BUCKET."/{$path}");
+        } catch (ConnectionException $exception) {
+            report($exception);
+
+            throw new RuntimeException('Could not connect to Supabase storage.', previous: $exception);
+        }
 
         if (! $response->successful()) {
             Log::error('Supabase storage upload failed', [
@@ -75,12 +80,16 @@ class SupabaseStorageService
             return null;
         }
 
-        $response = Http::withHeaders([
-            'apikey' => $this->serviceRoleKey,
-            'Authorization' => "Bearer {$this->serviceRoleKey}",
-        ])->post("{$this->url}/storage/v1/object/sign/".self::BUCKET."/{$path}", [
-            'expiresIn' => $expiresInSeconds,
-        ]);
+        try {
+            $response = $this->request()
+                ->post("{$this->url}/storage/v1/object/sign/".self::BUCKET."/{$path}", [
+                    'expiresIn' => $expiresInSeconds,
+                ]);
+        } catch (ConnectionException $exception) {
+            report($exception);
+
+            return null;
+        }
 
         if (! $response->successful()) {
             Log::error('Supabase storage sign failed', [
@@ -98,5 +107,26 @@ class SupabaseStorageService
         }
 
         return "{$this->url}/storage/v1{$signedPath}";
+    }
+
+    /**
+     * Create an authenticated storage request using the environment's TLS
+     * verification policy. Verification remains enabled by default.
+     *
+     * @param  array<string, string>  $headers
+     */
+    private function request(array $headers = []): PendingRequest
+    {
+        $request = Http::withHeaders([
+            'apikey' => $this->serviceRoleKey,
+            'Authorization' => "Bearer {$this->serviceRoleKey}",
+            ...$headers,
+        ]);
+
+        if (! config('services.supabase.verify_ssl', true)) {
+            $request->withoutVerifying();
+        }
+
+        return $request;
     }
 }
