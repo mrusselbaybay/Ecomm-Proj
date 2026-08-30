@@ -109,7 +109,10 @@
             </header>
             <Dashboard v-if="activeTab === 'dashboard'" />
             <Applications v-else-if="activeTab === 'applications'" />
-            <ParcelOperations v-else-if="activeTab === 'parcels'" />
+            <ParcelOperations
+                v-else-if="activeTab === 'parcels'"
+                @open-section="selectTab"
+            />
             <Couriers v-else-if="activeTab === 'couriers'" />
             <PortalPlaceholder v-else :section="activeTab" />
         </main>

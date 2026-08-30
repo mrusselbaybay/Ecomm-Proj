@@ -1462,6 +1462,60 @@ button:disabled:hover {
     margin-right: auto;
 }
 
+/* ===================== Parcel queue ===================== */
+.parcel-queue-table {
+    min-width: 980px;
+}
+.parcel-number {
+    display: block;
+    color: var(--lg-ink);
+    font-size: 13px;
+}
+.parcel-recipient {
+    display: block;
+    margin-top: 3px;
+    color: var(--lg-slate);
+    font-size: 11px;
+}
+.address-cell {
+    display: block;
+    max-width: 270px;
+    color: var(--lg-slate-600);
+    line-height: 1.45;
+}
+.handoff-time {
+    color: var(--lg-slate);
+    font-size: 11px;
+}
+.assignment-modal {
+    max-width: 600px;
+}
+.parcel-address-card {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 16px;
+    padding: 13px 14px;
+    border: 1px solid var(--lg-border);
+    border-radius: var(--lg-radius-sm);
+    background: #f8fafc;
+}
+.parcel-address-card span {
+    color: var(--lg-slate);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+.parcel-address-card strong {
+    color: var(--lg-ink);
+    font-size: 13px;
+    line-height: 1.5;
+}
+.handoff-button {
+    background: #0f766e;
+}
+
 @media (max-width: 1000px) {
     .workflow-strip {
         grid-template-columns: repeat(3, 1fr);

@@ -27,6 +27,7 @@ const applications = ref([]);
 const couriers = ref([]);
 const deliveryAreas = ref([]);
 const areaRiders = ref([]);
+const parcelAssignments = ref([]);
 const pendingCount = ref(0);
 const loadingCompany = ref(true);
 const isLoading = ref(true);
@@ -334,6 +335,81 @@ async function deleteDeliveryArea(id) {
     await loadDeliveryAreas();
 }
 
+async function loadParcelAssignments() {
+    const response = await logisticsFetch('/api/logistics/parcel-assignments');
+    const payload = await response.json();
+
+    if (!response.ok) {
+        throw new Error(payload.message || 'Failed to load the sorting queue.');
+    }
+
+    parcelAssignments.value = payload.data || [];
+    return parcelAssignments.value;
+}
+
+async function receiveParcel(trackingNumber) {
+    const response = await logisticsFetch(
+        '/api/logistics/parcel-assignments/receive',
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tracking_number: trackingNumber }),
+        },
+    );
+    const payload = await response.json();
+
+    if (!response.ok) {
+        throw new Error(payload.message || 'Failed to receive the parcel.');
+    }
+
+    await loadParcelAssignments();
+    return payload.data;
+}
+
+async function assignParcel(id, deliveryAreaId, riderProfileId) {
+    const response = await logisticsFetch(
+        `/api/logistics/parcel-assignments/${id}/assign`,
+        {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                delivery_area_id: deliveryAreaId,
+                rider_profile_id: riderProfileId,
+            }),
+        },
+    );
+    const payload = await response.json();
+
+    if (!response.ok) {
+        const validationMessage = Object.values(payload.errors || {})
+            .flat()
+            .at(0);
+        throw new Error(
+            validationMessage ||
+                payload.message ||
+                'Failed to assign the parcel.',
+        );
+    }
+
+    await loadParcelAssignments();
+    return payload.data;
+}
+
+async function handoffParcel(id) {
+    const response = await logisticsFetch(
+        `/api/logistics/parcel-assignments/${id}/handoff`,
+        { method: 'PUT' },
+    );
+    const payload = await response.json();
+
+    if (!response.ok) {
+        throw new Error(payload.message || 'Failed to hand off the parcel.');
+    }
+
+    await loadParcelAssignments();
+    return payload.data;
+}
+
 export function useLogistics() {
     return {
         supabase: getSupabase(),
@@ -343,6 +419,7 @@ export function useLogistics() {
         couriers,
         deliveryAreas,
         areaRiders,
+        parcelAssignments,
         pendingCount,
         loadingCompany,
         isLoading,
@@ -357,5 +434,9 @@ export function useLogistics() {
         loadDeliveryAreas,
         saveDeliveryArea,
         deleteDeliveryArea,
+        loadParcelAssignments,
+        receiveParcel,
+        assignParcel,
+        handoffParcel,
     };
 }
