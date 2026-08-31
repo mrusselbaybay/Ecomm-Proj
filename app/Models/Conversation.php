@@ -72,8 +72,12 @@ class Conversation extends Model
         return $this->hasMany(Message::class, 'conversation_id')->orderBy('created_at');
     }
 
+    // latestOfMany() defaults to MAX(id); ids are uuids and Postgres has
+    // no max(uuid), so this must aggregate on created_at. (The list/detail
+    // payloads read the denormalised last_message_* columns instead and
+    // don't load this relation — it's kept for ad-hoc use.)
     public function latestMessage(): HasOne
     {
-        return $this->hasOne(Message::class, 'conversation_id')->latestOfMany();
+        return $this->hasOne(Message::class, 'conversation_id')->latestOfMany('created_at');
     }
 }

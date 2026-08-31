@@ -1,8 +1,11 @@
 <?php
 
 use App\Http\Controllers\Seller\CategoryConfigController;
+use App\Http\Controllers\Seller\MessageController;
 use App\Http\Controllers\Seller\SellerDeliveryController;
 use App\Http\Controllers\Seller\SellerFeedbackController;
+use App\Http\Controllers\Seller\SellerInventoryController;
+use App\Http\Controllers\Seller\SellerNotificationController;
 use App\Http\Controllers\Seller\SellerOrderController;
 use App\Http\Controllers\Seller\SellerProductController;
 use App\Http\Controllers\Seller\SellerReportController;
@@ -63,10 +66,26 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     Route::get('/deliveries/summary', [SellerDeliveryController::class, 'summary'])->name('deliveries.summary');
     Route::get('/deliveries/export', [SellerDeliveryController::class, 'export'])->name('deliveries.export');
 
+    // Buyer <-> seller messaging (MessageController). Implements the API
+    // contract in resources/js/seller/composables/useMessaging.js, backed
+    // by the shared conversations/messages tables (the buyer side is
+    // Buyer\MessageController on feature/buyer). Every query is scoped to
+    // the authenticated seller; another seller's conversation 404s.
+    Route::prefix('messages')->name('messages.')->group(function () {
+        Route::get('/unread-count', [MessageController::class, 'unreadCount'])->name('unread-count');
+        Route::get('/conversations', [MessageController::class, 'conversations'])->name('conversations.index');
+        Route::post('/attachments', [MessageController::class, 'uploadAttachment'])->name('attachments.store');
+        Route::get('/conversations/{id}', [MessageController::class, 'showConversation'])->name('conversations.show');
+        Route::get('/conversations/{id}/messages', [MessageController::class, 'messages'])->name('conversations.messages.index');
+        Route::post('/conversations/{id}/messages', [MessageController::class, 'sendMessage'])->name('conversations.messages.store');
+        Route::put('/conversations/{id}/read', [MessageController::class, 'markRead'])->name('conversations.read');
+        Route::put('/conversations/{id}/status', [MessageController::class, 'setStatus'])->name('conversations.status');
+        Route::post('/conversations/{id}/report', [MessageController::class, 'report'])->name('conversations.report');
+    });
+
     // Scoped 404 fallback for this group only. Without this, any
-    // undefined /api/seller/* path (e.g. the not-yet-built messaging
-    // endpoints — see useMessaging.js's API-contract docblock) falls
-    // through to the app-wide catch-all in routes/web.php, which
+    // undefined /api/seller/* path falls through to the app-wide
+    // catch-all in routes/web.php, which
     // returns an HTML SPA view rather than JSON and currently 500s
     // (view('app') doesn't exist — see AuthController::index(), which
     // correctly uses 'auth.app'). That's a shared, cross-role file, so
