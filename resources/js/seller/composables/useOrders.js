@@ -14,10 +14,29 @@ import { ref, computed } from 'vue';
 import { getSupabase } from './useSeller';
 
 const orders = ref([]);
+const ordersMeta = ref({ statusCounts: {} });
 const isLoadingOrders = ref(false);
 const loadError = ref('');
 const isUpdatingStatus = ref(false);
 const updateError = ref('');
+
+// Stored status value -> seller-facing label (mirrors Order::STATUS_LABELS).
+// 'New' shows as "Pending", 'In Transit' as "Shipped".
+const STATUS_LABELS = {
+    New: 'Pending',
+    Confirmed: 'Confirmed',
+    Processing: 'Processing',
+    Packed: 'Packed',
+    'Ready for Pickup': 'Ready for Pickup',
+    'In Transit': 'Shipped',
+    Delivered: 'Delivered',
+    Cancelled: 'Cancelled',
+    Rejected: 'Rejected',
+};
+
+function statusLabel(status) {
+    return STATUS_LABELS[status] || status || '—';
+}
 
 async function authHeaders() {
     const supabase = getSupabase();
@@ -49,12 +68,25 @@ async function apiFetch(path, options = {}) {
     return body.data;
 }
 
-async function loadOrders() {
+async function loadOrders(params = {}) {
     isLoadingOrders.value = true;
     loadError.value = '';
 
+    const qs = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''),
+    ).toString();
+
     try {
-        orders.value = await apiFetch('/orders');
+        const headers = await authHeaders();
+        const response = await fetch(`/api/seller/orders${qs ? `?${qs}` : ''}`, { headers });
+        const body = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            throw new Error(body.message || 'Request failed.');
+        }
+
+        orders.value = Array.isArray(body.data) ? body.data : [];
+        ordersMeta.value = body.meta || { statusCounts: {} };
     } catch (err) {
         console.error('Error loading seller orders:', err);
         loadError.value =
@@ -73,6 +105,18 @@ async function getOrderById(id) {
         return await apiFetch(`/orders/${encodeURIComponent(id)}`);
     } catch (err) {
         console.error('Error loading order:', err);
+
+        return null;
+    }
+}
+
+// Just the tracking payload (journey) — polled by the Order Details map
+// while an order is in transit, so we don't refetch the whole order.
+async function getOrderTracking(id) {
+    try {
+        return await apiFetch(`/orders/${encodeURIComponent(id)}/tracking`);
+    } catch (err) {
+        console.error('Error loading tracking:', err);
 
         return null;
     }
@@ -113,16 +157,35 @@ async function updateOrderStatus(id, status, extra = {}) {
     }
 }
 
+// New → Confirmed is the seller's "accept". (New → Processing stays valid
+// on the backend for older callers, but the granular flow starts here.)
+function confirmOrder(id) {
+    return updateOrderStatus(id, 'Confirmed').catch(() => null);
+}
+
 function acceptOrder(id) {
+    return updateOrderStatus(id, 'Confirmed').catch(() => null);
+}
+
+function startProcessing(id) {
     return updateOrderStatus(id, 'Processing').catch(() => null);
 }
 
-function rejectOrder(id, reason = 'Rejected by seller') {
-    return updateOrderStatus(id, 'Cancelled', { reason }).catch(() => null);
+function markPacked(id) {
+    return updateOrderStatus(id, 'Packed').catch(() => null);
 }
 
-function cancelOrder(id, reason = 'Cancelled by seller') {
-    return updateOrderStatus(id, 'Cancelled', { reason }).catch(() => null);
+function markReadyForPickup(id) {
+    return updateOrderStatus(id, 'Ready for Pickup').catch(() => null);
+}
+
+// Reject / cancel both require a real reason (backend enforces min:3).
+function rejectOrder(id, reason) {
+    return updateOrderStatus(id, 'Rejected', { reason });
+}
+
+function cancelOrder(id, reason) {
+    return updateOrderStatus(id, 'Cancelled', { reason });
 }
 
 function shipOrder(id, extra = {}) {
@@ -136,10 +199,14 @@ function deliverOrder(id) {
 function statusBadgeClass(status) {
     const map = {
         New: 'badge-sky',
+        Confirmed: 'badge-sky',
         Processing: 'badge-amber',
+        Packed: 'badge-amber',
+        'Ready for Pickup': 'badge-amber',
         'In Transit': 'badge-sky',
         Delivered: 'badge-emerald',
         Cancelled: 'badge-red',
+        Rejected: 'badge-red',
     };
 
     return map[status] || 'badge-slate';
@@ -156,6 +223,7 @@ const newOrdersCount = computed(
 export function useOrders() {
     return {
         orders,
+        ordersMeta,
         isLoadingOrders,
         loadError,
         isUpdatingStatus,
@@ -163,9 +231,16 @@ export function useOrders() {
         newOrdersCount,
         loadOrders,
         getOrderById,
+        getOrderTracking,
+        updateOrderStatus,
         statusBadgeClass,
+        statusLabel,
         formatCurrency,
+        confirmOrder,
         acceptOrder,
+        startProcessing,
+        markPacked,
+        markReadyForPickup,
         rejectOrder,
         cancelOrder,
         shipOrder,

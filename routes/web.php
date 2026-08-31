@@ -1,10 +1,12 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\AccountRegistrationController;
-use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Logistics\LogisticsNotificationController;
+use App\Http\Controllers\Logistics\ParcelLocationController;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -56,12 +58,17 @@ Route::prefix('api/admin')->name('api.admin.')->group(function () {
 
 // ---------- API Routes for Logistics ----------
 Route::prefix('api/logistics')->name('api.logistics.')->group(function () {
-    Route::post('/notify-application-accepted', [\App\Http\Controllers\Logistics\LogisticsNotificationController::class, 'applicationAccepted'])
+    Route::post('/notify-application-accepted', [LogisticsNotificationController::class, 'applicationAccepted'])
         ->name('notify.accepted');
-    Route::post('/notify-application-rejected', [\App\Http\Controllers\Logistics\LogisticsNotificationController::class, 'applicationRejected'])
+    Route::post('/notify-application-rejected', [LogisticsNotificationController::class, 'applicationRejected'])
         ->name('notify.rejected');
-});
 
+    // Courier GPS ping ingest for live parcel tracking. See
+    // ParcelLocationController for the (documented) scoping caveat.
+    Route::post('/orders/{orderNumber}/location', [ParcelLocationController::class, 'store'])
+        ->middleware('supabase.auth')
+        ->name('orders.location.store');
+});
 
 // ---------- API Routes for Seller (Seller Order Page) ----------
 require __DIR__.'/seller.php';
@@ -75,7 +82,7 @@ require __DIR__.'/seller.php';
 Route::prefix('api/signup')->name('api.signup.')->group(function () {
     Route::post('/register', [AuthController::class, 'registerUser'])->name('register');
     Route::post('/register-logistics', [AuthController::class, 'registerLogistics'])->name('register-logistics');
-    });
+});
 // ---------- Buyer SPA ----------
 Route::prefix('buyer')->name('buyer.')->group(function () {
     Route::get('/{any?}', function () {

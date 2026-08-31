@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.seller.')->group(function () {
     Route::get('/orders', [SellerOrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{id}', [SellerOrderController::class, 'show'])->name('orders.show');
+    Route::get('/orders/{id}/tracking', [SellerOrderController::class, 'tracking'])->name('orders.tracking');
     Route::put('/orders/{id}/status', [SellerOrderController::class, 'updateStatus'])->name('orders.update-status');
 
     Route::get('/products', [SellerProductController::class, 'index'])->name('products.index');
@@ -43,6 +44,13 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     Route::get('/products/{id}/stock-movements', [SellerInventoryController::class, 'movements'])->name('products.stock.movements');
 
     Route::get('/category-config', [CategoryConfigController::class, 'show'])->name('category-config');
+
+    // Seller notification inbox (header bell). Rows are written by
+    // App\Services\SellerNotifier after the triggering transaction commits.
+    Route::get('/notifications', [SellerNotificationController::class, 'index'])->name('notifications.index');
+    Route::get('/notifications/unread-count', [SellerNotificationController::class, 'unreadCount'])->name('notifications.unread-count');
+    Route::put('/notifications/read-all', [SellerNotificationController::class, 'markAllRead'])->name('notifications.read-all');
+    Route::put('/notifications/{id}/read', [SellerNotificationController::class, 'markRead'])->name('notifications.read');
 
     // Feedback & Reviews (seller-side read/respond only — see
     // SellerFeedbackController docblock for what this does and does not
