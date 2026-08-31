@@ -1,8 +1,37 @@
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { buyerApi } from './useBuyerApi';
 import { getSupabase } from './useBuyerSession';
 
-const cart = ref([]);
+// Cart lives client-side only: there's no cart table by design — checkout
+// takes the cart as a payload and CheckoutService re-validates every
+// price/stock/seller against the real rows. localStorage is what makes it
+// survive a hard refresh (same pattern as favorites below). Persisted
+// name/price/image can go stale if a seller edits the product later; that's
+// cosmetic, since checkout recalculates regardless.
+const CART_STORAGE_KEY = 'nexmart_buyer_cart';
+
+function loadStoredCart() {
+    try {
+        const stored = JSON.parse(localStorage.getItem(CART_STORAGE_KEY) || '[]');
+
+        return Array.isArray(stored) ? stored : [];
+    } catch (err) {
+        return [];
+    }
+}
+
+const cart = ref(loadStoredCart());
+
+// deep: true — quantity and `selected` toggles mutate cart items in place,
+// so a shallow watch would miss them.
+watch(cart, (value) => {
+    try {
+        localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(value));
+    } catch (err) {
+        // Storage unavailable (private browsing etc.) — the cart just
+        // won't survive a refresh this session.
+    }
+}, { deep: true });
 
 // Backed by the Laravel Buyer API (/api/buyer/wishlist ->
 // App\Http\Controllers\Buyer\WishlistController, buyer_wishlist_items
