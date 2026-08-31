@@ -343,11 +343,178 @@
                 </template>
             </div>
         </div>
+
+        <!-- ============================================================
+         DETAILED REPORTS (spec §10) — sales / order summary / product
+         performance / inventory / returns, each with its own table,
+         filters, pagination and CSV/PDF export. Every total shown here
+         is computed by the backend (SellerReportService).
+         ============================================================ -->
+        <section class="card report-detail-card">
+            <div class="report-detail-head">
+                <div class="report-detail-tabs">
+                    <button
+                        v-for="t in REPORT_TABS"
+                        :key="t.value"
+                        type="button"
+                        :class="{ active: activeReport === t.value }"
+                        @click="loadReport(t.value)"
+                    >
+                        {{ t.label }}
+                    </button>
+                </div>
+                <div class="report-detail-actions">
+                    <button type="button" class="btn-outline btn-sm" :disabled="isExporting" @click="downloadReport('csv')">CSV</button>
+                    <button type="button" class="btn-outline btn-sm" :disabled="isExporting" @click="downloadReport('pdf')">PDF</button>
+                </div>
+            </div>
+
+            <div class="report-detail-filters">
+                <label>
+                    Payment
+                    <select
+                        :value="reportFilters.payment_status"
+                        @change="setReportFilter({ payment_status: $event.target.value })"
+                    >
+                        <option value="">Any</option>
+                        <option v-for="p in PAYMENT_STATUS_OPTIONS" :key="p" :value="p">{{ p }}</option>
+                    </select>
+                </label>
+                <label v-if="activeReport === 'returns'">
+                    Return status
+                    <select
+                        :value="reportFilters.return_status"
+                        @change="setReportFilter({ return_status: $event.target.value })"
+                    >
+                        <option value="">Any</option>
+                        <option v-for="r in RETURN_STATUS_OPTIONS" :key="r" :value="r">{{ r }}</option>
+                    </select>
+                </label>
+                <span v-if="appliedFilterChips.length" class="report-detail-chips">
+                    <span v-for="c in appliedFilterChips" :key="c" class="report-chip">{{ c }}</span>
+                </span>
+                <span v-if="reportMeta" class="report-detail-meta">
+                    {{ reportMeta.range.from }} → {{ reportMeta.range.to }} ·
+                    {{ new Date(reportMeta.generatedAt).toLocaleTimeString() }}
+                </span>
+            </div>
+
+            <div v-if="isLoadingReport" class="report-detail-state">Loading…</div>
+            <div v-else-if="reportError" class="report-detail-state error">{{ reportError }}</div>
+            <div v-else-if="!reportData" class="report-detail-state">No data for this period.</div>
+
+            <template v-else>
+                <!-- SALES -->
+                <table v-if="activeReport === 'sales'" class="report-detail-table">
+                    <tbody>
+                        <tr><td>Gross sales</td><td>{{ formatCurrency(reportData.grossSales) }}</td></tr>
+                        <tr><td>Discounts</td><td>−{{ formatCurrency(reportData.discounts) }}</td></tr>
+                        <tr><td>Refunds</td><td>−{{ formatCurrency(reportData.refunds) }}</td></tr>
+                        <tr class="report-detail-total"><td>Net sales</td><td>{{ formatCurrency(reportData.netSales) }}</td></tr>
+                        <tr><td>Orders</td><td>{{ reportData.orderCount }}</td></tr>
+                        <tr><td>Units sold</td><td>{{ reportData.unitsSold }}</td></tr>
+                        <tr><td>Average order value</td><td>{{ formatCurrency(reportData.averageOrderValue) }}</td></tr>
+                    </tbody>
+                </table>
+
+                <!-- ORDER SUMMARY -->
+                <table v-else-if="activeReport === 'orders'" class="report-detail-table">
+                    <thead><tr><th>Status</th><th>Orders</th></tr></thead>
+                    <tbody>
+                        <tr v-for="r in reportData.rows" :key="r.status">
+                            <td>{{ r.label }}</td><td>{{ r.count }}</td>
+                        </tr>
+                        <tr class="report-detail-total"><td>Total</td><td>{{ reportData.total }}</td></tr>
+                    </tbody>
+                </table>
+
+                <!-- PRODUCT PERFORMANCE -->
+                <div v-else-if="activeReport === 'products'" class="report-detail-scroll">
+                    <table class="report-detail-table">
+                        <thead><tr>
+                            <th>Product</th><th>Units</th><th>Orders</th><th>Revenue</th>
+                            <th>Returns</th><th>Return %</th><th>Rating</th><th>Stock</th>
+                        </tr></thead>
+                        <tbody>
+                            <tr v-for="p in reportData" :key="p.productId">
+                                <td>{{ p.name }}<br><small>{{ p.sku }}</small></td>
+                                <td>{{ p.unitsSold }}</td>
+                                <td>{{ p.orders }}</td>
+                                <td>{{ formatCurrency(p.revenue) }}</td>
+                                <td>{{ p.returnQty }}</td>
+                                <td>{{ p.returnRate }}%</td>
+                                <td>{{ p.avgRating ?? '—' }}</td>
+                                <td>{{ p.currentStock ?? '—' }}</td>
+                            </tr>
+                            <tr v-if="!reportData.length"><td colspan="8">No delivered sales in this period.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- INVENTORY -->
+                <div v-else-if="activeReport === 'inventory'" class="report-detail-scroll">
+                    <table class="report-detail-table">
+                        <thead><tr>
+                            <th>Product</th><th>Stock</th><th>Status</th>
+                            <th>Added</th><th>Removed</th><th>Damaged</th><th>Lost</th><th>Adjust.</th>
+                        </tr></thead>
+                        <tbody>
+                            <tr v-for="p in reportData" :key="p.productId">
+                                <td>{{ p.name }}<br><small>{{ p.sku }}</small></td>
+                                <td>{{ p.currentStock }}</td>
+                                <td>{{ p.stockStatus }}</td>
+                                <td>{{ p.stockAdded }}</td>
+                                <td>{{ p.stockRemoved }}</td>
+                                <td>{{ p.damaged }}</td>
+                                <td>{{ p.lost }}</td>
+                                <td>{{ p.adjustments }}</td>
+                            </tr>
+                            <tr v-if="!reportData.length"><td colspan="8">No products.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- RETURNS -->
+                <div v-else-if="activeReport === 'returns'">
+                    <div class="report-detail-returnsummary">
+                        <span>Total: <strong>{{ reportData.summary.total }}</strong></span>
+                        <span>Approved: <strong>{{ reportData.summary.approved }}</strong></span>
+                        <span>Rejected: <strong>{{ reportData.summary.rejected }}</strong></span>
+                        <span>Pending: <strong>{{ reportData.summary.pending }}</strong></span>
+                        <span>Returned qty: <strong>{{ reportData.summary.returnedQty }}</strong></span>
+                        <span>Refund amount: <strong>{{ formatCurrency(reportData.summary.refundAmount) }}</strong></span>
+                    </div>
+                    <p v-if="reportData.reasons.length" class="report-detail-reasons">
+                        <strong>Common reasons:</strong>
+                        <span v-for="r in reportData.reasons" :key="r.reason">{{ r.reason }} ({{ r.count }})</span>
+                    </p>
+                    <div class="report-detail-scroll">
+                        <table class="report-detail-table">
+                            <thead><tr><th>Product</th><th>Returned</th><th>Delivered</th><th>Return rate</th></tr></thead>
+                            <tbody>
+                                <tr v-for="p in reportData.rows" :key="p.productId">
+                                    <td>{{ p.name }}</td>
+                                    <td>{{ p.returnedQty }}</td>
+                                    <td>{{ p.deliveredQty }}</td>
+                                    <td>{{ p.returnRate ?? '—' }}%</td>
+                                </tr>
+                                <tr v-if="!reportData.rows.length"><td colspan="4">No returns in this period.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div v-if="reportPaginated" class="report-detail-pager">
+                    <button type="button" :disabled="reportMeta.currentPage <= 1" @click="goToReportPage(reportMeta.currentPage - 1)">Prev</button>
+                    <span>Page {{ reportMeta.currentPage }} / {{ reportMeta.lastPage }}</span>
+                    <button type="button" :disabled="reportMeta.currentPage >= reportMeta.lastPage" @click="goToReportPage(reportMeta.currentPage + 1)">Next</button>
+                </div>
+            </template>
+        </section>
     </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import {
     Chart,
     LineController,
@@ -361,8 +528,9 @@ import {
     DoughnutController,
     ArcElement,
 } from 'chart.js';
-import { useReports } from '../composables/useReports';
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useOrders } from '../composables/useOrders';
+import { useReports } from '../composables/useReports';
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler, DoughnutController, ArcElement);
 
@@ -399,12 +567,44 @@ const {
 
     loadAll,
 
+    activeReport,
+    reportFilters,
+    reportMeta,
+    reportData,
+    isLoadingReport,
+    reportError,
+    loadReport,
+    setReportFilter,
+    goToReportPage,
+    downloadReport,
+
     isExporting,
     exportError,
     exportCsv,
 } = useReports();
 
 const { formatCurrency } = useOrders();
+
+const REPORT_TABS = [
+    { value: 'sales', label: 'Sales' },
+    { value: 'orders', label: 'Order Summary' },
+    { value: 'products', label: 'Product Performance' },
+    { value: 'inventory', label: 'Inventory' },
+    { value: 'returns', label: 'Returns & Refunds' },
+];
+
+const PAYMENT_STATUS_OPTIONS = ['Unpaid', 'Paid', 'Refunded'];
+const RETURN_STATUS_OPTIONS = ['pending', 'approved', 'rejected', 'cancelled', 'completed'];
+
+const appliedFilterChips = computed(() =>
+    Object.entries(reportMeta.value?.appliedFilters || {}).map(([k, v]) => `${k}: ${v}`),
+);
+
+const reportPaginated = computed(
+    () =>
+        ['products', 'inventory', 'returns'].includes(activeReport.value) &&
+        (reportMeta.value?.lastPage || 1) > 1,
+);
 
 const presetOptions = [
     { value: 'today', label: 'Today' },
@@ -435,10 +635,13 @@ function submitCustomRange() {
 
     if (!customFromInput.value || !customToInput.value) {
         customRangeError.value = 'Pick both a start and end date.';
+
         return;
     }
+
     if (customToInput.value < customFromInput.value) {
         customRangeError.value = 'End date must be on or after the start date.';
+
         return;
     }
 
@@ -458,7 +661,10 @@ function onEscKey(e) {
 }
 
 const lastUpdatedLabel = computed(() => {
-    if (!summary.value?.generatedAt) return '';
+    if (!summary.value?.generatedAt) {
+return '';
+}
+
     return new Date(summary.value.generatedAt).toLocaleString(undefined, {
         month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
     });
@@ -466,16 +672,24 @@ const lastUpdatedLabel = computed(() => {
 
 function formatRangeShort(r) {
     const fmt = (s) => new Date(`${s}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
     return `${fmt(r.from)} – ${fmt(r.to)}`;
 }
 
 function formatTrend(v) {
-    if (v === null || v === undefined) return 'No comparison data';
+    if (v === null || v === undefined) {
+return 'No comparison data';
+}
+
     const sign = v > 0 ? '+' : '';
+
     return `${sign}${v}%`;
 }
 function trendClass(v) {
-    if (v === null || v === undefined) return 'flat';
+    if (v === null || v === undefined) {
+return 'flat';
+}
+
     return v > 0 ? 'up' : v < 0 ? 'down' : 'flat';
 }
 
@@ -486,11 +700,15 @@ function kpiIcon(name) {
         check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
         star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2Z"/>',
     };
+
     return icons[name] || '';
 }
 
 const mainKpis = computed(() => {
-    if (!summary.value) return [];
+    if (!summary.value) {
+return [];
+}
+
     const m = summary.value.metrics;
 
     return [
@@ -517,7 +735,10 @@ const mainKpis = computed(() => {
 });
 
 const secondaryKpis = computed(() => {
-    if (!summary.value) return [];
+    if (!summary.value) {
+return [];
+}
+
     const m = summary.value.metrics;
 
     return [
@@ -534,8 +755,12 @@ const secondaryKpis = computed(() => {
 });
 
 const bestSellingProduct = computed(() => {
-    if (topProductsSort.value !== 'revenue' || !topProducts.value.length) return null;
+    if (topProductsSort.value !== 'revenue' || !topProducts.value.length) {
+return null;
+}
+
     const top = topProducts.value[0];
+
     return { name: top.name, image: top.image, revenue: top.revenue, unitsSold: top.unitsSold };
 });
 
@@ -567,11 +792,17 @@ function goToInventory() {
 }
 
 const revenueChartAriaLabel = computed(() => {
-    if (!revenueTrend.value) return 'Revenue trend chart';
+    if (!revenueTrend.value) {
+return 'Revenue trend chart';
+}
+
     return `Revenue trend, ${granularity.value}, ${revenueTrend.value.current.length} data points. See the table below the chart for exact values.`;
 });
 const breakdownChartAriaLabel = computed(() => {
-    if (!orderBreakdown.value) return 'Order status breakdown chart';
+    if (!orderBreakdown.value) {
+return 'Order status breakdown chart';
+}
+
     return `Order breakdown: ${orderBreakdown.value.segments.map((s) => `${s.status} ${s.count}`).join(', ')}.`;
 });
 
@@ -596,7 +827,9 @@ const STATUS_COLORS = {
 };
 
 function renderRevenueChart() {
-    if (!revenueCanvasEl.value || !revenueTrend.value) return;
+    if (!revenueCanvasEl.value || !revenueTrend.value) {
+return;
+}
 
     const labels = revenueTrend.value.current.map((b) => b.date);
     const currentData = revenueTrend.value.current.map((b) => b.revenue);
@@ -656,7 +889,9 @@ function renderRevenueChart() {
 }
 
 function renderBreakdownChart() {
-    if (!breakdownCanvasEl.value || !orderBreakdown.value) return;
+    if (!breakdownCanvasEl.value || !orderBreakdown.value) {
+return;
+}
 
     const segments = orderBreakdown.value.segments.filter((s) => s.count > 0);
 
@@ -683,6 +918,7 @@ function renderBreakdownChart() {
                     callbacks: {
                         label: (item) => {
                             const seg = segments[item.dataIndex];
+
                             return `${seg.status}: ${seg.count} (${seg.percent}%)`;
                         },
                     },
@@ -710,3 +946,176 @@ onBeforeUnmount(() => {
     breakdownChart?.destroy();
 });
 </script>
+
+<style scoped>
+.report-detail-card {
+    margin-top: 1.25rem;
+    padding: 1.25rem;
+}
+
+.report-detail-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 0.9rem;
+}
+
+.report-detail-tabs {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+}
+
+.report-detail-tabs button {
+    padding: 0.4rem 0.75rem;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #64748b;
+    cursor: pointer;
+}
+
+.report-detail-tabs button.active {
+    background: #0f766e;
+    border-color: #0f766e;
+    color: #fff;
+}
+
+.report-detail-actions {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.report-detail-filters {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 0.9rem;
+    font-size: 0.78rem;
+    color: #64748b;
+}
+
+.report-detail-filters select {
+    margin-left: 0.35rem;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.4rem;
+    font: inherit;
+}
+
+.report-detail-chips {
+    display: inline-flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.report-chip {
+    background: #f0fdfa;
+    color: #0f766e;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-weight: 600;
+}
+
+.report-detail-meta {
+    margin-left: auto;
+    color: #94a3b8;
+}
+
+.report-detail-state {
+    padding: 2rem 0;
+    text-align: center;
+    color: #94a3b8;
+}
+
+.report-detail-state.error {
+    color: #dc2626;
+}
+
+.report-detail-scroll {
+    overflow-x: auto;
+}
+
+.report-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+.report-detail-table th {
+    text-align: left;
+    padding: 0.5rem 0.6rem;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+}
+
+.report-detail-table td {
+    padding: 0.55rem 0.6rem;
+    border-bottom: 1px solid #f1f5f9;
+    color: #1e293b;
+}
+
+.report-detail-table small {
+    color: #94a3b8;
+}
+
+.report-detail-total td {
+    font-weight: 800;
+    color: #0f172a;
+    border-top: 2px solid #e2e8f0;
+}
+
+.report-detail-returnsummary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0.75rem;
+    background: #f8fafc;
+    border-radius: 0.5rem;
+    font-size: 0.8rem;
+    margin-bottom: 0.75rem;
+}
+
+.report-detail-reasons {
+    font-size: 0.78rem;
+    color: #64748b;
+    margin: 0 0 0.75rem;
+}
+
+.report-detail-reasons span {
+    display: inline-block;
+    margin-left: 0.5rem;
+}
+
+.report-detail-pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 0.9rem;
+    font-size: 0.8rem;
+    color: #64748b;
+}
+
+.report-detail-pager button {
+    padding: 0.3rem 0.7rem;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    border-radius: 0.4rem;
+    cursor: pointer;
+}
+
+.report-detail-pager button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+</style>

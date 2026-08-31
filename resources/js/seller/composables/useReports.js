@@ -21,6 +21,7 @@ function todayStr(d = new Date()) {
 function daysAgoStr(n, from = new Date()) {
     const d = new Date(from);
     d.setDate(d.getDate() - n);
+
     return todayStr(d);
 }
 function startOfMonthStr(d = new Date()) {
@@ -29,6 +30,7 @@ function startOfMonthStr(d = new Date()) {
 function lastMonthRange(d = new Date()) {
     const start = new Date(d.getFullYear(), d.getMonth() - 1, 1);
     const end = new Date(d.getFullYear(), d.getMonth(), 0);
+
     return { from: todayStr(start), to: todayStr(end) };
 }
 
@@ -68,7 +70,29 @@ const topProductsError = ref('');
 const isExporting = ref(false);
 const exportError = ref('');
 
-let controllers = { summary: null, revenueTrend: null, orderBreakdown: null, topProducts: null };
+// ---- Detailed report set (spec section 10) ----
+// One active report type at a time; each keeps its own data + paging.
+const REPORT_TYPES = ['sales', 'orders', 'products', 'inventory', 'returns'];
+const activeReport = ref('sales');
+const reportFilters = ref({
+    payment_status: '',
+    status: '',
+    return_status: '',
+    product_id: '',
+});
+const reportPage = ref(1);
+const reportData = ref(null); // shape depends on activeReport
+const reportMeta = ref(null);
+const isLoadingReport = ref(false);
+const reportError = ref('');
+
+let controllers = {
+    summary: null,
+    revenueTrend: null,
+    orderBreakdown: null,
+    topProducts: null,
+    report: null,
+};
 
 async function authHeaders() {
     const supabase = getSupabase();
@@ -101,7 +125,10 @@ async function apiFetch(path, key) {
     try {
         response = await fetch(`/api/seller${path}`, { headers, signal: controller.signal });
     } catch (err) {
-        if (err.name === 'AbortError') return { aborted: true };
+        if (err.name === 'AbortError') {
+return { aborted: true };
+}
+
         throw err;
     }
 
@@ -110,6 +137,7 @@ async function apiFetch(path, key) {
     if (!response.ok) {
         const err = new Error(body.message || 'Request failed.');
         err.status = response.status;
+
         throw err;
     }
 
@@ -118,6 +146,7 @@ async function apiFetch(path, key) {
 
 function rangeQuery(extra = '') {
     const params = new URLSearchParams({ from: range.value.from, to: range.value.to });
+
     return extra ? `${params.toString()}&${extra}` : params.toString();
 }
 
@@ -127,7 +156,11 @@ async function loadSummary() {
 
     try {
         const res = await apiFetch(`/reports/summary?${rangeQuery()}`, 'summary');
-        if (res.aborted) return;
+
+        if (res.aborted) {
+return;
+}
+
         summary.value = res.data;
     } catch (err) {
         console.error('Error loading report summary:', err);
@@ -144,7 +177,11 @@ async function loadRevenueTrend(requestedGranularity = null) {
     try {
         const extra = requestedGranularity ? `granularity=${requestedGranularity}` : '';
         const res = await apiFetch(`/reports/revenue-trend?${rangeQuery(extra)}`, 'revenueTrend');
-        if (res.aborted) return;
+
+        if (res.aborted) {
+return;
+}
+
         revenueTrend.value = res.data;
         granularity.value = res.data.granularity;
     } catch (err) {
@@ -161,7 +198,11 @@ async function loadOrderBreakdown() {
 
     try {
         const res = await apiFetch(`/reports/order-breakdown?${rangeQuery()}`, 'orderBreakdown');
-        if (res.aborted) return;
+
+        if (res.aborted) {
+return;
+}
+
         orderBreakdown.value = res.data;
     } catch (err) {
         console.error('Error loading order breakdown:', err);
@@ -172,13 +213,20 @@ async function loadOrderBreakdown() {
 }
 
 async function loadTopProducts(sort = null) {
-    if (sort) topProductsSort.value = sort;
+    if (sort) {
+topProductsSort.value = sort;
+}
+
     isLoadingTopProducts.value = true;
     topProductsError.value = '';
 
     try {
         const res = await apiFetch(`/reports/top-products?${rangeQuery(`sort=${topProductsSort.value}`)}`, 'topProducts');
-        if (res.aborted) return;
+
+        if (res.aborted) {
+return;
+}
+
         topProducts.value = res.data;
     } catch (err) {
         console.error('Error loading top products:', err);
@@ -197,10 +245,14 @@ function loadAll() {
     loadRevenueTrend();
     loadOrderBreakdown();
     loadTopProducts();
+    loadReport();
 }
 
 function applyPreset(name) {
-    if (!PRESETS[name]) return;
+    if (!PRESETS[name]) {
+return;
+}
+
     preset.value = name;
     range.value = PRESETS[name]();
     syncUrl();
@@ -214,12 +266,14 @@ function applyCustomRange(from, to) {
     if (!from || !to || to < from) {
         return false;
     }
+
     preset.value = 'custom';
     customFrom.value = from;
     customTo.value = to;
     range.value = { from, to };
     syncUrl();
     loadAll();
+
     return true;
 }
 
@@ -251,6 +305,7 @@ function initFromUrl() {
     if (from && to && to >= from) {
         range.value = { from, to };
         preset.value = urlPreset === 'custom' ? 'custom' : (PRESETS[urlPreset] ? urlPreset : 'custom');
+
         if (preset.value === 'custom') {
             customFrom.value = from;
             customTo.value = to;
@@ -258,8 +313,142 @@ function initFromUrl() {
     }
 }
 
+const REPORT_ENDPOINT = {
+    sales: '/reports/sales',
+    orders: '/reports/order-summary',
+    products: '/reports/product-performance',
+    inventory: '/reports/inventory',
+    returns: '/reports/returns',
+};
+
+function reportQuery(withPaging = true) {
+    const params = new URLSearchParams({ from: range.value.from, to: range.value.to });
+
+    for (const [k, v] of Object.entries(reportFilters.value)) {
+        if (v) {
+            params.set(k, v);
+        }
+    }
+
+    if (withPaging && ['products', 'inventory', 'returns'].includes(activeReport.value)) {
+        params.set('page', String(reportPage.value));
+    }
+
+    return params.toString();
+}
+
+async function loadReport(type = null) {
+    if (type && REPORT_TYPES.includes(type)) {
+        if (type !== activeReport.value) {
+            reportPage.value = 1;
+        }
+
+        activeReport.value = type;
+    }
+
+    isLoadingReport.value = true;
+    reportError.value = '';
+
+    try {
+        const res = await apiFetch(`${REPORT_ENDPOINT[activeReport.value]}?${reportQuery()}`, 'report');
+
+        if (res.aborted) {
+            return;
+        }
+
+        reportData.value = res.data;
+        reportMeta.value = res.meta || null;
+    } catch (err) {
+        console.error(`Error loading ${activeReport.value} report:`, err);
+        reportError.value = err?.message || 'Could not load this report.';
+        reportData.value = null;
+    } finally {
+        isLoadingReport.value = false;
+    }
+}
+
+function setReportFilter(patch) {
+    Object.assign(reportFilters.value, patch);
+    reportPage.value = 1;
+    loadReport();
+}
+
+function goToReportPage(page) {
+    reportPage.value = Math.max(1, page);
+    loadReport();
+}
+
+// CSV = real file download. PDF = open the server-rendered print doc in a
+// new tab and let the browser save it as PDF (all totals are computed on
+// the backend either way).
+async function downloadReport(format) {
+    if (isExporting.value) {
+        return;
+    }
+
+    isExporting.value = true;
+    exportError.value = '';
+
+    const qs = `type=${activeReport.value}&format=${format}&${reportQuery(false)}`;
+
+    try {
+        if (format === 'pdf') {
+            const headers = await authHeaders();
+            const response = await fetch(`/api/seller/reports/download?${qs}`, { headers });
+
+            if (!response.ok) {
+                const body = await response.json().catch(() => ({}));
+
+                throw new Error(body.message || 'Export failed.');
+            }
+
+            const html = await response.text();
+            const win = window.open('', '_blank');
+
+            if (win) {
+                win.document.write(html);
+                win.document.close();
+            }
+
+            return;
+        }
+
+        const headers = await authHeaders();
+        const response = await fetch(`/api/seller/reports/download?${qs}`, { headers });
+
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+
+            throw new Error(body.message || 'Export failed.');
+        }
+
+        const blob = await response.blob();
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        const filename = match ? match[1] : `${activeReport.value}-report.csv`;
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        console.error('Error downloading report:', err);
+        exportError.value = err?.message || 'Export failed. Please try again.';
+    } finally {
+        isExporting.value = false;
+    }
+}
+
 async function exportCsv() {
-    if (isExporting.value) return;
+    if (isExporting.value) {
+return;
+}
+
     isExporting.value = true;
     exportError.value = '';
 
@@ -269,6 +458,7 @@ async function exportCsv() {
 
         if (!response.ok) {
             const body = await response.json().catch(() => ({}));
+
             throw new Error(body.message || 'Export failed.');
         }
 
@@ -295,8 +485,13 @@ async function exportCsv() {
 
 const rangeLabel = computed(() => {
     const { from, to } = range.value;
-    if (!from || !to) return '';
+
+    if (!from || !to) {
+return '';
+}
+
     const fmt = (s) => new Date(`${s}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+
     return from === to ? fmt(from) : `${fmt(from)} – ${fmt(to)}`;
 });
 
@@ -335,6 +530,20 @@ export function useReports() {
         loadTopProducts,
 
         loadAll,
+
+        // detailed report set
+        REPORT_TYPES,
+        activeReport,
+        reportFilters,
+        reportPage,
+        reportData,
+        reportMeta,
+        isLoadingReport,
+        reportError,
+        loadReport,
+        setReportFilter,
+        goToReportPage,
+        downloadReport,
 
         isExporting,
         exportError,

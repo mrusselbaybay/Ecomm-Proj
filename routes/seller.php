@@ -70,6 +70,16 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     Route::get('/reports/top-products', [SellerReportController::class, 'topProducts'])->name('reports.top-products');
     Route::get('/reports/export', [SellerReportController::class, 'export'])->name('reports.export');
 
+    // Extended report set (spec section 10): sales / order-summary /
+    // product-performance / inventory / returns, plus a per-type
+    // CSV/PDF download. All totals computed in SellerReportService.
+    Route::get('/reports/sales', [SellerReportController::class, 'sales'])->name('reports.sales');
+    Route::get('/reports/order-summary', [SellerReportController::class, 'orderSummary'])->name('reports.order-summary');
+    Route::get('/reports/product-performance', [SellerReportController::class, 'productPerformance'])->name('reports.product-performance');
+    Route::get('/reports/inventory', [SellerReportController::class, 'inventory'])->name('reports.inventory');
+    Route::get('/reports/returns', [SellerReportController::class, 'returns'])->name('reports.returns');
+    Route::get('/reports/download', [SellerReportController::class, 'download'])->name('reports.download');
+
     // Delivery Confirmations (SellerDeliveryController) — read/monitor
     // only; the actual "mark as delivered" action reuses the existing
     // SellerOrderController::updateStatus endpoint above (the In
