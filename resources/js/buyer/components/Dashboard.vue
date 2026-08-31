@@ -160,6 +160,28 @@ const flashDeals = computed(() => {
         .slice(0, 4);
 });
 
+// Flash-deal cards show the real product photo when the API gave one
+// (normalized `image` string — see ProductController / App\Support\
+// ProductImage), same as ProductCard.vue. Fall back to the category-icon
+// tile for imageless products or if the image 404s. `v-for` renders many
+// cards, so failures are tracked per product id.
+const PLACEHOLDER_IMAGE = '/images/product-placeholder.svg';
+const failedDealImages = ref(new Set());
+
+function dealImage(deal) {
+    const src = deal.image;
+
+    if (!src || src === PLACEHOLDER_IMAGE || failedDealImages.value.has(deal.id)) {
+        return '';
+    }
+
+    return src;
+}
+
+function handleDealImageError(deal) {
+    failedDealImages.value = new Set(failedDealImages.value).add(deal.id);
+}
+
 const recommendedProducts = computed(() => {
     return products.value
         .filter(product => product.stock > 0)
@@ -884,7 +906,16 @@ function closePayments() {
                                 <span class="flash-deal-badge">
                                     -{{ discountPercent(deal) }}%
                                 </span>
+                                <img
+                                    v-if="dealImage(deal)"
+                                    class="flash-deal-photo"
+                                    :src="dealImage(deal)"
+                                    :alt="deal.name"
+                                    loading="lazy"
+                                    @error="handleDealImageError(deal)"
+                                >
                                 <span
+                                    v-else
                                     class="flash-deal-icon"
                                     v-html="metaFor(deal.category).icon"
                                 ></span>
