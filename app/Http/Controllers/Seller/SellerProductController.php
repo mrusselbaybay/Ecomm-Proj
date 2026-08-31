@@ -12,15 +12,18 @@ use Illuminate\Validation\ValidationException;
 
 class SellerProductController extends Controller
 {
-    public function __construct(private readonly SellerProductService $products)
-    {
-    }
+    public function __construct(private readonly SellerProductService $products) {}
 
     /**
      * GET /api/seller/products
      *
-     * Every product belonging to the authenticated seller, with its
-     * options/variants eager loaded.
+     * The seller's whole catalogue with options/variants eager loaded.
+     *
+     * The list payload is deliberately trimmed: product images are stored
+     * inline as base64 data URLs, so returning every image of every
+     * product made this response many megabytes. The list now sends only
+     * the FIRST image (the grid card's thumbnail) plus an image_count;
+     * the edit sheet pulls the full set from show() when it opens.
      */
     public function index(): JsonResponse
     {
@@ -32,8 +35,29 @@ class SellerProductController extends Controller
             ->get();
 
         return response()->json([
-            'data' => $products->map(fn (Product $p) => $this->transform($p)),
+            'data' => $products->map(fn (Product $p) => $this->transform($p, full: false)),
         ]);
+    }
+
+    /**
+     * GET /api/seller/products/{id}
+     *
+     * One product with EVERY image — used by the edit sheet, which the
+     * trimmed list response can't populate on its own.
+     */
+    public function show(string $id): JsonResponse
+    {
+        $seller = request()->user();
+
+        $product = Product::with(['options.values', 'variants.optionValues.option'])
+            ->where('seller_id', $seller->id)
+            ->find($id);
+
+        if (! $product) {
+            return response()->json(['message' => 'Product not found.'], 404);
+        }
+
+        return response()->json(['data' => $this->transform($product)]);
     }
 
     /**
@@ -60,7 +84,7 @@ class SellerProductController extends Controller
         $seller = $request->user();
         $product = Product::where('seller_id', $seller->id)->find($id);
 
-        if (!$product) {
+        if (! $product) {
             return response()->json(['message' => 'Product not found.'], 404);
         }
 
@@ -87,7 +111,7 @@ class SellerProductController extends Controller
         $seller = request()->user();
         $product = Product::where('seller_id', $seller->id)->find($id);
 
-        if (!$product) {
+        if (! $product) {
             return response()->json(['message' => 'Product not found.'], 404);
         }
 
@@ -96,10 +120,18 @@ class SellerProductController extends Controller
         return response()->json(['data' => $this->transform($product->fresh(['options.values', 'variants.optionValues.option']))]);
     }
 
-    private function transform(Product $product): array
+    /**
+     * @param  bool  $full  true = every image (single-product responses);
+     *                      false = first image only + image_count (list).
+     */
+    private function transform(Product $product, bool $full = true): array
     {
+        $images = $product->images ?? [];
+        $listedImages = $full ? $images : array_slice($images, 0, 1);
+
         return [
             'id' => $product->id,
+            'image_count' => count($images),
             'name' => $product->name,
             'description' => $product->description,
             'category' => $product->category,
@@ -109,12 +141,18 @@ class SellerProductController extends Controller
             'weight' => $product->weight !== null ? (float) $product->weight : null,
             'specifications' => $product->specifications ?? [],
             'low_stock_threshold' => $product->low_stock_threshold,
+            'effective_low_stock_threshold' => $product->lowStockThreshold(),
             'sku' => $product->sku,
             'price' => (float) $product->price,
             'compare_price' => $product->compare_price !== null ? (float) $product->compare_price : null,
             'promo_code' => $product->promo_code,
             'stock' => (int) $product->stock,
-            'images' => $product->images ?? [],
+            // For a variant product this is the summed active-variant
+            // stock (the source of truth); `stock` above is the cache.
+            'effective_stock' => $product->effectiveStock(),
+            'stock_status' => $product->stockStatus(),
+            'is_out_of_stock' => $product->isOutOfStock(),
+            'images' => $listedImages,
             'status' => $product->status,
             'has_variants' => (bool) $product->has_variants,
             'created_at' => $product->created_at,
@@ -132,7 +170,13 @@ class SellerProductController extends Controller
                 'sku' => $v->sku,
                 'price' => $v->price !== null ? (float) $v->price : null,
                 'stock' => (int) $v->stock,
-                'image' => $v->image,
+                'low_stock_threshold' => $v->low_stock_threshold,
+                'effective_low_stock_threshold' => $v->low_stock_threshold ?? $product->lowStockThreshold(),
+                'stock_status' => $v->setRelation('product', $product)->stockStatus(),
+                'is_out_of_stock' => $v->isOutOfStock(),
+                // Variant images are inline base64 too — omitted from the
+                // list, returned in full by show().
+                'image' => $full ? $v->image : null,
                 'status' => $v->status,
                 'option_values' => $v->optionValues->mapWithKeys(
                     fn ($ov) => [$ov->option?->name ?? '' => $ov->value],

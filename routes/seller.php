@@ -31,9 +31,16 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     Route::put('/orders/{id}/status', [SellerOrderController::class, 'updateStatus'])->name('orders.update-status');
 
     Route::get('/products', [SellerProductController::class, 'index'])->name('products.index');
+    Route::get('/products/{id}', [SellerProductController::class, 'show'])->name('products.show');
     Route::post('/products', [SellerProductController::class, 'store'])->name('products.store');
     Route::put('/products/{id}', [SellerProductController::class, 'update'])->name('products.update');
     Route::delete('/products/{id}', [SellerProductController::class, 'destroy'])->name('products.destroy');
+
+    // Inventory: manual stock adjustments + movement history. products.stock
+    // / product_variants.stock only ever change via InventoryService, which
+    // records an inventory_movements row for every change.
+    Route::post('/products/{id}/stock-adjustments', [SellerInventoryController::class, 'adjust'])->name('products.stock.adjust');
+    Route::get('/products/{id}/stock-movements', [SellerInventoryController::class, 'movements'])->name('products.stock.movements');
 
     Route::get('/category-config', [CategoryConfigController::class, 'show'])->name('category-config');
 

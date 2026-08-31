@@ -75,28 +75,52 @@ async function apiFetch(path, options = {}) {
     return body.data;
 }
 
+// Reasons a seller can give for a manual stock adjustment — must match
+// App\Services\InventoryService::MANUAL_REASONS.
+const ADJUST_REASONS = [
+    { value: 'restock', label: 'Restock' },
+    { value: 'returned_item', label: 'Returned item' },
+    { value: 'damaged', label: 'Damaged item' },
+    { value: 'incorrect_count', label: 'Incorrect count' },
+    { value: 'lost_item', label: 'Lost item' },
+    { value: 'other', label: 'Other' },
+];
+
 // ---- derived ----
 
 // A variant product's own "stock" isn't tracked directly — it's the sum
-// of its variants' individual stock. Falls back to product.stock for a
-// simple product, so every existing stock-based computation below keeps
-// working unchanged for both product types.
+// of its ACTIVE variants' individual stock. Prefers the server's
+// `effective_stock` (authoritative, mirrors InventoryService), then falls
+// back to summing locally, then to product.stock for a simple product.
 function effectiveStock(product) {
+    if (typeof product.effective_stock === 'number') {
+        return product.effective_stock;
+    }
+
     if (product.has_variants && Array.isArray(product.variants) && product.variants.length) {
-        return product.variants.reduce((sum, v) => sum + Number(v.stock ?? 0), 0);
+        return product.variants
+            .filter((v) => (v.status ?? 'active') === 'active')
+            .reduce((sum, v) => sum + Number(v.stock ?? 0), 0);
     }
 
     return Number(product.stock ?? 0);
 }
 
 function stockStatusOf(product) {
+    // Server-computed status wins (it knows the per-product/variant
+    // threshold); the local calc is only a fallback.
+    if (product.stock_status) {
+        return product.stock_status;
+    }
+
     const qty = effectiveStock(product);
+    const threshold = Number(product.effective_low_stock_threshold ?? LOW_STOCK_THRESHOLD);
 
     if (qty <= 0) {
         return 'out_of_stock';
     }
 
-    if (qty <= LOW_STOCK_THRESHOLD) {
+    if (qty <= threshold) {
         return 'low_stock';
     }
 
@@ -345,6 +369,7 @@ async function updateProduct(id, payload) {
         if (idx !== -1) {
             products.value[idx] = data;
         }
+
         productsLoadedAt = Date.now();
 
         return data;
@@ -385,6 +410,87 @@ async function deleteProduct(id) {
 
         throw err;
     }
+}
+
+/**
+ * Manual stock adjustment. `delta` is signed (+ to add, - to remove);
+ * the server reads the real current stock itself and rejects anything
+ * that would go negative. On success it patches the local product /
+ * variant stock + stock_status from the response so the grid updates
+ * without a full reload.
+ */
+async function adjustStock({ productId, variantId = null, delta, reason, note = null }) {
+    const result = await apiFetch(`/products/${encodeURIComponent(productId)}/stock-adjustments`, {
+        method: 'POST',
+        body: JSON.stringify({ variant_id: variantId, delta, reason, note }),
+    });
+
+    const stock = result?.stock;
+    const idx = products.value.findIndex((p) => p.id === productId);
+
+    if (idx !== -1 && stock) {
+        const product = { ...products.value[idx] };
+
+        product.effective_stock = stock.productStock;
+        product.stock_status = stock.productStockStatus;
+        product.is_out_of_stock = stock.productIsOutOfStock;
+
+        if (!product.has_variants) {
+            product.stock = stock.productStock;
+        } else if (stock.variantId && Array.isArray(product.variants)) {
+            product.stock = stock.productStock;
+            product.variants = product.variants.map((v) =>
+                v.id === stock.variantId
+                    ? {
+                          ...v,
+                          stock: stock.variantStock,
+                          stock_status: stock.variantStockStatus,
+                          is_out_of_stock: stock.variantIsOutOfStock,
+                      }
+                    : v,
+            );
+        }
+
+        products.value[idx] = product;
+        productsLoadedAt = Date.now();
+    }
+
+    return result;
+}
+
+// The product list is sent without full images (they're inline base64 and
+// were bloating the response). The edit sheet needs every image, so it
+// pulls the complete product here and merges it into the cached copy.
+async function getProduct(id) {
+    const data = await apiFetch(`/products/${encodeURIComponent(id)}`);
+    const idx = products.value.findIndex((p) => p.id === id);
+
+    if (idx !== -1) {
+        products.value[idx] = data;
+    }
+
+    return data;
+}
+
+async function loadMovements(productId, { variantId = null, page = 1 } = {}) {
+    const params = new URLSearchParams({ page: String(page) });
+
+    if (variantId) {
+        params.set('variant_id', variantId);
+    }
+
+    const headers = await authHeaders();
+    const response = await fetch(
+        `/api/seller/products/${encodeURIComponent(productId)}/stock-movements?${params}`,
+        { headers },
+    );
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(body.message || 'Could not load stock history.');
+    }
+
+    return { data: body.data ?? [], meta: body.meta ?? {} };
 }
 
 async function deleteSelected() {
@@ -541,10 +647,14 @@ export function useSellerProducts() {
         clearSelection,
 
         loadProducts,
+        getProduct,
         createProduct,
         updateProduct,
         deleteProduct,
         deleteSelected,
+        adjustStock,
+        loadMovements,
+        ADJUST_REASONS,
 
         categoryConfig,
         isLoadingCategoryConfig,

@@ -399,6 +399,22 @@
                                         </svg>
                                     </button>
                                     <button
+                                        title="Adjust stock"
+                                        @click="openStockModal(product)"
+                                    >
+                                        <svg
+                                            width="14"
+                                            height="14"
+                                            viewBox="0 0 20 20"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="1.8"
+                                        >
+                                            <rect x="3" y="3" width="14" height="14" rx="2" />
+                                            <path d="M10 6.5v7M6.5 10h7" />
+                                        </svg>
+                                    </button>
+                                    <button
                                         title="Archive"
                                         @click="
                                             showDeleteModal = true;
@@ -470,7 +486,7 @@
                                             }}
                                         </p>
                                         <p class="product-stock-qty">
-                                            {{ product.stock ?? 0 }} Qty
+                                            {{ effectiveStock(product) }} Qty
                                         </p>
                                     </div>
                                 </div>
@@ -546,11 +562,12 @@
                                     :class="isNewProduct ? 'status-dot-new' : 'status-dot-edit'"
                                 ></span>
                                 <p>
-                                    {{
+                                    <template v-if="sheetLoading">Loading full product…</template>
+                                    <template v-else>{{
                                         isNewProduct
                                             ? 'New listing draft'
                                             : 'Editing — saving will resend this listing for review'
-                                    }}
+                                    }}</template>
                                 </p>
                             </div>
                         </div>
@@ -1469,13 +1486,168 @@
             </div>
         </div>
 
+        <!-- ============================================================
+         STOCK ADJUSTMENT + MOVEMENT HISTORY MODAL
+         ============================================================ -->
+        <div
+            v-if="stockModalOpen && stockModalProduct"
+            class="modal-overlay"
+            @click.self="closeStockModal"
+        >
+            <div class="modal-panel stock-modal">
+                <div class="modal-header">
+                    <h3>{{ stockModalProduct.name }}</h3>
+                    <button class="modal-close" @click="closeStockModal">
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 5l10 10M15 5 5 15" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="stock-tabs">
+                    <button
+                        :class="{ active: stockModalTab === 'adjust' }"
+                        @click="stockModalTab = 'adjust'"
+                    >
+                        Adjust stock
+                    </button>
+                    <button
+                        :class="{ active: stockModalTab === 'history' }"
+                        @click="stockModalTab = 'history'"
+                    >
+                        History
+                    </button>
+                </div>
+
+                <!-- ADJUST -->
+                <div v-if="stockModalTab === 'adjust'" class="stock-adjust">
+                    <div
+                        v-if="stockModalProduct.has_variants && stockModalProduct.variants?.length"
+                        class="stock-field"
+                    >
+                        <label>Variant</label>
+                        <select v-model="stockForm.variantId">
+                            <option
+                                v-for="v in stockModalProduct.variants"
+                                :key="v.id"
+                                :value="v.id"
+                            >
+                                {{ Object.values(v.option_values || {}).join(' / ') || v.sku || 'Variant' }}
+                                — {{ v.stock }} in stock
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="stock-current">
+                        <span>Current</span>
+                        <strong>{{ stockModalCurrentQty }}</strong>
+                        <span class="stock-arrow">→</span>
+                        <strong
+                            :class="{ 'is-negative': stockModalResultingQty < 0 }"
+                        >{{ stockModalResultingQty }}</strong>
+                    </div>
+
+                    <div class="stock-field stock-qty-row">
+                        <div class="stock-dir-toggle">
+                            <button
+                                type="button"
+                                :class="{ active: stockForm.direction === 'add' }"
+                                @click="stockForm.direction = 'add'"
+                            >
+                                + Add
+                            </button>
+                            <button
+                                type="button"
+                                :class="{ active: stockForm.direction === 'remove' }"
+                                @click="stockForm.direction = 'remove'"
+                            >
+                                − Remove
+                            </button>
+                        </div>
+                        <input
+                            v-model.number="stockForm.quantity"
+                            type="number"
+                            min="1"
+                            step="1"
+                            aria-label="Quantity"
+                        />
+                    </div>
+
+                    <div class="stock-field">
+                        <label>Reason</label>
+                        <select v-model="stockForm.reason">
+                            <option
+                                v-for="r in ADJUST_REASONS"
+                                :key="r.value"
+                                :value="r.value"
+                            >
+                                {{ r.label }}
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="stock-field">
+                        <label>Note <span class="stock-optional">(optional)</span></label>
+                        <textarea
+                            v-model="stockForm.note"
+                            rows="2"
+                            maxlength="500"
+                            placeholder="e.g. supplier delivery #1204"
+                        ></textarea>
+                    </div>
+
+                    <p v-if="stockAdjustError" class="stock-error">{{ stockAdjustError }}</p>
+
+                    <div class="modal-actions">
+                        <button class="btn-outline" style="flex: 1" @click="closeStockModal">
+                            Cancel
+                        </button>
+                        <button
+                            class="btn-primary"
+                            style="flex: 1"
+                            :disabled="stockAdjusting"
+                            @click="submitStockAdjustment"
+                        >
+                            {{ stockAdjusting ? 'Saving…' : 'Apply adjustment' }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- HISTORY -->
+                <div v-else class="stock-history">
+                    <p v-if="stockMovementsLoading" class="stock-history-empty">Loading…</p>
+                    <p v-else-if="!stockMovements.length" class="stock-history-empty">
+                        No stock movements recorded yet.
+                    </p>
+                    <ul v-else class="stock-history-list">
+                        <li v-for="m in stockMovements" :key="m.id">
+                            <div class="stock-history-row">
+                                <span class="stock-history-type">{{ movementLabel(m) }}</span>
+                                <span
+                                    class="stock-history-delta"
+                                    :class="m.quantityChange >= 0 ? 'up' : 'down'"
+                                >{{ m.quantityChange >= 0 ? '+' : '' }}{{ m.quantityChange }}</span>
+                            </div>
+                            <div class="stock-history-meta">
+                                {{ m.quantityBefore }} → {{ m.quantityAfter }}
+                                <template v-if="m.variantLabel"> · {{ m.variantLabel }}</template>
+                                <template v-if="m.orderNumber"> · Order {{ m.orderNumber }}</template>
+                                · {{ m.actor }} · {{ movementWhen(m.createdAt) }}
+                            </div>
+                            <div v-if="m.note" class="stock-history-note">{{ m.note }}</div>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
     </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
-import { useSellerProducts } from '../composables/useSellerProducts';
 import { useSeller } from '../composables/useSeller';
+import { useSellerProducts } from '../composables/useSellerProducts';
 
 const {
     products,
@@ -1501,15 +1673,20 @@ const {
     clearSelection,
 
     loadProducts,
+    getProduct,
     createProduct,
     updateProduct,
     deleteProduct,
     deleteSelected,
+    adjustStock,
+    loadMovements,
+    ADJUST_REASONS,
 
     categoryConfig,
     isLoadingCategoryConfig,
     loadCategoryConfig,
 
+    effectiveStock,
     stockStatusOf,
     formatPrice,
     statusBadgeClass,
@@ -1738,6 +1915,184 @@ function toggleBulkSelectMode() {
 // ---- delete modal ----
 const showDeleteModal = ref(false);
 const deleteTarget = ref(null); // product id, or 'bulk'
+/* ----------------------------------------------------------------
+ | Manual stock adjustment + movement history
+ | Adds/subtracts a signed quantity (never replaces), with a required
+ | reason; every change is recorded server-side (InventoryService).
+ ---------------------------------------------------------------- */
+const stockModalOpen = ref(false);
+const stockModalProduct = ref(null);
+const stockModalTab = ref('adjust'); // 'adjust' | 'history'
+const stockAdjusting = ref(false);
+const stockAdjustError = ref('');
+const stockMovements = ref([]);
+const stockMovementsLoading = ref(false);
+
+const stockForm = reactive({
+    variantId: '',
+    direction: 'add', // 'add' | 'remove'
+    quantity: 1,
+    reason: 'restock',
+    note: '',
+});
+
+function openStockModal(product) {
+    stockModalProduct.value = product;
+    stockModalTab.value = 'adjust';
+    stockAdjustError.value = '';
+    stockMovements.value = [];
+    Object.assign(stockForm, {
+        variantId:
+            product.has_variants && product.variants?.length ? product.variants[0].id : '',
+        direction: 'add',
+        quantity: 1,
+        reason: 'restock',
+        note: '',
+    });
+    stockModalOpen.value = true;
+}
+
+function closeStockModal() {
+    stockModalOpen.value = false;
+    stockModalProduct.value = null;
+}
+
+const stockModalCurrentQty = computed(() => {
+    const product = stockModalProduct.value;
+
+    if (!product) {
+        return 0;
+    }
+
+    if (product.has_variants && stockForm.variantId) {
+        const v = (product.variants || []).find((x) => x.id === stockForm.variantId);
+
+        return Number(v?.stock ?? 0);
+    }
+
+    return effectiveStock(product);
+});
+
+const stockModalResultingQty = computed(() => {
+    const delta =
+        (stockForm.direction === 'remove' ? -1 : 1) * Math.abs(Number(stockForm.quantity) || 0);
+
+    return stockModalCurrentQty.value + delta;
+});
+
+async function submitStockAdjustment() {
+    const product = stockModalProduct.value;
+
+    if (!product || stockAdjusting.value) {
+        return;
+    }
+
+    const qty = Math.abs(Number(stockForm.quantity) || 0);
+
+    if (qty < 1) {
+        stockAdjustError.value = 'Enter a quantity of 1 or more.';
+
+        return;
+    }
+
+    if (stockModalResultingQty.value < 0) {
+        stockAdjustError.value = "That would take stock below zero — reduce the quantity.";
+
+        return;
+    }
+
+    stockAdjusting.value = true;
+    stockAdjustError.value = '';
+
+    try {
+        await adjustStock({
+            productId: product.id,
+            variantId:
+                product.has_variants && stockForm.variantId ? stockForm.variantId : null,
+            delta: (stockForm.direction === 'remove' ? -1 : 1) * qty,
+            reason: stockForm.reason,
+            note: stockForm.note.trim() || null,
+        });
+
+        // adjustStock() replaces the product object in the list — re-point
+        // the modal at the fresh copy so "Current" stays accurate.
+        stockModalProduct.value =
+            products.value.find((p) => p.id === product.id) || stockModalProduct.value;
+
+        // Keep the modal open on the History tab so the seller sees it land.
+        stockForm.quantity = 1;
+        stockForm.note = '';
+        stockModalTab.value = 'history';
+        await loadStockHistory();
+    } catch (err) {
+        stockAdjustError.value = err?.message || 'Could not adjust the stock.';
+    } finally {
+        stockAdjusting.value = false;
+    }
+}
+
+async function loadStockHistory() {
+    const product = stockModalProduct.value;
+
+    if (!product) {
+        return;
+    }
+
+    stockMovementsLoading.value = true;
+
+    try {
+        const { data } = await loadMovements(product.id, {
+            variantId:
+                product.has_variants && stockForm.variantId ? stockForm.variantId : null,
+        });
+
+        stockMovements.value = data;
+    } catch (err) {
+        stockAdjustError.value = err?.message || 'Could not load stock history.';
+    } finally {
+        stockMovementsLoading.value = false;
+    }
+}
+
+watch(stockModalTab, (tab) => {
+    if (tab === 'history') {
+        void loadStockHistory();
+    }
+});
+
+const MOVEMENT_LABELS = {
+    initial_stock: 'Initial stock',
+    restock: 'Restock',
+    manual_increase: 'Manual add',
+    manual_decrease: 'Manual remove',
+    damaged: 'Damaged',
+    incorrect_count: 'Count correction',
+    returned_item: 'Returned item',
+    lost_item: 'Lost item',
+    form_edit: 'Edited on form',
+    sale: 'Sale',
+    cancellation_restock: 'Order cancelled',
+    return_restock: 'Return approved',
+    other: 'Adjustment',
+};
+
+function movementLabel(m) {
+    return MOVEMENT_LABELS[m.type] || m.type;
+}
+
+function movementWhen(iso) {
+    if (!iso) {
+        return '';
+    }
+
+    return new Date(iso).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+}
+
 async function confirmDelete() {
     try {
         if (deleteTarget.value === 'bulk') {
@@ -1756,6 +2111,7 @@ async function confirmDelete() {
 const activeProductId = ref(null); // null = closed, 'new' = creating, else product id
 const sheetOpen = computed(() => activeProductId.value !== null);
 const isNewProduct = computed(() => activeProductId.value === 'new');
+const sheetLoading = ref(false); // fetching the full product for the edit sheet
 
 const blankForm = () => ({
     name: '',
@@ -1791,9 +2147,11 @@ const saveDisabledReason = computed(() => {
     if (!form.name.trim()) {
         return 'Enter a product name to continue.';
     }
+
     if (form.price === null || form.price === '') {
         return 'Enter a price to continue.';
     }
+
     if (form.stock === null || form.stock === '') {
         return 'Enter a stock quantity to continue.';
     }
@@ -1987,7 +2345,23 @@ watch(
     },
 );
 
-function openEditProductSheet(product) {
+async function openEditProductSheet(listProduct) {
+    // The list omits full images (base64, heavy) — pull the complete
+    // product so the sheet has every image. Fall back to the list copy
+    // if that request fails.
+    activeProductId.value = listProduct.id;
+    sheetLoading.value = true;
+
+    let product = listProduct;
+
+    try {
+        product = await getProduct(listProduct.id);
+    } catch {
+        product = listProduct;
+    } finally {
+        sheetLoading.value = false;
+    }
+
     Object.assign(form, {
         name: product.name || '',
         description: product.description || '',
@@ -2120,3 +2494,203 @@ async function handleSave() {
     }
 }
 </script>
+
+<style scoped>
+/* Stock adjustment + history modal (reuses .modal-overlay / .modal-panel
+   / .modal-header / .modal-actions from the global seller CSS). */
+.stock-modal {
+    max-width: 460px;
+}
+
+.stock-tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.stock-tabs button {
+    padding: 0.5rem 0.75rem;
+    border: 0;
+    background: none;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #64748b;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+}
+
+.stock-tabs button.active {
+    color: #0f766e;
+    border-bottom-color: #0f766e;
+}
+
+.stock-field {
+    margin-bottom: 0.9rem;
+}
+
+.stock-field label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #64748b;
+    margin-bottom: 0.35rem;
+}
+
+.stock-optional {
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.stock-field select,
+.stock-field textarea,
+.stock-qty-row input {
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    font: inherit;
+    background: #fff;
+    box-sizing: border-box;
+}
+
+.stock-field textarea {
+    resize: vertical;
+}
+
+.stock-current {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    margin-bottom: 0.9rem;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    font-size: 0.9rem;
+    color: #475569;
+}
+
+.stock-current strong {
+    font-size: 1.05rem;
+    color: #0f172a;
+}
+
+.stock-current strong.is-negative {
+    color: #dc2626;
+}
+
+.stock-arrow {
+    color: #94a3b8;
+}
+
+.stock-qty-row {
+    display: flex;
+    gap: 0.6rem;
+    align-items: stretch;
+}
+
+.stock-qty-row input {
+    width: 5.5rem;
+    flex-shrink: 0;
+}
+
+.stock-dir-toggle {
+    display: flex;
+    flex: 1;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.stock-dir-toggle button {
+    flex: 1;
+    padding: 0.55rem 0.5rem;
+    border: 0;
+    background: #fff;
+    font: inherit;
+    font-weight: 600;
+    color: #64748b;
+    cursor: pointer;
+}
+
+.stock-dir-toggle button.active {
+    background: #0f766e;
+    color: #fff;
+}
+
+.stock-error {
+    margin: 0 0 0.75rem;
+    color: #dc2626;
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.stock-history {
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.stock-history-empty {
+    color: #94a3b8;
+    font-size: 0.88rem;
+    text-align: center;
+    padding: 1.5rem 0;
+}
+
+.stock-history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.stock-history-list li {
+    padding: 0.7rem 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.stock-history-list li:last-child {
+    border-bottom: 0;
+}
+
+.stock-history-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.stock-history-type {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.stock-history-delta {
+    font-size: 0.9rem;
+    font-weight: 800;
+}
+
+.stock-history-delta.up {
+    color: #059669;
+}
+
+.stock-history-delta.down {
+    color: #dc2626;
+}
+
+.stock-history-meta {
+    margin-top: 0.15rem;
+    font-size: 0.72rem;
+    color: #94a3b8;
+}
+
+.stock-history-note {
+    margin-top: 0.25rem;
+    font-size: 0.78rem;
+    color: #475569;
+    font-style: italic;
+}
+</style>

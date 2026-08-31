@@ -14,6 +14,7 @@ class Product extends Model
     protected $table = 'products';
 
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -51,6 +52,11 @@ class Product extends Model
         return $this->hasMany(ProductVariant::class);
     }
 
+    public function inventoryMovements(): HasMany
+    {
+        return $this->hasMany(InventoryMovement::class, 'product_id')->latest();
+    }
+
     /**
      * Products buyers are allowed to browse/purchase. Sellers can set
      * status to something other than 'active' (e.g. 'disabled') to hide a
@@ -60,5 +66,53 @@ class Product extends Model
     public function scopeActive($query)
     {
         return $query->where('status', 'active');
+    }
+
+    // ---- Stock (added for inventory management; additive, buyer-safe) ----
+
+    /** Fallback threshold when neither the product nor a variant sets one. */
+    public const DEFAULT_LOW_STOCK_THRESHOLD = 10;
+
+    public function lowStockThreshold(): int
+    {
+        return (int) ($this->low_stock_threshold ?? self::DEFAULT_LOW_STOCK_THRESHOLD);
+    }
+
+    /**
+     * Available quantity. For a variant product this is the sum of its
+     * ACTIVE variants' stock (the source of truth); products.stock is a
+     * denormalised cache of the same number kept in sync by
+     * InventoryService::syncProductStock().
+     */
+    public function effectiveStock(): int
+    {
+        if ($this->has_variants && $this->relationLoaded('variants')) {
+            return (int) $this->variants
+                ->where('status', 'active')
+                ->sum('stock');
+        }
+
+        if ($this->has_variants) {
+            return (int) $this->variants()->where('status', 'active')->sum('stock');
+        }
+
+        return (int) $this->stock;
+    }
+
+    public function isOutOfStock(): bool
+    {
+        return $this->effectiveStock() <= 0;
+    }
+
+    /** 'out_of_stock' | 'low_stock' | 'in_stock' */
+    public function stockStatus(): string
+    {
+        $qty = $this->effectiveStock();
+
+        if ($qty <= 0) {
+            return 'out_of_stock';
+        }
+
+        return $qty <= $this->lowStockThreshold() ? 'low_stock' : 'in_stock';
     }
 }
