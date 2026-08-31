@@ -85,6 +85,7 @@
                 </div>
                 <p class="metric-label">Total Sales</p>
                 <h4 class="metric-value">{{ formatCurrencyValue(totalSales) }}</h4>
+                <p class="metric-sub">Gross value of every order</p>
             </div>
 
             <div class="metric-card">
@@ -108,6 +109,7 @@
                 </div>
                 <p class="metric-label">Total Revenue</p>
                 <h4 class="metric-value">{{ formatCurrencyValue(totalRevenue) }}</h4>
+                <p class="metric-sub">Collected from paid orders</p>
             </div>
 
             <div class="metric-card">
@@ -126,31 +128,14 @@
                             />
                             <path d="M3 6h18M16 10a4 4 0 0 1-8 0" /></svg
                     ></span>
-                    <span class="metric-chip flat">Tracked</span>
+                    <span
+                        class="metric-chip"
+                        :class="thisWeekOrders.length > 0 ? 'up' : 'flat'"
+                    >{{ thisWeekOrders.length > 0 ? '+' + thisWeekOrders.length + ' this week' : 'No new' }}</span>
                 </div>
                 <p class="metric-label">Total Orders</p>
                 <h4 class="metric-value">{{ orders.length }} Orders</h4>
-            </div>
-
-            <div class="metric-card">
-                <div class="metric-card-top">
-                    <span class="metric-icon blue"
-                        ><svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="m12 2 9 5-9 5-9-5 9-5Z" />
-                            <path d="m3 12 9 5 9-5" />
-                            <path d="m3 17 9 5 9-5" /></svg
-                    ></span>
-                    <span class="metric-chip flat">Stable</span>
-                </div>
-                <p class="metric-label">Active Products</p>
-                <h4 class="metric-value">{{ activeProductsCount }} Listed</h4>
+                <p class="metric-sub">All-time, every status</p>
             </div>
 
             <div class="metric-card">
@@ -173,11 +158,12 @@
                 </div>
                 <p class="metric-label">Pending Orders</p>
                 <h4 class="metric-value">{{ pendingOrdersCount }} Orders</h4>
+                <p class="metric-sub">Placed, awaiting acceptance</p>
             </div>
 
             <div class="metric-card">
                 <div class="metric-card-top">
-                    <span class="metric-icon rose"
+                    <span class="metric-icon emerald"
                         ><svg
                             width="18"
                             height="18"
@@ -186,17 +172,44 @@
                             stroke="currentColor"
                             stroke-width="2"
                         >
-                            <path
-                                d="M10.3 3.3 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.3a2 2 0 0 0-3.4 0Z"
-                            />
-                            <path d="M12 9v4M12 17h.01" /></svg
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                            <path d="m9 11 3 3L22 4" /></svg
                     ></span>
-                    <span class="metric-chip flat">Live</span>
+                    <span class="metric-chip flat">{{ fulfillmentRateLabel }}</span>
                 </div>
-                <p class="metric-label">Low Stock</p>
-                <h4 class="metric-value">
-                    {{ lowStockProductsCount }} Alerted
-                </h4>
+                <p class="metric-label">Completed Orders</p>
+                <h4 class="metric-value">{{ completedOrdersCount }} Orders</h4>
+                <p class="metric-sub">Delivered to the buyer</p>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-card-top">
+                    <span class="metric-icon blue"
+                        ><svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path d="m12 2 9 5-9 5-9-5 9-5Z" />
+                            <path d="m3 12 9 5 9-5" />
+                            <path d="m3 17 9 5 9-5" /></svg
+                    ></span>
+                    <span
+                        class="metric-chip"
+                        :class="lowStockProductsCount > 0 ? 'down' : 'flat'"
+                    >{{ lowStockProductsCount > 0 ? lowStockProductsCount + ' low' : 'Healthy' }}</span>
+                </div>
+                <p class="metric-label">Inventory</p>
+                <h4 class="metric-value">{{ activeProductsCount }} Listed</h4>
+                <p class="metric-sub">
+                    <template v-if="lowStockProductsCount > 0">
+                        {{ lowStockProductsCount }} product{{ lowStockProductsCount === 1 ? '' : 's' }} need restocking
+                    </template>
+                    <template v-else>All products in stock</template>
+                </p>
             </div>
         </div>
 
@@ -250,17 +263,25 @@
                             :d="salesTrendAreaPath"
                             fill="url(#seller-line-gradient)"
                         ></path>
-                        <circle
-                            v-if="salesTrendPeak"
-                            :cx="salesTrendPeak.x"
-                            :cy="salesTrendPeak.y"
-                            r="6"
-                            fill="#1b9ba8"
-                            stroke="white"
-                            stroke-width="3"
-                        >
-                            <title>{{ salesTrendPeak.label }}: {{ formatCurrencyValue(salesTrendPeak.total) }}</title>
-                        </circle>
+                        <g v-for="(pt, idx) in salesTrendPoints" :key="idx">
+                            <circle
+                                :cx="pt.x"
+                                :cy="pt.y"
+                                :r="pt === salesTrendPeak ? 6 : 4"
+                                fill="#1b9ba8"
+                                stroke="white"
+                                stroke-width="3"
+                            ></circle>
+                            <circle
+                                :cx="pt.x"
+                                :cy="pt.y"
+                                r="18"
+                                fill="transparent"
+                                style="cursor: pointer"
+                            >
+                                <title>{{ pt.label }}: {{ formatCurrencyValue(pt.total) }}</title>
+                            </circle>
+                        </g>
                     </svg>
                 </div>
                 <div class="chart-x-labels">
@@ -488,6 +509,53 @@
                     >
                         Clear Activity Log
                     </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Best-Selling Products + Low-Stock Products -->
+        <div class="bottom-grid mb-6 grid">
+            <div class="card panel-card">
+                <div class="panel-head">
+                    <h3>Best-Selling Products</h3>
+                    <a href="#" class="panel-link" @click.prevent="goTo('inventory')">View Inventory</a>
+                </div>
+
+                <ol v-if="bestSellers.length" class="rank-list">
+                    <li v-for="(p, i) in bestSellers" :key="p.name" class="rank-item">
+                        <span class="rank-num">{{ i + 1 }}</span>
+                        <div class="rank-body">
+                            <div class="rank-row">
+                                <span class="rank-name">{{ p.name }}</span>
+                                <span class="rank-units">{{ p.units }} sold</span>
+                            </div>
+                            <div class="rank-bar"><span :style="{ width: p.pct + '%' }"></span></div>
+                            <span class="rank-sub">{{ formatCurrency(p.revenue) }} in sales</span>
+                        </div>
+                    </li>
+                </ol>
+                <div v-else class="empty-state" style="padding: 1.5rem 0">
+                    <p>No sales yet.</p>
+                </div>
+            </div>
+
+            <div class="card panel-card">
+                <div class="panel-head">
+                    <h3>Low-Stock Products</h3>
+                    <a href="#" class="panel-link" @click.prevent="goTo('inventory')">Manage Stock</a>
+                </div>
+
+                <ul v-if="lowStockItems.length" class="stock-list">
+                    <li v-for="p in lowStockItems" :key="p.id" class="stock-item">
+                        <span class="stock-name">{{ p.name }}</span>
+                        <span
+                            class="stock-qty"
+                            :class="p.stock === 0 ? 'is-out' : 'is-low'"
+                        >{{ p.stock === 0 ? 'Out of stock' : p.stock + ' left' }}</span>
+                    </li>
+                </ul>
+                <div v-else class="empty-state" style="padding: 1.5rem 0">
+                    <p>Every product is well stocked.</p>
                 </div>
             </div>
         </div>
@@ -722,8 +790,8 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
-import { useSeller } from '../composables/useSeller';
 import { useOrders } from '../composables/useOrders';
+import { useSeller } from '../composables/useSeller';
 import { useSellerProducts } from '../composables/useSellerProducts';
 
 const {
@@ -823,8 +891,14 @@ function pctChangeLabel(current, previous) {
 }
 
 function changeChipClass(label) {
-    if (label.startsWith('+')) return 'up';
-    if (label.startsWith('-')) return 'down';
+    if (label.startsWith('+')) {
+return 'up';
+}
+
+    if (label.startsWith('-')) {
+return 'down';
+}
+
     return 'flat';
 }
 
@@ -851,6 +925,17 @@ const activeProductsCount = computed(
 const lowStockProductsCount = computed(
     () => products.value.filter((p) => stockStatusOf(p) === 'low_stock').length,
 );
+
+// The actual low/out-of-stock products (not just a count) so the
+// dashboard can list what needs restocking, worst first.
+const lowStockItems = computed(() =>
+    products.value
+        .filter((p) => ['low_stock', 'out_of_stock'].includes(stockStatusOf(p)))
+        .map((p) => ({ id: p.id, name: p.name, stock: Number(p.stock) || 0 }))
+        .sort((a, b) => a.stock - b.stock)
+        .slice(0, 6),
+);
+
 // "New" = placed but not yet accepted by the seller — the real
 // equivalent of "pending" for orders (this used to accidentally show
 // pendingDocsCount, a completely unrelated document-verification
@@ -858,6 +943,45 @@ const lowStockProductsCount = computed(
 const pendingOrdersCount = computed(
     () => orders.value.filter((o) => o.status === 'New').length,
 );
+// "Completed" = fulfilled all the way to Delivered.
+const completedOrdersCount = computed(
+    () => orders.value.filter((o) => o.status === 'Delivered').length,
+);
+// Delivered / (Delivered + Cancelled) — orders still in flight aren't
+// counted either way, matching Reports' fulfillment-rate definition.
+const fulfillmentRateLabel = computed(() => {
+    const delivered = completedOrdersCount.value;
+    const cancelled = orders.value.filter((o) => o.status === 'Cancelled').length;
+    const settled = delivered + cancelled;
+
+    return settled === 0 ? '—' : `${Math.round((delivered / settled) * 100)}% fulfilled`;
+});
+
+// ---- Best-Selling Products (units sold across every non-cancelled
+// order, from the same order data the Orders page loads) ----
+const bestSellers = computed(() => {
+    const tally = new Map();
+
+    for (const order of orders.value) {
+        if (order.status === 'Cancelled' || !order.items?.length) {
+            continue;
+        }
+
+        for (const item of order.items) {
+            const key = item.name || 'Unnamed product';
+            const row = tally.get(key) || { name: key, units: 0, revenue: 0 };
+
+            row.units += Number(item.qty) || 0;
+            row.revenue += (Number(item.qty) || 0) * (Number(item.price) || 0);
+            tally.set(key, row);
+        }
+    }
+
+    const rows = [...tally.values()].sort((a, b) => b.units - a.units).slice(0, 5);
+    const top = rows[0]?.units || 1;
+
+    return rows.map((r) => ({ ...r, pct: Math.round((r.units / top) * 100) }));
+});
 
 // ---- Sales Performance Trend (last 7 days, real daily totals) ----
 const salesTrendDays = computed(() => {
@@ -873,7 +997,10 @@ const salesTrendDays = computed(() => {
 
     return days.map((d) => {
         const total = orders.value.reduce((sum, o) => {
-            if (!o.placedAt) return sum;
+            if (!o.placedAt) {
+return sum;
+}
+
             const placed = new Date(o.placedAt);
             const sameDay =
                 placed.getFullYear() === d.getFullYear() &&
@@ -908,7 +1035,9 @@ const salesTrendPoints = computed(() => {
 const salesTrendLinePath = computed(() => {
     const pts = salesTrendPoints.value;
 
-    if (!pts.length) return '';
+    if (!pts.length) {
+return '';
+}
 
     return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 });
@@ -916,7 +1045,9 @@ const salesTrendLinePath = computed(() => {
 const salesTrendAreaPath = computed(() => {
     const pts = salesTrendPoints.value;
 
-    if (!pts.length) return '';
+    if (!pts.length) {
+return '';
+}
 
     const first = pts[0];
 
@@ -926,7 +1057,9 @@ const salesTrendAreaPath = computed(() => {
 const salesTrendPeak = computed(() => {
     const pts = salesTrendPoints.value;
 
-    if (!pts.length) return null;
+    if (!pts.length) {
+return null;
+}
 
     return pts.reduce((max, p) => (p.total > max.total ? p : max), pts[0]);
 });
@@ -939,9 +1072,13 @@ const orderStatusCounts = computed(() => {
     const counts = { delivered: 0, inTransit: 0, processing: 0 };
 
     for (const o of orders.value) {
-        if (o.status === 'Delivered') counts.delivered++;
-        else if (o.status === 'In Transit') counts.inTransit++;
-        else if (o.status === 'New' || o.status === 'Processing') counts.processing++;
+        if (o.status === 'Delivered') {
+counts.delivered++;
+} else if (o.status === 'In Transit') {
+counts.inTransit++;
+} else if (o.status === 'New' || o.status === 'Processing') {
+counts.processing++;
+}
         // Cancelled orders are excluded from this breakdown, matching
         // the original 3-segment design.
     }
@@ -985,8 +1122,13 @@ const recentOrders = computed(() =>
 );
 
 function orderItemsSummary(order) {
-    if (!order.items?.length) return '—';
-    if (order.items.length === 1) return order.items[0].name;
+    if (!order.items?.length) {
+return '—';
+}
+
+    if (order.items.length === 1) {
+return order.items[0].name;
+}
 
     return `${order.items[0].name} +${order.items.length - 1} more`;
 }
@@ -1050,3 +1192,167 @@ const donutSegments = computed(() => {
     });
 });
 </script>
+
+<style scoped>
+/* One-line context under each metric value, so the KPI cards explain
+   themselves instead of relying on a vague chip. */
+.metric-sub {
+    margin-top: 0.3rem;
+    font-size: 0.7rem;
+    line-height: 1.35;
+    color: #94a3b8;
+}
+
+/* Six evenly-sized KPI cards — no orphaned card on a second row. */
+.metric-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+@media (max-width: 1280px) {
+    .metric-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 460px) {
+    .metric-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Best-Selling Products + Low-Stock Products panels (added to the
+   dashboard). Uses the seller palette: teal #1b9ba8 accent, slate ink. */
+
+.rank-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.rank-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.rank-num {
+    flex-shrink: 0;
+    width: 1.4rem;
+    height: 1.4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.rank-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.rank-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.rank-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1e293b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rank-units {
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #1b9ba8;
+}
+
+.rank-bar {
+    margin: 0.35rem 0 0.25rem;
+    height: 6px;
+    border-radius: 999px;
+    background: #eef2f6;
+    overflow: hidden;
+}
+
+.rank-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: #1b9ba8;
+    transition: width 0.4s ease;
+}
+
+.rank-sub {
+    font-size: 0.72rem;
+    color: #94a3b8;
+}
+
+.stock-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.stock-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.stock-item:last-child {
+    border-bottom: 0;
+}
+
+.stock-name {
+    font-size: 0.85rem;
+    color: #1e293b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.stock-qty {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+}
+
+.stock-qty.is-low {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.stock-qty.is-out {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+</style>

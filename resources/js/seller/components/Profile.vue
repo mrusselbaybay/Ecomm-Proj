@@ -754,6 +754,22 @@ watch(
         hydrateFields(value, ADDRESS_FIELDS);
         hydrated.address = true;
 
+        // Some stored addresses (older onboarding, a past relocation
+        // entered by name) have a province/municipality NAME but no PSGC
+        // code. Without a code the <select> can't show the value at all.
+        // Seed a "saved:" stand-in code so the current location is
+        // visible and the field stays editable; handleSave() strips it
+        // back out, and picking a real option replaces it entirely.
+        if (!formData.province_code && formData.province_name) {
+            formData.province_code = `saved:${formData.province_name}`;
+            savedFormData.province_code = formData.province_code;
+        }
+
+        if (!formData.municipality_code && formData.municipality_name) {
+            formData.municipality_code = `saved:${formData.municipality_name}`;
+            savedFormData.municipality_code = formData.municipality_code;
+        }
+
         // Make saved values visible immediately while the dropdown choices
         // are fetched in the background.
         if (
@@ -770,6 +786,7 @@ watch(
                 ...provinceOptions.value,
             ];
         }
+
         if (
             formData.municipality_code &&
             !municipalityOptions.value.some(
@@ -786,6 +803,7 @@ watch(
                 ...municipalityOptions.value,
             ];
         }
+
         if (
             formData.barangay &&
             !barangayOptions.value.some(
@@ -801,6 +819,7 @@ watch(
         // These endpoints are independent once the saved codes are known.
         // Running them together removes the previous request waterfall.
         const lookups = [];
+
         if (formData.province_code) {
             lookups.push(
                 fetchMunicipalities(formData.province_code, {
@@ -808,6 +827,7 @@ watch(
                 }),
             );
         }
+
         if (formData.municipality_code) {
             lookups.push(
                 fetchBarangays(formData.municipality_code, {
@@ -815,6 +835,7 @@ watch(
                 }),
             );
         }
+
         void Promise.allSettled(lookups);
     },
     { immediate: true, deep: true },
@@ -1195,12 +1216,22 @@ function validate() {
     return valid;
 }
 
+// A "saved:<name>" province/municipality code is a display-only
+// stand-in for a stored address that had no PSGC code — never persist it.
+function stripSavedCode(code) {
+    return typeof code === 'string' && code.startsWith('saved:') ? '' : code;
+}
+
 async function handleSave() {
     if (!validate()) {
         return;
     }
 
-    await saveProfile({ ...formData });
+    await saveProfile({
+        ...formData,
+        province_code: stripSavedCode(formData.province_code),
+        municipality_code: stripSavedCode(formData.municipality_code),
+    });
 
     if (saveSuccess.value) {
         // Marks the form clean again so Save/Reset disable until the
@@ -1313,9 +1344,17 @@ const canUpdatePassword = computed(
     () => newPassword.value.length >= 8 && newPassword.value === confirmPassword.value,
 );
 const passwordDisabledReason = computed(() => {
-    if (isChangingPassword.value) return '';
-    if (newPassword.value.length < 8) return 'Password must be at least 8 characters.';
-    if (newPassword.value !== confirmPassword.value) return 'Passwords do not match.';
+    if (isChangingPassword.value) {
+return '';
+}
+
+    if (newPassword.value.length < 8) {
+return 'Password must be at least 8 characters.';
+}
+
+    if (newPassword.value !== confirmPassword.value) {
+return 'Passwords do not match.';
+}
 
     return '';
 });
