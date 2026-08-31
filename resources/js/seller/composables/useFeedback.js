@@ -29,6 +29,26 @@ const summaryError = ref('');
 const respondingId = ref(null);
 const respondError = ref('');
 
+// "Report inappropriate review" — reasons mirror
+// App\Models\ReviewReport::REASONS exactly; the server rejects anything
+// else.
+const REPORT_REASONS = [
+    { value: 'offensive_language', label: 'Offensive or abusive language' },
+    { value: 'spam', label: 'Spam or advertising' },
+    { value: 'personal_information', label: 'Contains personal information' },
+    { value: 'off_topic', label: 'Not about this product' },
+    { value: 'false_information', label: 'False or misleading claim' },
+    { value: 'other', label: 'Something else' },
+];
+const reportingId = ref(null);
+const reportError = ref('');
+
+// Average rating / review volume per product (GET /feedback/products) —
+// independent of the list filters, same as `summary`.
+const productStats = ref([]);
+const isLoadingProductStats = ref(false);
+const productStatsError = ref('');
+
 const isExporting = ref(false);
 const exportError = ref('');
 
@@ -44,6 +64,7 @@ const filters = ref({
     sort: 'newest',
     dateFrom: '',
     dateTo: '',
+    productId: '',
     page: 1,
 });
 
@@ -81,13 +102,37 @@ function buildQuery(includePage = true) {
     const params = new URLSearchParams();
     const f = filters.value;
 
-    if (f.search) params.set('search', f.search);
-    if (f.rating) params.set('rating', f.rating);
-    if (f.status && f.status !== 'all') params.set('status', f.status);
-    if (f.sort) params.set('sort', f.sort);
-    if (f.dateFrom) params.set('date_from', f.dateFrom);
-    if (f.dateTo) params.set('date_to', f.dateTo);
-    if (includePage && f.page) params.set('page', f.page);
+    if (f.search) {
+params.set('search', f.search);
+}
+
+    if (f.rating) {
+params.set('rating', f.rating);
+}
+
+    if (f.status && f.status !== 'all') {
+params.set('status', f.status);
+}
+
+    if (f.sort) {
+params.set('sort', f.sort);
+}
+
+    if (f.dateFrom) {
+params.set('date_from', f.dateFrom);
+}
+
+    if (f.dateTo) {
+params.set('date_to', f.dateTo);
+}
+
+    if (f.productId) {
+params.set('product_id', f.productId);
+}
+
+    if (includePage && f.page) {
+params.set('page', f.page);
+}
 
     return params.toString();
 }
@@ -132,9 +177,11 @@ async function loadSummary() {
 // remember to do both every time a filter control changes.
 function setFilter(patch) {
     Object.assign(filters.value, patch);
+
     if (!('page' in patch)) {
         filters.value.page = 1;
     }
+
     loadReviews();
 }
 
@@ -146,9 +193,27 @@ function clearFilters() {
         sort: 'newest',
         dateFrom: '',
         dateTo: '',
+        productId: '',
         page: 1,
     };
     loadReviews();
+}
+
+async function loadProductStats() {
+    isLoadingProductStats.value = true;
+    productStatsError.value = '';
+
+    try {
+        const body = await apiFetch('/feedback/products');
+        productStats.value = body.data || [];
+    } catch (err) {
+        console.error('Error loading per-product ratings:', err);
+        productStatsError.value =
+            err?.message || 'Something went wrong while loading per-product ratings.';
+        productStats.value = [];
+    } finally {
+        isLoadingProductStats.value = false;
+    }
 }
 
 // Guards against double-submission: while a response is in flight for a
@@ -170,6 +235,7 @@ async function respondToReview(id, text) {
 
         const updated = body.data;
         const idx = reviews.value.findIndex((r) => r.id === id);
+
         if (idx !== -1) {
             reviews.value[idx] = updated;
         }
@@ -188,6 +254,41 @@ async function respondToReview(id, text) {
         return null;
     } finally {
         respondingId.value = null;
+    }
+}
+
+// Files an "inappropriate review" report for one review. Idempotent on
+// the server while the report is still pending, so a double-submit just
+// updates it. `reportingId` gates the specific card's button.
+async function reportReview(id, { reason, details }) {
+    if (reportingId.value) {
+        return null;
+    }
+
+    reportingId.value = id;
+    reportError.value = '';
+
+    try {
+        const body = await apiFetch(`/feedback/${encodeURIComponent(id)}/report`, {
+            method: 'POST',
+            body: JSON.stringify({ reason, details: details || null }),
+        });
+
+        const updated = body.data;
+        const idx = reviews.value.findIndex((r) => r.id === id);
+
+        if (idx !== -1) {
+            reviews.value[idx] = updated;
+        }
+
+        return updated;
+    } catch (err) {
+        console.error('Error reporting review:', err);
+        reportError.value = err?.message || 'Could not submit your report.';
+
+        return null;
+    } finally {
+        reportingId.value = null;
     }
 }
 
@@ -228,8 +329,19 @@ const hasAnyReviewsAtAll = computed(
 );
 const hasActiveFilters = computed(() => {
     const f = filters.value;
-    return !!(f.search || f.rating || (f.status && f.status !== 'all') || f.dateFrom || f.dateTo);
+
+    return !!(
+        f.search ||
+        f.rating ||
+        (f.status && f.status !== 'all') ||
+        f.dateFrom ||
+        f.dateTo ||
+        f.productId
+    );
 });
+const activeProductStat = computed(
+    () => productStats.value.find((p) => p.productId === filters.value.productId) || null,
+);
 
 export function useFeedback() {
     return {
@@ -252,6 +364,17 @@ export function useFeedback() {
         respondingId,
         respondError,
         respondToReview,
+
+        REPORT_REASONS,
+        reportingId,
+        reportError,
+        reportReview,
+
+        productStats,
+        isLoadingProductStats,
+        productStatsError,
+        activeProductStat,
+        loadProductStats,
 
         isExporting,
         exportError,

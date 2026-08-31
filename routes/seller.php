@@ -57,8 +57,10 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     // cover yet).
     Route::get('/feedback', [SellerFeedbackController::class, 'index'])->name('feedback.index');
     Route::get('/feedback/summary', [SellerFeedbackController::class, 'summary'])->name('feedback.summary');
+    Route::get('/feedback/products', [SellerFeedbackController::class, 'products'])->name('feedback.products');
     Route::get('/feedback/export', [SellerFeedbackController::class, 'export'])->name('feedback.export');
     Route::put('/feedback/{id}/respond', [SellerFeedbackController::class, 'respond'])->name('feedback.respond');
+    Route::post('/feedback/{id}/report', [SellerFeedbackController::class, 'report'])->name('feedback.report');
 
     // Performance Reports (SellerReportController) — real seller-scoped
     // analytics: KPIs, revenue trend, order status breakdown, top

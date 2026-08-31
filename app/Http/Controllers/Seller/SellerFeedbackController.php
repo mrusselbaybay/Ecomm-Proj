@@ -3,13 +3,18 @@
 namespace App\Http\Controllers\Seller;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Seller\ReportReviewRequest;
 use App\Http\Requests\Seller\RespondToReviewRequest;
+use App\Models\Product;
 use App\Models\Review;
+use App\Models\ReviewReport;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Backs resources/js/seller/components/Feedback.vue via
@@ -21,15 +26,24 @@ use Illuminate\Support\Facades\DB;
  * below, matching SellerOrderController::show()'s comment on why).
  *
  * Deliberately does NOT expose: sentiment (no real sentiment-analysis
- * pipeline behind it), "helpful" vote counts, or a "reported" state —
- * none of those are backed by real columns/tables, and fabricating
- * numbers for them would violate the whole point of connecting this
- * page to real data. See the project summary for what's missing.
+ * pipeline behind it) or "helpful" vote counts — neither is backed by a
+ * real column/table, and fabricating numbers for them would violate the
+ * whole point of connecting this page to real data.
+ *
+ * "Report inappropriate review" (spec section 7) IS backed now, by the
+ * review_reports table — see report(). It's a seller-facing flag plus a
+ * Log::warning; there is no admin branch in this repo to build the
+ * moderation side against yet, so a reported review just shows an
+ * "under review" state to the seller until that exists.
+ *
+ * "Average rating per product" (spec section 7) is served by products().
  */
 class SellerFeedbackController extends Controller
 {
     private const DEFAULT_PER_PAGE = 10;
+
     private const MAX_PER_PAGE = 50;
+
     private const TREND_WINDOW_DAYS = 30;
 
     /**
@@ -165,7 +179,7 @@ class SellerFeedbackController extends Controller
 
         $review = Review::where('seller_id', $seller->id)->where('id', $id)->first();
 
-        if (!$review) {
+        if (! $review) {
             return response()->json(['message' => 'Review not found.'], 404);
         }
 
@@ -180,8 +194,116 @@ class SellerFeedbackController extends Controller
         $review->save();
 
         return response()->json([
-            'data' => $this->transform($review->fresh(['product', 'buyer', 'orderItem.order'])),
+            'data' => $this->transform($review->fresh(['product', 'buyer', 'orderItem.order', 'reports'])),
         ]);
+    }
+
+    /**
+     * POST /api/seller/feedback/{id}/report
+     *
+     * Flags a review on one of the seller's own products as
+     * inappropriate. Idempotent per (review, seller): re-submitting while
+     * a report is still 'pending' just updates the reason/details rather
+     * than stacking duplicates. Once an (as-yet-hypothetical) admin tool
+     * has moved the report to a terminal status, this returns 409 instead
+     * of silently reopening it.
+     *
+     * A Log::warning is emitted so the report is visible in logs until
+     * that admin surface exists — same approach as
+     * MessageController::report().
+     */
+    public function report(ReportReviewRequest $request, string $id): JsonResponse
+    {
+        $seller = $request->user();
+
+        $review = Review::where('seller_id', $seller->id)->where('id', $id)->first();
+
+        if (! $review) {
+            return response()->json(['message' => 'Review not found.'], 404);
+        }
+
+        $existing = ReviewReport::where('review_id', $review->id)
+            ->where('seller_id', $seller->id)
+            ->first();
+
+        if ($existing && ! $existing->isOpen()) {
+            return response()->json([
+                'message' => 'This review has already been reviewed by our moderation team.',
+                'data' => $this->transform($review->fresh(['product', 'buyer', 'orderItem.order', 'reports'])),
+            ], 409);
+        }
+
+        $report = $existing ?? new ReviewReport([
+            'review_id' => $review->id,
+            'seller_id' => $seller->id,
+        ]);
+        $report->reason = $request->validated('reason');
+        $report->details = $request->validated('details');
+        $report->status = 'pending';
+        $report->save();
+
+        Log::warning('Seller reported a review as inappropriate.', [
+            'review_id' => $review->id,
+            'seller_id' => $seller->id,
+            'product_id' => $review->product_id,
+            'reason' => $report->reason,
+            'report_id' => $report->id,
+        ]);
+
+        return response()->json([
+            'data' => $this->transform($review->fresh(['product', 'buyer', 'orderItem.order', 'reports'])),
+        ]);
+    }
+
+    /**
+     * GET /api/seller/feedback/products
+     *
+     * Average rating + review volume broken down by product, for the
+     * seller's whole catalogue of reviewed products. Aggregated in PHP
+     * off a single seller-scoped fetch (the same shape summary() uses) —
+     * no per-product queries, and no SQL-dialect assumptions. Ignores the
+     * list filters for the same reason summary() does: this describes the
+     * whole population, not the current filtered view.
+     */
+    public function products(Request $request): JsonResponse
+    {
+        $seller = $request->user();
+
+        $reviews = Review::where('seller_id', $seller->id)
+            ->get(['id', 'product_id', 'product_name', 'rating', 'seller_response', 'created_at']);
+
+        $productIds = $reviews->pluck('product_id')->filter()->unique()->values();
+        $products = $productIds->isNotEmpty()
+            ? Product::whereIn('id', $productIds)->get(['id', 'name', 'images'])->keyBy('id')
+            : collect();
+
+        $data = $reviews
+            ->groupBy(fn (Review $r) => $r->product_id ?? '__none__')
+            ->map(function ($group, $key) use ($products) {
+                $productId = $key === '__none__' ? null : $key;
+                $product = $productId ? $products->get($productId) : null;
+                $count = $group->count();
+                $lastReviewAt = $group->max('created_at');
+
+                return [
+                    'productId' => $productId,
+                    'name' => $product?->name
+                        ?? $group->firstWhere('product_name', '!=', null)?->product_name
+                        ?? 'Unknown product',
+                    'image' => ($product?->images ?? [])[0]['url'] ?? null,
+                    'reviewCount' => $count,
+                    'averageRating' => round($group->avg('rating'), 2),
+                    'unansweredCount' => $group->whereNull('seller_response')->count(),
+                    'positiveCount' => $group->where('rating', '>=', 4)->count(),
+                    'negativeCount' => $group->where('rating', '<=', 2)->count(),
+                    'lastReviewAt' => optional($lastReviewAt)->toIso8601String(),
+                ];
+            })
+            ->sortByDesc('reviewCount')
+            ->values()
+            ->all();
+
+        return response()->json(['data' => $data]);
     }
 
     /**
@@ -201,12 +323,15 @@ class SellerFeedbackController extends Controller
             $request->string('status')->toString(),
         );
 
+        /** @var Collection<int, Review> $reviews */
         $reviews = $query->orderByDesc('created_at')->get();
 
         $handle = fopen('php://temp', 'w+');
-        fputcsv($handle, ['Date', 'Product', 'Variant', 'Order #', 'Buyer', 'Rating', 'Comment', 'Status', 'Seller Response', 'Responded At']);
+        fputcsv($handle, ['Date', 'Product', 'Variant', 'Order #', 'Buyer', 'Rating', 'Comment', 'Status', 'Seller Response', 'Responded At', 'Reported']);
 
         foreach ($reviews as $review) {
+            $report = $review->relationLoaded('reports') ? $review->reports->first() : null;
+
             fputcsv($handle, [
                 $review->created_at?->format('Y-m-d H:i'),
                 $review->product_name ?? $review->product?->name,
@@ -218,6 +343,7 @@ class SellerFeedbackController extends Controller
                 $review->is_responded ? ($review->is_edited ? 'Responded (edited)' : 'Responded') : 'Unanswered',
                 $review->seller_response,
                 $review->responded_at?->format('Y-m-d H:i'),
+                $report ? ($report->isOpen() ? 'Reported (under review)' : 'Reported ('.$report->status.')') : '',
             ]);
         }
 
@@ -225,7 +351,7 @@ class SellerFeedbackController extends Controller
         $csv = stream_get_contents($handle);
         fclose($handle);
 
-        $filename = 'feedback-export-' . now()->format('Y-m-d') . '.csv';
+        $filename = 'feedback-export-'.now()->format('Y-m-d').'.csv';
 
         return response($csv, 200, [
             'Content-Type' => 'text/csv',
@@ -241,7 +367,17 @@ class SellerFeedbackController extends Controller
      */
     private function commonFilters(string $sellerId, Request $request): Builder
     {
-        $query = Review::with(['product', 'buyer', 'orderItem.order'])->where('seller_id', $sellerId);
+        $query = Review::with([
+            'product', 'buyer', 'orderItem.order',
+            // Scoped here so a seller only ever sees their own report on a
+            // review, never another seller's (can't happen today given a
+            // review belongs to one seller, but keeps the invariant explicit).
+            'reports' => fn ($q) => $q->where('seller_id', $sellerId)->latest(),
+        ])->where('seller_id', $sellerId);
+
+        if ($productId = $request->string('product_id')->toString()) {
+            $query->where('product_id', $productId);
+        }
 
         if ($search = $request->string('search')->toString()) {
             $query->where(function ($q) use ($search) {
@@ -328,6 +464,7 @@ class SellerFeedbackController extends Controller
             'images' => $review->images ?? [],
             'isResponded' => $review->is_responded,
             'isEdited' => $review->is_edited,
+            'report' => $this->reportFor($review),
             'sellerResponse' => $review->seller_response,
             'respondedAt' => optional($review->responded_at)->toIso8601String(),
             'responseEditedAt' => optional($review->response_edited_at)->toIso8601String(),
@@ -336,9 +473,36 @@ class SellerFeedbackController extends Controller
         ];
     }
 
+    /**
+     * The seller's own report on this review, if any — read only from the
+     * already-scoped `reports` relation (loaded in commonFilters /
+     * respond), never a fresh query. `null` when the review has not been
+     * reported.
+     */
+    private function reportFor(Review $review): ?array
+    {
+        if (! $review->relationLoaded('reports')) {
+            return null;
+        }
+
+        $report = $review->reports->first();
+
+        if (! $report) {
+            return null;
+        }
+
+        return [
+            'status' => $report->status,
+            'reason' => $report->reason,
+            'details' => $report->details,
+            'isOpen' => $report->isOpen(),
+            'reportedAt' => optional($report->created_at)->toIso8601String(),
+        ];
+    }
+
     private function initialsFor(?string $name): string
     {
-        if (!$name) {
+        if (! $name) {
             return '?';
         }
 
@@ -346,6 +510,6 @@ class SellerFeedbackController extends Controller
         $first = mb_substr($parts[0] ?? '', 0, 1);
         $last = count($parts) > 1 ? mb_substr(end($parts), 0, 1) : '';
 
-        return mb_strtoupper($first . $last) ?: '?';
+        return mb_strtoupper($first.$last) ?: '?';
     }
 }

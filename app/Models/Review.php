@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\HasUuidPrimaryKey;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Review extends Model
 {
@@ -13,6 +14,7 @@ class Review extends Model
     protected $table = 'reviews';
 
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -53,13 +55,22 @@ class Review extends Model
         return $this->belongsTo(Profile::class, 'responded_by');
     }
 
+    /**
+     * Seller-filed "this review is inappropriate" reports. Scoped by
+     * seller_id at the call site so a seller only ever sees their own.
+     */
+    public function reports(): HasMany
+    {
+        return $this->hasMany(ReviewReport::class, 'review_id');
+    }
+
     public function getIsRespondedAttribute(): bool
     {
-        return !is_null($this->seller_response);
+        return ! is_null($this->seller_response);
     }
 
     public function getIsEditedAttribute(): bool
     {
-        return !is_null($this->response_edited_at);
+        return ! is_null($this->response_edited_at);
     }
 }

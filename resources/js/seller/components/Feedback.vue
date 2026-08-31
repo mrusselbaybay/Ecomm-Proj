@@ -126,6 +126,53 @@
                     </div>
                 </div>
 
+                <div class="card feedback-product-ratings">
+                    <h3 class="feedback-side-title">
+                        Ratings by Product
+                        <span class="info-tip" tabindex="0" role="img" aria-label="Average star rating for each product you sell. Click one to filter the list.">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+                            <span class="info-tip-bubble">Average star rating for each product you sell. Click one to filter the list.</span>
+                        </span>
+                    </h3>
+
+                    <p v-if="isLoadingProductStats && !productStats.length" class="feedback-product-ratings-hint">Loading…</p>
+                    <p v-else-if="!productStats.length" class="feedback-product-ratings-hint">
+                        No product has been reviewed yet.
+                    </p>
+                    <div v-else class="feedback-product-ratings-list">
+                        <button
+                            v-for="p in productStats"
+                            :key="p.productId || 'none'"
+                            type="button"
+                            class="feedback-product-rating-row"
+                            :class="{ active: filters.productId === p.productId }"
+                            @click="onProductStatClick(p.productId)"
+                        >
+                            <span class="feedback-product-rating-thumb" aria-hidden="true">
+                                <img v-if="p.image" :src="p.image" :alt="p.name" loading="lazy" decoding="async" />
+                                <span v-else class="feedback-product-rating-thumb-ph">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" />
+                                    </svg>
+                                </span>
+                            </span>
+                            <span class="feedback-product-rating-body">
+                                <span class="feedback-product-rating-name">{{ p.name }}</span>
+                                <span class="feedback-product-rating-meta">
+                                    <span class="feedback-product-rating-score">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2Z" />
+                                        </svg>
+                                        {{ p.averageRating != null ? p.averageRating.toFixed(1) : '—' }}
+                                    </span>
+                                    <span class="feedback-product-rating-count">{{ p.reviewCount }} review{{ p.reviewCount === 1 ? '' : 's' }}</span>
+                                    <span v-if="p.unansweredCount > 0" class="feedback-product-rating-unanswered">{{ p.unansweredCount }} unanswered</span>
+                                </span>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+
                 <div class="card feedback-attention">
                     <h3 class="feedback-side-title">Needs Attention</h3>
                     <template v-if="summary && summary.unansweredCount > 0">
@@ -234,6 +281,21 @@
                     </div>
                 </div>
 
+                <!-- Active product filter chip -->
+                <div v-if="filters.productId" class="feedback-active-product">
+                    <span class="feedback-active-product-label">
+                        Showing reviews for
+                        <strong>{{ activeProductStat?.name || 'this product' }}</strong>
+                        <template v-if="activeProductStat?.averageRating != null">
+                            · {{ activeProductStat.averageRating.toFixed(1) }}★ avg over {{ activeProductStat.reviewCount }}
+                        </template>
+                    </span>
+                    <button type="button" class="feedback-active-product-clear" @click="clearProductFilter">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                        Clear
+                    </button>
+                </div>
+
                 <!-- Loading skeleton (first load only) -->
                 <div v-if="isLoadingReviews && !hasReviews && !loadError" class="feedback-skeleton-list">
                     <div v-for="n in 3" :key="n" class="card feedback-skeleton-card" aria-hidden="true">
@@ -304,6 +366,16 @@
                                     {{ review.rating <= 2 ? 'Needs response' : 'Unanswered' }}
                                 </span>
                                 <span v-else class="badge badge-sky">Responded</span>
+                                <span
+                                    v-if="review.report"
+                                    class="badge feedback-reported-badge"
+                                    :title="`Reported: ${reportReasonLabel(review.report.reason)}`"
+                                >
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" />
+                                    </svg>
+                                    {{ reportStatusLabel(review.report.status) }}
+                                </span>
                             </div>
                         </div>
 
@@ -410,6 +482,27 @@
                             </div>
                             <p v-if="respondError && lastAttemptedId === review.id" class="save-msg error">{{ respondError }}</p>
                         </div>
+
+                        <div class="feedback-card-footer">
+                            <p v-if="reportJustSubmittedId === review.id" class="feedback-report-sent">
+                                ✓ Report submitted — our team will take a look.
+                            </p>
+                            <p v-else-if="review.report" class="feedback-report-note">
+                                You reported this review ({{ reportReasonLabel(review.report.reason) }}) ·
+                                <span class="feedback-report-note-status">{{ reportStatusLabel(review.report.status) }}</span>
+                            </p>
+                            <button
+                                v-else
+                                type="button"
+                                class="feedback-report-btn"
+                                @click="openReportModal(review)"
+                            >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" />
+                                </svg>
+                                Report review
+                            </button>
+                        </div>
                     </article>
                 </div>
 
@@ -483,6 +576,54 @@
                 </div>
             </div>
         </div>
+
+        <!-- Report review modal -->
+        <div v-if="reportModalReview" class="modal-overlay" @click.self="closeReportModal">
+            <div class="modal-panel">
+                <div class="modal-header">
+                    <h3>Report this review</h3>
+                    <button type="button" class="modal-close" aria-label="Close" @click="closeReportModal">
+                        <svg class="icon" viewBox="0 0 20 20" fill="none"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+                    </button>
+                </div>
+                <p class="modal-desc">
+                    Flag {{ reportModalReview.buyer.name }}'s {{ reportModalReview.rating }}-star review for our team to
+                    check. The review stays visible until it's reviewed.
+                </p>
+
+                <div class="feedback-field">
+                    <label class="field-label" for="fb-report-reason">Reason</label>
+                    <select id="fb-report-reason" class="field-input" v-model="reportForm.reason">
+                        <option value="" disabled>Select a reason…</option>
+                        <option v-for="r in REPORT_REASONS" :key="r.value" :value="r.value">{{ r.label }}</option>
+                    </select>
+                </div>
+
+                <div class="feedback-field" style="margin-top: 0.75rem">
+                    <label class="field-label" for="fb-report-details">Details <span style="font-weight: 400; color: #64748b">(optional)</span></label>
+                    <textarea
+                        id="fb-report-details"
+                        class="field-input feedback-textarea"
+                        rows="3"
+                        maxlength="1000"
+                        placeholder="Add anything that helps us review this faster…"
+                        v-model="reportForm.details"
+                    ></textarea>
+                    <span class="feedback-char-count" :class="{ warn: reportForm.details.length > 900 }">
+                        {{ reportForm.details.length }}/1000
+                    </span>
+                </div>
+
+                <p v-if="reportError" class="save-msg error">{{ reportError }}</p>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn-outline" style="flex: 1" @click="closeReportModal">Cancel</button>
+                    <button type="button" class="btn-primary" style="flex: 1" :disabled="!canSubmitReport" @click="submitReport">
+                        {{ reportingId ? 'Submitting…' : 'Submit report' }}
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
@@ -505,6 +646,14 @@ const {
     respondingId,
     respondError,
     respondToReview,
+    REPORT_REASONS,
+    reportingId,
+    reportError,
+    reportReview,
+    productStats,
+    isLoadingProductStats,
+    activeProductStat,
+    loadProductStats,
     isExporting,
     exportError,
     exportCsv,
@@ -546,11 +695,27 @@ const pendingEditText = ref('');
 const previewImages = ref([]);
 const previewIndex = ref(0);
 
+// ---- report-review modal ----
+const reportModalReview = ref(null);
+const reportForm = ref({ reason: '', details: '' });
+const reportJustSubmittedId = ref(null);
+
+const REPORT_REASON_LABELS = Object.fromEntries(
+    REPORT_REASONS.map((r) => [r.value, r.label]),
+);
+const REPORT_STATUS_LABELS = {
+    pending: 'Under review',
+    reviewed: 'Reviewed',
+    dismissed: 'Report dismissed',
+    action_taken: 'Action taken',
+};
+
 const today = new Date().toISOString().slice(0, 10);
 
 const responseRateTooltip = computed(() => {
     const hours = summary.value?.avgResponseTimeHours;
     const base = 'Share of your reviews that have a seller response.';
+
     return hours != null ? `${base} You typically reply within ${hours}h.` : base;
 });
 
@@ -566,18 +731,43 @@ function trendArrow(v) {
 
 function tabCount(value) {
     const counts = meta.value.statusCounts || {};
-    if (value === 'all') return counts.all ?? 0;
-    if (value === 'unanswered') return counts.unanswered ?? 0;
-    if (value === 'low_rating') return counts.lowRating ?? 0;
-    if (value === 'responded') return counts.responded ?? 0;
+
+    if (value === 'all') {
+return counts.all ?? 0;
+}
+
+    if (value === 'unanswered') {
+return counts.unanswered ?? 0;
+}
+
+    if (value === 'low_rating') {
+return counts.lowRating ?? 0;
+}
+
+    if (value === 'responded') {
+return counts.responded ?? 0;
+}
+
     return 0;
 }
 
 function distBarClass(rating) {
-    if (rating === 5) return 'bar-teal';
-    if (rating === 4) return 'bar-teal-soft';
-    if (rating === 3) return 'bar-amber';
-    if (rating === 2) return 'bar-red';
+    if (rating === 5) {
+return 'bar-teal';
+}
+
+    if (rating === 4) {
+return 'bar-teal-soft';
+}
+
+    if (rating === 3) {
+return 'bar-amber';
+}
+
+    if (rating === 2) {
+return 'bar-red';
+}
+
     return 'bar-red-strong';
 }
 
@@ -589,17 +779,21 @@ const rangeEnd = computed(() => Math.min(meta.value.currentPage * meta.value.per
 const pageNumbers = computed(() => {
     const last = meta.value.lastPage || 1;
     const current = meta.value.currentPage || 1;
+
     if (last <= 7) {
         return Array.from({ length: last }, (_, i) => i + 1);
     }
+
     let start = Math.max(1, current - 2);
     const end = Math.min(last, start + 4);
     start = Math.max(1, end - 4);
+
     return Array.from({ length: end - start + 1 }, (_, i) => start + i);
 });
 
 const confirmEditBuyerName = computed(() => {
     const r = reviews.value.find((r) => r.id === confirmEditId.value);
+
     return r?.buyer?.name || 'this customer';
 });
 
@@ -633,6 +827,14 @@ function onDistRowClick(rating) {
     setFilter({ rating: ratingFilterValue.value });
     scrollToControls();
 }
+function onProductStatClick(productId) {
+    const next = filters.value.productId === productId ? '' : productId;
+    setFilter({ productId: next });
+    scrollToControls();
+}
+function clearProductFilter() {
+    setFilter({ productId: '' });
+}
 function viewUnanswered() {
     ratingFilterValue.value = null;
     setFilter({ status: 'unanswered', sort: 'lowest', rating: null });
@@ -647,7 +849,10 @@ function onClearFilters() {
     clearFilters();
 }
 function goToPage(p) {
-    if (p < 1 || p > meta.value.lastPage || p === meta.value.currentPage) return;
+    if (p < 1 || p > meta.value.lastPage || p === meta.value.currentPage) {
+return;
+}
+
     setFilter({ page: p });
     scrollToControls();
 }
@@ -658,8 +863,13 @@ function isLong(text) {
 }
 function toggleExpand(id) {
     const next = new Set(expandedComments.value);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+
+    if (next.has(id)) {
+next.delete(id);
+} else {
+next.add(id);
+}
+
     expandedComments.value = next;
 }
 
@@ -671,6 +881,7 @@ function draftKey(id) {
 function persistDraft(id) {
     try {
         const text = drafts.value[id] || '';
+
         if (text.trim()) {
             localStorage.setItem(draftKey(id), text);
         } else {
@@ -684,6 +895,7 @@ function persistDraft(id) {
 }
 function clearDraft(id) {
     drafts.value[id] = '';
+
     try {
         localStorage.removeItem(draftKey(id));
     } catch {
@@ -694,11 +906,13 @@ function hydrateDrafts(list) {
     for (const r of list) {
         if (drafts.value[r.id] === undefined) {
             let saved = '';
+
             try {
                 saved = localStorage.getItem(draftKey(r.id)) || '';
             } catch {
                 saved = '';
             }
+
             drafts.value[r.id] = saved;
         }
     }
@@ -714,6 +928,7 @@ function applyQuickReply(review, template) {
 function startEditing(review) {
     editingId.value = review.id;
     lastAttemptedId.value = null;
+
     if (!drafts.value[review.id]) {
         drafts.value[review.id] = review.sellerResponse || '';
     }
@@ -725,27 +940,35 @@ function cancelEditing(review) {
 }
 function canSubmit(review) {
     const text = (drafts.value[review.id] || '').trim();
+
     return text.length >= 2 && text.length <= 2000 && !respondingId.value;
 }
 function flashSuccess(id) {
     justSubmittedId.value = id;
     setTimeout(() => {
-        if (justSubmittedId.value === id) justSubmittedId.value = null;
+        if (justSubmittedId.value === id) {
+justSubmittedId.value = null;
+}
     }, 3000);
 }
 async function onSubmit(review) {
     const text = (drafts.value[review.id] || '').trim();
-    if (!text || respondingId.value) return;
+
+    if (!text || respondingId.value) {
+return;
+}
 
     if (review.isResponded) {
         // Editing a published response — confirm before overwriting it.
         pendingEditText.value = text;
         confirmEditId.value = review.id;
+
         return;
     }
 
     lastAttemptedId.value = review.id;
     const result = await respondToReview(review.id, text);
+
     if (result) {
         clearDraft(review.id);
         lastAttemptedId.value = null;
@@ -755,7 +978,10 @@ async function onSubmit(review) {
 async function confirmEditSubmit() {
     const id = confirmEditId.value;
     const text = pendingEditText.value;
-    if (!id || !text) return;
+
+    if (!id || !text) {
+return;
+}
 
     lastAttemptedId.value = id;
     const result = await respondToReview(id, text);
@@ -776,9 +1002,13 @@ function cancelEditConfirm() {
 
 // ---- image preview modal ----
 function onPreviewKeydown(e) {
-    if (e.key === 'Escape') closePreview();
-    else if (e.key === 'ArrowLeft') prevPreviewImage();
-    else if (e.key === 'ArrowRight') nextPreviewImage();
+    if (e.key === 'Escape') {
+closePreview();
+} else if (e.key === 'ArrowLeft') {
+prevPreviewImage();
+} else if (e.key === 'ArrowRight') {
+nextPreviewImage();
+}
 }
 function openPreview(review, index) {
     previewImages.value = review.images || [];
@@ -796,6 +1026,47 @@ function nextPreviewImage() {
     previewIndex.value = (previewIndex.value + 1) % previewImages.value.length;
 }
 
+// ---- report-review modal ----
+function openReportModal(review) {
+    reportModalReview.value = review;
+    reportForm.value = { reason: '', details: '' };
+    reportError.value = '';
+}
+function closeReportModal() {
+    reportModalReview.value = null;
+}
+const canSubmitReport = computed(
+    () => !!reportForm.value.reason && !reportingId.value,
+);
+async function submitReport() {
+    const review = reportModalReview.value;
+
+    if (!review || !canSubmitReport.value) {
+        return;
+    }
+
+    const result = await reportReview(review.id, {
+        reason: reportForm.value.reason,
+        details: reportForm.value.details.trim(),
+    });
+
+    if (result) {
+        reportModalReview.value = null;
+        reportJustSubmittedId.value = review.id;
+        setTimeout(() => {
+            if (reportJustSubmittedId.value === review.id) {
+                reportJustSubmittedId.value = null;
+            }
+        }, 4000);
+    }
+}
+function reportReasonLabel(value) {
+    return REPORT_REASON_LABELS[value] || value;
+}
+function reportStatusLabel(status) {
+    return REPORT_STATUS_LABELS[status] || status;
+}
+
 // ---- URL sync: read filters from the query string on load, and keep
 // them reflected there as they change, so a refresh or a shared link
 // reproduces the same view. SellerLayout's router only reads
@@ -810,6 +1081,7 @@ onMounted(() => {
     filters.value.sort = params.get('sort') || 'newest';
     filters.value.dateFrom = params.get('date_from') || '';
     filters.value.dateTo = params.get('date_to') || '';
+    filters.value.productId = params.get('product_id') || '';
     filters.value.page = params.get('page') ? Number(params.get('page')) : 1;
 
     searchInput.value = filters.value.search;
@@ -818,6 +1090,7 @@ onMounted(() => {
     dateToValue.value = filters.value.dateTo;
 
     loadSummary();
+    loadProductStats();
     loadReviews();
 });
 
@@ -825,16 +1098,42 @@ watch(
     filters,
     (f) => {
         const params = new URLSearchParams();
-        if (f.search) params.set('search', f.search);
-        if (f.rating) params.set('rating', f.rating);
-        if (f.status && f.status !== 'all') params.set('status', f.status);
-        if (f.sort && f.sort !== 'newest') params.set('sort', f.sort);
-        if (f.dateFrom) params.set('date_from', f.dateFrom);
-        if (f.dateTo) params.set('date_to', f.dateTo);
-        if (f.page && f.page > 1) params.set('page', f.page);
+
+        if (f.search) {
+params.set('search', f.search);
+}
+
+        if (f.rating) {
+params.set('rating', f.rating);
+}
+
+        if (f.status && f.status !== 'all') {
+params.set('status', f.status);
+}
+
+        if (f.sort && f.sort !== 'newest') {
+params.set('sort', f.sort);
+}
+
+        if (f.dateFrom) {
+params.set('date_from', f.dateFrom);
+}
+
+        if (f.dateTo) {
+params.set('date_to', f.dateTo);
+}
+
+        if (f.productId) {
+params.set('product_id', f.productId);
+}
+
+        if (f.page && f.page > 1) {
+params.set('page', f.page);
+}
 
         const qs = params.toString();
         const newUrl = window.location.pathname + (qs ? `?${qs}` : '');
+
         if (newUrl !== window.location.pathname + window.location.search) {
             window.history.replaceState(window.history.state, '', newUrl);
         }

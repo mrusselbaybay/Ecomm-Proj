@@ -4785,6 +4785,173 @@ body {
     margin-left: auto;
 }
 
+/* ---- ratings by product (left rail) ---- */
+.feedback-product-ratings {
+    padding-bottom: 0.75rem;
+}
+.feedback-product-ratings-hint {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    padding: 0 1.35rem 0.75rem;
+    margin: 0;
+}
+.feedback-product-ratings-list {
+    display: flex;
+    flex-direction: column;
+    padding: 0 0.6rem 0.35rem;
+    max-height: 20rem;
+    overflow-y: auto;
+}
+.feedback-product-rating-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: none;
+    border-radius: 0.6rem;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s ease;
+}
+.feedback-product-rating-row:hover {
+    background: #f8fafc;
+}
+.feedback-product-rating-row.active {
+    background: rgba(27, 155, 168, 0.08);
+}
+.feedback-product-rating-thumb {
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: #eef2f7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.feedback-product-rating-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.feedback-product-rating-thumb-ph {
+    color: #94a3b8;
+    display: flex;
+}
+.feedback-product-rating-body {
+    min-width: 0;
+    flex: 1;
+}
+.feedback-product-rating-name {
+    display: block;
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #1e293b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.feedback-product-rating-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.15rem;
+    font-size: 0.68rem;
+    color: #94a3b8;
+    font-weight: 600;
+}
+.feedback-product-rating-score {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    color: #f59e0b;
+    font-weight: 800;
+}
+.feedback-product-rating-unanswered {
+    color: #b45309;
+}
+
+/* ---- active product filter chip ---- */
+.feedback-active-product {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    background: rgba(27, 155, 168, 0.08);
+    border: 1px solid rgba(27, 155, 168, 0.2);
+    border-radius: 0.65rem;
+    padding: 0.55rem 0.85rem;
+    margin-bottom: 0.9rem;
+}
+.feedback-active-product-label {
+    font-size: 0.76rem;
+    color: #334155;
+}
+.feedback-active-product-clear {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #0f766e;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.2rem 0.35rem;
+}
+.feedback-active-product-clear:hover {
+    text-decoration: underline;
+}
+
+/* ---- report review ---- */
+.feedback-reported-badge {
+    background: #fef2f2;
+    color: #b91c1c;
+    margin-left: 0.35rem;
+}
+.feedback-card-footer {
+    display: flex;
+    align-items: center;
+    margin-top: 0.85rem;
+    padding-top: 0.7rem;
+    border-top: 1px dashed #e2e8f0;
+}
+.feedback-report-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #94a3b8;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.15rem 0.25rem;
+    transition: color 0.15s ease;
+}
+.feedback-report-btn:hover {
+    color: #b91c1c;
+}
+.feedback-report-note,
+.feedback-report-sent {
+    font-size: 0.72rem;
+    margin: 0;
+    color: #94a3b8;
+}
+.feedback-report-sent {
+    color: #047857;
+    font-weight: 600;
+}
+.feedback-report-note-status {
+    font-weight: 700;
+    color: #b45309;
+}
+
 /* ---- responsive pagination ---- */
 .pagination-simple {
     display: none;
