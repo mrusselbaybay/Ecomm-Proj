@@ -1,6 +1,6 @@
 <!-- resources/js/seller/components/Dashboard.vue -->
 <template>
-    <div>
+    <div class="seller-dashboard">
         <!-- Quick Actions Launchpad -->
         <div class="card launchpad">
             <div class="launchpad-head">
@@ -255,7 +255,7 @@
                             :d="salesTrendLinePath"
                             fill="none"
                             stroke="#1b9ba8"
-                            stroke-width="4"
+                            stroke-width="2.5"
                             stroke-linecap="round"
                             stroke-linejoin="round"
                         ></path>
@@ -561,6 +561,7 @@
         </div>
 
         <!-- Account & Compliance (existing onboarding functionality, preserved) -->
+        <div class="sd-compliance-zone">
         <p class="section-label" style="margin-bottom: 0.85rem">
             Account &amp; Compliance
         </p>
@@ -784,6 +785,7 @@
                     }}</span>
                 </div>
             </div>
+        </div>
         </div>
     </div>
 </template>
@@ -1099,7 +1101,7 @@ const orderDonutSegments = computed(() => {
     const segments = [
         { key: 'delivered', label: 'Delivered', color: '#1b9ba8', count: counts.delivered },
         { key: 'inTransit', label: 'In Transit', color: '#2c5aa0', count: counts.inTransit },
-        { key: 'processing', label: 'Processing', color: '#f87171', count: counts.processing },
+        { key: 'processing', label: 'Processing', color: '#f59e0b', count: counts.processing },
     ];
 
     let offsetAcc = 0;
@@ -1194,165 +1196,491 @@ const donutSegments = computed(() => {
 </script>
 
 <style scoped>
-/* One-line context under each metric value, so the KPI cards explain
-   themselves instead of relying on a vague chip. */
-.metric-sub {
-    margin-top: 0.3rem;
-    font-size: 0.7rem;
-    line-height: 1.35;
-    color: #94a3b8;
+/* ============================================================
+   Seller Dashboard — visual redesign.
+
+   Design system from ui-ux-pro-max ("Data-Dense Dashboard",
+   density 8 / motion 3): an 8px spacing rhythm, a real KPI type
+   ramp, tabular figures on every data number, subtle 150-200ms
+   motion, and one consistent card frame. Applied here as
+   token-driven scoped CSS — every rule is confined to
+   `.seller-dashboard`, so layout.css and all other seller pages
+   are untouched. No element, label, column or copy was changed;
+   only layout, spacing, type, colour and hierarchy.
+   ============================================================ */
+
+.seller-dashboard {
+    /* spacing rhythm (8px base) */
+    --sd-space-1: 0.25rem;
+    --sd-space-2: 0.5rem;
+    --sd-space-3: 0.75rem;
+    --sd-space-4: 1rem;
+    --sd-space-5: 1.5rem;
+    --sd-space-6: 2rem;
+
+    --sd-radius: 0.6rem;
+    --sd-radius-lg: 0.85rem;
+
+    --sd-border: #e6ebf1;
+    --sd-border-strong: #d7dfe9;
+
+    --sd-ink: #0f172a;
+    --sd-ink-soft: #475569;
+    /* #64748b clears 4.5:1 on white / #f8fafc for the small supporting
+       labels that were previously #94a3b8 (~2.8:1). */
+    --sd-ink-mute: #64748b;
+
+    --sd-teal: #1b9ba8;
+    --sd-blue: #2c5aa0;
+
+    --sd-shadow-rest: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --sd-shadow-hover: 0 8px 24px -8px rgba(15, 23, 42, 0.12);
+
+    --sd-ease: cubic-bezier(0, 0, 0.2, 1);
 }
 
-/* Six evenly-sized KPI cards — no orphaned card on a second row. */
-.metric-grid {
+/* Tabular figures wherever a number is shown as data, so columns
+   and values stop shifting width digit-to-digit. */
+.seller-dashboard .metric-value,
+.seller-dashboard .stat-value,
+.seller-dashboard .donut-center-value,
+.seller-dashboard .sales-table .amount,
+.seller-dashboard .sales-table .order-id,
+.seller-dashboard .rank-num,
+.seller-dashboard .rank-units,
+.seller-dashboard .stock-qty {
+    font-variant-numeric: tabular-nums;
+}
+
+/* One consistent card frame: crisp hairline border, soft rest
+   shadow, unified radius. */
+.seller-dashboard .card {
+    border-color: var(--sd-border);
+    border-radius: var(--sd-radius-lg);
+    box-shadow: var(--sd-shadow-rest);
+}
+
+/* ============================================================
+   1 · Quick Actions Launchpad — slim command bar
+   ============================================================ */
+.seller-dashboard .launchpad {
+    padding: var(--sd-space-3) var(--sd-space-5);
+    margin-bottom: var(--sd-space-5);
+    border-radius: var(--sd-radius);
+}
+.seller-dashboard .launchpad-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sd-ink-soft);
+}
+.seller-dashboard .launchpad-icon {
+    padding: 0.4rem;
+}
+.seller-dashboard .launchpad-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sd-space-2);
+}
+.seller-dashboard .launchpad-actions > button {
+    transition:
+        transform 0.15s var(--sd-ease),
+        box-shadow 0.15s var(--sd-ease),
+        background 0.15s var(--sd-ease);
+}
+
+/* ============================================================
+   2 · Metric cards — label ▸ value ▸ context
+   ============================================================ */
+.seller-dashboard .metric-grid {
     grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: var(--sd-space-3);
+    margin-bottom: var(--sd-space-5);
+}
+.seller-dashboard .metric-card {
+    padding: var(--sd-space-4);
+    border-radius: var(--sd-radius);
+    border-color: var(--sd-border);
+    box-shadow: var(--sd-shadow-rest);
+    transition:
+        transform 0.16s var(--sd-ease),
+        box-shadow 0.16s var(--sd-ease);
+}
+.seller-dashboard .metric-card:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--sd-shadow-hover);
+}
+.seller-dashboard .metric-card-top {
+    align-items: center;
+    margin-bottom: var(--sd-space-2);
+}
+.seller-dashboard .metric-icon {
+    padding: 0.4rem;
+    border-radius: 0.5rem;
+}
+.seller-dashboard .metric-icon svg {
+    width: 16px;
+    height: 16px;
+}
+.seller-dashboard .metric-chip {
+    font-size: 0.58rem;
+    letter-spacing: 0.03em;
+    padding: 0.12rem 0.42rem;
+    border-radius: 999px;
+}
+.seller-dashboard .metric-label {
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    color: var(--sd-ink-mute);
+    margin-bottom: 0.15rem;
+}
+.seller-dashboard .metric-value {
+    font-size: 1.45rem;
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    color: var(--sd-ink);
+}
+.seller-dashboard .metric-sub {
+    margin-top: 0.25rem;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: var(--sd-ink-mute);
 }
 
 @media (max-width: 1280px) {
-    .metric-grid {
+    .seller-dashboard .metric-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
-
 @media (max-width: 720px) {
-    .metric-grid {
+    .seller-dashboard .metric-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
-
 @media (max-width: 460px) {
-    .metric-grid {
+    .seller-dashboard .metric-grid {
         grid-template-columns: 1fr;
     }
 }
 
-/* Best-Selling Products + Low-Stock Products panels (added to the
-   dashboard). Uses the seller palette: teal #1b9ba8 accent, slate ink. */
+/* ============================================================
+   3 · Chart cards — shared header rhythm, calmer frame
+   ============================================================ */
+.seller-dashboard .chart-row {
+    gap: var(--sd-space-4);
+    margin-bottom: var(--sd-space-5);
+}
+.seller-dashboard .chart-card {
+    padding: var(--sd-space-5);
+}
+.seller-dashboard .chart-card-head {
+    align-items: center;
+    margin-bottom: var(--sd-space-4);
+}
+.seller-dashboard .chart-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--sd-ink);
+}
+.seller-dashboard .chart-sub {
+    font-size: 0.75rem;
+    color: var(--sd-ink-soft);
+}
+.seller-dashboard .chart-toggle button {
+    font-size: 0.68rem;
+    transition:
+        background 0.15s var(--sd-ease),
+        color 0.15s var(--sd-ease);
+}
+.seller-dashboard .chart-x-labels {
+    margin-top: var(--sd-space-2);
+    color: var(--sd-ink-mute);
+}
+.seller-dashboard .chart-live-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    color: #16a34a;
+}
+.seller-dashboard .chart-live-tag::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.seller-dashboard .donut-center-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--sd-ink);
+}
+.seller-dashboard .donut-legend-row {
+    padding: 0.42rem 0;
+    font-size: 0.8rem;
+    border-top: 1px solid var(--sd-border);
+}
+.seller-dashboard .donut-legend-row:first-child {
+    border-top: 0;
+}
+.seller-dashboard .donut-legend-row + .donut-legend-row {
+    margin-top: 0;
+}
 
-.rank-list {
+/* ============================================================
+   4 & 5 · Panels — one frame for all four bottom cards
+   ============================================================ */
+.seller-dashboard .bottom-grid {
+    gap: var(--sd-space-4);
+    margin-bottom: var(--sd-space-5);
+}
+.seller-dashboard .panel-card {
+    border-radius: var(--sd-radius-lg);
+}
+.seller-dashboard .panel-head {
+    padding: var(--sd-space-4) var(--sd-space-5);
+    border-bottom-color: var(--sd-border);
+}
+.seller-dashboard .panel-head h3 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--sd-ink);
+}
+.seller-dashboard .panel-link {
+    font-size: 0.78rem;
+    transition: color 0.15s var(--sd-ease);
+}
+
+/* Recent Sales Records table */
+.seller-dashboard .sales-table {
+    font-size: 0.82rem;
+}
+.seller-dashboard .sales-table thead th {
+    padding: 0.65rem var(--sd-space-5);
+    font-size: 0.66rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--sd-ink-mute);
+    background: #fff;
+    border-bottom: 1px solid var(--sd-border);
+}
+.seller-dashboard .sales-table tbody td {
+    padding: 0.7rem var(--sd-space-5);
+    border-bottom: 1px solid #f1f5f9;
+    color: var(--sd-ink-soft);
+}
+.seller-dashboard .sales-table tbody tr {
+    transition: background 0.12s var(--sd-ease);
+}
+.seller-dashboard .sales-table tbody tr:hover td {
+    background: #f8fafc;
+}
+.seller-dashboard .sales-table .order-id {
+    font-weight: 600;
+    color: var(--sd-ink);
+}
+.seller-dashboard .sales-table thead th:nth-child(5),
+.seller-dashboard .sales-table tbody td:nth-child(5),
+.seller-dashboard .sales-table .amount {
+    text-align: right;
+}
+.seller-dashboard .sales-table .amount {
+    font-weight: 700;
+    color: var(--sd-ink);
+}
+
+/* Live Store Activity — timeline rail */
+.seller-dashboard .activity-panel {
+    padding: var(--sd-space-4) var(--sd-space-5);
+}
+.seller-dashboard .activity-row {
+    position: relative;
+    gap: var(--sd-space-3);
+    padding-left: var(--sd-space-4);
+}
+.seller-dashboard .activity-row::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.35rem;
+    bottom: 0;
+    width: 2px;
+    border-radius: 999px;
+    background: var(--sd-border);
+}
+.seller-dashboard .activity-text {
+    font-size: 0.82rem;
+    color: var(--sd-ink);
+}
+.seller-dashboard .activity-time {
+    font-size: 0.72rem;
+    color: var(--sd-ink-mute);
+}
+.seller-dashboard .live-dot {
+    background: #16a34a;
+}
+
+/* Best-Selling Products */
+.seller-dashboard .rank-list {
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: var(--sd-space-5);
     display: flex;
     flex-direction: column;
-    gap: 0.9rem;
+    gap: var(--sd-space-4);
 }
-
-.rank-item {
+.seller-dashboard .rank-item {
     display: flex;
     align-items: flex-start;
-    gap: 0.75rem;
+    gap: var(--sd-space-3);
 }
-
-.rank-num {
+.seller-dashboard .rank-num {
     flex-shrink: 0;
     width: 1.4rem;
     height: 1.4rem;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 0.5rem;
-    background: #f1f5f9;
-    color: #475569;
-    font-size: 0.75rem;
-    font-weight: 700;
+    border-radius: 0.45rem;
+    background: rgba(27, 155, 168, 0.1);
+    color: var(--sd-teal);
+    font-size: 0.72rem;
+    font-weight: 800;
 }
-
-.rank-body {
+.seller-dashboard .rank-body {
     flex: 1;
     min-width: 0;
 }
-
-.rank-row {
+.seller-dashboard .rank-row {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 0.75rem;
+    gap: var(--sd-space-3);
 }
-
-.rank-name {
+.seller-dashboard .rank-name {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--sd-ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-
-.rank-units {
+.seller-dashboard .rank-units {
     flex-shrink: 0;
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: #1b9ba8;
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: var(--sd-teal);
 }
-
-.rank-bar {
-    margin: 0.35rem 0 0.25rem;
+.seller-dashboard .rank-bar {
+    margin: 0.4rem 0 0.3rem;
     height: 6px;
     border-radius: 999px;
     background: #eef2f6;
     overflow: hidden;
 }
-
-.rank-bar > span {
+.seller-dashboard .rank-bar > span {
     display: block;
     height: 100%;
     border-radius: 999px;
-    background: #1b9ba8;
-    transition: width 0.4s ease;
+    background: var(--sd-teal);
+    transition: width 0.4s var(--sd-ease);
 }
-
-.rank-sub {
+.seller-dashboard .rank-sub {
     font-size: 0.72rem;
-    color: #94a3b8;
+    color: var(--sd-ink-mute);
 }
 
-.stock-list {
+/* Low-Stock Products */
+.seller-dashboard .stock-list {
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: var(--sd-space-2) var(--sd-space-5) var(--sd-space-4);
     display: flex;
     flex-direction: column;
 }
-
-.stock-item {
+.seller-dashboard .stock-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
+    gap: var(--sd-space-3);
     padding: 0.7rem 0;
     border-bottom: 1px solid #f1f5f9;
 }
-
-.stock-item:last-child {
+.seller-dashboard .stock-item:last-child {
     border-bottom: 0;
 }
-
-.stock-name {
+.seller-dashboard .stock-name {
     font-size: 0.85rem;
-    color: #1e293b;
+    color: var(--sd-ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-
-.stock-qty {
+.seller-dashboard .stock-qty {
     flex-shrink: 0;
-    font-size: 0.72rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.7rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.02em;
     padding: 0.2rem 0.5rem;
     border-radius: 999px;
 }
-
-.stock-qty.is-low {
+.seller-dashboard .stock-qty::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.seller-dashboard .stock-qty.is-low {
     background: #fef3c7;
     color: #b45309;
 }
-
-.stock-qty.is-out {
+.seller-dashboard .stock-qty.is-out {
     background: #fee2e2;
     color: #b91c1c;
+}
+
+/* ============================================================
+   6 · Account & Compliance — demoted below the operational view
+   ============================================================ */
+.seller-dashboard .sd-compliance-zone {
+    margin-top: var(--sd-space-6);
+    padding-top: var(--sd-space-5);
+    border-top: 1px solid var(--sd-border-strong);
+}
+.seller-dashboard .sd-compliance-zone .section-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sd-ink-soft);
+}
+.seller-dashboard .sd-compliance-zone .card {
+    background: #fbfcfe;
+    box-shadow: none;
+    border-color: var(--sd-border);
+}
+.seller-dashboard .sd-compliance-zone .checklist-item {
+    padding: 0.55rem 0.7rem;
+}
+.seller-dashboard .sd-compliance-zone .checklist-title {
+    font-size: 0.82rem;
+}
+
+/* ---- reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+    .seller-dashboard *,
+    .seller-dashboard *::before,
+    .seller-dashboard *::after {
+        transition-duration: 0.01ms !important;
+    }
+    .seller-dashboard .metric-card:hover {
+        transform: none;
+    }
 }
 </style>
