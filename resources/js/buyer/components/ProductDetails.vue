@@ -8,9 +8,12 @@ import {
     ratingStars as sharedRatingStars,
     formatPrice as sharedFormatPrice
 } from '../composables/useCategoryMeta';
+import { useToasts } from '../composables/useToasts';
 import Footer from './Footer.vue';
 import Header from './Header.vue';
 import ProductCard from './ProductCard.vue';
+import ProductReviewsDrawer from './ProductReviewsDrawer.vue';
+import StarRating from './StarRating.vue';
 
 const props = defineProps({
     product: {
@@ -36,8 +39,12 @@ const emit = defineEmits([
 ]);
 
 const { addToCart, toggleFavorite, isFavorite } = useBuyer();
+const { warning } = useToasts();
 
 const quantity = ref(1);
+// Guards against a double-tap firing two adds before the button visibly
+// settles.
+const isAdding = ref(false);
 const activeTab = ref('description');
 const selectedImageIndex = ref(0);
 
@@ -114,12 +121,6 @@ const selectedVariantUnavailable = computed(() => {
     return !!selectedVariant.value &&
         (selectedVariant.value.status !== 'active' || selectedVariant.value.stock <= 0);
 });
-
-function variantLabel(variant) {
-    return Object.entries(variant?.option_values || {})
-        .map(([name, value]) => `${name}: ${value}`)
-        .join(', ');
-}
 
 /*
 |--------------------------------------------------------------------------
@@ -284,10 +285,30 @@ const hasSpecifications = computed(() => {
         Object.keys(props.product.specifications).length > 0;
 });
 
-const hasReviews = computed(() => {
-    return Array.isArray(props.product?.reviews) &&
-        props.product.reviews.length > 0;
-});
+const reviewCount = computed(() => Number(props.product?.reviewCount) || 0);
+
+/*
+|--------------------------------------------------------------------------
+| Reviews
+|--------------------------------------------------------------------------
+|
+| The full list + rating breakdown + filters + pagination live in the
+| shared ProductReviewsDrawer (same component the cart uses), backed by
+| GET /api/products/{id}/reviews. It only fetches when opened, so the
+| product page load itself pulls nothing extra — the rating/count already
+| come with the product from ProductController@show.
+|
+*/
+
+const reviewsOpen = ref(false);
+
+function openReviews() {
+    if (!props.product) {
+        return;
+    }
+
+    reviewsOpen.value = true;
+}
 
 const favorited = computed(() => {
     return props.product ? isFavorite(props.product.id) : false;
@@ -343,26 +364,26 @@ function validateSelection() {
 
     if (hasVariants.value) {
         if (!allOptionsSelected.value) {
-            alert('Please select an option for every variant before continuing.');
+            warning('Please choose an option for every variant first.');
 
             return false;
         }
 
         if (!selectedVariant.value || selectedVariantUnavailable.value) {
-            alert('That combination is currently unavailable.');
+            warning('That combination is currently unavailable.');
 
             return false;
         }
     }
 
     if (inStock.value === false) {
-        alert('This product is currently out of stock.');
+        warning('This product is currently out of stock.');
 
         return false;
     }
 
     if (availableStock.value !== null && quantity.value > availableStock.value) {
-        alert(`Only ${availableStock.value} left in stock.`);
+        warning(`Only ${availableStock.value} left in stock.`);
 
         return false;
     }
@@ -377,20 +398,19 @@ function validateSelection() {
 */
 
 function handleAddToCart() {
-    if (!validateSelection()) {
+    if (isAdding.value || !validateSelection()) {
         return;
     }
 
+    isAdding.value = true;
+
+    // addToCart owns the "Added to cart." / stock-limit toast — see
+    // useBuyer.js. Nothing else to surface here.
     addToCart(props.product, selectedVariant.value, quantity.value);
 
-    const variantLine = selectedVariant.value
-        ? `\n${variantLabel(selectedVariant.value)}`
-        : '';
-
-    alert(
-        `${props.product.name} added to cart!\n` +
-        `Quantity: ${quantity.value}${variantLine}`
-    );
+    setTimeout(() => {
+        isAdding.value = false;
+    }, 400);
 }
 
 /*
@@ -643,9 +663,20 @@ function selectRelatedProduct(item) {
                         class="product-rating-count"
                     >
                         {{ product.rating.toFixed(1) }}
-                        <template v-if="product.reviewCount">
-                            ({{ product.reviewCount }} Reviews)
-                        </template>
+                    </span>
+                    <button
+                        v-if="reviewCount > 0"
+                        type="button"
+                        class="product-rating-reviews-link"
+                        @click="openReviews"
+                    >
+                        {{ reviewCount }} {{ reviewCount === 1 ? 'review' : 'reviews' }}
+                    </button>
+                    <span
+                        v-else
+                        class="product-rating-count"
+                    >
+                        No reviews yet
                     </span>
                     <span
                         v-if="hasStock"
@@ -771,9 +802,10 @@ function selectRelatedProduct(item) {
                     <button
                         type="button"
                         class="add-to-cart-button"
+                        :disabled="isAdding"
                         @click="handleAddToCart"
                     >
-                        Add to Cart
+                        {{ isAdding ? 'Adding…' : 'Add to Cart' }}
                     </button>
 
                     <button
@@ -899,13 +931,12 @@ function selectRelatedProduct(item) {
                 </button>
 
                 <button
-                    v-if="hasReviews"
                     type="button"
                     class="product-tab-button"
                     :class="{ active: activeTab === 'reviews' }"
                     @click="activeTab = 'reviews'"
                 >
-                    Reviews ({{ product.reviews.length }})
+                    Reviews<template v-if="reviewCount"> ({{ reviewCount }})</template>
                 </button>
 
                 <button
@@ -938,14 +969,38 @@ function selectRelatedProduct(item) {
                     </div>
                 </div>
 
-                <div v-else-if="activeTab === 'reviews' && hasReviews">
+                <div v-else-if="activeTab === 'reviews'">
                     <div
-                        v-for="review in product.reviews"
-                        :key="review.id"
-                        class="review-row"
+                        v-if="reviewCount > 0"
+                        class="pd-reviews-summary"
                     >
-                        <p class="review-author">{{ review.author }}</p>
-                        <p class="review-comment">{{ review.comment }}</p>
+                        <div class="pd-reviews-summary-score">
+                            <span class="pd-reviews-summary-number">{{ product.rating.toFixed(1) }}</span>
+                            <StarRating
+                                :rating="product.rating"
+                                :size="16"
+                            />
+                            <span class="pd-reviews-summary-count">
+                                Based on {{ reviewCount }} {{ reviewCount === 1 ? 'review' : 'reviews' }}
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            class="pd-reviews-open-button"
+                            @click="openReviews"
+                        >
+                            Read all reviews
+                        </button>
+                    </div>
+
+                    <div
+                        v-else
+                        class="pd-reviews-empty"
+                    >
+                        <p>This product has no reviews yet.</p>
+                        <p class="pd-reviews-empty-hint">
+                            Reviews can be written by buyers after their order is delivered.
+                        </p>
                     </div>
                 </div>
 
@@ -1013,6 +1068,13 @@ function selectRelatedProduct(item) {
         @browse-all="emit('browse-all')"
         @browse-categories="emit('browse-categories')"
         @cart-click="emit('open-cart')"
+    />
+
+    <ProductReviewsDrawer
+        v-if="product"
+        :show="reviewsOpen"
+        :product="{ id: product.id, name: product.name, rating: product.rating, reviewCount: reviewCount }"
+        @close="reviewsOpen = false"
     />
 
     </div>
@@ -1092,5 +1154,88 @@ function selectRelatedProduct(item) {
 .message-seller-send:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+/* Reviews */
+.product-rating-reviews-link {
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #0f766e;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+
+.product-rating-reviews-link:hover {
+    color: #0d9488;
+}
+
+.product-rating-reviews-link:focus-visible {
+    outline: 2px solid #0d9488;
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.pd-reviews-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.pd-reviews-summary-score {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pd-reviews-summary-number {
+    font-size: 1.75rem;
+    font-weight: 800;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+
+.pd-reviews-summary-count {
+    font-size: 0.85rem;
+    color: #64748b;
+}
+
+.pd-reviews-open-button {
+    min-height: 40px;
+    padding: 0 18px;
+    border: 1px solid #0d9488;
+    border-radius: 12px;
+    background: #fff;
+    color: #0f766e;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.pd-reviews-open-button:hover {
+    background: #f0fdfa;
+}
+
+.pd-reviews-open-button:focus-visible {
+    outline: 2px solid #0d9488;
+    outline-offset: 2px;
+}
+
+.pd-reviews-empty {
+    color: #64748b;
+    font-size: 0.9rem;
+}
+
+.pd-reviews-empty-hint {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: #94a3b8;
 }
 </style>

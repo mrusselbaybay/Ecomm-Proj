@@ -1,6 +1,9 @@
 import { ref, computed, watch } from 'vue';
 import { buyerApi } from './useBuyerApi';
 import { getSupabase } from './useBuyerSession';
+import { useToasts } from './useToasts';
+
+const { success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo } = useToasts();
 
 // Cart lives client-side only: there's no cart table by design — checkout
 // takes the cart as a payload and CheckoutService re-validates every
@@ -68,6 +71,48 @@ function persistFavorites() {
 |--------------------------------------------------------------------------
 */
 
+// Line-item statuses set by validateCartAgainstCatalog(). Everything in
+// BLOCKING_STATUSES stops that line from being checked out; 'price_changed'
+// is a heads-up only (CheckoutService recalculates from the DB anyway).
+const BLOCKING_STATUSES = ['unavailable', 'out_of_stock', 'variant_unavailable', 'insufficient_stock'];
+
+function isBlocked(item) {
+    return BLOCKING_STATUSES.includes(item.status);
+}
+
+// What the buyer will actually be charged for this line: the re-checked
+// server price once we know it differs, otherwise the stored snapshot.
+function effectivePrice(item) {
+    return item.status === 'price_changed' && item.serverPrice != null
+        ? Number(item.serverPrice)
+        : Number(item.price);
+}
+
+// Live purchasable stock for a product/variant pair at add-to-cart time.
+// null => unknown (simple product whose API row had no numeric stock);
+// treated as "no client-side ceiling", still enforced server-side.
+function stockCeiling(product, variant) {
+    if (variant) {
+        return Number.isFinite(Number(variant.stock)) ? Number(variant.stock) : 0;
+    }
+
+    return typeof product.stock === 'number' ? product.stock : null;
+}
+
+function snapshotFrom(item, product, variant) {
+    item.name = product.name ?? item.name;
+    item.price = Number(variant?.price ?? product.price ?? item.price);
+    item.category = product.category ?? item.category;
+    item.seller = product.seller || item.seller || 'NEXMART Seller';
+    item.image = item.image
+        || variant?.image?.url
+        || (Array.isArray(product.images) ? product.images[0] || null : null);
+    item.oldPrice = product.oldPrice ?? null;
+    item.rating = typeof product.rating === 'number' ? product.rating : (item.rating ?? null);
+    item.reviewCount = Number(product.reviewCount) || 0;
+    item.maxStock = stockCeiling(product, variant);
+}
+
 /**
  * `variant` is either null/undefined (simple product — no options) or a
  * variant object as returned by ProductController@transform / the
@@ -76,30 +121,79 @@ function persistFavorites() {
  * human-readable label built from option_values are carried through the
  * cart into the checkout payload; everything is re-validated against the
  * real row server-side in CheckoutService regardless.
+ *
+ * Owns its own success/limit toast (every add-to-cart entry point calls
+ * through here, so putting the messaging here avoids each caller
+ * re-implementing it). Returns { ok, capped } so a caller can still do
+ * extra UI if it wants.
  */
 function addToCart(product, variant, quantity) {
     if (!product) {
-        return;
+        return { ok: false };
     }
 
-    const variantId = variant?.id || null;
+    if (variant && variant.status && variant.status !== 'active') {
+        toastError('This variant is currently unavailable.');
 
-    const existingItem = cart.value.find(item =>
-        item.productId === product.id &&
-        item.variantId === variantId
+        return { ok: false };
+    }
+
+    const ceiling = stockCeiling(product, variant);
+
+    if (ceiling === 0) {
+        toastError('This item is out of stock.');
+
+        return { ok: false };
+    }
+
+    const desired = Math.max(1, Math.floor(Number(quantity)) || 1);
+    const variantId = variant?.id || null;
+    const existingItem = cart.value.find((item) =>
+        item.productId === product.id && item.variantId === variantId,
     );
 
     if (existingItem) {
-        existingItem.quantity += quantity;
+        const requested = existingItem.quantity + desired;
 
-        return;
+        snapshotFrom(existingItem, product, variant);
+
+        if (ceiling != null && requested > ceiling) {
+            if (existingItem.quantity >= ceiling) {
+                toastInfo(`You already have the maximum available (${ceiling}) in your cart.`);
+
+                return { ok: false, capped: true };
+            }
+
+            existingItem.quantity = ceiling;
+
+            if (existingItem.status === 'insufficient_stock') {
+                existingItem.status = 'ok';
+            }
+
+            toastWarning(`Only ${ceiling} available — added the maximum to your cart.`);
+
+            return { ok: true, capped: true };
+        }
+
+        existingItem.quantity = requested;
+
+        if (existingItem.status === 'insufficient_stock' && (ceiling == null || requested <= ceiling)) {
+            existingItem.status = 'ok';
+        }
+
+        toastSuccess('Added to cart.');
+
+        return { ok: true };
     }
+
+    const quantityToAdd = ceiling != null ? Math.min(desired, ceiling) : desired;
+    const capped = quantityToAdd < desired;
 
     const variantLabel = variant?.option_values
         ? Object.entries(variant.option_values).map(([k, v]) => `${k}: ${v}`).join(', ')
         : null;
 
-    cart.value.push({
+    const item = {
         cartId: Date.now() + Math.random(),
         productId: product.id,
         variantId,
@@ -108,36 +202,114 @@ function addToCart(product, variant, quantity) {
         price: Number(variant?.price ?? product.price),
         category: product.category,
         variation: variantLabel,
-        quantity: quantity,
+        quantity: quantityToAdd,
         seller: product.seller || 'NEXMART Seller',
-        image: variant?.image?.url ||
-            (Array.isArray(product.images) ? product.images[0] || null : null),
-        selected: true
-    });
+        image: variant?.image?.url
+            || (Array.isArray(product.images) ? product.images[0] || null : null),
+        oldPrice: product.oldPrice ?? null,
+        rating: typeof product.rating === 'number' ? product.rating : null,
+        reviewCount: Number(product.reviewCount) || 0,
+        maxStock: ceiling,
+        serverPrice: null,
+        status: 'ok',
+        selected: true,
+    };
+
+    cart.value.push(item);
+
+    if (capped) {
+        toastWarning(`Only ${ceiling} available — added the maximum to your cart.`);
+    } else {
+        toastSuccess('Added to cart.');
+    }
+
+    return { ok: true, capped };
 }
 
+// Silent by design: also called by Dashboard.handleOrderPlaced() to drop
+// the lines that were just purchased. The Cart page shows its own
+// "Item removed" toast after its confirm dialog.
 function removeFromCart(cartId) {
-    cart.value = cart.value.filter(item => item.cartId !== cartId);
+    cart.value = cart.value.filter((item) => item.cartId !== cartId);
+}
+
+function removeCartItems(cartIds) {
+    const ids = new Set(cartIds);
+    cart.value = cart.value.filter((item) => !ids.has(item.cartId));
+}
+
+function removeUnavailableItems() {
+    const removed = cart.value.filter((item) => isBlocked(item)).length;
+    cart.value = cart.value.filter((item) => !isBlocked(item));
+
+    return removed;
+}
+
+function clearCart() {
+    cart.value = [];
+}
+
+/**
+ * Single quantity setter the +/- buttons and the typed input all go
+ * through. Clamps to [1, maxStock], clears a now-satisfied
+ * insufficient_stock flag, and warns (once, de-duped) when the buyer hits
+ * the ceiling. Returns the value actually applied.
+ */
+function setCartQuantity(cartId, quantity) {
+    const item = cart.value.find((entry) => entry.cartId === cartId);
+
+    if (!item) {
+        return { quantity: 0, capped: false };
+    }
+
+    let next = Math.floor(Number(quantity));
+
+    if (!Number.isFinite(next)) {
+        return { quantity: item.quantity, capped: false };
+    }
+
+    if (next < 1) {
+        next = 1;
+    }
+
+    let capped = false;
+
+    if (item.maxStock != null && next > item.maxStock) {
+        next = item.maxStock;
+        capped = true;
+    }
+
+    item.quantity = next;
+
+    if (item.status === 'insufficient_stock' && item.maxStock != null && next <= item.maxStock) {
+        item.status = 'ok';
+    }
+
+    if (capped) {
+        toastWarning(`Only ${item.maxStock} available.`);
+    }
+
+    return { quantity: next, capped };
 }
 
 function increaseCartQuantity(cartId) {
-    const item = cart.value.find(item => item.cartId === cartId);
+    const item = cart.value.find((entry) => entry.cartId === cartId);
 
     if (item) {
-        item.quantity++;
+        setCartQuantity(cartId, item.quantity + 1);
     }
 }
 
 function decreaseCartQuantity(cartId) {
-    const item = cart.value.find(item => item.cartId === cartId);
+    const item = cart.value.find((entry) => entry.cartId === cartId);
 
     if (item && item.quantity > 1) {
-        item.quantity--;
+        setCartQuantity(cartId, item.quantity - 1);
     }
 }
 
 function toggleCartItem(cartId) {
-    const item = cart.value.find(item => item.cartId === cartId);
+    const item = cart.value.find((entry) => entry.cartId === cartId);
 
     if (item) {
         item.selected = !item.selected;
@@ -146,10 +318,129 @@ function toggleCartItem(cartId) {
 
 function toggleSellerItems(seller, selected) {
     cart.value
-        .filter(item => item.seller === seller)
-        .forEach(item => {
+        .filter((item) => item.seller === seller)
+        .forEach((item) => {
             item.selected = selected;
         });
+}
+
+function deselectBlockedItems() {
+    cart.value.forEach((item) => {
+        if (isBlocked(item)) {
+            item.selected = false;
+        }
+    });
+}
+
+/*
+|--------------------------------------------------------------------------
+| Cart validation against the live catalog
+|--------------------------------------------------------------------------
+|
+| The cart is a localStorage snapshot (see the top of this file), so its
+| name/price/stock/availability can all have gone stale since it was
+| built. This re-fetches each distinct product from the public catalog
+| (GET /api/products/{id}) and tags every line with a status the Cart page
+| surfaces inline — WITHOUT ever removing anything automatically. Called
+| when the Cart page mounts.
+|
+*/
+
+const isValidatingCart = ref(false);
+const cartValidatedAt = ref(0);
+
+async function validateCartAgainstCatalog() {
+    if (cart.value.length === 0) {
+        cartValidatedAt.value = Date.now();
+
+        return;
+    }
+
+    isValidatingCart.value = true;
+
+    try {
+        const ids = [...new Set(cart.value.map((item) => item.productId))];
+
+        const entries = await Promise.all(
+            ids.map(async (id) => {
+                try {
+                    const response = await fetch(`/api/products/${encodeURIComponent(id)}`, {
+                        headers: { Accept: 'application/json' },
+                    });
+
+                    if (response.status === 404) {
+                        return [id, null];
+                    }
+
+                    if (!response.ok) {
+                        return [id, undefined];
+                    }
+
+                    const body = await response.json().catch(() => ({}));
+
+                    return [id, body.data || undefined];
+                } catch {
+                    return [id, undefined];
+                }
+            }),
+        );
+
+        const map = new Map(entries);
+
+        cart.value.forEach((item) => {
+            const product = map.get(item.productId);
+
+            if (product === undefined) {
+                return; // couldn't check — leave the line exactly as it was
+            }
+
+            if (product === null || (product.status && product.status !== 'active')) {
+                item.status = 'unavailable';
+                item.maxStock = 0;
+
+                return;
+            }
+
+            item.name = product.name ?? item.name;
+            item.seller = product.seller || item.seller;
+            item.rating = typeof product.rating === 'number' ? product.rating : item.rating;
+            item.reviewCount = Number(product.reviewCount) || 0;
+            item.oldPrice = product.oldPrice ?? null;
+
+            if (item.variantId) {
+                const variant = (product.variants || []).find((v) => v.id === item.variantId);
+
+                if (!variant || variant.status !== 'active') {
+                    item.status = 'variant_unavailable';
+                    item.maxStock = 0;
+
+                    return;
+                }
+
+                item.maxStock = Number(variant.stock) || 0;
+                item.serverPrice = Number(variant.price ?? product.price);
+                item.image = item.image || variant.image?.url || null;
+            } else {
+                item.maxStock = typeof product.stock === 'number' ? product.stock : null;
+                item.serverPrice = Number(product.price);
+                item.image = item.image
+                    || (Array.isArray(product.images) ? product.images[0] || null : product.image || null);
+            }
+
+            if (item.maxStock === 0) {
+                item.status = 'out_of_stock';
+            } else if (item.maxStock != null && item.quantity > item.maxStock) {
+                item.status = 'insufficient_stock';
+            } else if (item.serverPrice != null && Math.abs(item.serverPrice - Number(item.price)) > 0.009) {
+                item.status = 'price_changed';
+            } else {
+                item.status = 'ok';
+            }
+        });
+    } finally {
+        isValidatingCart.value = false;
+        cartValidatedAt.value = Date.now();
+    }
 }
 
 /*
@@ -159,36 +450,64 @@ function toggleSellerItems(seller, selected) {
 */
 
 const selectedItems = computed(() => {
-    return cart.value.filter(item => item.selected);
+    return cart.value.filter((item) => item.selected);
+});
+
+// Selected lines that are actually purchasable — the basis for the
+// summary totals and the checkout payload.
+const selectedValidItems = computed(() => {
+    return selectedItems.value.filter((item) => !isBlocked(item));
+});
+
+const selectedBlockedItems = computed(() => {
+    return selectedItems.value.filter((item) => isBlocked(item));
 });
 
 const selectedItemCount = computed(() => {
-    return selectedItems.value.reduce(
-        (total, item) => total + item.quantity,
-        0
-    );
+    return selectedValidItems.value.reduce((total, item) => total + item.quantity, 0);
 });
 
 const cartSubtotal = computed(() => {
-    return selectedItems.value.reduce(
-        (total, item) => total + (item.price * item.quantity),
-        0
+    return selectedValidItems.value.reduce(
+        (total, item) => total + effectivePrice(item) * item.quantity,
+        0,
     );
 });
 
 const cartItemCount = computed(() => {
-    return cart.value.reduce(
-        (total, item) => total + item.quantity,
-        0
-    );
+    return cart.value.reduce((total, item) => total + item.quantity, 0);
 });
 
 const sellers = computed(() => {
-    return [...new Set(cart.value.map(item => item.seller))];
+    return [...new Set(cart.value.map((item) => item.seller))];
 });
 
 const isCartEmpty = computed(() => {
     return cart.value.length === 0;
+});
+
+const cartHasIssues = computed(() => {
+    return cart.value.some((item) => item.status && item.status !== 'ok');
+});
+
+// '' when checkout is allowed; otherwise a plain-language reason the Cart
+// page shows next to the (disabled) checkout button.
+const checkoutBlockReason = computed(() => {
+    if (selectedItems.value.length === 0) {
+        return 'Select at least one item to check out.';
+    }
+
+    if (selectedValidItems.value.length === 0) {
+        return 'The items you selected are unavailable. Adjust your selection to continue.';
+    }
+
+    if (selectedBlockedItems.value.length > 0) {
+        const count = selectedBlockedItems.value.length;
+
+        return `${count} selected ${count === 1 ? 'item needs' : 'items need'} attention before you can check out.`;
+    }
+
+    return '';
 });
 
 /*
@@ -198,12 +517,11 @@ const isCartEmpty = computed(() => {
 */
 
 const allItemsSelected = computed(() => {
-    return cart.value.length > 0 &&
-        cart.value.every(item => item.selected);
+    return cart.value.length > 0 && cart.value.every((item) => item.selected);
 });
 
 function toggleSelectAll(selected) {
-    cart.value.forEach(item => {
+    cart.value.forEach((item) => {
         item.selected = selected;
     });
 }
@@ -626,20 +944,35 @@ export function useBuyer() {
         favorites,
 
         selectedItems,
+        selectedValidItems,
+        selectedBlockedItems,
         selectedItemCount,
         cartSubtotal,
         cartItemCount,
         isCartEmpty,
         allItemsSelected,
+        cartHasIssues,
+        checkoutBlockReason,
         favoriteCount,
+
+        effectivePrice,
 
         addToCart,
         removeFromCart,
+        removeCartItems,
+        removeUnavailableItems,
+        clearCart,
+        setCartQuantity,
         increaseCartQuantity,
         decreaseCartQuantity,
         toggleCartItem,
         toggleSellerItems,
         toggleSelectAll,
+        deselectBlockedItems,
+
+        isValidatingCart,
+        cartValidatedAt,
+        validateCartAgainstCatalog,
 
         isFavorite,
         toggleFavorite,

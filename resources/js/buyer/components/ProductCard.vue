@@ -46,6 +46,8 @@ function handleImageError() {
     imageFailed.value = true;
 }
 
+const isAdding = ref(false);
+
 function handleToggleFavorite() {
     toggleFavorite(props.product.id);
 }
@@ -59,7 +61,17 @@ function handleQuickAdd() {
         return;
     }
 
+    if (isAdding.value) {
+        return;
+    }
+
+    isAdding.value = true;
+    // addToCart surfaces its own success / out-of-stock / limit toast.
     addToCart(props.product, null, 1);
+
+    setTimeout(() => {
+        isAdding.value = false;
+    }, 400);
 }
 
 function handleView() {
@@ -114,9 +126,10 @@ function handleView() {
                 <button
                     type="button"
                     class="product-quick-add-button"
+                    :disabled="isAdding"
                     @click="handleQuickAdd"
                 >
-                    Quick Add to Cart
+                    {{ isAdding ? 'Adding…' : 'Quick Add to Cart' }}
                 </button>
             </div>
 

@@ -15,6 +15,8 @@ import Reviews from './Reviews.vue';
 import SavedAddresses from './SavedAddresses.vue';
 import PaymentMethods from './PaymentMethods.vue';
 import Chat from './Chat.vue';
+import ToastHost from './ToastHost.vue';
+import ConfirmDialog from './ConfirmDialog.vue';
 
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerProducts } from '../composables/useBuyerProducts';
@@ -351,17 +353,27 @@ function buyNow(item) {
         return;
     }
 
+    // Carry the chosen variant through, same as the cart path — otherwise
+    // Buy Now on a product that has_variants 422s server-side for a
+    // missing variant_id.
+    const variant = item.variant || null;
+
+    const variationLabel = variant?.option_values
+        ? Object.entries(variant.option_values).map(([k, v]) => `${k}: ${v}`).join(', ')
+        : (item.variation || null);
+
     checkoutItems.value = [
         {
             cartId: null,
             productId: item.product.id,
+            variantId: variant?.id || null,
             name: item.product.name,
-            price: Number(item.product.price),
+            price: Number(variant?.price ?? item.product.price),
             category: item.product.category,
             seller:
                 item.product.seller ||
                 'NEXMART Seller',
-            variation: item.variation,
+            variation: variationLabel,
             quantity: Number(item.quantity)
         }
     ];
@@ -388,6 +400,10 @@ function checkoutFromCart(items) {
         item => ({
             cartId: item.cartId,
             productId: item.productId,
+            // Carry the chosen variant through to checkout — CheckoutService
+            // requires variant_id for a product that has_variants, so
+            // dropping it here made variant products 422 at checkout.
+            variantId: item.variantId || null,
             name: item.name,
             price: Number(item.price),
             category: item.category,
@@ -1123,5 +1139,12 @@ function closePayments() {
          so it stays alive on every buyer page. The header's message icon
          drives it straight through useBuyerChat; nothing to wire per page. -->
     <Chat />
+
+    <!-- Buyer-wide notification + confirmation hosts. Same "mount once,
+         outside the view switch" pattern as <Chat /> — every buyer page
+         renders inside this component, so these cover all of them. Driven
+         by useToasts / useConfirm; nothing to wire per page. -->
+    <ToastHost />
+    <ConfirmDialog />
 
 </template>

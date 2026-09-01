@@ -32,10 +32,12 @@
 | the review page"; this keeps editing self-contained here instead.
 |
 */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import { useBuyer } from '../composables/useBuyer';
+import { useToasts } from '../composables/useToasts';
+import { useConfirm } from '../composables/useConfirm';
 import { metaFor } from '../composables/useCategoryMeta';
 
 const emit = defineEmits([
@@ -60,8 +62,17 @@ const {
     deleteReview
 } = useBuyer();
 
+const { success, error: toastError } = useToasts();
+const { confirm } = useConfirm();
+
 onMounted(() => {
     loadReviews();
+});
+
+watch(reviewsLoadError, (message) => {
+    if (message) {
+        toastError('Reviews could not be loaded.');
+    }
 });
 
 /*
@@ -194,15 +205,22 @@ async function saveEdit(review) {
     try {
         await updateReview(review.id, { rating: editForm.rating, comment: editForm.comment.trim() });
         editingId.value = null;
+        success('Review updated.');
     } catch (err) {
-        alert(err?.message || 'Could not save your changes.');
+        toastError(err?.message || 'Could not save your changes.');
     } finally {
         savingEdit.value = false;
     }
 }
 
 async function removeReview(review) {
-    const confirmed = window.confirm('Delete this review? This can\'t be undone.');
+    const confirmed = await confirm({
+        title: 'Delete this review?',
+        message: `Your review of "${review.productName}" will be permanently removed. This can't be undone.`,
+        confirmLabel: 'Delete review',
+        cancelLabel: 'Keep it',
+        tone: 'danger',
+    });
 
     if (!confirmed) {
         return;
@@ -210,8 +228,9 @@ async function removeReview(review) {
 
     try {
         await deleteReview(review.id);
+        success('Review deleted.');
     } catch (err) {
-        alert(err?.message || 'Could not delete this review.');
+        toastError(err?.message || 'Could not delete this review.');
     }
 }
 

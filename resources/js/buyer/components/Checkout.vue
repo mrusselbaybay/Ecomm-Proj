@@ -4,6 +4,7 @@ import { useBuyer } from '../composables/useBuyer';
 import { useBuyerAddresses } from '../composables/useBuyerAddresses';
 import { useBuyerPayments } from '../composables/useBuyerPayments';
 import { metaFor } from '../composables/useCategoryMeta';
+import { useToasts } from '../composables/useToasts';
 import Footer from './Footer.vue';
 import Header from './Header.vue';
 
@@ -11,6 +12,7 @@ import Header from './Header.vue';
 // click handler (validates the form, builds the payload); it calls this
 // composable function to actually submit to the backend.
 const { placeOrder: submitCheckout, isPlacingOrder } = useBuyer();
+const { success, error: toastError, warning, info } = useToasts();
 
 const props = defineProps({
     items: {
@@ -382,7 +384,7 @@ function applyVoucher() {
         .toUpperCase();
 
     if (!code) {
-        alert('Please enter a voucher code.');
+        warning('Please enter a voucher code.');
 
         return;
     }
@@ -392,14 +394,14 @@ function applyVoucher() {
             code: 'NEXMART10'
         };
 
-        alert('Voucher applied successfully.');
+        success('Voucher applied. You received a 10% discount.');
 
         return;
     }
 
     appliedVoucher.value = null;
 
-    alert('Invalid voucher code.');
+    toastError('That voucher code isn\'t valid.');
 }
 
 function removeVoucher() {
@@ -434,31 +436,31 @@ function handleHeaderSelectCategory(category) {
 
 async function placeOrder() {
     if (props.items.length === 0) {
-        alert('There are no items to checkout.');
+        warning('There are no items to check out.');
 
         return;
     }
 
     if (!checkoutForm.recipientName.trim()) {
-        alert('Please enter the recipient name.');
+        warning('Address information is incomplete — add a recipient name.');
 
         return;
     }
 
     if (!checkoutForm.contactNumber.trim()) {
-        alert('Please enter the contact number.');
+        warning('Address information is incomplete — add a contact number.');
 
         return;
     }
 
     if (!checkoutForm.address.trim()) {
-        alert('Please enter the delivery address.');
+        warning('Address information is incomplete — add a delivery address.');
 
         return;
     }
 
     if (!checkoutForm.shippingMethod) {
-        alert('Please select a shipping method.');
+        warning('Please select a shipping method.');
 
         return;
     }
@@ -467,12 +469,13 @@ async function placeOrder() {
 
     if (paymentProblem) {
         paymentError.value = paymentProblem;
-        alert(paymentProblem);
+        warning(paymentProblem);
 
         return;
     }
 
     paymentError.value = '';
+    info('Checkout started…');
 
     /*
      * Database/API-ready order payload.
@@ -525,13 +528,9 @@ async function placeOrder() {
 
         emit('place-order', createdOrders);
 
-        alert(
-            `Order placed!\n\n` +
-            `Total: ${formatPrice(total.value)}\n` +
-            `Payment: ${checkoutForm.paymentMethod.toUpperCase()}`
-        );
+        success(`Order placed successfully. Total ${formatPrice(total.value)}.`);
     } catch (err) {
-        alert(err?.message || 'Could not place your order. Please try again.');
+        toastError(err?.message || 'Checkout could not be completed. Please try again.');
     }
 }
 </script>
