@@ -49,6 +49,16 @@ class OrderItem extends Model
         return $this->belongsTo(Product::class, 'product_id');
     }
 
+    // Snapshot columns (variant / variant_sku / variant_options) keep a
+    // past order correct on their own; this relation is only for pulling
+    // the *current* variant image when it still exists (see
+    // SellerOrderController::itemImage / the items.variant eager-load).
+    // variant_id is nulled if the variant is later deleted.
+    public function variant(): BelongsTo
+    {
+        return $this->belongsTo(ProductVariant::class, 'variant_id');
+    }
+
     // reviews.order_item_id is UNIQUE — at most one review per line item.
     public function review(): HasOne
     {

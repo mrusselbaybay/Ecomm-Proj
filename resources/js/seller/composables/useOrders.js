@@ -100,13 +100,41 @@ async function loadOrders(params = {}) {
 // Fetches a single order with its full detail (address, shipping,
 // timeline). Always hits the API rather than reading the summary list
 // in memory, since the list response omits those detail-only fields.
+//
+// Returns { order, notFound, error } so callers can tell a genuine 404
+// ("this order doesn't exist") apart from a transient failure
+// (network / 500) — the two want different UI (a plain empty state vs.
+// a retry prompt).
 async function getOrderById(id) {
+    // A leading "#" in the display id is a URL fragment once it hits the
+    // address bar — strip it before it becomes the request path.
+    const clean = String(id).replace(/^#/, '');
+
     try {
-        return await apiFetch(`/orders/${encodeURIComponent(id)}`);
+        const headers = await authHeaders();
+        const response = await fetch(
+            `/api/seller/orders/${encodeURIComponent(clean)}`,
+            { headers },
+        );
+        const body = await response.json().catch(() => ({}));
+
+        if (response.status === 404) {
+            return { order: null, notFound: true, error: '' };
+        }
+
+        if (!response.ok) {
+            throw new Error(body.message || `Request failed (${response.status}).`);
+        }
+
+        return { order: body.data ?? null, notFound: false, error: '' };
     } catch (err) {
         console.error('Error loading order:', err);
 
-        return null;
+        return {
+            order: null,
+            notFound: false,
+            error: err?.message || 'Could not load this order.',
+        };
     }
 }
 

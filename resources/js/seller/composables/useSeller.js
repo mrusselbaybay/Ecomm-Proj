@@ -47,6 +47,11 @@ const savingProfile = ref(false);
 const saveError = ref('');
 const saveSuccess = ref('');
 
+// Set by the Account Settings form while it has unsaved edits, so
+// SellerLayout can warn before navigating away (the account section is
+// unmounted on nav — a plain switch would silently drop the edits).
+const hasUnsavedAccountChanges = ref(false);
+
 const LINE_OF_BUSINESS_OPTIONS = [
     'Pet Supplies',
     'Kids and Baby',
@@ -79,6 +84,13 @@ const initials = computed(() => {
 
     return (f + l).toUpperCase() || 'SE';
 });
+
+// The sign-in email lives on the Supabase auth user, not public.profiles
+// (profiles.email may be absent or stale). Prefer the auth user, fall
+// back to whatever the profile row happens to carry.
+const sellerEmail = computed(
+    () => sellerUser.value?.email || profile.value?.email || '',
+);
 
 const age = computed(() => {
     const bday = profile.value?.birthday;
@@ -272,11 +284,15 @@ async function saveProfile(payload) {
             }
         }
 
+        // line_of_business is deliberately NOT written here — it's the
+        // seller's fixed product category (CategoryConfigController +
+        // the enforce_seller_product_category DB trigger). It's shown
+        // read-only on the account page; changing it goes through
+        // support.
         const { error: detailsErr } = await supabase
             .from('seller_details')
             .update({
                 business_name: payload.business_name,
-                line_of_business: payload.line_of_business,
                 updated_at: new Date().toISOString(),
             })
             .eq('profile_id', uid);
@@ -314,6 +330,48 @@ async function confirmLogout() {
     } catch (err) {
         console.error('Logout error:', err);
         window.location.href = '/';
+    }
+}
+
+// Password change via Supabase Auth. Re-authenticates with the current
+// password first (signInWithPassword just refreshes the existing
+// session for the same user), then updates. Throws a plain Error with a
+// user-facing message on failure; never surfaces a token.
+async function changePassword({ currentPassword, newPassword }) {
+    const supabase = getSupabase();
+    const email = sellerEmail.value;
+
+    if (!email) {
+        throw new Error('Your account email is unavailable — reload and try again.');
+    }
+
+    const { error: reauthErr } = await supabase.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+    });
+
+    if (reauthErr) {
+        throw new Error('Your current password is incorrect.');
+    }
+
+    const { error: updateErr } = await supabase.auth.updateUser({
+        password: newPassword,
+    });
+
+    if (updateErr) {
+        throw new Error(updateErr.message || 'Could not update your password.');
+    }
+}
+
+// Email change via Supabase Auth. Supabase emails a confirmation link;
+// the sign-in email only changes after the seller clicks it, so nothing
+// local is mutated here.
+async function requestEmailChange(newEmail) {
+    const supabase = getSupabase();
+    const { error } = await supabase.auth.updateUser({ email: newEmail });
+
+    if (error) {
+        throw new Error(error.message || 'Could not start the email change.');
     }
 }
 
@@ -398,9 +456,11 @@ export function useSeller() {
         savingProfile,
         saveError,
         saveSuccess,
+        hasUnsavedAccountChanges,
         LINE_OF_BUSINESS_OPTIONS,
         fullName,
         initials,
+        sellerEmail,
         age,
         verifiedDocsCount,
         pendingDocsCount,
@@ -411,6 +471,8 @@ export function useSeller() {
         refreshAll,
         saveProfile,
         confirmLogout,
+        changePassword,
+        requestEmailChange,
         formatDate,
         formatDateTime,
         docTypeLabel,

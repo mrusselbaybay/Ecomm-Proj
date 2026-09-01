@@ -2,9 +2,53 @@
 <template>
     <div class="order-detail-page">
         <!-- Loading -->
-        <div v-if="isLoading" class="order-detail-loading">
-            <div class="loading-spinner"></div>
-            <p>Loading order…</p>
+        <div v-if="isLoading" class="order-detail-skel" aria-hidden="true">
+            <div class="order-detail-skel-head">
+                <span class="order-skel-bar" style="width: 12rem; height: 1.4rem"></span>
+                <span class="order-skel-bar order-skel-pill" style="width: 6rem"></span>
+            </div>
+            <div class="order-detail-skel-grid">
+                <div class="card order-detail-skel-card">
+                    <span class="order-skel-bar" style="width: 40%"></span>
+                    <span class="order-skel-bar" style="width: 80%"></span>
+                    <span class="order-skel-bar" style="width: 65%"></span>
+                    <span class="order-skel-bar" style="width: 75%"></span>
+                </div>
+                <div class="card order-detail-skel-card">
+                    <span class="order-skel-bar" style="width: 50%"></span>
+                    <span class="order-skel-bar" style="width: 70%"></span>
+                    <span class="order-skel-bar" style="width: 60%"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Load failed (network / server error) -->
+        <div v-else-if="loadFailed" class="card order-not-found">
+            <div class="empty-state">
+                <svg
+                    class="icon-lg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                >
+                    <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+                    <path d="M12 9v4M12 17h.01" />
+                </svg>
+                <p>Couldn't load this order.</p>
+                <p class="empty-hint">
+                    Something went wrong reaching the server. Check your
+                    connection and try again.
+                </p>
+                <div class="order-detail-error-actions">
+                    <button type="button" class="btn-outline" @click="loadOrder">
+                        Retry
+                    </button>
+                    <button type="button" class="btn-primary" @click="backToOrders">
+                        Back to Orders
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- Not found -->
@@ -43,11 +87,8 @@
                         <h2 class="order-detail-page-title">
                             Order {{ order.id }}
                         </h2>
-                        <span
-                            class="badge"
-                            :class="statusBadgeClass(order.status)"
-                            >{{ order.statusLabel || statusLabel(order.status) }}</span
-                        >
+                        <OrderStatusBadge :status="order.status" />
+                        <span v-if="returnLabel" class="order-return-flag">{{ returnLabel }}</span>
                     </div>
                     <p class="order-detail-page-sub">
                         Placed on {{ order.date }} at {{ order.time }}
@@ -465,28 +506,31 @@
                 <div class="order-detail-page-footer-right">
                     <button
                         v-if="canCancel"
+                        type="button"
                         class="btn-outline"
-                        :disabled="actionBusy"
+                        :disabled="isBusy"
                         @click="handleReject"
                     >
-                        Reject
+                        {{ busyKey === 'Rejected' ? 'Rejecting…' : 'Reject' }}
                     </button>
                     <button
                         v-if="canCancel"
+                        type="button"
                         class="btn-danger-soft"
-                        :disabled="actionBusy"
+                        :disabled="isBusy"
                         @click="handleCancel"
                     >
-                        Cancel Order
+                        {{ busyKey === 'Cancelled' ? 'Cancelling…' : 'Cancel Order' }}
                     </button>
                     <button
                         v-for="s in nextStatusButtons"
                         :key="s.value"
+                        type="button"
                         class="btn-primary"
-                        :disabled="actionBusy"
+                        :disabled="isBusy"
                         @click="moveTo(s.value)"
                     >
-                        {{ nextActionLabel(s) }}
+                        {{ busyKey === s.value ? 'Working…' : nextActionLabel(s) }}
                         <svg
                             width="14"
                             height="14"
@@ -494,6 +538,7 @@
                             fill="none"
                             stroke="currentColor"
                             stroke-width="2"
+                            aria-hidden="true"
                         >
                             <path d="M5 12h14M12 5l7 7-7 7" />
                         </svg>
@@ -501,13 +546,41 @@
                 </div>
             </div>
         </template>
+
+        <transition name="order-toast">
+            <div
+                v-if="toast"
+                class="order-toast"
+                :class="`order-toast--${toast.type}`"
+                role="status"
+                aria-live="polite"
+            >
+                {{ toast.msg }}
+            </div>
+        </transition>
+
+        <ConfirmActionDialog
+            :open="dialog.open"
+            :title="dialog.title"
+            :message="dialog.message"
+            :confirm-label="dialog.confirmLabel"
+            tone="danger"
+            requires-reason
+            :reason-label="dialog.reasonLabel"
+            reason-placeholder="e.g. item out of stock, buyer asked to cancel, address unreachable"
+            :busy="isBusy"
+            @confirm="onDialogConfirm"
+            @cancel="dialog.open = false"
+        />
     </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import OrderJourneyMap from '../../shared/OrderJourneyMap.vue';
 import { useOrders } from '../composables/useOrders';
+import ConfirmActionDialog from './orders/ConfirmActionDialog.vue';
+import OrderStatusBadge from './orders/OrderStatusBadge.vue';
 
 const props = defineProps({
     orderId: { type: String, default: null },
@@ -517,14 +590,37 @@ const {
     getOrderById,
     getOrderTracking,
     updateOrderStatus,
-    statusBadgeClass,
-    statusLabel,
+    updateError,
     formatCurrency,
     cancelOrder,
     rejectOrder,
 } = useOrders();
 
-const actionBusy = ref(false);
+// Which action is in flight ('' when idle). A status value for a
+// forward step, or 'Cancelled' / 'Rejected'. Used to show a per-button
+// spinner and to block duplicate submits.
+const busyKey = ref('');
+const isBusy = computed(() => busyKey.value !== '');
+
+const toast = ref(null);
+let toastTimer = null;
+
+function flash(msg, type = 'success') {
+    clearTimeout(toastTimer);
+    toast.value = { msg, type };
+    toastTimer = setTimeout(() => {
+        toast.value = null;
+    }, 3800);
+}
+
+const dialog = reactive({
+    open: false,
+    target: '', // 'Cancelled' | 'Rejected'
+    title: '',
+    message: '',
+    confirmLabel: '',
+    reasonLabel: '',
+});
 
 // The seller's next moves come straight from the server (order.nextStatuses
 // = Order::ALLOWED_TRANSITIONS from the current status). Shipping/Delivery
@@ -547,60 +643,96 @@ function nextActionLabel(s) {
 }
 
 async function moveTo(statusValue) {
-    if (!order.value || actionBusy.value) {
+    if (!order.value || isBusy.value) {
         return;
     }
 
-    actionBusy.value = true;
+    busyKey.value = statusValue;
 
     try {
         const updated = await updateOrderStatus(order.value.id, statusValue);
 
         if (updated) {
             order.value = updated;
+            flash(`Order marked "${updated.statusLabel || statusValue}".`);
         }
     } catch {
-        // updateError is surfaced by the composable; the order stays put.
+        flash(updateError.value || 'Could not update the order status.', 'error');
     } finally {
-        actionBusy.value = false;
+        busyKey.value = '';
     }
 }
 
-async function handleReject() {
+// Cancel / Reject open a confirmation dialog (consequence spelled out,
+// typed reason required) instead of a bare window.prompt.
+function askDestructive(target) {
     if (!order.value) {
         return;
     }
 
-    const reason = window.prompt(
-        'Why are you rejecting this order? (unavailable stock, invalid order info, unable to fulfil, …)',
-    );
+    const isReject = target === 'Rejected';
 
-    if (!reason || reason.trim().length < 3) {
+    dialog.target = target;
+    dialog.title = isReject
+        ? `Reject order ${order.value.id}?`
+        : `Cancel order ${order.value.id}?`;
+    dialog.message =
+        'The buyer is notified, any reserved stock is released, and the order is closed. This cannot be undone.';
+    dialog.confirmLabel = isReject ? 'Reject order' : 'Cancel order';
+    dialog.reasonLabel = isReject ? 'Reason for rejecting' : 'Reason for cancelling';
+    dialog.open = true;
+}
+
+function handleReject() {
+    askDestructive('Rejected');
+}
+
+async function onDialogConfirm(reason) {
+    if (!order.value || isBusy.value) {
         return;
     }
 
-    actionBusy.value = true;
+    const target = dialog.target;
+    busyKey.value = target;
 
     try {
-        const updated = await rejectOrder(order.value.id, reason.trim());
+        const fn = target === 'Rejected' ? rejectOrder : cancelOrder;
+        const updated = await fn(order.value.id, reason);
 
         if (updated) {
             order.value = updated;
+            dialog.open = false;
+            flash(`Order ${target === 'Rejected' ? 'rejected' : 'cancelled'}.`);
         }
     } catch {
-        // handled by composable
+        flash(updateError.value || 'Could not update the order.', 'error');
     } finally {
-        actionBusy.value = false;
+        busyKey.value = '';
     }
 }
 
 const isLoading = ref(true);
 const order = ref(null);
+// true only when the fetch actually failed (network / 500), as opposed
+// to the order genuinely not existing (404) — the two states show
+// different UI.
+const loadFailed = ref(false);
 const journeyCard = ref(null);
 
 async function loadOrder() {
     isLoading.value = true;
-    order.value = props.orderId ? await getOrderById(props.orderId) : null;
+    loadFailed.value = false;
+
+    if (!props.orderId) {
+        order.value = null;
+        isLoading.value = false;
+
+        return;
+    }
+
+    const { order: fetched, error } = await getOrderById(props.orderId);
+    order.value = fetched;
+    loadFailed.value = !fetched && !!error;
     isLoading.value = false;
 }
 
@@ -666,6 +798,14 @@ const reversedTimeline = computed(() =>
 // Cancel / reject is only offered while the order is still Pending or
 // Confirmed (server enforces Order::SELLER_CANCELLABLE_FROM).
 const canCancel = computed(() => order.value?.canCancel === true);
+
+const RETURN_LABELS = {
+    requested: 'Return requested',
+    approved: 'Return approved',
+    returned: 'Returned / refunded',
+    rejected: 'Return rejected',
+};
+const returnLabel = computed(() => RETURN_LABELS[order.value?.returnStatus] || '');
 
 function formatAddress(addr) {
     if (!addr) {
@@ -991,32 +1131,8 @@ function contactBuyer() {
     goTo('messages');
 }
 
-async function handleCancel() {
-    if (!order.value) {
-        return;
-    }
-
-    const reason = window.prompt(
-        `Cancel order ${order.value.id}? Enter a reason (this is recorded and shown to the buyer).`,
-    );
-
-    if (!reason || reason.trim().length < 3) {
-        return;
-    }
-
-    actionBusy.value = true;
-
-    try {
-        const updated = await cancelOrder(order.value.id, reason.trim());
-
-        if (updated) {
-            order.value = updated;
-        }
-    } catch {
-        // handled by composable
-    } finally {
-        actionBusy.value = false;
-    }
+function handleCancel() {
+    askDestructive('Cancelled');
 }
 
 function goTo(section) {

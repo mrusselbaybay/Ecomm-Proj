@@ -426,6 +426,7 @@ const {
     fullName,
     initials,
     pendingDocsCount,
+    hasUnsavedAccountChanges,
     checkAuth,
     refreshAll,
     confirmLogout,
@@ -622,17 +623,34 @@ function getIcon(iconName) {
 }
 
 function navigateTo(sectionId, orderId = null, statusFilter = null) {
+    // The Account Settings section is unmounted on nav, so leaving it
+    // with unsaved edits would silently drop them — confirm first.
+    if (
+        currentSection.value === 'account' &&
+        sectionId !== 'account' &&
+        hasUnsavedAccountChanges.value &&
+        !window.confirm('Discard unsaved changes to your account settings?')
+    ) {
+        return;
+    }
+
     if (sectionId === 'orderDetails') {
         if (!orderId) {
             return;
         }
 
-        selectedOrderId.value = orderId;
+        // The list shows order numbers as "#SN-1234"; a leading "#" in
+        // the path is a URL fragment, so strip it before it reaches the
+        // address bar (the API accepts both forms). This keeps
+        // /seller/orders/SN-1234 refreshable and shareable.
+        const cleanId = String(orderId).replace(/^#/, '');
+
+        selectedOrderId.value = cleanId;
         currentSection.value = 'orderDetails';
-        const path = `/seller/orders/${orderId}`;
+        const path = `/seller/orders/${cleanId}`;
 
         if (window.location.pathname !== path) {
-            window.history.pushState({ section: sectionId, orderId }, '', path);
+            window.history.pushState({ section: sectionId, orderId: cleanId }, '', path);
         }
 
         return;
@@ -649,7 +667,7 @@ function navigateTo(sectionId, orderId = null, statusFilter = null) {
     // URL (so refreshing lands back on the plain list), but the id still
     // has to survive in memory for the duration of this navigation.
     if (sectionId === 'prepareOrders') {
-        selectedOrderId.value = orderId;
+        selectedOrderId.value = orderId ? String(orderId).replace(/^#/, '') : orderId;
     }
 
     // Real status string (e.g. 'Delivered') from Reports.vue's order

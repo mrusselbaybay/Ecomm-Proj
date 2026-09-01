@@ -13,6 +13,7 @@ use App\Services\SellerNotifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class SellerOrderController extends Controller
@@ -43,14 +44,16 @@ class SellerOrderController extends Controller
     /**
      * GET /api/seller/orders
      *
-     * Query: status?, search?, sort? (newest|oldest|total_high|total_low),
-     *        page?, per_page?.
+     * Query: status?, search?, payment_status?, date_from?, date_to?,
+     *        sort? (newest|oldest|total_high|total_low), page?, per_page?.
      *
-     * Back-compatible: with no `page` it returns the full list (Orders.vue
-     * still filters client-side). Pass `page` to switch to a paginated
+     * Back-compatible: with no `page` it returns the full list (older
+     * callers filter client-side). Pass `page` to switch to a paginated
      * response with meta.{currentPage,lastPage,total} — the eager loads
-     * and indexes make either mode cheap. `meta.statusCounts` is always
-     * computed across ALL the seller's orders, never just the page.
+     * and indexes make either mode cheap. `meta.statusCounts` is computed
+     * across every order that matches the search / payment / date filters
+     * (but NOT the status filter), so the summary cards and the status
+     * tabs always agree on the same population.
      */
     public function index(Request $request): JsonResponse
     {
@@ -65,6 +68,21 @@ class SellerOrderController extends Controller
             });
         }
 
+        // Payment status is display-only for sellers, but they still need
+        // to filter by it (e.g. "show me the unpaid COD orders"). With
+        // pagination on, this can't be done client-side.
+        if ($paymentStatus = $request->string('payment_status')->toString()) {
+            $base->where('payment_status', $paymentStatus);
+        }
+
+        if ($from = $request->string('date_from')->toString()) {
+            $base->whereDate('placed_at', '>=', $from);
+        }
+
+        if ($to = $request->string('date_to')->toString()) {
+            $base->whereDate('placed_at', '<=', $to);
+        }
+
         $statusCounts = (clone $base)
             ->selectRaw('status, count(*) as c')
             ->groupBy('status')
@@ -73,7 +91,15 @@ class SellerOrderController extends Controller
 
         // No items.product here — product rows carry base64 images and
         // would bloat the list. show() loads them for the details page.
-        $query = (clone $base)->with(['items', 'buyer.address']);
+        $with = ['items', 'buyer.address'];
+
+        // Return/refund rollup for the list badge (returnStatusFor()).
+        // Guarded so the page still works before that migration is run.
+        if (Schema::hasTable('order_return_requests')) {
+            $with['returnRequests'] = fn ($q) => $q->select('id', 'order_id', 'status');
+        }
+
+        $query = (clone $base)->with($with);
 
         if ($status = $request->string('status')->toString()) {
             $query->where('status', $status);
@@ -119,14 +145,7 @@ class SellerOrderController extends Controller
     {
         $seller = $request->user();
 
-        $order = Order::with([
-            'items.product:id,images',
-            'items.variant:id,image',
-            'buyer.address',
-            'statusHistory.changedBy',
-            'seller.address',
-            'seller.sellerDetail',
-        ])
+        $order = Order::with($this->detailRelations())
             ->where('seller_id', $seller->id)
             ->where('order_number', ltrim($id, '#'))
             ->first();
@@ -266,14 +285,30 @@ class SellerOrderController extends Controller
 
     private function reloadDetail(Order $order): Order
     {
-        return $order->fresh([
+        return $order->fresh($this->detailRelations());
+    }
+
+    /**
+     * Eager loads for a single order's detail view. `returnRequests` is
+     * guarded so the details page still works before the returns
+     * migration has run.
+     */
+    private function detailRelations(): array
+    {
+        $relations = [
             'items.product:id,images',
             'items.variant:id,image',
             'buyer.address',
             'statusHistory.changedBy',
             'seller.address',
             'seller.sellerDetail',
-        ]);
+        ];
+
+        if (Schema::hasTable('order_return_requests')) {
+            $relations['returnRequests'] = fn ($q) => $q->select('id', 'order_id', 'status');
+        }
+
+        return $relations;
     }
 
     /**
@@ -302,6 +337,17 @@ class SellerOrderController extends Controller
             'status' => $order->status,
             'statusLabel' => $order->statusLabel(),
             'isTerminal' => $order->isTerminal(),
+            // Workflow-aware actions, straight from the model — the list
+            // and the details page both render buttons from this, so
+            // Order::ALLOWED_TRANSITIONS stays the single source of truth
+            // (no mirror in JS). Cheap: no journey/tracking work here.
+            'canCancel' => $order->sellerMayCancel(),
+            'nextStatuses' => collect(Order::ALLOWED_TRANSITIONS[$order->status] ?? [])
+                ->map(fn ($s) => ['value' => $s, 'label' => Order::labelFor($s)])
+                ->values()
+                ->all(),
+            // Rollup of any buyer return/refund requests, or null.
+            'returnStatus' => $this->returnStatusFor($order),
             // Fulfilment vs. money are separate concerns — see the spec.
             // Sellers never write payment status; this is display only.
             'paymentMethod' => $order->payment_method,
@@ -362,6 +408,33 @@ class SellerOrderController extends Controller
         return null;
     }
 
+    /**
+     * One-word rollup of an order's buyer return/refund requests for the
+     * list badge, or null when there are none. Reads only the
+     * eager-loaded relation (guarded), so it never fires a query per row.
+     *
+     *   requested -> a request is still pending review
+     *   approved  -> at least one approved, none completed yet
+     *   returned  -> at least one completed (item back / refund done)
+     *   rejected  -> only rejected requests remain
+     */
+    private function returnStatusFor(Order $order): ?string
+    {
+        if (! $order->relationLoaded('returnRequests') || $order->returnRequests->isEmpty()) {
+            return null;
+        }
+
+        $statuses = $order->returnRequests->pluck('status');
+
+        return match (true) {
+            $statuses->contains('completed') => 'returned',
+            $statuses->contains('approved') => 'approved',
+            $statuses->contains('pending') => 'requested',
+            $statuses->contains('rejected') => 'rejected',
+            default => null,
+        };
+    }
+
     private function transformDetail(Order $order): array
     {
         $summary = $this->transformSummary($order);
@@ -407,12 +480,8 @@ class SellerOrderController extends Controller
             'at' => optional($order->cancelled_at)->toIso8601String(),
         ] : null;
 
-        // What the seller may do next (drives the action buttons).
-        $summary['nextStatuses'] = collect(Order::ALLOWED_TRANSITIONS[$order->status] ?? [])
-            ->map(fn ($s) => ['value' => $s, 'label' => Order::labelFor($s)])
-            ->values()
-            ->all();
-        $summary['canCancel'] = $order->sellerMayCancel();
+        // `nextStatuses` / `canCancel` / `returnStatus` already come from
+        // transformSummary() — the details page reads the same keys.
 
         // Estimated-position tracking map data (shared with the buyer
         // Order Details screen). See OrderTrackingService — the parcel
