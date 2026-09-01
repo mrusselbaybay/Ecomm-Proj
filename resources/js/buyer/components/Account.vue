@@ -33,6 +33,7 @@ import { ref, reactive, computed, onMounted } from 'vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import { useBuyerAccount } from '../composables/useBuyerAccount';
+import { isValidLocalMobile, toLocalMobile } from '../composables/usePhone';
 
 const emit = defineEmits([
     'back',
@@ -97,8 +98,14 @@ function copyProfileToDraft() {
     draft.middleInitial = buyerProfile.value.middle_initial || '';
     draft.lastName = buyerProfile.value.last_name || '';
     draft.sex = buyerProfile.value.sex || '';
-    draft.contactNumber = buyerProfile.value.contact_no || '';
+    draft.contactNumber = toLocalMobile(buyerProfile.value.contact_no || '');
     draft.birthday = buyerProfile.value.birthday || '';
+}
+
+// Keep the contact field digits-only and capped at 11 on every keystroke
+// and paste — see usePhone.js.
+function onContactInput(event) {
+    draft.contactNumber = toLocalMobile(event.target.value);
 }
 
 copyProfileToDraft();
@@ -135,12 +142,10 @@ function validateProfile() {
         nextErrors.sex = 'Sex is required.';
     }
 
-    const normalizedContact = draft.contactNumber.replace(/[\s-]/g, '');
-
-    if (!normalizedContact) {
+    if (!draft.contactNumber) {
         nextErrors.contactNumber = 'Contact number is required.';
-    } else if (!/^(09\d{9}|\+639\d{9})$/.test(normalizedContact)) {
-        nextErrors.contactNumber = 'Use 09XXXXXXXXX or +639XXXXXXXXX.';
+    } else if (!isValidLocalMobile(draft.contactNumber)) {
+        nextErrors.contactNumber = 'Enter an 11-digit mobile number, e.g. 09171234567.';
     }
 
     if (!draft.birthday) {
@@ -167,7 +172,7 @@ async function saveProfile() {
 
     const { error } = await updateBuyerProfile({
         ...draft,
-        contactNumber: draft.contactNumber.replace(/[\s-]/g, '')
+        contactNumber: toLocalMobile(draft.contactNumber)
     });
 
     isSaving.value = false;
@@ -580,15 +585,24 @@ function handleHeaderSelectCategory(category) {
                                 <label class="block">
                                     <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Contact Number *</span>
                                     <input
-                                        v-model="draft.contactNumber"
+                                        :value="draft.contactNumber"
                                         type="tel"
-                                        autocomplete="tel"
-                                        placeholder="09XXXXXXXXX"
+                                        inputmode="numeric"
+                                        autocomplete="tel-national"
+                                        placeholder="09171234567"
                                         :disabled="!isEditing"
                                         class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-[#0d9488]/20 focus:border-[#0d9488]"
                                         :class="errors.contactNumber ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
+                                        @input="onContactInput"
                                     >
-                                    <small v-if="errors.contactNumber" class="block text-red-500 text-xs mt-1">{{ errors.contactNumber }}</small>
+                                    <small
+                                        v-if="errors.contactNumber"
+                                        class="block text-red-500 text-xs mt-1"
+                                    >{{ errors.contactNumber }}</small>
+                                    <small
+                                        v-else-if="isEditing"
+                                        class="block text-slate-400 text-xs mt-1"
+                                    >11-digit mobile number, digits only.</small>
                                 </label>
 
                                 <label class="block">

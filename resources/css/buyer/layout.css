@@ -2746,13 +2746,23 @@
 
     padding: 14px;
 
-    background: var(--nx-bg);
+    background: #ffffff;
     border: 1px solid var(--nx-border);
     border-radius: 14px;
 }
 
 .shipping-info-icon {
-    font-size: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    width: 38px;
+    height: 38px;
+
+    border-radius: 11px;
+    background: var(--nx-accent-soft);
+    color: var(--nx-accent-dark);
 }
 
 .shipping-info-title {

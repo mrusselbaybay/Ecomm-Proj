@@ -34,6 +34,7 @@ import { computed, nextTick, reactive, ref } from 'vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import { useBuyerAddresses } from '../composables/useBuyerAddresses';
+import { isValidLocalMobile, toLocalMobile } from '../composables/usePhone';
 
 const emit = defineEmits([
     'back',
@@ -108,7 +109,7 @@ function openEditForm(address) {
     resetForm();
     editingId.value = address.id;
     form.fullName = address.fullName;
-    form.phone = address.phone;
+    form.phone = toLocalMobile(address.phone);
     form.line1 = address.line1;
     form.city = address.city;
     form.province = address.province;
@@ -123,6 +124,12 @@ function closeForm() {
     isFormOpen.value = false;
     editingId.value = null;
     resetForm();
+}
+
+// Keep the phone field digits-only and capped at 11 on every keystroke
+// and paste — see usePhone.js.
+function onPhoneInput(event) {
+    form.phone = toLocalMobile(event.target.value);
 }
 
 function showFeedback(message) {
@@ -140,12 +147,10 @@ function validate() {
         next.fullName = 'Full name is required.';
     }
 
-    const normalizedPhone = form.phone.replace(/[\s-]/g, '');
-
-    if (!normalizedPhone) {
+    if (!form.phone) {
         next.phone = 'Phone number is required.';
-    } else if (!/^(09\d{9}|\+639\d{9})$/.test(normalizedPhone)) {
-        next.phone = 'Use 09XXXXXXXXX or +639XXXXXXXXX.';
+    } else if (!isValidLocalMobile(form.phone)) {
+        next.phone = 'Enter an 11-digit mobile number, e.g. 09171234567.';
     }
 
     if (!form.line1.trim()) {
@@ -561,13 +566,18 @@ function handleHeaderSelectCategory(category) {
                                 <label for="addr-phone" class="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-1">Phone Number <span class="text-red-500">*</span></label>
                                 <input
                                     id="addr-phone"
-                                    v-model="form.phone"
+                                    :value="form.phone"
                                     type="tel"
-                                    placeholder="09XXXXXXXXX"
+                                    inputmode="numeric"
+                                    autocomplete="tel-national"
+                                    placeholder="09171234567"
+                                    aria-describedby="addr-phone-hint"
                                     class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
                                     :class="errors.phone ? 'border-red-300' : 'border-slate-200'"
+                                    @input="onPhoneInput"
                                 >
-                                <p v-if="errors.phone" class="text-xs text-red-500 mt-1.5 px-1">{{ errors.phone }}</p>
+                                <p v-if="errors.phone" id="addr-phone-hint" class="text-xs text-red-500 mt-1.5 px-1">{{ errors.phone }}</p>
+                                <p v-else id="addr-phone-hint" class="text-xs text-slate-400 mt-1.5 px-1">11-digit mobile number, digits only.</p>
                             </div>
 
                             <div class="md:col-span-2">

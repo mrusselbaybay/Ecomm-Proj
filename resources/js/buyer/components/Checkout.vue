@@ -4,6 +4,8 @@ import { useBuyer } from '../composables/useBuyer';
 import { useBuyerAddresses } from '../composables/useBuyerAddresses';
 import { useBuyerPayments } from '../composables/useBuyerPayments';
 import { metaFor } from '../composables/useCategoryMeta';
+import { useConfirm } from '../composables/useConfirm';
+import { isValidLocalMobile, toLocalMobile } from '../composables/usePhone';
 import { useToasts } from '../composables/useToasts';
 import Footer from './Footer.vue';
 import Header from './Header.vue';
@@ -13,6 +15,7 @@ import Header from './Header.vue';
 // composable function to actually submit to the backend.
 const { placeOrder: submitCheckout, isPlacingOrder } = useBuyer();
 const { success, error: toastError, warning, info } = useToasts();
+const { confirm } = useConfirm();
 
 const props = defineProps({
     items: {
@@ -62,6 +65,13 @@ const checkoutForm = reactive({
 
 const { defaultAddress } = useBuyerAddresses();
 
+// Delivery contact is a local 11-digit mobile number (09XXXXXXXXX).
+// toLocalMobile() keeps the field digits-only and capped at 11 on every
+// keystroke and paste — see usePhone.js.
+function onContactInput(event) {
+    checkoutForm.contactNumber = toLocalMobile(event.target.value);
+}
+
 function applyDefaultAddress(address) {
     if (!address) {
         return;
@@ -72,7 +82,7 @@ function applyDefaultAddress(address) {
     }
 
     if (!checkoutForm.contactNumber) {
-        checkoutForm.contactNumber = address.phone || '';
+        checkoutForm.contactNumber = toLocalMobile(address.phone || '');
     }
 
     if (!checkoutForm.address) {
@@ -453,6 +463,12 @@ async function placeOrder() {
         return;
     }
 
+    if (!isValidLocalMobile(checkoutForm.contactNumber)) {
+        warning('Enter an 11-digit contact number, e.g. 09171234567.');
+
+        return;
+    }
+
     if (!checkoutForm.address.trim()) {
         warning('Address information is incomplete — add a delivery address.');
 
@@ -475,7 +491,30 @@ async function placeOrder() {
     }
 
     paymentError.value = '';
-    info('Checkout started…');
+
+    // Final confirmation before money/stock moves — a real order is a
+    // significant, hard-to-undo action, so spell out exactly what's about
+    // to happen (count, total, payment, recipient) in an accessible
+    // dialog rather than submitting on the first click.
+    const itemCount = props.items.reduce((count, item) => count + Number(item.quantity), 0);
+    const paymentLabel = paymentMethods.find(method => method.id === checkoutForm.paymentMethod)?.name
+        || 'the selected method';
+
+    const confirmed = await confirm({
+        title: 'Place this order?',
+        message:
+            `You're ordering ${itemCount} ${itemCount === 1 ? 'item' : 'items'} for `
+            + `${formatPrice(total.value)}, paying with ${paymentLabel}. `
+            + `Delivering to ${checkoutForm.recipientName}.`,
+        confirmLabel: 'Place order',
+        cancelLabel: 'Keep reviewing',
+    });
+
+    if (!confirmed) {
+        return;
+    }
+
+    info('Placing your order…');
 
     /*
      * Database/API-ready order payload.
@@ -528,9 +567,26 @@ async function placeOrder() {
 
         emit('place-order', createdOrders);
 
-        success(`Order placed successfully. Total ${formatPrice(total.value)}.`);
+        // Include the real order reference(s) so the buyer has something
+        // concrete to look for in My Orders. Checkout can split into one
+        // order per seller.
+        const orders = Array.isArray(createdOrders) ? createdOrders : [];
+        let reference = '';
+
+        if (orders.length === 1 && orders[0]?.id) {
+            reference = ` Order ${orders[0].id}.`;
+        } else if (orders.length > 1) {
+            reference = ` ${orders.length} orders created (one per seller).`;
+        }
+
+        success(`Order placed successfully.${reference} Total ${formatPrice(total.value)}.`, {
+            timeout: 7000,
+        });
     } catch (err) {
-        toastError(err?.message || 'Checkout could not be completed. Please try again.');
+        toastError(
+            err?.message
+                || 'We couldn\'t place your order. Nothing was charged — please check your details and try again.',
+        );
     }
 }
 </script>
@@ -634,10 +690,20 @@ async function placeOrder() {
                                 <div class="checkout-field">
                                     <label>Contact Number</label>
                                     <input
-                                        v-model="checkoutForm.contactNumber"
+                                        :value="checkoutForm.contactNumber"
                                         type="text"
-                                        placeholder="09XXXXXXXXX"
+                                        inputmode="numeric"
+                                        autocomplete="tel-national"
+                                        placeholder="09171234567"
+                                        aria-describedby="checkout-contact-hint"
+                                        @input="onContactInput"
                                     >
+                                    <small
+                                        id="checkout-contact-hint"
+                                        class="checkout-field-hint"
+                                    >
+                                        11-digit mobile number, digits only.
+                                    </small>
                                 </div>
 
                                 <div class="checkout-field checkout-field-full">
@@ -1384,6 +1450,13 @@ async function placeOrder() {
     color: #dc2626;
     font-size: 12.5px;
     font-weight: 600;
+}
+
+.checkout-field-hint {
+    display: block;
+    margin-top: 6px;
+    color: var(--nx-muted);
+    font-size: 11.5px;
 }
 
 @media (max-width: 640px) {

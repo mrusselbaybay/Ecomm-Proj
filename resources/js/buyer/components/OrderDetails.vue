@@ -31,6 +31,7 @@ import { computed, nextTick, ref } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerChat } from '../composables/useBuyerChat';
 import { metaFor } from '../composables/useCategoryMeta';
+import { useConfirm } from '../composables/useConfirm';
 import {
     trackingSteps,
     stepLabels,
@@ -39,6 +40,7 @@ import {
     isTrackingStepCompleted,
     timelineTimestamp
 } from '../composables/useOrderTimeline';
+import { useToasts } from '../composables/useToasts';
 import Footer from './Footer.vue';
 import Header from './Header.vue';
 import ReturnRequestModal from './ReturnRequestModal.vue';
@@ -71,6 +73,9 @@ const {
     submitReview,
     submitReturnRequest
 } = useBuyer();
+
+const { success, error: toastError, warning } = useToasts();
+const { confirm } = useConfirm();
 
 // status -> most recent order_status_history entry for it, so the
 // timeline can show a real date per reached step instead of just a
@@ -223,12 +228,18 @@ async function handleCancelOrder() {
     }
 
     if (!canCancelOrder.value) {
-        alert('This order can no longer be cancelled.');
+        warning('This order can no longer be cancelled.');
 
         return;
     }
 
-    const confirmed = window.confirm('Are you sure you want to cancel this order?');
+    const confirmed = await confirm({
+        title: 'Cancel this order?',
+        message: 'The seller will be notified and, if the order hasn\'t shipped, any reserved stock is released. This can\'t be undone.',
+        confirmLabel: 'Cancel order',
+        cancelLabel: 'Keep order',
+        tone: 'danger',
+    });
 
     if (!confirmed) {
         return;
@@ -237,7 +248,7 @@ async function handleCancelOrder() {
     const cancelled = await cancelOrder(props.order.orderId, 'Cancelled by buyer');
 
     if (!cancelled) {
-        alert('Unable to cancel this order right now \u2014 please contact the seller.');
+        toastError('We couldn\'t cancel this order right now. Please try again or message the seller.');
 
         return;
     }
@@ -252,7 +263,7 @@ async function handleCancelOrder() {
         statusHistory: cancelled.statusHistory
     });
 
-    alert('Order cancelled successfully.');
+    success(`Order ${props.order.orderId} was cancelled.`);
 }
 
 function openReviewModal(item, index) {
@@ -287,8 +298,9 @@ async function handleReviewSubmit(reviewData) {
         props.order.items[selectedReviewItemIndex.value].review = review;
 
         closeReviewModal();
+        success('Review submitted. Thanks for the feedback!');
     } catch (err) {
-        alert(err?.message || 'Unable to submit this review right now.');
+        toastError(err?.message || 'We couldn\'t submit this review right now. Please try again.');
     }
 }
 
@@ -322,9 +334,9 @@ async function handleReturnSubmit(requestData) {
         props.order.items[selectedReturnItemIndex.value].returnRequest = returnRequest;
 
         closeReturnModal();
-        alert('Return / refund request submitted successfully.');
+        success('Return request submitted. The seller will review it shortly.');
     } catch (err) {
-        alert(err?.message || 'Unable to submit this request. The item may already have an open request or the order is not eligible.');
+        toastError(err?.message || 'We couldn\'t submit this request. The item may already have an open request, or the order isn\'t eligible.');
     }
 }
 
