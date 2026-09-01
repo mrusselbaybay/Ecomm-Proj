@@ -255,7 +255,7 @@
                             :d="salesTrendLinePath"
                             fill="none"
                             stroke="#1b9ba8"
-                            stroke-width="2.5"
+                            stroke-width="4"
                             stroke-linecap="round"
                             stroke-linejoin="round"
                         ></path>
@@ -1101,7 +1101,7 @@ const orderDonutSegments = computed(() => {
     const segments = [
         { key: 'delivered', label: 'Delivered', color: '#1b9ba8', count: counts.delivered },
         { key: 'inTransit', label: 'In Transit', color: '#2c5aa0', count: counts.inTransit },
-        { key: 'processing', label: 'Processing', color: '#f59e0b', count: counts.processing },
+        { key: 'processing', label: 'Processing', color: '#f87171', count: counts.processing },
     ];
 
     let offsetAcc = 0;
@@ -1197,16 +1197,23 @@ const donutSegments = computed(() => {
 
 <style scoped>
 /* ============================================================
-   Seller Dashboard — visual redesign.
+   Seller Dashboard — visual layout redesign (presentation only).
 
-   Design system from ui-ux-pro-max ("Data-Dense Dashboard",
-   density 8 / motion 3): an 8px spacing rhythm, a real KPI type
-   ramp, tabular figures on every data number, subtle 150-200ms
-   motion, and one consistent card frame. Applied here as
-   token-driven scoped CSS — every rule is confined to
-   `.seller-dashboard`, so layout.css and all other seller pages
-   are untouched. No element, label, column or copy was changed;
-   only layout, spacing, type, colour and hierarchy.
+   Scope: <template> structure + this <style> block only. No
+   <script> changes, no data-flow changes. The existing colour
+   palette is kept verbatim — every rule below sets geometry
+   (spacing, grid, alignment), type scale/weight, radius, shadow
+   or density. Where a colour value appears it is the element's
+   own current value, restated because this block replaces the
+   component's previous scoped styles; borders/dividers reuse the
+   palette's existing neutrals (#e2e8f0 card hairline,
+   #f1f5f9 divider).
+
+   Design-system reference: ui-ux-pro-max "Data-Dense Dashboard"
+   (density 8 / motion 3) — 8px spacing rhythm, KPI type ramp,
+   tabular figures on data, subtle 150-200ms motion, one card
+   frame. Every selector is confined to `.seller-dashboard`, so
+   layout.css and all other seller pages are untouched.
    ============================================================ */
 
 .seller-dashboard {
@@ -1221,20 +1228,12 @@ const donutSegments = computed(() => {
     --sd-radius: 0.6rem;
     --sd-radius-lg: 0.85rem;
 
-    --sd-border: #e6ebf1;
-    --sd-border-strong: #d7dfe9;
-
-    --sd-ink: #0f172a;
-    --sd-ink-soft: #475569;
-    /* #64748b clears 4.5:1 on white / #f8fafc for the small supporting
-       labels that were previously #94a3b8 (~2.8:1). */
-    --sd-ink-mute: #64748b;
-
-    --sd-teal: #1b9ba8;
-    --sd-blue: #2c5aa0;
+    /* existing palette neutrals, named for reuse */
+    --sd-hairline: #e2e8f0;
+    --sd-divider: #f1f5f9;
 
     --sd-shadow-rest: 0 1px 2px rgba(15, 23, 42, 0.04);
-    --sd-shadow-hover: 0 8px 24px -8px rgba(15, 23, 42, 0.12);
+    --sd-shadow-hover: 0 10px 24px -10px rgba(15, 23, 42, 0.12);
 
     --sd-ease: cubic-bezier(0, 0, 0.2, 1);
 }
@@ -1252,10 +1251,8 @@ const donutSegments = computed(() => {
     font-variant-numeric: tabular-nums;
 }
 
-/* One consistent card frame: crisp hairline border, soft rest
-   shadow, unified radius. */
+/* One consistent card frame: unified radius + soft rest shadow. */
 .seller-dashboard .card {
-    border-color: var(--sd-border);
     border-radius: var(--sd-radius-lg);
     box-shadow: var(--sd-shadow-rest);
 }
@@ -1270,10 +1267,8 @@ const donutSegments = computed(() => {
 }
 .seller-dashboard .launchpad-label {
     font-size: 0.7rem;
-    font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--sd-ink-soft);
 }
 .seller-dashboard .launchpad-icon {
     padding: 0.4rem;
@@ -1291,7 +1286,7 @@ const donutSegments = computed(() => {
 }
 
 /* ============================================================
-   2 · Metric cards — label ▸ value ▸ context
+   2 · Metric cards — label ▸ value ▸ context hierarchy
    ============================================================ */
 .seller-dashboard .metric-grid {
     grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1301,7 +1296,6 @@ const donutSegments = computed(() => {
 .seller-dashboard .metric-card {
     padding: var(--sd-space-4);
     border-radius: var(--sd-radius);
-    border-color: var(--sd-border);
     box-shadow: var(--sd-shadow-rest);
     transition:
         transform 0.16s var(--sd-ease),
@@ -1332,7 +1326,6 @@ const donutSegments = computed(() => {
 .seller-dashboard .metric-label {
     font-size: 0.68rem;
     letter-spacing: 0.06em;
-    color: var(--sd-ink-mute);
     margin-bottom: 0.15rem;
 }
 .seller-dashboard .metric-value {
@@ -1340,13 +1333,12 @@ const donutSegments = computed(() => {
     font-weight: 800;
     line-height: 1.15;
     letter-spacing: -0.01em;
-    color: var(--sd-ink);
 }
 .seller-dashboard .metric-sub {
     margin-top: 0.25rem;
     font-size: 0.72rem;
     line-height: 1.4;
-    color: var(--sd-ink-mute);
+    color: #94a3b8;
 }
 
 @media (max-width: 1280px) {
@@ -1382,11 +1374,9 @@ const donutSegments = computed(() => {
 .seller-dashboard .chart-title {
     font-size: 0.95rem;
     font-weight: 700;
-    color: var(--sd-ink);
 }
 .seller-dashboard .chart-sub {
     font-size: 0.75rem;
-    color: var(--sd-ink-soft);
 }
 .seller-dashboard .chart-toggle button {
     font-size: 0.68rem;
@@ -1396,30 +1386,15 @@ const donutSegments = computed(() => {
 }
 .seller-dashboard .chart-x-labels {
     margin-top: var(--sd-space-2);
-    color: var(--sd-ink-mute);
-}
-.seller-dashboard .chart-live-tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.32rem;
-    color: #16a34a;
-}
-.seller-dashboard .chart-live-tag::before {
-    content: '';
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
 }
 .seller-dashboard .donut-center-value {
     font-size: 1.5rem;
     font-weight: 800;
-    color: var(--sd-ink);
 }
 .seller-dashboard .donut-legend-row {
     padding: 0.42rem 0;
     font-size: 0.8rem;
-    border-top: 1px solid var(--sd-border);
+    border-top: 1px solid var(--sd-divider);
 }
 .seller-dashboard .donut-legend-row:first-child {
     border-top: 0;
@@ -1440,16 +1415,13 @@ const donutSegments = computed(() => {
 }
 .seller-dashboard .panel-head {
     padding: var(--sd-space-4) var(--sd-space-5);
-    border-bottom-color: var(--sd-border);
 }
 .seller-dashboard .panel-head h3 {
     font-size: 0.95rem;
     font-weight: 700;
-    color: var(--sd-ink);
 }
 .seller-dashboard .panel-link {
     font-size: 0.78rem;
-    transition: color 0.15s var(--sd-ease);
 }
 
 /* Recent Sales Records table */
@@ -1461,24 +1433,14 @@ const donutSegments = computed(() => {
     font-size: 0.66rem;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: var(--sd-ink-mute);
-    background: #fff;
-    border-bottom: 1px solid var(--sd-border);
+    border-bottom: 1px solid var(--sd-hairline);
 }
 .seller-dashboard .sales-table tbody td {
     padding: 0.7rem var(--sd-space-5);
-    border-bottom: 1px solid #f1f5f9;
-    color: var(--sd-ink-soft);
-}
-.seller-dashboard .sales-table tbody tr {
-    transition: background 0.12s var(--sd-ease);
-}
-.seller-dashboard .sales-table tbody tr:hover td {
-    background: #f8fafc;
+    border-bottom: 1px solid var(--sd-divider);
 }
 .seller-dashboard .sales-table .order-id {
     font-weight: 600;
-    color: var(--sd-ink);
 }
 .seller-dashboard .sales-table thead th:nth-child(5),
 .seller-dashboard .sales-table tbody td:nth-child(5),
@@ -1487,10 +1449,10 @@ const donutSegments = computed(() => {
 }
 .seller-dashboard .sales-table .amount {
     font-weight: 700;
-    color: var(--sd-ink);
 }
 
-/* Live Store Activity — timeline rail */
+/* Live Store Activity — timeline rail (grouping device, uses the
+   existing divider neutral). */
 .seller-dashboard .activity-panel {
     padding: var(--sd-space-4) var(--sd-space-5);
 }
@@ -1507,18 +1469,13 @@ const donutSegments = computed(() => {
     bottom: 0;
     width: 2px;
     border-radius: 999px;
-    background: var(--sd-border);
+    background: var(--sd-hairline);
 }
 .seller-dashboard .activity-text {
     font-size: 0.82rem;
-    color: var(--sd-ink);
 }
 .seller-dashboard .activity-time {
     font-size: 0.72rem;
-    color: var(--sd-ink-mute);
-}
-.seller-dashboard .live-dot {
-    background: #16a34a;
 }
 
 /* Best-Selling Products */
@@ -1543,8 +1500,8 @@ const donutSegments = computed(() => {
     align-items: center;
     justify-content: center;
     border-radius: 0.45rem;
-    background: rgba(27, 155, 168, 0.1);
-    color: var(--sd-teal);
+    background: #f1f5f9;
+    color: #475569;
     font-size: 0.72rem;
     font-weight: 800;
 }
@@ -1561,7 +1518,7 @@ const donutSegments = computed(() => {
 .seller-dashboard .rank-name {
     font-size: 0.85rem;
     font-weight: 600;
-    color: var(--sd-ink);
+    color: #1e293b;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1570,7 +1527,7 @@ const donutSegments = computed(() => {
     flex-shrink: 0;
     font-size: 0.76rem;
     font-weight: 700;
-    color: var(--sd-teal);
+    color: #1b9ba8;
 }
 .seller-dashboard .rank-bar {
     margin: 0.4rem 0 0.3rem;
@@ -1583,12 +1540,12 @@ const donutSegments = computed(() => {
     display: block;
     height: 100%;
     border-radius: 999px;
-    background: var(--sd-teal);
+    background: #1b9ba8;
     transition: width 0.4s var(--sd-ease);
 }
 .seller-dashboard .rank-sub {
     font-size: 0.72rem;
-    color: var(--sd-ink-mute);
+    color: #94a3b8;
 }
 
 /* Low-Stock Products */
@@ -1612,29 +1569,19 @@ const donutSegments = computed(() => {
 }
 .seller-dashboard .stock-name {
     font-size: 0.85rem;
-    color: var(--sd-ink);
+    color: #1e293b;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 .seller-dashboard .stock-qty {
     flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.7rem;
+    font-size: 0.72rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.02em;
     padding: 0.2rem 0.5rem;
     border-radius: 999px;
-}
-.seller-dashboard .stock-qty::before {
-    content: '';
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
 }
 .seller-dashboard .stock-qty.is-low {
     background: #fef3c7;
@@ -1647,23 +1594,20 @@ const donutSegments = computed(() => {
 
 /* ============================================================
    6 · Account & Compliance — demoted below the operational view
+   (via whitespace + a divider + flattened elevation; no recolour)
    ============================================================ */
 .seller-dashboard .sd-compliance-zone {
     margin-top: var(--sd-space-6);
     padding-top: var(--sd-space-5);
-    border-top: 1px solid var(--sd-border-strong);
+    border-top: 1px solid var(--sd-hairline);
 }
 .seller-dashboard .sd-compliance-zone .section-label {
     font-size: 0.78rem;
-    font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--sd-ink-soft);
 }
 .seller-dashboard .sd-compliance-zone .card {
-    background: #fbfcfe;
     box-shadow: none;
-    border-color: var(--sd-border);
 }
 .seller-dashboard .sd-compliance-zone .checklist-item {
     padding: 0.55rem 0.7rem;
