@@ -79,6 +79,136 @@ class ProductController extends Controller
     }
 
     /**
+     * GET /api/products/{id}/reviews
+     *
+     * Public, paginated list of a product's buyer reviews — powers the
+     * "read reviews before buying" drawer on the cart (and is reusable on
+     * the product page). Additive: no existing endpoint returned a
+     * product-scoped review list (GET /api/buyer/reviews is the signed-in
+     * buyer's *own* reviews only). Same visibility rule as the catalog —
+     * reviews are only exposed for an active product owned by an active
+     * seller.
+     *
+     * Query params (all optional): page, per_page (max 20),
+     * rating (1-5, exact), has_images (bool).
+     */
+    public function reviews(Request $request, string $id): JsonResponse
+    {
+        $product = $this->visibleProduct($id);
+
+        if (! $product) {
+            return response()->json(['message' => 'Product not found.'], 404);
+        }
+
+        $productId = (string) $product->id;
+        $perPage = min(max((int) $request->integer('per_page', 5), 1), 20);
+        $rating = (int) $request->integer('rating');
+        $hasImages = $request->boolean('has_images');
+
+        $paginated = $this->reviewQuery($productId, $rating, $hasImages)
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
+
+        $rows = [];
+
+        foreach ($paginated->items() as $review) {
+            $rows[] = $this->transformReview($review);
+        }
+
+        return response()->json([
+            'data' => $rows,
+            'meta' => [
+                'current_page' => $paginated->currentPage(),
+                'last_page' => $paginated->lastPage(),
+                'total' => $paginated->total(),
+                'per_page' => $paginated->perPage(),
+            ],
+            'summary' => $this->reviewSummary($productId),
+        ]);
+    }
+
+    /**
+     * An active product owned by an active seller, or null — the same
+     * visibility rule catalogQuery() enforces, without the review
+     * sub-selects (reviews() computes its own summary).
+     */
+    private function visibleProduct(string $id): ?Product
+    {
+        return Product::query()
+            ->active()
+            ->whereHas('seller', fn ($q) => $q->where('account_status', 'active'))
+            ->find($id);
+    }
+
+    /**
+     * Base query for a product's reviews with the optional exact-rating
+     * and has-images filters applied. reviews.images is a nullable json
+     * column that isn't written yet (Buyer\ReviewController stores rating
+     * + comment only); "has photos" is kept DB-portable as "column is
+     * populated", and transformReview() still guards the contents.
+     */
+    private function reviewQuery(string $productId, int $rating, bool $hasImages)
+    {
+        $query = Review::query()
+            ->with(['buyer:id,first_name,last_name', 'orderItem:id,variant'])
+            ->where('product_id', $productId);
+
+        if ($rating >= 1 && $rating <= 5) {
+            $query->where('rating', $rating);
+        }
+
+        if ($hasImages) {
+            $query->whereNotNull('images');
+        }
+
+        return $query;
+    }
+
+    /**
+     * Unfiltered rating summary for the whole product: average, count,
+     * the 5→1 star breakdown, and how many reviews carry photos.
+     *
+     * @return array{average: float|null, total: int, breakdown: array<int, int>, with_images: int}
+     */
+    private function reviewSummary(string $productId): array
+    {
+        $counts = Review::query()
+            ->where('product_id', $productId)
+            ->selectRaw('rating, count(*) as total')
+            ->groupBy('rating')
+            ->pluck('total', 'rating');
+
+        $breakdown = [];
+        $total = 0;
+
+        foreach ([5, 4, 3, 2, 1] as $star) {
+            $starCount = (int) ($counts[$star] ?? 0);
+            $breakdown[$star] = $starCount;
+            $total += $starCount;
+        }
+
+        $average = null;
+
+        if ($total > 0) {
+            $average = round((float) Review::query()
+                ->where('product_id', $productId)
+                ->avg('rating'), 1);
+        }
+
+        $withImages = (int) Review::query()
+            ->where('product_id', $productId)
+            ->whereNotNull('images')
+            ->count();
+
+        return [
+            'average' => $average,
+            'total' => $total,
+            'breakdown' => $breakdown,
+            'with_images' => $withImages,
+        ];
+    }
+
+    /**
      * The one query behind both index() and show(): only products that are
      * status = 'active' AND owned by an active seller account are ever
      * visible to buyers — enforced here at the database level, never left
@@ -198,6 +328,40 @@ class ProductController extends Controller
                 )->all(),
             ])->all(),
             'created_at' => $product->created_at,
+        ];
+    }
+
+    /**
+     * One public review row. The reviewer is shown as "First L." only —
+     * never the full name or any contact detail. verifiedPurchase is a
+     * real signal: Buyer\ReviewController only ever creates a review with
+     * an order_item_id, and only for a delivered order the buyer owns, so
+     * a non-null order_item_id genuinely means "bought and received".
+     */
+    private function transformReview(Review $review): array
+    {
+        $first = trim((string) ($review->buyer?->first_name ?? ''));
+        $last = trim((string) ($review->buyer?->last_name ?? ''));
+        $author = trim($first.' '.($last !== '' ? mb_substr($last, 0, 1).'.' : ''));
+
+        $images = collect(is_array($review->images) ? $review->images : [])
+            ->filter(fn ($img) => is_string($img) && $img !== '')
+            ->values()
+            ->all();
+
+        return [
+            'id' => $review->id,
+            'author' => $author !== '' ? $author : 'NEXMART Buyer',
+            'rating' => (int) $review->rating,
+            'comment' => $review->comment,
+            'createdAt' => optional($review->created_at)->toIso8601String(),
+            'isEdited' => $review->updated_at && $review->created_at
+                && ! $review->updated_at->equalTo($review->created_at),
+            'variant' => $review->orderItem?->variant,
+            'verifiedPurchase' => ! is_null($review->order_item_id),
+            'images' => $images,
+            'sellerResponse' => $review->seller_response,
+            'respondedAt' => optional($review->responded_at)->toIso8601String(),
         ];
     }
 }
