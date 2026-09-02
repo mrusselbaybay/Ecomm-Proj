@@ -10,6 +10,7 @@ use App\Models\CourierApplication;
 use App\Models\LogisticsCompany;
 use App\Models\LogisticsDeliveryArea;
 use App\Models\Profile;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -23,7 +24,7 @@ class DeliveryAreaController extends Controller
     {
         $company = $this->companyFor($request);
         $areas = LogisticsDeliveryArea::query()
-            ->with('rider')
+            ->with(['riders.courierDetail', 'riders.address'])
             ->where('logistics_company_id', $company->id)
             ->orderByDesc('is_active')
             ->orderBy('name')
@@ -62,14 +63,13 @@ class DeliveryAreaController extends Controller
     {
         $company = $this->companyFor($request);
         $validated = $request->validated();
-        $this->ensureRiderIsAccepted($company, $validated['rider_profile_id'] ?? null);
 
         $area = LogisticsDeliveryArea::query()->create([
             ...$validated,
             'logistics_company_id' => $company->id,
         ]);
 
-        return (new DeliveryAreaResource($area->load('rider')))
+        return (new DeliveryAreaResource($area->load(['riders.courierDetail', 'riders.address'])))
             ->response()
             ->setStatusCode(201);
     }
@@ -83,13 +83,9 @@ class DeliveryAreaController extends Controller
         $this->ensureAreaBelongsToCompany($deliveryArea, $company);
         $validated = $request->validated();
 
-        if (array_key_exists('rider_profile_id', $validated)) {
-            $this->ensureRiderIsAccepted($company, $validated['rider_profile_id']);
-        }
-
         $deliveryArea->update($validated);
 
-        return new DeliveryAreaResource($deliveryArea->refresh()->load('rider'));
+        return new DeliveryAreaResource($deliveryArea->refresh()->load(['riders.courierDetail', 'riders.address']));
     }
 
     /**
@@ -102,6 +98,102 @@ class DeliveryAreaController extends Controller
         $deliveryArea->delete();
 
         return response()->json(['message' => 'Delivery area deleted.']);
+    }
+
+    /**
+     * Appoint an accepted rider to this area (idempotent — appointing the
+     * same rider twice is a no-op, not a duplicate/error).
+     */
+    public function addRider(Request $request, LogisticsDeliveryArea $deliveryArea): DeliveryAreaResource
+    {
+        $company = $this->companyFor($request);
+        $this->ensureAreaBelongsToCompany($deliveryArea, $company);
+
+        $riderProfileId = $request->validate([
+            'rider_profile_id' => ['required', 'uuid'],
+        ])['rider_profile_id'];
+
+        $this->ensureRiderIsAccepted($company, $riderProfileId);
+
+        $deliveryArea->riders()->syncWithoutDetaching([$riderProfileId]);
+
+        return new DeliveryAreaResource($deliveryArea->refresh()->load(['riders.courierDetail', 'riders.address']));
+    }
+
+    /**
+     * Remove a rider's appointment to this area.
+     */
+    public function removeRider(Request $request, LogisticsDeliveryArea $deliveryArea, string $riderProfileId): DeliveryAreaResource
+    {
+        $company = $this->companyFor($request);
+        $this->ensureAreaBelongsToCompany($deliveryArea, $company);
+
+        $deliveryArea->riders()->detach($riderProfileId);
+
+        return new DeliveryAreaResource($deliveryArea->refresh()->load(['riders.courierDetail', 'riders.address']));
+    }
+
+    /**
+     * Riders this company has accepted who are NOT yet appointed to this
+     * area — backs the "Add driver" side panel on the area modal
+     * (Couriers.vue). Deliberately its own paginated, searched-server-side
+     * endpoint rather than reusing index()'s full company-wide roster:
+     * that roster is fine unpaginated for a summary table, but handing
+     * the whole thing to the browser every time someone opens "Add
+     * driver" doesn't scale with the size of the rider pool, and isn't
+     * what's being asked for anyway (5 at a time, matching what's
+     * actually shown).
+     */
+    public function availableRiders(Request $request, LogisticsDeliveryArea $deliveryArea): JsonResponse
+    {
+        $company = $this->companyFor($request);
+        $this->ensureAreaBelongsToCompany($deliveryArea, $company);
+
+        $search = trim((string) $request->query('search', ''));
+        $assignedIds = $deliveryArea->riders()->pluck('profiles.id');
+
+        $riders = Profile::query()
+            ->select('profiles.*')
+            ->distinct()
+            ->join('courier_applications', 'courier_applications.courier_profile_id', '=', 'profiles.id')
+            ->where('courier_applications.logistics_company_id', $company->id)
+            ->where('courier_applications.status', CourierApplication::STATUS_ACCEPTED)
+            ->whereNotIn('profiles.id', $assignedIds)
+            ->when($search !== '', function (Builder $query) use ($search): void {
+                $needle = '%'.mb_strtolower($search).'%';
+                $query->where(function (Builder $q) use ($needle): void {
+                    // First/last separately (so "One" finds "Rider One")
+                    // and concatenated (so a full "Rider One" search
+                    // works too) — `||` concatenation works the same on
+                    // sqlite and pgsql.
+                    $q->whereRaw('LOWER(profiles.first_name) LIKE ?', [$needle])
+                        ->orWhereRaw('LOWER(profiles.last_name) LIKE ?', [$needle])
+                        ->orWhereRaw("LOWER(profiles.first_name || ' ' || profiles.last_name) LIKE ?", [$needle]);
+                });
+            })
+            ->with(['courierDetail', 'address'])
+            ->orderBy('profiles.first_name')
+            ->orderBy('profiles.last_name')
+            ->paginate(5);
+
+        return response()->json([
+            'data' => collect($riders->items())->map(fn (Profile $rider): array => [
+                'id' => $rider->id,
+                'first_name' => $rider->first_name,
+                'last_name' => $rider->last_name,
+                'email' => $rider->email,
+                'contact_no' => $rider->contact_no,
+                'vehicle' => $rider->courierDetail?->vehicle,
+                'plate_number' => $rider->courierDetail?->plate_number,
+                'address' => $rider->address?->full_address ?: null,
+            ])->values(),
+            'meta' => [
+                'current_page' => $riders->currentPage(),
+                'last_page' => $riders->lastPage(),
+                'per_page' => $riders->perPage(),
+                'total' => $riders->total(),
+            ],
+        ]);
     }
 
     private function companyFor(Request $request): LogisticsCompany

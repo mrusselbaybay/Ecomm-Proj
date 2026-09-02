@@ -87,7 +87,7 @@
                 This order is currently
                 <span class="badge" :class="statusBadgeClass(order.status)">{{ order.status }}</span>
                 — shipments can only be prepared for orders you've already
-                accepted ("Processing").
+                accepted.
             </p>
             <button class="btn-outline" style="margin-top: 1.25rem" @click="goToOrderDetails">
                 View Order Details
@@ -103,7 +103,7 @@
             <div>
                 <div class="flex items-center gap-3">
                     <h2 class="prep-title">Prepare Shipment</h2>
-                    <span class="badge badge-amber">Processing</span>
+                    <span class="badge" :class="statusBadgeClass(order.status)">{{ statusLabel(order.status) }}</span>
                 </div>
                 <nav class="prep-breadcrumb">
                     <a href="#" @click.prevent="goTo('orders')">Orders</a>
@@ -251,12 +251,25 @@
                         <div class="sheet-field-row">
                             <div>
                                 <label class="field-label">Courier / Carrier</label>
-                                <input
-                                    type="text"
-                                    class="field-input"
-                                    v-model="shippingCarrier"
-                                    placeholder="e.g. LBC, J&T, Ninja Van"
-                                />
+                                <select class="field-input" v-model="shippingCarrier">
+                                    <option value="" disabled>
+                                        {{ isLoadingLogisticsCompanies ? 'Loading couriers…' : 'Select a courier' }}
+                                    </option>
+                                    <option v-for="company in logisticsCompanies" :key="company.id" :value="company.name">
+                                        {{ company.name }}
+                                    </option>
+                                    <!-- Keeps a draft's/order's previously saved carrier selectable even if
+                                         it's since dropped off the active-companies list. -->
+                                    <option
+                                        v-if="shippingCarrier && !logisticsCompanies.some((c) => c.name === shippingCarrier)"
+                                        :value="shippingCarrier"
+                                    >
+                                        {{ shippingCarrier }}
+                                    </option>
+                                </select>
+                                <p v-if="!isLoadingLogisticsCompanies && logisticsCompanies.length === 0" class="field-hint">
+                                    No active logistics partners on file yet.
+                                </p>
                             </div>
                             <div>
                                 <label class="field-label">Service Tier</label>
@@ -329,11 +342,23 @@ const {
     loadOrders,
     getOrderById,
     statusBadgeClass,
+    statusLabel,
     formatCurrency,
     isUpdatingStatus,
     updateError,
     shipOrder,
+    logisticsCompanies,
+    isLoadingLogisticsCompanies,
+    loadLogisticsCompanies,
 } = useOrders();
+
+loadLogisticsCompanies();
+
+// Any status between "accepted" and "handed to the courier" — a seller can
+// jump straight from Confirmed to packing/dispatch (see Order::
+// ALLOWED_TRANSITIONS) rather than being forced through Processing/Packed/
+// Ready for Pickup one click at a time first.
+const PREPARABLE_STATUSES = ['Confirmed', 'Processing', 'Packed', 'Ready for Pickup'];
 
 const isLoading = ref(true);
 const order = ref(null);
@@ -378,7 +403,7 @@ onMounted(loadOrder);
 
 // Orders a seller has already accepted and can pack/dispatch.
 const preparableOrders = computed(() =>
-    orders.value.filter((o) => o.status === 'Processing'),
+    orders.value.filter((o) => PREPARABLE_STATUSES.includes(o.status)),
 );
 
 function selectOrder(id) {
@@ -391,7 +416,7 @@ function selectOrder(id) {
 
 watch(() => props.orderId, loadOrder);
 
-const canPrepare = computed(() => order.value && order.value.status === 'Processing');
+const canPrepare = computed(() => order.value && PREPARABLE_STATUSES.includes(order.value.status));
 
 const totalItems = computed(() => order.value?.items.length || 0);
 const packedCount = computed(

@@ -28,6 +28,9 @@ class CourierApplication extends Model
         'resume_original_name',
         'resume_path',
         'resume_size',
+        'license_original_name',
+        'license_path',
+        'license_size',
         'cover_note',
         'applied_at',
         'reviewed_by',
@@ -41,6 +44,7 @@ class CourierApplication extends Model
         'applied_at' => 'datetime',
         'reviewed_at' => 'datetime',
         'resume_size' => 'integer',
+        'license_size' => 'integer',
         'interview_invited_at' => 'datetime',
         'interview_scheduled_at' => 'datetime',
     ];

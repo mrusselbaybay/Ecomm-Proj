@@ -21,19 +21,16 @@ class DeliveryAreaResource extends JsonResource
             'municipality_name' => $this->municipality_name,
             'barangay' => $this->barangay,
             'is_active' => $this->is_active,
-            'rider' => $this->whenLoaded('rider', function (): ?array {
-                if (! $this->rider) {
-                    return null;
-                }
-
-                return [
-                    'id' => $this->rider->id,
-                    'first_name' => $this->rider->first_name,
-                    'last_name' => $this->rider->last_name,
-                    'email' => $this->rider->email,
-                    'contact_no' => $this->rider->contact_no,
-                ];
-            }),
+            'riders' => $this->whenLoaded('riders', fn () => $this->riders->map(fn ($rider) => [
+                'id' => $rider->id,
+                'first_name' => $rider->first_name,
+                'last_name' => $rider->last_name,
+                'email' => $rider->email,
+                'contact_no' => $rider->contact_no,
+                'vehicle' => $rider->courierDetail?->vehicle,
+                'plate_number' => $rider->courierDetail?->plate_number,
+                'address' => $rider->address?->full_address ?: null,
+            ])->values()),
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];

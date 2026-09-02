@@ -29,7 +29,6 @@ class LogisticsDeliveryAreaFactory extends Factory
                 'Los Baños',
             ]),
             'barangay' => null,
-            'rider_profile_id' => null,
             'is_active' => true,
         ];
     }

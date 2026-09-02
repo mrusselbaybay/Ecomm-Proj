@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
+import { useBuyerAccount } from '../composables/useBuyerAccount';
 import { useBuyerAddresses } from '../composables/useBuyerAddresses';
 import { useBuyerPayments } from '../composables/useBuyerPayments';
 import { metaFor } from '../composables/useCategoryMeta';
@@ -53,47 +54,102 @@ const checkoutForm = reactive({
 
 /*
 |--------------------------------------------------------------------------
-| Prefill from the buyer's default saved address
+| Prefill from the buyer's Supabase data
 |--------------------------------------------------------------------------
 |
-| Non-destructive: fills the existing form fields (which stay fully
-| editable) from useBuyerAddresses' default the moment it loads, unless
-| the buyer has already typed something. No new markup — the same three
-| fields, just not blank when there's a saved address to start from.
+| Two sources, in priority order:
+|   1. The buyer's default SAVED checkout address (public.buyer_addresses)
+|      — an address they explicitly picked for shipping.
+|   2. Their account profile (public.profiles: name, contact number) and
+|      on-file address (public.addresses, owner_kind='profile', set from
+|      the Account page) — a reasonable starting point for a buyer who
+|      hasn't saved a checkout address yet, so checkout isn't blank on a
+|      first order.
+|
+| Whichever source has a value for a given field wins (1 over 2), and
+| that's re-evaluated every time either source finishes loading —
+| whichever resolves first doesn't lock in a lower-priority value.
+| Non-destructive throughout: the moment the buyer types into a field,
+| `touched` stops any further auto-fill of it, in either direction.
 |
 */
 
 const { defaultAddress } = useBuyerAddresses();
+const { profile: buyerProfile, address: buyerAddress, loadBuyerAccount } = useBuyerAccount();
+
+// `profile`/`address` are shared module state — skip the refetch if a
+// prior visit to Account already populated them this session.
+if (!buyerProfile.value) {
+    loadBuyerAccount();
+}
+
+const touched = reactive({ recipientName: false, contactNumber: false, address: false });
 
 // Delivery contact is a local 11-digit mobile number (09XXXXXXXXX).
 // toLocalMobile() keeps the field digits-only and capped at 11 on every
 // keystroke and paste — see usePhone.js.
 function onContactInput(event) {
+    touched.contactNumber = true;
     checkoutForm.contactNumber = toLocalMobile(event.target.value);
 }
+function onRecipientNameInput() {
+    touched.recipientName = true;
+}
+function onAddressInput() {
+    touched.address = true;
+}
 
-function applyDefaultAddress(address) {
+function profileAddressText(address) {
     if (!address) {
+        return '';
+    }
+
+    return [
+        address.house_no,
+        address.street,
+        address.barangay,
+        address.municipality_name,
+        address.province_name,
+        address.region_name
+    ]
+        .filter(Boolean)
+        .join(', ');
+}
+
+function fillIfUntouched(field, value) {
+    if (touched[field] || !value) {
         return;
     }
 
-    if (!checkoutForm.recipientName) {
-        checkoutForm.recipientName = address.fullName || '';
-    }
-
-    if (!checkoutForm.contactNumber) {
-        checkoutForm.contactNumber = toLocalMobile(address.phone || '');
-    }
-
-    if (!checkoutForm.address) {
-        checkoutForm.address = [address.line1, address.city, address.province, address.postalCode]
-            .filter(Boolean)
-            .join(', ');
-    }
+    checkoutForm[field] = value;
 }
 
-applyDefaultAddress(defaultAddress.value);
-watch(defaultAddress, applyDefaultAddress);
+function applyPrefill() {
+    fillIfUntouched(
+        'recipientName',
+        defaultAddress.value?.fullName || buyerProfile.value?.full_name || ''
+    );
+    fillIfUntouched(
+        'contactNumber',
+        toLocalMobile(defaultAddress.value?.phone || buyerProfile.value?.contact_no || '')
+    );
+    fillIfUntouched(
+        'address',
+        defaultAddress.value
+            ? [
+                  defaultAddress.value.line1,
+                  defaultAddress.value.city,
+                  defaultAddress.value.province,
+                  defaultAddress.value.postalCode
+              ]
+                  .filter(Boolean)
+                  .join(', ')
+            : profileAddressText(buyerAddress.value)
+    );
+}
+
+applyPrefill();
+watch([defaultAddress, buyerProfile, buyerAddress], applyPrefill);
 
 /*
 |--------------------------------------------------------------------------
@@ -684,6 +740,7 @@ async function placeOrder() {
                                         v-model="checkoutForm.recipientName"
                                         type="text"
                                         placeholder="Enter recipient name"
+                                        @input="onRecipientNameInput"
                                     >
                                 </div>
 
@@ -712,6 +769,7 @@ async function placeOrder() {
                                         v-model="checkoutForm.address"
                                         rows="3"
                                         placeholder="House number, street, barangay, municipality, province"
+                                        @input="onAddressInput"
                                     ></textarea>
                                 </div>
 

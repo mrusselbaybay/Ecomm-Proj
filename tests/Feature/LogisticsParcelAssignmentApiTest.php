@@ -6,17 +6,22 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 
 beforeEach(function () {
-    Schema::create('profiles', function (Blueprint $table) {
-        $table->string('id')->primary();
-        $table->string('role');
-        $table->string('status')->default('approved');
-        $table->string('account_status')->default('active');
-        $table->string('first_name')->nullable();
-        $table->string('last_name')->nullable();
-        $table->string('email')->nullable();
-        $table->string('contact_no')->nullable();
-        $table->timestamps();
-    });
+    // A real `profiles` table already exists by this point (see the
+    // 2026_08_18_000000 baseline migration) — only fall back to this
+    // ad-hoc one if it's somehow missing.
+    if (! Schema::hasTable('profiles')) {
+        Schema::create('profiles', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->string('role');
+            $table->string('status')->default('approved');
+            $table->string('account_status')->default('active');
+            $table->string('first_name')->nullable();
+            $table->string('last_name')->nullable();
+            $table->string('email')->nullable();
+            $table->string('contact_no')->nullable();
+            $table->timestamps();
+        });
+    }
     Schema::create('logistics_companies', function (Blueprint $table) {
         $table->string('id')->primary();
         $table->string('owner_profile_id');
@@ -41,8 +46,11 @@ beforeEach(function () {
     });
 
     DB::table('profiles')->insert([
-        ['id' => '10000000-0000-0000-0000-000000000001', 'role' => 'logistics', 'first_name' => 'Logistics', 'last_name' => 'Owner'],
-        ['id' => '20000000-0000-0000-0000-000000000002', 'role' => 'courier', 'first_name' => 'Rider', 'last_name' => 'One'],
+        // status/account_status set explicitly: the real `profiles` table
+        // (2026_08_18_000000 baseline) defaults both to 'pending', and
+        // EnsureUserIsLogistics requires 'approved'/'active'.
+        ['id' => '10000000-0000-0000-0000-000000000001', 'role' => 'logistics', 'status' => 'approved', 'account_status' => 'active', 'first_name' => 'Logistics', 'last_name' => 'Owner'],
+        ['id' => '20000000-0000-0000-0000-000000000002', 'role' => 'courier', 'status' => 'approved', 'account_status' => 'active', 'first_name' => 'Rider', 'last_name' => 'One'],
     ]);
     DB::table('logistics_companies')->insert([
         'id' => '30000000-0000-0000-0000-000000000003',
@@ -62,10 +70,19 @@ beforeEach(function () {
         'name' => 'Area A',
         'province_name' => 'Laguna',
         'municipality_name' => 'Santa Cruz',
-        'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
         'is_active' => true,
         'created_at' => now(),
         'updated_at' => now(),
+    ]);
+    // Areas can have several appointed riders now (see
+    // LogisticsDeliveryArea::riders) — a single row here still makes it
+    // the sole rider, so ParcelIntakeService's auto-fill-when-alone rule
+    // (see it_receives_an_in_transit_parcel_and_automatically_matches_...)
+    // still applies.
+    DB::table('logistics_delivery_area_riders')->insert([
+        'delivery_area_id' => '50000000-0000-0000-0000-000000000005',
+        'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
+        'created_at' => now(),
     ]);
     DB::table('orders')->insert([
         'id' => '60000000-0000-0000-0000-000000000006',

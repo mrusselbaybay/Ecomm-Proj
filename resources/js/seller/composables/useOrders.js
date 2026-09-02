@@ -20,6 +20,14 @@ const loadError = ref('');
 const isUpdatingStatus = ref(false);
 const updateError = ref('');
 
+// Active logistics companies, for the Courier / Carrier dropdown on
+// Prepare Orders / Courier Handover. Module-scoped (like `orders` above)
+// so it's fetched once and shared across every component that needs it,
+// not re-fetched per mount.
+const logisticsCompanies = ref([]);
+const isLoadingLogisticsCompanies = ref(false);
+let logisticsCompaniesLoaded = false;
+
 // Stored status value -> seller-facing label (mirrors Order::STATUS_LABELS).
 // 'New' shows as "Pending", 'In Transit' as "Shipped".
 const STATUS_LABELS = {
@@ -119,6 +127,29 @@ async function getOrderTracking(id) {
         console.error('Error loading tracking:', err);
 
         return null;
+    }
+}
+
+// Fetches the active logistics companies once (unless `force`), for the
+// Courier / Carrier dropdown. Failure just leaves the list empty — the
+// dropdown then shows only its "Select a courier…" placeholder rather than
+// blocking the rest of the page.
+async function loadLogisticsCompanies({ force = false } = {}) {
+    if (logisticsCompaniesLoaded && !force) {
+        return;
+    }
+
+    isLoadingLogisticsCompanies.value = true;
+
+    try {
+        const data = await apiFetch('/logistics-companies');
+        logisticsCompanies.value = Array.isArray(data) ? data : [];
+        logisticsCompaniesLoaded = true;
+    } catch (err) {
+        console.error('Error loading logistics companies:', err);
+        logisticsCompanies.value = [];
+    } finally {
+        isLoadingLogisticsCompanies.value = false;
     }
 }
 
@@ -229,6 +260,9 @@ export function useOrders() {
         isUpdatingStatus,
         updateError,
         newOrdersCount,
+        logisticsCompanies,
+        isLoadingLogisticsCompanies,
+        loadLogisticsCompanies,
         loadOrders,
         getOrderById,
         getOrderTracking,

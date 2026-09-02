@@ -6,6 +6,7 @@ use Database\Factories\LogisticsDeliveryAreaFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Str;
 
 class LogisticsDeliveryArea extends Model
@@ -23,7 +24,6 @@ class LogisticsDeliveryArea extends Model
         'province_name',
         'municipality_name',
         'barangay',
-        'rider_profile_id',
         'is_active',
     ];
 
@@ -45,8 +45,16 @@ class LogisticsDeliveryArea extends Model
         return $this->belongsTo(LogisticsCompany::class);
     }
 
-    public function rider(): BelongsTo
+    // An area can have any number of appointed riders (the "Assigned
+    // drivers" tab on the area modal) — replaces the old single
+    // rider_profile_id column/rider() relation.
+    public function riders(): BelongsToMany
     {
-        return $this->belongsTo(Profile::class, 'rider_profile_id');
+        return $this->belongsToMany(
+            Profile::class,
+            'logistics_delivery_area_riders',
+            'delivery_area_id',
+            'rider_profile_id',
+        );
     }
 }

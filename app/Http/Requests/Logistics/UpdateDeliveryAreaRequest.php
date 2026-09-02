@@ -26,7 +26,6 @@ class UpdateDeliveryAreaRequest extends FormRequest
             'province_name' => ['sometimes', 'required', 'string', 'max:150'],
             'municipality_name' => ['sometimes', 'required', 'string', 'max:150'],
             'barangay' => ['nullable', 'string', 'max:150'],
-            'rider_profile_id' => ['nullable', 'uuid'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

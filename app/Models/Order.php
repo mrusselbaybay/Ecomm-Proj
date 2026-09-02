@@ -84,7 +84,13 @@ class Order extends Model
     // legacy callers still work, and adds the granular seller path.
     public const ALLOWED_TRANSITIONS = [
         'New' => ['Confirmed', 'Processing', 'Cancelled', 'Rejected'],
-        'Confirmed' => ['Processing', 'Cancelled', 'Rejected'],
+        // 'In Transit' direct from Confirmed mirrors the Processing ->
+        // In Transit edge below: Processing/Packed/Ready for Pickup are
+        // optional granular checkpoints, not a required gate, so a seller
+        // who accepts an order and packs/dispatches it in one sitting
+        // (Seller > Prepare Orders) isn't forced through them one click
+        // at a time first.
+        'Confirmed' => ['Processing', 'In Transit', 'Cancelled', 'Rejected'],
         'Processing' => ['Packed', 'In Transit', 'Cancelled'],
         'Packed' => ['Ready for Pickup', 'In Transit', 'Cancelled'],
         'Ready for Pickup' => ['In Transit', 'Cancelled'],

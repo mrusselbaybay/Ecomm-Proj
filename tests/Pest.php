@@ -103,6 +103,19 @@ function makeSeller(array $overrides = []): Profile
     return $seller;
 }
 
+function makeCourier(array $overrides = []): Profile
+{
+    return Profile::create(array_merge([
+        'id' => (string) Str::uuid(),
+        'role' => 'courier',
+        'status' => 'approved',
+        'account_status' => 'active',
+        'first_name' => 'Test',
+        'last_name' => 'Courier',
+        'email' => 'courier_'.Str::random(8).'@example.test',
+    ], $overrides));
+}
+
 function makeProduct(Profile $seller, array $overrides = []): Product
 {
     return Product::create(array_merge([
@@ -165,6 +178,38 @@ function actingAsBuyer(Profile $buyer): void
 
     Http::fake([
         'https://unit-test.supabase.co/auth/v1/user' => Http::response(['id' => $buyer->id], 200),
+    ]);
+
+    test()->withHeader('Authorization', 'Bearer '.$token);
+}
+
+function actingAsSeller(Profile $seller): void
+{
+    $token = 'test-token-'.$seller->id;
+
+    config([
+        'services.supabase.url' => 'https://unit-test.supabase.co',
+        'services.supabase.anon_key' => 'test-anon-key',
+    ]);
+
+    Http::fake([
+        'https://unit-test.supabase.co/auth/v1/user' => Http::response(['id' => $seller->id], 200),
+    ]);
+
+    test()->withHeader('Authorization', 'Bearer '.$token);
+}
+
+function actingAsDriver(Profile $driver): void
+{
+    $token = 'test-token-'.$driver->id;
+
+    config([
+        'services.supabase.url' => 'https://unit-test.supabase.co',
+        'services.supabase.anon_key' => 'test-anon-key',
+    ]);
+
+    Http::fake([
+        'https://unit-test.supabase.co/auth/v1/user' => Http::response(['id' => $driver->id], 200),
     ]);
 
     test()->withHeader('Authorization', 'Bearer '.$token);

@@ -9,6 +9,7 @@ use App\Models\OrderItem;
 use App\Models\OrderStatusHistory;
 use App\Services\InventoryService;
 use App\Services\OrderTrackingService;
+use App\Services\ParcelIntakeService;
 use App\Services\SellerNotifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -121,7 +122,7 @@ class SellerOrderController extends Controller
 
         $order = Order::with([
             'items.product:id,images',
-            'items.variant:id,image',
+            'items.productVariant:id,image',
             'buyer.address',
             'statusHistory.changedBy',
             'seller.address',
@@ -251,6 +252,21 @@ class SellerOrderController extends Controller
                     'note' => $reason,
                     'changed_by' => $seller->id,
                 ]);
+
+                // The moment a seller hands a parcel to a registered
+                // courier, put it in that company's sorting queue —
+                // logistics shouldn't have to wait for someone to scan it
+                // in before it even shows up. No-op if the carrier text
+                // doesn't match an active LogisticsCompany (free-text
+                // carriers pre-date the dropdown, see CourierHandover.vue).
+                if ($newStatus === 'In Transit') {
+                    $parcelIntake = app(ParcelIntakeService::class);
+                    $company = $parcelIntake->findActiveCompanyByName($order->shipping_carrier);
+
+                    if ($company) {
+                        $parcelIntake->intake($order, $company);
+                    }
+                }
             });
         } catch (ValidationException $e) {
             return response()->json(['message' => collect($e->errors())->flatten()->first()], 422);
@@ -268,7 +284,7 @@ class SellerOrderController extends Controller
     {
         return $order->fresh([
             'items.product:id,images',
-            'items.variant:id,image',
+            'items.productVariant:id,image',
             'buyer.address',
             'statusHistory.changedBy',
             'seller.address',
@@ -345,8 +361,8 @@ class SellerOrderController extends Controller
      */
     private function itemImage(OrderItem $item): ?string
     {
-        if ($item->relationLoaded('variant') && is_array($item->variant?->image ?? null)) {
-            $fromVariant = $item->variant->image['url'] ?? null;
+        if ($item->relationLoaded('productVariant') && is_array($item->productVariant?->image ?? null)) {
+            $fromVariant = $item->productVariant->image['url'] ?? null;
 
             if ($fromVariant) {
                 return $fromVariant;

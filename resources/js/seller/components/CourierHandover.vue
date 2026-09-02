@@ -101,12 +101,17 @@
                 <div class="prep-form" style="padding-top: 0">
                     <div>
                         <label class="field-label">Courier / Carrier</label>
-                        <input
-                            type="text"
-                            class="field-input"
-                            v-model="handoverCarrier"
-                            placeholder="e.g. LBC, J&T, Ninja Van"
-                        />
+                        <select class="field-input" v-model="handoverCarrier">
+                            <option value="" disabled>
+                                {{ isLoadingLogisticsCompanies ? 'Loading couriers…' : 'Select a courier' }}
+                            </option>
+                            <option v-for="company in logisticsCompanies" :key="company.id" :value="company.name">
+                                {{ company.name }}
+                            </option>
+                        </select>
+                        <p v-if="!isLoadingLogisticsCompanies && logisticsCompanies.length === 0" class="field-hint">
+                            No active logistics partners on file yet.
+                        </p>
                     </div>
 
                     <div>
@@ -279,12 +284,17 @@ const {
     statusBadgeClass,
     formatCurrency,
     shipOrder,
+    logisticsCompanies,
+    isLoadingLogisticsCompanies,
+    loadLogisticsCompanies,
 } = useOrders();
 
 onMounted(() => {
     if (!orders.value.length) {
         loadOrders();
     }
+
+    loadLogisticsCompanies();
 });
 
 function refresh() {

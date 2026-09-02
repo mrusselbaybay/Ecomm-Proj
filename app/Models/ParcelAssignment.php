@@ -38,6 +38,8 @@ class ParcelAssignment extends Model
         'sorted_at',
         'assigned_at',
         'handed_off_at',
+        'delivered_at',
+        'delivery_photo_path',
     ];
 
     protected $casts = [
@@ -46,6 +48,7 @@ class ParcelAssignment extends Model
         'sorted_at' => 'datetime',
         'assigned_at' => 'datetime',
         'handed_off_at' => 'datetime',
+        'delivered_at' => 'datetime',
     ];
 
     protected static function booted(): void

@@ -17,11 +17,19 @@ use Illuminate\Support\Facades\DB;
  * public.addresses) because addresses belong to a profile, not an order,
  * and the buyer's address at checkout time must not silently change if
  * they edit their profile address later.
+ *
+ * Guarded with hasTable(): the 2026_08_18_000000 baseline migration
+ * already creates a minimal `orders` table for a fresh (e.g. sqlite test)
+ * database that runs before this one — see that file's MERGE NOTE.
  */
 return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('orders')) {
+            return;
+        }
+
         $driver = DB::connection()->getDriverName();
 
         Schema::create('orders', function (Blueprint $table) use ($driver) {

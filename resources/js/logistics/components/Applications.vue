@@ -596,6 +596,33 @@
                         </div>
                     </div>
                     <div
+                        v-if="docsApp?.license_original_name"
+                        class="doc-row"
+                        style="margin-bottom: 12px"
+                    >
+                        <div class="doc-info">
+                            <div>
+                                <p class="doc-type">
+                                    Driver's License —
+                                    {{ docsApp.license_original_name }}
+                                </p>
+                                <p class="doc-date">
+                                    {{ formatFileSize(docsApp.license_size) }} ·
+                                    Applied {{ formatDate(docsApp.applied_at) }}
+                                </p>
+                            </div>
+                        </div>
+                        <div class="doc-actions">
+                            <button
+                                class="btn-sm-outline"
+                                :disabled="licenseLoading"
+                                @click="viewLicense(docsApp)"
+                            >
+                                {{ licenseLoading ? 'Opening…' : 'View License' }}
+                            </button>
+                        </div>
+                    </div>
+                    <div
                         v-if="docsApp?.cover_note"
                         class="callout-red"
                         style="
@@ -1068,6 +1095,25 @@ async function viewResume(app) {
         showToast('Failed to open resume: ' + e.message, 'error');
     } finally {
         resumeLoading.value = false;
+    }
+}
+
+const licenseLoading = ref(false);
+
+async function viewLicense(app) {
+    licenseLoading.value = true;
+    try {
+        const response = await logisticsFetch(
+            `/api/logistics/applications/${app.id}/license`,
+        );
+        const payload = await response.json();
+        if (!response.ok)
+            throw new Error(payload.message || "Failed to load license.");
+        window.open(payload.url, '_blank', 'noopener');
+    } catch (e) {
+        showToast("Failed to open driver's license: " + e.message, 'error');
+    } finally {
+        licenseLoading.value = false;
     }
 }
 

@@ -53,6 +53,40 @@ class LogisticsApplicationController extends Controller
     }
 
     /**
+     * Return a short-lived signed URL for a courier's driver's license,
+     * scoped to the signed-in logistics company that received the
+     * application.
+     */
+    public function license(Request $request, string $application): JsonResponse
+    {
+        $profileId = $this->authenticatedProfileId($request);
+        if ($profileId instanceof JsonResponse) {
+            return $profileId;
+        }
+
+        $companyId = $this->companyIdForProfile($profileId);
+        if (! $companyId) {
+            return response()->json(['message' => 'No logistics company is associated with this account.'], 403);
+        }
+
+        $courierApplication = CourierApplication::query()
+            ->whereKey($application)
+            ->where('logistics_company_id', $companyId)
+            ->first();
+
+        if (! $courierApplication || ! $courierApplication->license_path) {
+            return response()->json(['message' => "Driver's license not found."], 404);
+        }
+
+        $url = $this->supabaseStorage->signedUrl($courierApplication->license_path);
+        if (! $url) {
+            return response()->json(['message' => "Could not generate a link to the driver's license right now."], 502);
+        }
+
+        return response()->json(['url' => $url]);
+    }
+
+    /**
      * Return applications submitted to the signed-in logistics company.
      */
     public function __invoke(Request $request): AnonymousResourceCollection|JsonResponse

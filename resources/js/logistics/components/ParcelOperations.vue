@@ -149,6 +149,11 @@
                                     :class="statusClass(parcel.status)"
                                     >{{ statusLabel(parcel.status) }}</span
                                 >
+                                <span
+                                    v-if="!parcel.is_scanned"
+                                    class="parcel-recipient"
+                                    >Awaiting drop-off — not yet scanned in</span
+                                >
                             </td>
                             <td class="text-right">
                                 <button
@@ -315,7 +320,7 @@ const activeAreas = computed(() =>
 );
 const activeAreaCount = computed(() => activeAreas.value.length);
 const assignedAreaCount = computed(
-    () => activeAreas.value.filter((area) => area.rider).length,
+    () => activeAreas.value.filter((area) => area.riders?.length).length,
 );
 const waitingCount = computed(
     () =>
@@ -344,23 +349,18 @@ function formatCoverage(area) {
         .filter(Boolean)
         .join(', ');
 }
+// The underlying lifecycle is still received -> sorted -> assigned ->
+// handed_off (drives routing/assignment/handoff below), but from a
+// "what do I still need to do with this parcel" standpoint there are
+// really only two states: still at the sorting center waiting to go out
+// (To pick up — the default the moment a seller hands it over, before
+// anyone here has even scanned it in) or already with a rider (To
+// deliver, once handed off).
 function statusLabel(status) {
-    return (
-        {
-            received: 'Needs sorting',
-            sorted: 'Area matched',
-            assigned: 'Ready for handoff',
-            handed_off: 'Handed off',
-        }[status] || status
-    );
+    return status === 'handed_off' ? 'To deliver' : 'To pick up';
 }
 function statusClass(status) {
-    return {
-        received: 'badge-amber',
-        sorted: 'badge-indigo',
-        assigned: 'badge-teal',
-        handed_off: 'badge-slate',
-    }[status];
+    return status === 'handed_off' ? 'badge-teal' : 'badge-amber';
 }
 function formatDate(value) {
     return value
@@ -386,7 +386,11 @@ function selectAreaRider() {
     const area = deliveryAreas.value.find(
         (item) => item.id === assignmentForm.delivery_area_id,
     );
-    if (area?.rider?.id) assignmentForm.rider_profile_id = area.rider.id;
+    // Only auto-fill when the area has exactly one appointed rider —
+    // several appointed riders means the staff picks, not a guess.
+    if (area?.riders?.length === 1) {
+        assignmentForm.rider_profile_id = area.riders[0].id;
+    }
 }
 async function receive() {
     receiving.value = true;

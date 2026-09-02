@@ -12,6 +12,7 @@ use App\Models\LogisticsDeliveryArea;
 use App\Models\Order;
 use App\Models\ParcelAssignment;
 use App\Models\Profile;
+use App\Services\ParcelIntakeService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,6 +22,10 @@ use Illuminate\Validation\ValidationException;
 
 class ParcelAssignmentController extends Controller
 {
+    public function __construct(private readonly ParcelIntakeService $parcelIntake)
+    {
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -89,29 +94,25 @@ class ParcelAssignmentController extends Controller
             return response()->json(['message' => 'Another logistics company has already received this parcel.'], 422);
         }
 
-        if ($existing) {
+        // A row may already exist here without ever having been scanned —
+        // the seller's handover auto-creates it (see ParcelIntakeService)
+        // so it shows up in the queue before anyone at the sorting center
+        // has physically touched it. Only a row that was already scanned
+        // is a genuine duplicate scan.
+        $alreadyScanned = (bool) $existing?->received_by;
+
+        if ($alreadyScanned) {
             return response()->json([
                 'data' => new ParcelAssignmentResource($existing->load(['order', 'deliveryArea', 'rider'])),
                 'message' => 'This parcel is already in your sorting queue.',
             ]);
         }
 
-        $area = $this->matchingArea($company, $order);
-        $assignment = DB::transaction(fn (): ParcelAssignment => ParcelAssignment::query()->create([
-            'order_id' => $order->id,
-            'logistics_company_id' => $company->id,
-            'delivery_area_id' => $area?->id,
-            'rider_profile_id' => $area?->rider_profile_id,
-            'status' => $area ? ParcelAssignment::STATUS_SORTED : ParcelAssignment::STATUS_RECEIVED,
-            'received_by' => $profile->id,
-            'received_at' => now(),
-            'scanned_at' => now(),
-            'sorted_at' => $area ? now() : null,
-        ]));
+        $assignment = DB::transaction(fn (): ParcelAssignment => $this->parcelIntake->intake($order, $company, $profile->id));
 
         return (new ParcelAssignmentResource($assignment->load(['order', 'deliveryArea', 'rider'])))
             ->response()
-            ->setStatusCode(201);
+            ->setStatusCode($existing ? 200 : 201);
     }
 
     /**
@@ -193,28 +194,6 @@ class ParcelAssignmentController extends Controller
             ->where('status', 'approved')
             ->where('account_status', 'active')
             ->firstOrFail();
-    }
-
-    private function matchingArea(LogisticsCompany $company, Order $order): ?LogisticsDeliveryArea
-    {
-        if (! filled($order->shipping_province_name) || ! filled($order->shipping_municipality_name)) {
-            return null;
-        }
-
-        return LogisticsDeliveryArea::query()
-            ->where('logistics_company_id', $company->id)
-            ->where('is_active', true)
-            ->whereRaw('LOWER(province_name) = ?', [mb_strtolower($order->shipping_province_name)])
-            ->whereRaw('LOWER(municipality_name) = ?', [mb_strtolower($order->shipping_municipality_name)])
-            ->where(function (Builder $query) use ($order): void {
-                $query->whereNull('barangay');
-
-                if (filled($order->shipping_barangay)) {
-                    $query->orWhereRaw('LOWER(barangay) = ?', [mb_strtolower($order->shipping_barangay)]);
-                }
-            })
-            ->orderByRaw('CASE WHEN barangay IS NULL THEN 1 ELSE 0 END')
-            ->first();
     }
 
     private function ensureAssignmentBelongsToCompany(

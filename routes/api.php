@@ -111,6 +111,8 @@ Route::prefix('courier')->name('courier.')->group(function () {
         ->name('applications.withdraw');
     Route::get('/applications/{application}/resume', [CourierApplicationController::class, 'resume'])
         ->name('applications.resume');
+    Route::get('/applications/{application}/license', [CourierApplicationController::class, 'license'])
+        ->name('applications.license');
     Route::get('/profile/employment', [CourierProfileController::class, 'employment'])
         ->name('profile.employment');
 });
@@ -129,6 +131,8 @@ Route::prefix('logistics')->name('logistics.')->group(function () {
         ->name('applications.index');
     Route::get('/applications/{application}/resume', [LogisticsApplicationController::class, 'resume'])
         ->name('applications.resume');
+    Route::get('/applications/{application}/license', [LogisticsApplicationController::class, 'license'])
+        ->name('applications.license');
 });
 
 Route::middleware(['supabase.auth', 'logistics'])
@@ -137,6 +141,12 @@ Route::middleware(['supabase.auth', 'logistics'])
     ->group(function () {
         Route::apiResource('delivery-areas', DeliveryAreaController::class)
             ->except('show');
+        Route::post('/delivery-areas/{deliveryArea}/riders', [DeliveryAreaController::class, 'addRider'])
+            ->name('delivery-areas.riders.store');
+        Route::delete('/delivery-areas/{deliveryArea}/riders/{riderProfileId}', [DeliveryAreaController::class, 'removeRider'])
+            ->name('delivery-areas.riders.destroy');
+        Route::get('/delivery-areas/{deliveryArea}/available-riders', [DeliveryAreaController::class, 'availableRiders'])
+            ->name('delivery-areas.available-riders');
         Route::get('/parcel-assignments', [ParcelAssignmentController::class, 'index'])
             ->name('parcel-assignments.index');
         Route::post('/parcel-assignments/receive', [ParcelAssignmentController::class, 'receive'])

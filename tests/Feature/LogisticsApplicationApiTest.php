@@ -7,14 +7,19 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 
 beforeEach(function () {
-    Schema::create('profiles', function (Blueprint $table) {
-        $table->string('id')->primary();
-        $table->string('role');
-        $table->string('first_name')->nullable();
-        $table->string('last_name')->nullable();
-        $table->string('email')->nullable();
-        $table->string('contact_no')->nullable();
-    });
+    // A real `profiles` table already exists by this point (see the
+    // 2026_08_18_000000 baseline migration) — only fall back to this
+    // ad-hoc one if it's somehow missing.
+    if (! Schema::hasTable('profiles')) {
+        Schema::create('profiles', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->string('role');
+            $table->string('first_name')->nullable();
+            $table->string('last_name')->nullable();
+            $table->string('email')->nullable();
+            $table->string('contact_no')->nullable();
+        });
+    }
 
     Schema::create('logistics_companies', function (Blueprint $table) {
         $table->string('id')->primary();

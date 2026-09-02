@@ -49,6 +49,17 @@ class OrderItem extends Model
         return $this->belongsTo(Product::class, 'product_id');
     }
 
+    // Named productVariant (not `variant`) because `variant` is already a
+    // real column here — the free-text label snapshotted at purchase time
+    // (see the 2026_08_23_000008 migration). Eloquent can't resolve a
+    // relation and an attribute off the same name, so callers that need
+    // the live ProductVariant row (e.g. for its current image) must eager
+    // load/access this instead of `variant`.
+    public function productVariant(): BelongsTo
+    {
+        return $this->belongsTo(ProductVariant::class, 'variant_id');
+    }
+
     // reviews.order_item_id is UNIQUE — at most one review per line item.
     public function review(): HasOne
     {

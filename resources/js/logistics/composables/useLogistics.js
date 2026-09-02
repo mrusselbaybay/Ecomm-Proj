@@ -335,6 +335,69 @@ async function deleteDeliveryArea(id) {
     await loadDeliveryAreas();
 }
 
+async function addAreaRider(areaId, riderProfileId) {
+    const response = await logisticsFetch(
+        `/api/logistics/delivery-areas/${areaId}/riders`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rider_profile_id: riderProfileId }),
+        },
+    );
+    const payload = await response.json();
+
+    if (!response.ok) {
+        const validationMessage = Object.values(payload.errors || {})
+            .flat()
+            .at(0);
+        throw new Error(
+            validationMessage || payload.message || 'Failed to add the driver.',
+        );
+    }
+
+    await loadDeliveryAreas();
+    return payload.data;
+}
+
+// Paginated (5/page), searched server-side — backs the "Add driver" side
+// panel. Deliberately not folded into loadDeliveryAreas()/areaRiders:
+// that's the whole company roster, unpaginated, used for the summary
+// table further down the page — this is scoped to one area, excludes
+// riders already appointed to it, and is fetched only when the panel is
+// actually opened.
+async function loadAvailableRiders(areaId, { search = '', page = 1 } = {}) {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (page > 1) params.set('page', String(page));
+
+    const query = params.toString();
+    const response = await logisticsFetch(
+        `/api/logistics/delivery-areas/${areaId}/available-riders${query ? `?${query}` : ''}`,
+    );
+    const payload = await response.json();
+
+    if (!response.ok) {
+        throw new Error(payload.message || 'Failed to load available riders.');
+    }
+
+    return payload;
+}
+
+async function removeAreaRider(areaId, riderProfileId) {
+    const response = await logisticsFetch(
+        `/api/logistics/delivery-areas/${areaId}/riders/${riderProfileId}`,
+        { method: 'DELETE' },
+    );
+    const payload = await response.json();
+
+    if (!response.ok) {
+        throw new Error(payload.message || 'Failed to remove the driver.');
+    }
+
+    await loadDeliveryAreas();
+    return payload.data;
+}
+
 async function loadParcelAssignments() {
     const response = await logisticsFetch('/api/logistics/parcel-assignments');
     const payload = await response.json();
@@ -434,6 +497,9 @@ export function useLogistics() {
         loadDeliveryAreas,
         saveDeliveryArea,
         deleteDeliveryArea,
+        addAreaRider,
+        removeAreaRider,
+        loadAvailableRiders,
         loadParcelAssignments,
         receiveParcel,
         assignParcel,

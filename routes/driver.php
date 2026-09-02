@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Driver\DriverDeliveryController;
 use App\Http\Controllers\Driver\DriverProfileController;
 use Illuminate\Support\Facades\Route;
 
@@ -28,4 +29,14 @@ Route::middleware(['supabase.auth', 'driver'])->prefix('driver')->name('api.driv
     Route::delete('/account/deactivate', [DriverProfileController::class, 'deactivate'])
         ->middleware('throttle:5,1')
         ->name('account.deactivate');
+
+    // "Deliveries" tab (driver_deliveries_screen.dart) — parcels the
+    // logistics team has assigned to this rider/courier. Listing itself is
+    // read-only; "deliver" is the one rider-initiated action (going from
+    // "assigned" to "picked up" is dispatch's handoff, not the rider's).
+    Route::get('/deliveries', [DriverDeliveryController::class, 'index'])->name('deliveries.index');
+    Route::post('/deliveries/{parcelAssignment}/deliver', [DriverDeliveryController::class, 'deliver'])
+        ->name('deliveries.deliver');
+    Route::get('/deliveries/{parcelAssignment}/photo', [DriverDeliveryController::class, 'photo'])
+        ->name('deliveries.photo');
 });

@@ -609,9 +609,6 @@ body {
     color: var(--lg-slate);
     pointer-events: none;
 }
-.search-input input {
-    padding-left: 36px;
-}
 .search-input input,
 .field-input {
     width: 100%;
@@ -624,6 +621,13 @@ body {
     transition:
         border-color 0.15s var(--lg-ease),
         box-shadow 0.15s var(--lg-ease);
+}
+/* Must come after the shared shorthand `padding` rule above (same
+   specificity — `.search-input input`) so the left offset it sets for the
+   icon isn't clobbered back down to 12px, which used to sit the "Search…"
+   placeholder directly under the icon. */
+.search-input input {
+    padding-left: 36px;
 }
 .search-input input::placeholder {
     color: #94a3b8;
@@ -1406,7 +1410,7 @@ button:disabled:hover {
     font-size: 11px;
 }
 .area-form-modal {
-    max-width: 620px;
+    max-width: 660px;
 }
 .area-form-grid {
     display: grid;
@@ -1460,6 +1464,338 @@ button:disabled:hover {
 }
 .delete-area-button {
     margin-right: auto;
+}
+
+/* ---- Area modal tabs (Location / Assigned drivers) ---- */
+.modal-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    margin-bottom: 18px;
+    background: var(--lg-bg);
+    border-radius: var(--lg-radius-sm);
+}
+.modal-tab-button {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 8px 12px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--lg-slate-600);
+    cursor: pointer;
+    transition:
+        background 0.15s var(--lg-ease),
+        color 0.15s var(--lg-ease);
+}
+.modal-tab-button:hover:not(:disabled) {
+    color: var(--lg-ink);
+}
+.modal-tab-button.active {
+    background: var(--lg-surface);
+    color: var(--lg-primary-dark);
+    box-shadow: var(--lg-shadow-sm);
+}
+.modal-tab-button:disabled {
+    color: #cbd5e1;
+    cursor: not-allowed;
+}
+
+/* ---- Assigned drivers panel ---- */
+.search-input.rounded input {
+    border-radius: 999px;
+}
+.driver-search {
+    /* .search-input's `flex: 1` assumes a horizontal flex row (its
+       original home, .toolbar) — inside the side panel's flex COLUMN
+       (.add-driver-panel) that stretches this box to fill all the
+       column's remaining height, leaving the icon (centered via
+       `top: 50%` on that now-huge box) floating far below the input
+       instead of next to it. Pin it back to its own content height. */
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    margin-bottom: 18px;
+}
+.driver-panel-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 18px 0 10px;
+}
+.driver-panel-heading:first-of-type {
+    margin-top: 0;
+}
+.driver-panel-heading h4 {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--lg-slate-600);
+}
+.driver-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+.driver-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid var(--lg-border);
+    border-radius: var(--lg-radius-sm);
+}
+.driver-row-info {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+}
+.driver-row-info strong {
+    overflow: hidden;
+    color: var(--lg-ink);
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.driver-row-info span {
+    color: var(--lg-slate);
+    font-size: 11px;
+}
+.driver-empty-hint {
+    padding: 14px;
+    color: var(--lg-slate);
+    font-size: 12px;
+    text-align: center;
+    border: 1px dashed var(--lg-border);
+    border-radius: var(--lg-radius-sm);
+}
+.driver-row-address {
+    display: block;
+    margin-top: 2px;
+    overflow: hidden;
+    color: var(--lg-slate);
+    font-size: 10px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.driver-row-actions {
+    display: flex;
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+}
+.driver-view-button {
+    background: var(--lg-surface);
+    border: 1px solid var(--lg-border);
+    border-radius: var(--lg-radius-sm);
+    padding: 5px 12px;
+    color: #1e293b;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+        background 0.15s var(--lg-ease),
+        border-color 0.15s var(--lg-ease);
+}
+.driver-view-button:hover {
+    background: #f8fafc;
+    border-color: var(--lg-border-strong);
+}
+
+/* ---- "Add courier" cards (unassigned riders panel) ----
+   Fuller than a plain .driver-row: a signup-style field grid so contact,
+   vehicle, plate, and address are each their own labeled box instead of
+   a single cramped line of text. */
+.courier-card-list {
+    max-height: 460px;
+    gap: 12px;
+}
+.courier-card {
+    padding: 12px;
+    border: 1px solid var(--lg-border);
+    border-radius: var(--lg-radius-sm);
+}
+.courier-card-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.courier-card-name {
+    overflow: hidden;
+    flex: 1;
+    min-width: 0;
+    color: var(--lg-ink);
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.courier-field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+}
+.courier-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 10px;
+    border: 1px solid var(--lg-border);
+    border-radius: var(--lg-radius-sm);
+    background: #f8fafc;
+}
+.courier-field-full {
+    grid-column: 1 / -1;
+}
+.courier-field-label {
+    color: var(--lg-slate);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.courier-field-value {
+    overflow: hidden;
+    color: var(--lg-ink);
+    font-size: 13px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.courier-field-full .courier-field-value {
+    white-space: normal;
+}
+
+/* ---- Rider details view popup ---- */
+.rider-view-overlay {
+    z-index: 210;
+}
+.rider-view-panel {
+    max-width: 380px;
+}
+.rider-view-identity {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0 20px;
+    text-align: center;
+}
+.avatar-lg {
+    width: 64px;
+    height: 64px;
+    font-size: 20px;
+}
+.rider-view-name {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--lg-ink);
+}
+.rider-view-details {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.rider-view-details dt {
+    color: var(--lg-slate);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.rider-view-details dd {
+    margin: 3px 0 0;
+    color: var(--lg-ink);
+    font-size: 14px;
+    font-weight: 700;
+    word-break: break-word;
+    text-align: left;
+}
+.driver-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--lg-slate-600);
+}
+
+/* ---- "Add driver" side panel ----
+   Sits to the right of the routing-rule modal instead of stacking a
+   second modal on top — same max-height, narrower. */
+.area-modal-row {
+    display: flex;
+    align-items: stretch;
+    gap: 16px;
+    width: fit-content;
+    max-width: 100%;
+}
+.add-driver-panel {
+    width: 400px;
+    max-width: 400px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+@media (max-width: 860px) {
+    .area-modal-row {
+        flex-direction: column;
+        width: 100%;
+    }
+    .add-driver-panel {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
+/* ---- Skeleton loading placeholders (Add driver panel) ---- */
+.skeleton {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    background: #e2e8f0;
+    border-radius: 0.375rem;
+}
+.skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.65),
+        transparent
+    );
+    animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+.skeleton-text {
+    height: 0.7rem;
+}
+.skeleton-text + .skeleton-text {
+    margin-top: 0.5rem;
+}
+.skeleton-circle {
+    border-radius: 9999px;
+}
+@keyframes skeleton-shimmer {
+    100% {
+        transform: translateX(100%);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .skeleton::after {
+        animation: none;
+    }
 }
 
 /* ===================== Parcel queue ===================== */

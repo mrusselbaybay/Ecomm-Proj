@@ -28,6 +28,9 @@ class LogisticsApplicationResource extends JsonResource
             'resume_original_name' => $this->resume_original_name,
             'resume_size' => $this->resume_size,
             'has_resume' => filled($this->resume_path),
+            'license_original_name' => $this->license_original_name,
+            'license_size' => $this->license_size,
+            'has_license' => filled($this->license_path),
             'courier' => $this->whenLoaded('courier', function (): ?array {
                 return [
                     'id' => $this->courier?->id,

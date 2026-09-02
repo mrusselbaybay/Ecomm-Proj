@@ -9,11 +9,19 @@ use Illuminate\Support\Facades\DB;
  * Line items are snapshotted (product_name/sku/category/unit_price) so an
  * order still displays correctly even if the seller later edits or
  * deletes the product row in public.products.
+ *
+ * Guarded with hasTable(): the 2026_08_18_000000 baseline migration
+ * already creates a minimal `order_items` table for a fresh (e.g. sqlite
+ * test) database that runs before this one — see that file's MERGE NOTE.
  */
 return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('order_items')) {
+            return;
+        }
+
         $driver = DB::connection()->getDriverName();
 
         Schema::create('order_items', function (Blueprint $table) use ($driver) {

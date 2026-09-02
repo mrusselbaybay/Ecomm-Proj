@@ -3,6 +3,7 @@
 use App\Http\Controllers\Seller\CategoryConfigController;
 use App\Http\Controllers\Seller\MessageController;
 use App\Http\Controllers\Seller\SellerDeliveryController;
+use App\Http\Controllers\Seller\SellerLogisticsController;
 use App\Http\Controllers\Seller\SellerFeedbackController;
 use App\Http\Controllers\Seller\SellerInventoryController;
 use App\Http\Controllers\Seller\SellerNotificationController;
@@ -44,6 +45,10 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     Route::get('/products/{id}/stock-movements', [SellerInventoryController::class, 'movements'])->name('products.stock.movements');
 
     Route::get('/category-config', [CategoryConfigController::class, 'show'])->name('category-config');
+
+    // Active logistics companies — backs the Courier / Carrier dropdown on
+    // Prepare Orders / Courier Handover.
+    Route::get('/logistics-companies', [SellerLogisticsController::class, 'index'])->name('logistics-companies.index');
 
     // Seller notification inbox (header bell). Rows are written by
     // App\Services\SellerNotifier after the triggering transaction commits.

@@ -20,6 +20,10 @@ class ParcelAssignmentResource extends JsonResource
             'received_at' => $this->received_at?->toISOString(),
             'assigned_at' => $this->assigned_at?->toISOString(),
             'handed_off_at' => $this->handed_off_at?->toISOString(),
+            // False for a row the seller's handover created but that
+            // hasn't been physically scanned in at the sorting center
+            // yet — see App\Services\ParcelIntakeService.
+            'is_scanned' => (bool) $this->scanned_at,
             'order' => [
                 'id' => $this->order?->id,
                 'order_number' => $this->order?->order_number,

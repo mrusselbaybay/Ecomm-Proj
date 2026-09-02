@@ -69,15 +69,21 @@ class CourierApplicationController extends Controller
     }
 
     /**
-     * Persist a courier's application, including the resume upload, in the
-     * Supabase PostgreSQL database and Supabase Storage.
+     * Persist a courier's application, including the resume + driver's
+     * license uploads, in the Supabase PostgreSQL database and Supabase
+     * Storage.
      */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'logistics_company_id' => ['required', 'uuid'],
             'resume' => ['required', 'file', 'mimes:pdf,doc,docx', 'max:5120'],
+            'license' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'cover_note' => ['nullable', 'string', 'max:2000'],
+        ], [
+            'license.required' => "Please attach your driver's license before applying.",
+            'license.mimes' => "Driver's license must be a PDF, JPG, or PNG file.",
+            'license.max' => "Driver's license must not be larger than 5MB.",
         ]);
 
         $profile = $this->authenticatedProfile($request);
@@ -101,25 +107,41 @@ class CourierApplicationController extends Controller
             ], 422);
         }
 
-        // Upload the resume to Supabase Storage (bucket "documents"), the
-        // same bucket every other applicant/company document lives in.
-        $file = $request->file('resume');
-        $extension = $file->getClientOriginalExtension() ?: $file->extension();
-        $storagePath = "profile/{$profile->id}/resumes/".(string) Str::uuid().'.'.$extension;
+        // Upload the resume + license to Supabase Storage (bucket
+        // "documents"), the same bucket every other applicant/company
+        // document lives in.
+        $resumeFile = $request->file('resume');
+        $resumeExtension = $resumeFile->getClientOriginalExtension() ?: $resumeFile->extension();
+        $resumeStoragePath = "profile/{$profile->id}/resumes/".(string) Str::uuid().'.'.$resumeExtension;
 
         try {
-            $this->supabaseStorage->upload($file, $storagePath);
+            $this->supabaseStorage->upload($resumeFile, $resumeStoragePath);
         } catch (\Throwable $e) {
             Log::error('Resume upload to Supabase failed: '.$e->getMessage());
 
             return response()->json(['message' => 'Failed to upload your resume. Please try again.'], 500);
         }
 
+        $licenseFile = $request->file('license');
+        $licenseExtension = $licenseFile->getClientOriginalExtension() ?: $licenseFile->extension();
+        $licenseStoragePath = "profile/{$profile->id}/licenses/".(string) Str::uuid().'.'.$licenseExtension;
+
+        try {
+            $this->supabaseStorage->upload($licenseFile, $licenseStoragePath);
+        } catch (\Throwable $e) {
+            Log::error("Driver's license upload to Supabase failed: ".$e->getMessage());
+
+            return response()->json(['message' => "Failed to upload your driver's license. Please try again."], 500);
+        }
+
         $attributes = [
             'status' => CourierApplication::STATUS_PENDING,
-            'resume_original_name' => $file->getClientOriginalName(),
-            'resume_path' => $storagePath,
-            'resume_size' => $file->getSize(),
+            'resume_original_name' => $resumeFile->getClientOriginalName(),
+            'resume_path' => $resumeStoragePath,
+            'resume_size' => $resumeFile->getSize(),
+            'license_original_name' => $licenseFile->getClientOriginalName(),
+            'license_path' => $licenseStoragePath,
+            'license_size' => $licenseFile->getSize(),
             'cover_note' => $validated['cover_note'] ?? null,
             'applied_at' => now(),
             'reviewed_by' => null,
@@ -207,6 +229,34 @@ class CourierApplicationController extends Controller
         return response()->json(['url' => $url]);
     }
 
+    /**
+     * Return a short-lived signed URL for the signed-in courier's own
+     * driver's license on a given application.
+     */
+    public function license(Request $request, string $application): JsonResponse
+    {
+        $profile = $this->authenticatedProfile($request);
+        if ($profile instanceof JsonResponse) {
+            return $profile;
+        }
+
+        $courierApplication = CourierApplication::query()
+            ->whereKey($application)
+            ->where('courier_profile_id', $profile->id)
+            ->first();
+
+        if (! $courierApplication || ! $courierApplication->license_path) {
+            return response()->json(['message' => "No driver's license on file for this application."], 404);
+        }
+
+        $url = $this->supabaseStorage->signedUrl($courierApplication->license_path);
+        if (! $url) {
+            return response()->json(['message' => "Could not generate a link to your driver's license right now."], 502);
+        }
+
+        return response()->json(['url' => $url]);
+    }
+
     /** @return array<string, mixed> */
     private function applicationData(CourierApplication $application): array
     {
@@ -225,6 +275,9 @@ class CourierApplicationController extends Controller
             'resume_original_name' => $application->resume_original_name,
             'resume_size' => $application->resume_size,
             'has_resume' => filled($application->resume_path),
+            'license_original_name' => $application->license_original_name,
+            'license_size' => $application->license_size,
+            'has_license' => filled($application->license_path),
             'company' => $company ? [
                 'id' => $company->id,
                 'company_name' => $company->company_name,
