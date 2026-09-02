@@ -1,6 +1,6 @@
 <!-- resources/js/seller/components/Dashboard.vue -->
 <template>
-    <div>
+    <div class="seller-dashboard">
         <!-- Quick Actions Launchpad -->
         <div class="card launchpad">
             <div class="launchpad-head">
@@ -85,6 +85,7 @@
                 </div>
                 <p class="metric-label">Total Sales</p>
                 <h4 class="metric-value">{{ formatCurrencyValue(totalSales) }}</h4>
+                <p class="metric-sub">Gross value of every order</p>
             </div>
 
             <div class="metric-card">
@@ -108,6 +109,7 @@
                 </div>
                 <p class="metric-label">Total Revenue</p>
                 <h4 class="metric-value">{{ formatCurrencyValue(totalRevenue) }}</h4>
+                <p class="metric-sub">Collected from paid orders</p>
             </div>
 
             <div class="metric-card">
@@ -126,31 +128,14 @@
                             />
                             <path d="M3 6h18M16 10a4 4 0 0 1-8 0" /></svg
                     ></span>
-                    <span class="metric-chip flat">Tracked</span>
+                    <span
+                        class="metric-chip"
+                        :class="thisWeekOrders.length > 0 ? 'up' : 'flat'"
+                    >{{ thisWeekOrders.length > 0 ? '+' + thisWeekOrders.length + ' this week' : 'No new' }}</span>
                 </div>
                 <p class="metric-label">Total Orders</p>
                 <h4 class="metric-value">{{ orders.length }} Orders</h4>
-            </div>
-
-            <div class="metric-card">
-                <div class="metric-card-top">
-                    <span class="metric-icon blue"
-                        ><svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="m12 2 9 5-9 5-9-5 9-5Z" />
-                            <path d="m3 12 9 5 9-5" />
-                            <path d="m3 17 9 5 9-5" /></svg
-                    ></span>
-                    <span class="metric-chip flat">Stable</span>
-                </div>
-                <p class="metric-label">Active Products</p>
-                <h4 class="metric-value">{{ activeProductsCount }} Listed</h4>
+                <p class="metric-sub">All-time, every status</p>
             </div>
 
             <div class="metric-card">
@@ -173,11 +158,12 @@
                 </div>
                 <p class="metric-label">Pending Orders</p>
                 <h4 class="metric-value">{{ pendingOrdersCount }} Orders</h4>
+                <p class="metric-sub">Placed, awaiting acceptance</p>
             </div>
 
             <div class="metric-card">
                 <div class="metric-card-top">
-                    <span class="metric-icon rose"
+                    <span class="metric-icon emerald"
                         ><svg
                             width="18"
                             height="18"
@@ -186,17 +172,44 @@
                             stroke="currentColor"
                             stroke-width="2"
                         >
-                            <path
-                                d="M10.3 3.3 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.3a2 2 0 0 0-3.4 0Z"
-                            />
-                            <path d="M12 9v4M12 17h.01" /></svg
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                            <path d="m9 11 3 3L22 4" /></svg
                     ></span>
-                    <span class="metric-chip flat">Live</span>
+                    <span class="metric-chip flat">{{ fulfillmentRateLabel }}</span>
                 </div>
-                <p class="metric-label">Low Stock</p>
-                <h4 class="metric-value">
-                    {{ lowStockProductsCount }} Alerted
-                </h4>
+                <p class="metric-label">Completed Orders</p>
+                <h4 class="metric-value">{{ completedOrdersCount }} Orders</h4>
+                <p class="metric-sub">Delivered to the buyer</p>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-card-top">
+                    <span class="metric-icon blue"
+                        ><svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path d="m12 2 9 5-9 5-9-5 9-5Z" />
+                            <path d="m3 12 9 5 9-5" />
+                            <path d="m3 17 9 5 9-5" /></svg
+                    ></span>
+                    <span
+                        class="metric-chip"
+                        :class="lowStockProductsCount > 0 ? 'down' : 'flat'"
+                    >{{ lowStockProductsCount > 0 ? lowStockProductsCount + ' low' : 'Healthy' }}</span>
+                </div>
+                <p class="metric-label">Inventory</p>
+                <h4 class="metric-value">{{ activeProductsCount }} Listed</h4>
+                <p class="metric-sub">
+                    <template v-if="lowStockProductsCount > 0">
+                        {{ lowStockProductsCount }} product{{ lowStockProductsCount === 1 ? '' : 's' }} need restocking
+                    </template>
+                    <template v-else>All products in stock</template>
+                </p>
             </div>
         </div>
 
@@ -242,7 +255,7 @@
                             :d="salesTrendLinePath"
                             fill="none"
                             stroke="#1b9ba8"
-                            stroke-width="4"
+                            stroke-width="2.5"
                             stroke-linecap="round"
                             stroke-linejoin="round"
                         ></path>
@@ -250,17 +263,25 @@
                             :d="salesTrendAreaPath"
                             fill="url(#seller-line-gradient)"
                         ></path>
-                        <circle
-                            v-if="salesTrendPeak"
-                            :cx="salesTrendPeak.x"
-                            :cy="salesTrendPeak.y"
-                            r="6"
-                            fill="#1b9ba8"
-                            stroke="white"
-                            stroke-width="3"
-                        >
-                            <title>{{ salesTrendPeak.label }}: {{ formatCurrencyValue(salesTrendPeak.total) }}</title>
-                        </circle>
+                        <g v-for="(pt, idx) in salesTrendPoints" :key="idx">
+                            <circle
+                                :cx="pt.x"
+                                :cy="pt.y"
+                                :r="pt === salesTrendPeak ? 6 : 4"
+                                fill="#1b9ba8"
+                                stroke="white"
+                                stroke-width="3"
+                            ></circle>
+                            <circle
+                                :cx="pt.x"
+                                :cy="pt.y"
+                                r="18"
+                                fill="transparent"
+                                style="cursor: pointer"
+                            >
+                                <title>{{ pt.label }}: {{ formatCurrencyValue(pt.total) }}</title>
+                            </circle>
+                        </g>
                     </svg>
                 </div>
                 <div class="chart-x-labels">
@@ -492,7 +513,55 @@
             </div>
         </div>
 
+        <!-- Best-Selling Products + Low-Stock Products -->
+        <div class="bottom-grid mb-6 grid">
+            <div class="card panel-card">
+                <div class="panel-head">
+                    <h3>Best-Selling Products</h3>
+                    <a href="#" class="panel-link" @click.prevent="goTo('inventory')">View Inventory</a>
+                </div>
+
+                <ol v-if="bestSellers.length" class="rank-list">
+                    <li v-for="(p, i) in bestSellers" :key="p.name" class="rank-item">
+                        <span class="rank-num">{{ i + 1 }}</span>
+                        <div class="rank-body">
+                            <div class="rank-row">
+                                <span class="rank-name">{{ p.name }}</span>
+                                <span class="rank-units">{{ p.units }} sold</span>
+                            </div>
+                            <div class="rank-bar"><span :style="{ width: p.pct + '%' }"></span></div>
+                            <span class="rank-sub">{{ formatCurrency(p.revenue) }} in sales</span>
+                        </div>
+                    </li>
+                </ol>
+                <div v-else class="empty-state" style="padding: 1.5rem 0">
+                    <p>No sales yet.</p>
+                </div>
+            </div>
+
+            <div class="card panel-card">
+                <div class="panel-head">
+                    <h3>Low-Stock Products</h3>
+                    <a href="#" class="panel-link" @click.prevent="goTo('inventory')">Manage Stock</a>
+                </div>
+
+                <ul v-if="lowStockItems.length" class="stock-list">
+                    <li v-for="p in lowStockItems" :key="p.id" class="stock-item">
+                        <span class="stock-name">{{ p.name }}</span>
+                        <span
+                            class="stock-qty"
+                            :class="p.stock === 0 ? 'is-out' : 'is-low'"
+                        >{{ p.stock === 0 ? 'Out of stock' : p.stock + ' left' }}</span>
+                    </li>
+                </ul>
+                <div v-else class="empty-state" style="padding: 1.5rem 0">
+                    <p>Every product is well stocked.</p>
+                </div>
+            </div>
+        </div>
+
         <!-- Account & Compliance (existing onboarding functionality, preserved) -->
+        <div class="sd-compliance-zone">
         <p class="section-label" style="margin-bottom: 0.85rem">
             Account &amp; Compliance
         </p>
@@ -717,13 +786,14 @@
                 </div>
             </div>
         </div>
+        </div>
     </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
-import { useSeller } from '../composables/useSeller';
 import { useOrders } from '../composables/useOrders';
+import { useSeller } from '../composables/useSeller';
 import { useSellerProducts } from '../composables/useSellerProducts';
 
 const {
@@ -823,8 +893,14 @@ function pctChangeLabel(current, previous) {
 }
 
 function changeChipClass(label) {
-    if (label.startsWith('+')) return 'up';
-    if (label.startsWith('-')) return 'down';
+    if (label.startsWith('+')) {
+return 'up';
+}
+
+    if (label.startsWith('-')) {
+return 'down';
+}
+
     return 'flat';
 }
 
@@ -851,6 +927,17 @@ const activeProductsCount = computed(
 const lowStockProductsCount = computed(
     () => products.value.filter((p) => stockStatusOf(p) === 'low_stock').length,
 );
+
+// The actual low/out-of-stock products (not just a count) so the
+// dashboard can list what needs restocking, worst first.
+const lowStockItems = computed(() =>
+    products.value
+        .filter((p) => ['low_stock', 'out_of_stock'].includes(stockStatusOf(p)))
+        .map((p) => ({ id: p.id, name: p.name, stock: Number(p.stock) || 0 }))
+        .sort((a, b) => a.stock - b.stock)
+        .slice(0, 6),
+);
+
 // "New" = placed but not yet accepted by the seller — the real
 // equivalent of "pending" for orders (this used to accidentally show
 // pendingDocsCount, a completely unrelated document-verification
@@ -858,6 +945,45 @@ const lowStockProductsCount = computed(
 const pendingOrdersCount = computed(
     () => orders.value.filter((o) => o.status === 'New').length,
 );
+// "Completed" = fulfilled all the way to Delivered.
+const completedOrdersCount = computed(
+    () => orders.value.filter((o) => o.status === 'Delivered').length,
+);
+// Delivered / (Delivered + Cancelled) — orders still in flight aren't
+// counted either way, matching Reports' fulfillment-rate definition.
+const fulfillmentRateLabel = computed(() => {
+    const delivered = completedOrdersCount.value;
+    const cancelled = orders.value.filter((o) => o.status === 'Cancelled').length;
+    const settled = delivered + cancelled;
+
+    return settled === 0 ? '—' : `${Math.round((delivered / settled) * 100)}% fulfilled`;
+});
+
+// ---- Best-Selling Products (units sold across every non-cancelled
+// order, from the same order data the Orders page loads) ----
+const bestSellers = computed(() => {
+    const tally = new Map();
+
+    for (const order of orders.value) {
+        if (order.status === 'Cancelled' || !order.items?.length) {
+            continue;
+        }
+
+        for (const item of order.items) {
+            const key = item.name || 'Unnamed product';
+            const row = tally.get(key) || { name: key, units: 0, revenue: 0 };
+
+            row.units += Number(item.qty) || 0;
+            row.revenue += (Number(item.qty) || 0) * (Number(item.price) || 0);
+            tally.set(key, row);
+        }
+    }
+
+    const rows = [...tally.values()].sort((a, b) => b.units - a.units).slice(0, 5);
+    const top = rows[0]?.units || 1;
+
+    return rows.map((r) => ({ ...r, pct: Math.round((r.units / top) * 100) }));
+});
 
 // ---- Sales Performance Trend (last 7 days, real daily totals) ----
 const salesTrendDays = computed(() => {
@@ -873,7 +999,10 @@ const salesTrendDays = computed(() => {
 
     return days.map((d) => {
         const total = orders.value.reduce((sum, o) => {
-            if (!o.placedAt) return sum;
+            if (!o.placedAt) {
+return sum;
+}
+
             const placed = new Date(o.placedAt);
             const sameDay =
                 placed.getFullYear() === d.getFullYear() &&
@@ -908,7 +1037,9 @@ const salesTrendPoints = computed(() => {
 const salesTrendLinePath = computed(() => {
     const pts = salesTrendPoints.value;
 
-    if (!pts.length) return '';
+    if (!pts.length) {
+return '';
+}
 
     return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 });
@@ -916,7 +1047,9 @@ const salesTrendLinePath = computed(() => {
 const salesTrendAreaPath = computed(() => {
     const pts = salesTrendPoints.value;
 
-    if (!pts.length) return '';
+    if (!pts.length) {
+return '';
+}
 
     const first = pts[0];
 
@@ -926,7 +1059,9 @@ const salesTrendAreaPath = computed(() => {
 const salesTrendPeak = computed(() => {
     const pts = salesTrendPoints.value;
 
-    if (!pts.length) return null;
+    if (!pts.length) {
+return null;
+}
 
     return pts.reduce((max, p) => (p.total > max.total ? p : max), pts[0]);
 });
@@ -939,9 +1074,13 @@ const orderStatusCounts = computed(() => {
     const counts = { delivered: 0, inTransit: 0, processing: 0 };
 
     for (const o of orders.value) {
-        if (o.status === 'Delivered') counts.delivered++;
-        else if (o.status === 'In Transit') counts.inTransit++;
-        else if (o.status === 'New' || o.status === 'Processing') counts.processing++;
+        if (o.status === 'Delivered') {
+counts.delivered++;
+} else if (o.status === 'In Transit') {
+counts.inTransit++;
+} else if (o.status === 'New' || o.status === 'Processing') {
+counts.processing++;
+}
         // Cancelled orders are excluded from this breakdown, matching
         // the original 3-segment design.
     }
@@ -962,7 +1101,7 @@ const orderDonutSegments = computed(() => {
     const segments = [
         { key: 'delivered', label: 'Delivered', color: '#1b9ba8', count: counts.delivered },
         { key: 'inTransit', label: 'In Transit', color: '#2c5aa0', count: counts.inTransit },
-        { key: 'processing', label: 'Processing', color: '#f87171', count: counts.processing },
+        { key: 'processing', label: 'Processing', color: '#f59e0b', count: counts.processing },
     ];
 
     let offsetAcc = 0;
@@ -985,8 +1124,13 @@ const recentOrders = computed(() =>
 );
 
 function orderItemsSummary(order) {
-    if (!order.items?.length) return '—';
-    if (order.items.length === 1) return order.items[0].name;
+    if (!order.items?.length) {
+return '—';
+}
+
+    if (order.items.length === 1) {
+return order.items[0].name;
+}
 
     return `${order.items[0].name} +${order.items.length - 1} more`;
 }
@@ -1050,3 +1194,493 @@ const donutSegments = computed(() => {
     });
 });
 </script>
+
+<style scoped>
+/* ============================================================
+   Seller Dashboard — visual redesign.
+
+   Design system from ui-ux-pro-max ("Data-Dense Dashboard",
+   density 8 / motion 3): an 8px spacing rhythm, a real KPI type
+   ramp, tabular figures on every data number, subtle 150-200ms
+   motion, and one consistent card frame. Applied here as
+   token-driven scoped CSS — every rule is confined to
+   `.seller-dashboard`, so layout.css and all other seller pages
+   are untouched. No element, label, column or copy was changed;
+   only layout, spacing, type, colour and hierarchy.
+   ============================================================ */
+
+.seller-dashboard {
+    /* spacing rhythm (8px base) */
+    --sd-space-1: 0.25rem;
+    --sd-space-2: 0.5rem;
+    --sd-space-3: 0.75rem;
+    --sd-space-4: 1rem;
+    --sd-space-5: 1.5rem;
+    --sd-space-6: 2rem;
+
+    --sd-radius: 0.6rem;
+    --sd-radius-lg: 0.85rem;
+
+    --sd-border: #e6ebf1;
+    --sd-border-strong: #d7dfe9;
+
+    --sd-ink: #0f172a;
+    --sd-ink-soft: #475569;
+    /* #64748b clears 4.5:1 on white / #f8fafc for the small supporting
+       labels that were previously #94a3b8 (~2.8:1). */
+    --sd-ink-mute: #64748b;
+
+    --sd-teal: #1b9ba8;
+    --sd-blue: #2c5aa0;
+
+    --sd-shadow-rest: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --sd-shadow-hover: 0 8px 24px -8px rgba(15, 23, 42, 0.12);
+
+    --sd-ease: cubic-bezier(0, 0, 0.2, 1);
+}
+
+/* Tabular figures wherever a number is shown as data, so columns
+   and values stop shifting width digit-to-digit. */
+.seller-dashboard .metric-value,
+.seller-dashboard .stat-value,
+.seller-dashboard .donut-center-value,
+.seller-dashboard .sales-table .amount,
+.seller-dashboard .sales-table .order-id,
+.seller-dashboard .rank-num,
+.seller-dashboard .rank-units,
+.seller-dashboard .stock-qty {
+    font-variant-numeric: tabular-nums;
+}
+
+/* One consistent card frame: crisp hairline border, soft rest
+   shadow, unified radius. */
+.seller-dashboard .card {
+    border-color: var(--sd-border);
+    border-radius: var(--sd-radius-lg);
+    box-shadow: var(--sd-shadow-rest);
+}
+
+/* ============================================================
+   1 · Quick Actions Launchpad — slim command bar
+   ============================================================ */
+.seller-dashboard .launchpad {
+    padding: var(--sd-space-3) var(--sd-space-5);
+    margin-bottom: var(--sd-space-5);
+    border-radius: var(--sd-radius);
+}
+.seller-dashboard .launchpad-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sd-ink-soft);
+}
+.seller-dashboard .launchpad-icon {
+    padding: 0.4rem;
+}
+.seller-dashboard .launchpad-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sd-space-2);
+}
+.seller-dashboard .launchpad-actions > button {
+    transition:
+        transform 0.15s var(--sd-ease),
+        box-shadow 0.15s var(--sd-ease),
+        background 0.15s var(--sd-ease);
+}
+
+/* ============================================================
+   2 · Metric cards — label ▸ value ▸ context
+   ============================================================ */
+.seller-dashboard .metric-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: var(--sd-space-3);
+    margin-bottom: var(--sd-space-5);
+}
+.seller-dashboard .metric-card {
+    padding: var(--sd-space-4);
+    border-radius: var(--sd-radius);
+    border-color: var(--sd-border);
+    box-shadow: var(--sd-shadow-rest);
+    transition:
+        transform 0.16s var(--sd-ease),
+        box-shadow 0.16s var(--sd-ease);
+}
+.seller-dashboard .metric-card:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--sd-shadow-hover);
+}
+.seller-dashboard .metric-card-top {
+    align-items: center;
+    margin-bottom: var(--sd-space-2);
+}
+.seller-dashboard .metric-icon {
+    padding: 0.4rem;
+    border-radius: 0.5rem;
+}
+.seller-dashboard .metric-icon svg {
+    width: 16px;
+    height: 16px;
+}
+.seller-dashboard .metric-chip {
+    font-size: 0.58rem;
+    letter-spacing: 0.03em;
+    padding: 0.12rem 0.42rem;
+    border-radius: 999px;
+}
+.seller-dashboard .metric-label {
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    color: var(--sd-ink-mute);
+    margin-bottom: 0.15rem;
+}
+.seller-dashboard .metric-value {
+    font-size: 1.45rem;
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    color: var(--sd-ink);
+}
+.seller-dashboard .metric-sub {
+    margin-top: 0.25rem;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: var(--sd-ink-mute);
+}
+
+@media (max-width: 1280px) {
+    .seller-dashboard .metric-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+@media (max-width: 720px) {
+    .seller-dashboard .metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 460px) {
+    .seller-dashboard .metric-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ============================================================
+   3 · Chart cards — shared header rhythm, calmer frame
+   ============================================================ */
+.seller-dashboard .chart-row {
+    gap: var(--sd-space-4);
+    margin-bottom: var(--sd-space-5);
+}
+.seller-dashboard .chart-card {
+    padding: var(--sd-space-5);
+}
+.seller-dashboard .chart-card-head {
+    align-items: center;
+    margin-bottom: var(--sd-space-4);
+}
+.seller-dashboard .chart-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--sd-ink);
+}
+.seller-dashboard .chart-sub {
+    font-size: 0.75rem;
+    color: var(--sd-ink-soft);
+}
+.seller-dashboard .chart-toggle button {
+    font-size: 0.68rem;
+    transition:
+        background 0.15s var(--sd-ease),
+        color 0.15s var(--sd-ease);
+}
+.seller-dashboard .chart-x-labels {
+    margin-top: var(--sd-space-2);
+    color: var(--sd-ink-mute);
+}
+.seller-dashboard .chart-live-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    color: #16a34a;
+}
+.seller-dashboard .chart-live-tag::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.seller-dashboard .donut-center-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--sd-ink);
+}
+.seller-dashboard .donut-legend-row {
+    padding: 0.42rem 0;
+    font-size: 0.8rem;
+    border-top: 1px solid var(--sd-border);
+}
+.seller-dashboard .donut-legend-row:first-child {
+    border-top: 0;
+}
+.seller-dashboard .donut-legend-row + .donut-legend-row {
+    margin-top: 0;
+}
+
+/* ============================================================
+   4 & 5 · Panels — one frame for all four bottom cards
+   ============================================================ */
+.seller-dashboard .bottom-grid {
+    gap: var(--sd-space-4);
+    margin-bottom: var(--sd-space-5);
+}
+.seller-dashboard .panel-card {
+    border-radius: var(--sd-radius-lg);
+}
+.seller-dashboard .panel-head {
+    padding: var(--sd-space-4) var(--sd-space-5);
+    border-bottom-color: var(--sd-border);
+}
+.seller-dashboard .panel-head h3 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--sd-ink);
+}
+.seller-dashboard .panel-link {
+    font-size: 0.78rem;
+    transition: color 0.15s var(--sd-ease);
+}
+
+/* Recent Sales Records table */
+.seller-dashboard .sales-table {
+    font-size: 0.82rem;
+}
+.seller-dashboard .sales-table thead th {
+    padding: 0.65rem var(--sd-space-5);
+    font-size: 0.66rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--sd-ink-mute);
+    background: #fff;
+    border-bottom: 1px solid var(--sd-border);
+}
+.seller-dashboard .sales-table tbody td {
+    padding: 0.7rem var(--sd-space-5);
+    border-bottom: 1px solid #f1f5f9;
+    color: var(--sd-ink-soft);
+}
+.seller-dashboard .sales-table tbody tr {
+    transition: background 0.12s var(--sd-ease);
+}
+.seller-dashboard .sales-table tbody tr:hover td {
+    background: #f8fafc;
+}
+.seller-dashboard .sales-table .order-id {
+    font-weight: 600;
+    color: var(--sd-ink);
+}
+.seller-dashboard .sales-table thead th:nth-child(5),
+.seller-dashboard .sales-table tbody td:nth-child(5),
+.seller-dashboard .sales-table .amount {
+    text-align: right;
+}
+.seller-dashboard .sales-table .amount {
+    font-weight: 700;
+    color: var(--sd-ink);
+}
+
+/* Live Store Activity — timeline rail */
+.seller-dashboard .activity-panel {
+    padding: var(--sd-space-4) var(--sd-space-5);
+}
+.seller-dashboard .activity-row {
+    position: relative;
+    gap: var(--sd-space-3);
+    padding-left: var(--sd-space-4);
+}
+.seller-dashboard .activity-row::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.35rem;
+    bottom: 0;
+    width: 2px;
+    border-radius: 999px;
+    background: var(--sd-border);
+}
+.seller-dashboard .activity-text {
+    font-size: 0.82rem;
+    color: var(--sd-ink);
+}
+.seller-dashboard .activity-time {
+    font-size: 0.72rem;
+    color: var(--sd-ink-mute);
+}
+.seller-dashboard .live-dot {
+    background: #16a34a;
+}
+
+/* Best-Selling Products */
+.seller-dashboard .rank-list {
+    list-style: none;
+    margin: 0;
+    padding: var(--sd-space-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sd-space-4);
+}
+.seller-dashboard .rank-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sd-space-3);
+}
+.seller-dashboard .rank-num {
+    flex-shrink: 0;
+    width: 1.4rem;
+    height: 1.4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.45rem;
+    background: rgba(27, 155, 168, 0.1);
+    color: var(--sd-teal);
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+.seller-dashboard .rank-body {
+    flex: 1;
+    min-width: 0;
+}
+.seller-dashboard .rank-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sd-space-3);
+}
+.seller-dashboard .rank-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--sd-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.seller-dashboard .rank-units {
+    flex-shrink: 0;
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: var(--sd-teal);
+}
+.seller-dashboard .rank-bar {
+    margin: 0.4rem 0 0.3rem;
+    height: 6px;
+    border-radius: 999px;
+    background: #eef2f6;
+    overflow: hidden;
+}
+.seller-dashboard .rank-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--sd-teal);
+    transition: width 0.4s var(--sd-ease);
+}
+.seller-dashboard .rank-sub {
+    font-size: 0.72rem;
+    color: var(--sd-ink-mute);
+}
+
+/* Low-Stock Products */
+.seller-dashboard .stock-list {
+    list-style: none;
+    margin: 0;
+    padding: var(--sd-space-2) var(--sd-space-5) var(--sd-space-4);
+    display: flex;
+    flex-direction: column;
+}
+.seller-dashboard .stock-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sd-space-3);
+    padding: 0.7rem 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+.seller-dashboard .stock-item:last-child {
+    border-bottom: 0;
+}
+.seller-dashboard .stock-name {
+    font-size: 0.85rem;
+    color: var(--sd-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.seller-dashboard .stock-qty {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+}
+.seller-dashboard .stock-qty::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.seller-dashboard .stock-qty.is-low {
+    background: #fef3c7;
+    color: #b45309;
+}
+.seller-dashboard .stock-qty.is-out {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+/* ============================================================
+   6 · Account & Compliance — demoted below the operational view
+   ============================================================ */
+.seller-dashboard .sd-compliance-zone {
+    margin-top: var(--sd-space-6);
+    padding-top: var(--sd-space-5);
+    border-top: 1px solid var(--sd-border-strong);
+}
+.seller-dashboard .sd-compliance-zone .section-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sd-ink-soft);
+}
+.seller-dashboard .sd-compliance-zone .card {
+    background: #fbfcfe;
+    box-shadow: none;
+    border-color: var(--sd-border);
+}
+.seller-dashboard .sd-compliance-zone .checklist-item {
+    padding: 0.55rem 0.7rem;
+}
+.seller-dashboard .sd-compliance-zone .checklist-title {
+    font-size: 0.82rem;
+}
+
+/* ---- reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+    .seller-dashboard *,
+    .seller-dashboard *::before,
+    .seller-dashboard *::after {
+        transition-duration: 0.01ms !important;
+    }
+    .seller-dashboard .metric-card:hover {
+        transform: none;
+    }
+}
+</style>

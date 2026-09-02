@@ -13,9 +13,11 @@ class SellerProductService
 {
     private const EAGER = ['options.values', 'variants.optionValues.option'];
 
+    public function __construct(private readonly InventoryService $inventory) {}
+
     /**
      * @param  array<string, mixed>  $data  Already-validated payload from
-     *                                       StoreProductRequest.
+     *                                      StoreProductRequest.
      */
     public function create(Profile $seller, array $data): Product
     {
@@ -27,11 +29,18 @@ class SellerProductService
                 [
                     'seller_id' => $seller->id,
                     'status' => 'pending_review',
-                    'has_variants' => !empty($data['variants']),
+                    'has_variants' => ! empty($data['variants']),
                 ],
             ));
 
             $this->syncOptionsAndVariants($product, $category, $data);
+
+            // Baseline the audit log with whatever stock the product /
+            // variants were created with, then cache products.stock for a
+            // variant product as the sum of its variants.
+            $product->load('variants');
+            $this->recordCreationStock($product, $seller->id);
+            $this->inventory->syncProductStock($product);
 
             return $product->fresh(self::EAGER);
         });
@@ -39,12 +48,15 @@ class SellerProductService
 
     /**
      * @param  array<string, mixed>  $data  Already-validated payload from
-     *                                       UpdateProductRequest.
+     *                                      UpdateProductRequest.
      */
     public function update(Profile $seller, Product $product, array $data): Product
     {
         return DB::transaction(function () use ($seller, $product, $data) {
             $category = $this->resolveCategory($seller);
+
+            $stockBefore = (int) $product->stock;
+            $hadVariants = (bool) $product->has_variants;
 
             $product->update(array_merge(
                 $this->baseAttributes($category, $data),
@@ -53,7 +65,7 @@ class SellerProductService
                     // even if it was previously 'active' — never trust a
                     // status submitted by the client.
                     'status' => 'pending_review',
-                    'has_variants' => !empty($data['variants']),
+                    'has_variants' => ! empty($data['variants']),
                 ],
             ));
 
@@ -64,13 +76,51 @@ class SellerProductService
             // order_items keeps its own variant snapshot regardless (see
             // 2026_08_23_000008_add_variant_columns_to_order_items_table),
             // so past orders referencing a deleted variant are unaffected.
+            // inventory_movements.variant_id is nullOnDelete, so past
+            // stock history survives at the product level.
             $product->variants()->delete();
             $product->options()->delete();
 
             $this->syncOptionsAndVariants($product, $category, $data);
 
+            $product->refresh()->load('variants');
+
+            if ($product->has_variants) {
+                // Wiped-and-recreated rows: log each new variant's stock
+                // as a fresh baseline, then re-cache products.stock.
+                $this->recordCreationStock($product, $seller->id);
+                $this->inventory->syncProductStock($product);
+            } elseif (! $hadVariants && (int) $product->stock !== $stockBefore) {
+                // Simple product whose stock field was changed on the
+                // edit form — record the difference so it's auditable
+                // (the dedicated adjust endpoint is the preferred path).
+                $this->inventory->recordFormStockEdit(
+                    $product,
+                    $stockBefore,
+                    (int) $product->stock,
+                    $seller->id,
+                );
+            }
+
             return $product->fresh(self::EAGER);
         });
+    }
+
+    /**
+     * One initial_stock movement per stocked variant (or the simple
+     * product), so a brand-new / rebuilt product has an audit baseline.
+     */
+    private function recordCreationStock(Product $product, string $actorId): void
+    {
+        if ($product->has_variants) {
+            foreach ($product->variants as $variant) {
+                $this->inventory->recordInitialStock($product, $variant, $actorId);
+            }
+
+            return;
+        }
+
+        $this->inventory->recordInitialStock($product, null, $actorId);
     }
 
     /**
@@ -113,7 +163,7 @@ class SellerProductService
     {
         $lineOfBusiness = $seller->sellerDetail?->line_of_business;
 
-        if (!$lineOfBusiness) {
+        if (! $lineOfBusiness) {
             throw ValidationException::withMessages([
                 'category' => 'Your seller account has no registered line of business yet.',
             ]);
@@ -147,7 +197,7 @@ class SellerProductService
         foreach ($optionsInput as $index => $opt) {
             $optionName = trim($opt['name']);
 
-            if (!CategoryFieldConfig::isValidOptionName($category, $optionName)) {
+            if (! CategoryFieldConfig::isValidOptionName($category, $optionName)) {
                 throw ValidationException::withMessages([
                     'options' => "\"{$optionName}\" isn't an available variant type for {$category}.",
                 ]);
@@ -161,7 +211,7 @@ class SellerProductService
             ]);
 
             foreach (array_values(array_unique(array_map('trim', $opt['values']))) as $j => $val) {
-                if ($allowedValues !== null && !in_array($val, $allowedValues, true)) {
+                if ($allowedValues !== null && ! in_array($val, $allowedValues, true)) {
                     throw ValidationException::withMessages([
                         'options' => "\"{$val}\" isn't a valid {$optionName} value.",
                     ]);
@@ -186,7 +236,7 @@ class SellerProductService
 
             if (isset($seenCombos[$comboSignature])) {
                 throw ValidationException::withMessages([
-                    'variants' => 'Duplicate variant combination: ' . implode(', ', array_map(
+                    'variants' => 'Duplicate variant combination: '.implode(', ', array_map(
                         fn ($k, $v) => "{$k}: {$v}",
                         array_keys($optionValues),
                         $optionValues,
@@ -230,7 +280,7 @@ class SellerProductService
             foreach ($optionValues as $optionName => $value) {
                 $key = $this->comboKey($optionName, $value);
 
-                if (!isset($valueIdByKey[$key])) {
+                if (! isset($valueIdByKey[$key])) {
                     throw ValidationException::withMessages([
                         'variants' => "Option value \"{$optionName}: {$value}\" is not listed in this product's options.",
                     ]);
@@ -245,6 +295,6 @@ class SellerProductService
 
     private function comboKey(string $optionName, string $value): string
     {
-        return mb_strtolower(trim($optionName)) . '::' . mb_strtolower(trim($value));
+        return mb_strtolower(trim($optionName)).'::'.mb_strtolower(trim($value));
     }
 }

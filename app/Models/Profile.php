@@ -110,6 +110,24 @@ class Profile extends Model
         return $this->hasMany(Complaint::class, 'respondent_id');
     }
 
+    // ---- Buyer-owned collections (additive, no existing relation/method/
+    // cast changed) ----
+
+    public function returnRequests(): HasMany
+    {
+        return $this->hasMany(OrderReturnRequest::class, 'buyer_profile_id');
+    }
+
+    public function conversationsAsBuyer(): HasMany
+    {
+        return $this->hasMany(Conversation::class, 'buyer_id');
+    }
+
+    public function conversationsAsSeller(): HasMany
+    {
+        return $this->hasMany(Conversation::class, 'seller_id');
+    }
+
     public function getFullNameAttribute(): string
     {
         $mi = $this->middle_initial ? "{$this->middle_initial}. " : '';

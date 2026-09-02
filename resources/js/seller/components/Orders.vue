@@ -107,7 +107,7 @@
                                     <span
                                         class="badge"
                                         :class="statusBadgeClass(order.status)"
-                                        >{{ order.status }}</span
+                                        >{{ statusLabel(order.status) }}</span
                                     >
                                 </td>
                             </tr>
@@ -135,7 +135,7 @@
                                     :class="
                                         statusBadgeClass(selectedOrder.status)
                                     "
-                                    >{{ selectedOrder.status }}</span
+                                    >{{ statusLabel(selectedOrder.status) }}</span
                                 >
                             </div>
                             <p class="order-detail-sub">
@@ -328,12 +328,22 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useOrders } from '../composables/useOrders';
 
+const props = defineProps({
+    // Real order status string (e.g. 'Delivered', 'In Transit') passed
+    // from Reports.vue's order-breakdown click-through — see
+    // SellerLayout.vue's currentComponentProps and the reverse of
+    // statusFilterMap below for how the real status maps to this
+    // page's own filter-tab id.
+    statusFilter: { type: String, default: null },
+});
+
 const {
     orders: mockOrders,
     loadError,
     newOrdersCount,
     loadOrders,
     statusBadgeClass,
+    statusLabel,
     formatCurrency,
     acceptOrder,
     rejectOrder,
@@ -356,40 +366,66 @@ watch(mockOrders, (list) => {
     }
 });
 
-const filterTabs = computed(() => {
-    const counts = {
-        new: 0,
-        processing: 0,
-        'in transit': 0,
-        delivered: 0,
-        cancelled: 0,
-    };
-
-    for (const o of mockOrders.value) {
-        const key = o.status.toLowerCase();
-
-        if (key in counts) {
-            counts[key] += 1;
-        }
-    }
-
-    return [
-        { id: 'all', label: 'All', count: null },
-        { id: 'new', label: 'New', count: counts.new },
-        { id: 'processing', label: 'Processing', count: counts.processing },
-        { id: 'shipped', label: 'Shipped', count: counts['in transit'] },
-        { id: 'delivered', label: 'Delivered', count: counts.delivered },
-        { id: 'cancelled', label: 'Cancelled', count: counts.cancelled },
-    ];
-});
-
+// Tab id -> stored status value.
 const statusFilterMap = {
-    new: 'New',
+    pending: 'New',
+    confirmed: 'Confirmed',
     processing: 'Processing',
+    packed: 'Packed',
+    ready: 'Ready for Pickup',
     shipped: 'In Transit',
     delivered: 'Delivered',
     cancelled: 'Cancelled',
+    rejected: 'Rejected',
 };
+
+const filterTabs = computed(() => {
+    const counts = {};
+
+    for (const o of mockOrders.value) {
+        counts[o.status] = (counts[o.status] || 0) + 1;
+    }
+
+    const tab = (id, label) => ({
+        id,
+        label,
+        count: counts[statusFilterMap[id]] || 0,
+    });
+
+    return [
+        { id: 'all', label: 'All', count: null },
+        tab('pending', 'Pending'),
+        tab('confirmed', 'Confirmed'),
+        tab('processing', 'Processing'),
+        tab('packed', 'Packed'),
+        tab('ready', 'Ready'),
+        tab('shipped', 'Shipped'),
+        tab('delivered', 'Delivered'),
+        tab('cancelled', 'Cancelled'),
+        tab('rejected', 'Rejected'),
+    ];
+});
+
+// Applies an incoming real-status deep link (see the `statusFilter`
+// prop above, set by Reports.vue's order-breakdown click-through) on
+// arrival and on any later change, since SellerLayout keeps this
+// component mounted/reused across seller-nav events rather than
+// remounting it.
+watch(
+    () => props.statusFilter,
+    (status) => {
+        if (!status) {
+return;
+}
+
+        const match = Object.entries(statusFilterMap).find(([, real]) => real === status);
+
+        if (match) {
+activeFilter.value = match[0];
+}
+    },
+    { immediate: true },
+);
 
 const filteredOrders = computed(() => {
     let list = mockOrders.value;

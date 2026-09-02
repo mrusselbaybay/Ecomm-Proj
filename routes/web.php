@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
+use App\Http\Controllers\Logistics\ParcelLocationController;
 use App\Http\Controllers\PickupCourierController;
 use Illuminate\Support\Facades\Route;
 
@@ -74,6 +75,12 @@ Route::prefix('api/logistics')->name('api.logistics.')->group(function () {
         ->name('notify.accepted');
     Route::post('/notify-application-rejected', [LogisticsNotificationController::class, 'applicationRejected'])
         ->name('notify.rejected');
+
+    // Courier GPS ping ingest for live parcel tracking. See
+    // ParcelLocationController for the (documented) scoping caveat.
+    Route::post('/orders/{orderNumber}/location', [ParcelLocationController::class, 'store'])
+        ->middleware('supabase.auth')
+        ->name('orders.location.store');
 });
 
 // ---------- API Routes for Seller (Seller Order Page) ----------

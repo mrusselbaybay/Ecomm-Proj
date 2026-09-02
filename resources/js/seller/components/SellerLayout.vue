@@ -235,22 +235,75 @@
                             </div>
 
                             <div class="header-right">
-                                <button class="notif-btn" title="Notifications">
-                                    <svg
-                                        width="20"
-                                        height="20"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="2"
+                                <div class="notif-wrap">
+                                    <button
+                                        class="notif-btn"
+                                        title="Notifications"
+                                        @click="toggleNotifPanel"
                                     >
-                                        <path
-                                            d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"
-                                        />
-                                        <path d="M10 20a2 2 0 0 0 4 0" />
-                                    </svg>
-                                    <span class="notif-dot"></span>
-                                </button>
+                                        <svg
+                                            width="20"
+                                            height="20"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                        >
+                                            <path
+                                                d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z"
+                                            />
+                                            <path d="M10 20a2 2 0 0 0 4 0" />
+                                        </svg>
+                                        <span
+                                            v-if="notifUnread > 0"
+                                            class="notif-badge"
+                                        >{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
+                                    </button>
+
+                                    <div
+                                        v-if="notifOpen"
+                                        class="notif-backdrop"
+                                        @click="notifOpen = false"
+                                    ></div>
+                                    <div v-if="notifOpen" class="notif-panel">
+                                        <div class="notif-panel-head">
+                                            <strong>Notifications</strong>
+                                            <button
+                                                v-if="notifUnread > 0"
+                                                type="button"
+                                                class="notif-mark-all"
+                                                @click="markAllNotifRead"
+                                            >
+                                                Mark all read
+                                            </button>
+                                        </div>
+                                        <p
+                                            v-if="notifLoading && !notifItems.length"
+                                            class="notif-empty"
+                                        >
+                                            Loading…
+                                        </p>
+                                        <p
+                                            v-else-if="!notifItems.length"
+                                            class="notif-empty"
+                                        >
+                                            No notifications yet.
+                                        </p>
+                                        <ul v-else class="notif-list">
+                                            <li
+                                                v-for="n in notifItems"
+                                                :key="n.id"
+                                                class="notif-item"
+                                                :class="{ unread: !n.read }"
+                                                @click="openNotification(n)"
+                                            >
+                                                <span class="notif-item-title">{{ n.title }}</span>
+                                                <span v-if="n.body" class="notif-item-body">{{ n.body }}</span>
+                                                <span class="notif-item-time">{{ notifTime(n.createdAt) }}</span>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
                                 <div class="header-profile">
                                     <div class="header-profile-text">
                                         <p class="header-profile-name">
@@ -350,7 +403,9 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { useMessaging } from '../composables/useMessaging';
 import { useSeller } from '../composables/useSeller';
+import { useSellerNotifications } from '../composables/useSellerNotifications';
 
 import CourierHandover from './CourierHandover.vue';
 import Dashboard from './Dashboard.vue';
@@ -367,6 +422,7 @@ import Reports from './Reports.vue';
 const showLogoutConfirm = ref(false);
 const currentSection = ref('dashboard');
 const selectedOrderId = ref(null);
+const ordersStatusFilter = ref(null);
 
 // /seller/orders/{id} is a dynamic sub-route of Orders that isn't a
 // literal entry in pathToSection/sectionToPath below (those are 1:1
@@ -387,6 +443,69 @@ const {
     refreshAll,
     confirmLogout,
 } = useSeller();
+
+// Polled independently of whether the seller is currently viewing the
+// Messages page, so the sidebar badge (see navItems below) stays live
+// while they're on Dashboard/Orders/etc. Right now this will just stay
+// at 0 — see useMessaging.js's docblock: there is no messaging backend
+// deployed yet, so /api/seller/messages/unread-count 404s and the poll
+// silently no-ops rather than showing a fake count.
+const { unreadBadgeCount, startUnreadPolling, stopUnreadPolling } = useMessaging();
+
+// Seller notification inbox (new-order alerts, status changes) — the
+// header bell.
+const {
+    items: notifItems,
+    unreadCount: notifUnread,
+    isLoading: notifLoading,
+    loadNotifications,
+    markRead: markNotifRead,
+    markAllRead: markAllNotifRead,
+    startPolling: startNotifPolling,
+    stopPolling: stopNotifPolling,
+} = useSellerNotifications();
+
+const notifOpen = ref(false);
+
+function toggleNotifPanel() {
+    notifOpen.value = !notifOpen.value;
+
+    if (notifOpen.value) {
+        loadNotifications();
+    }
+}
+
+function openNotification(n) {
+    markNotifRead(n.id);
+    notifOpen.value = false;
+
+    if (n.orderNumber) {
+        navigateTo('orderDetails', n.orderNumber);
+    }
+}
+
+function notifTime(iso) {
+    if (!iso) {
+        return '';
+    }
+
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.round(diff / 60000);
+
+    if (mins < 1) {
+        return 'just now';
+    }
+
+    if (mins < 60) {
+        return `${mins}m ago`;
+    }
+
+    if (mins < 1440) {
+        return `${Math.round(mins / 60)}h ago`;
+    }
+
+    return new Date(iso).toLocaleDateString();
+}
 
 const pathToSection = {
     '/seller/dashboard': 'dashboard',
@@ -432,13 +551,19 @@ const currentComponent = computed(
 );
 
 // OrderDetails and PrepareOrders both need to know which order is
-// active; every other section ignores v-bind="{}" harmlessly.
+// active; Orders needs to know an optional incoming status filter (see
+// Reports.vue's order-breakdown click-through); every other section
+// ignores v-bind="{}" harmlessly.
 const currentComponentProps = computed(() => {
     if (
         currentSection.value === 'orderDetails' ||
         currentSection.value === 'prepareOrders'
     ) {
         return { orderId: selectedOrderId.value };
+    }
+
+    if (currentSection.value === 'orders') {
+        return { statusFilter: ordersStatusFilter.value };
     }
 
     return {};
@@ -482,6 +607,7 @@ const navItems = computed(() => [
         label: 'Messages',
         icon: 'mail',
         sectionBefore: 'Communication',
+        badge: unreadBadgeCount.value > 0 ? unreadBadgeCount.value : null,
     },
     {
         id: 'account',
@@ -508,7 +634,7 @@ function getIcon(iconName) {
     return icons[iconName] || '';
 }
 
-function navigateTo(sectionId, orderId = null) {
+function navigateTo(sectionId, orderId = null, statusFilter = null) {
     if (sectionId === 'orderDetails') {
         if (!orderId) {
             return;
@@ -539,6 +665,11 @@ function navigateTo(sectionId, orderId = null) {
         selectedOrderId.value = orderId;
     }
 
+    // Real status string (e.g. 'Delivered') from Reports.vue's order
+    // breakdown click-through — cleared on every other navigation so a
+    // stale filter from a previous visit never silently re-applies.
+    ordersStatusFilter.value = sectionId === 'orders' ? statusFilter : null;
+
     currentSection.value = sectionId;
 
     if (window.location.pathname !== path) {
@@ -567,17 +698,18 @@ function handlePopState() {
     selectedOrderId.value = orderId;
 }
 
-// Lets nested components (e.g. Dashboard's quick actions, or Orders.vue
-// linking into OrderDetails) request a tab switch without prop-drilling
-// a navigate() function through every level. Accepts either a plain
-// section string (legacy) or { section, orderId }.
+// Lets nested components (e.g. Dashboard's quick actions, Orders.vue
+// linking into OrderDetails, or Reports.vue's order-breakdown
+// click-through) request a tab switch without prop-drilling a
+// navigate() function through every level. Accepts either a plain
+// section string (legacy) or { section, orderId, statusFilter }.
 function handleSellerNav(event) {
     const detail = event.detail;
 
     if (typeof detail === 'string') {
         navigateTo(detail);
     } else if (detail && typeof detail === 'object') {
-        navigateTo(detail.section, detail.orderId);
+        navigateTo(detail.section, detail.orderId, detail.statusFilter);
     }
 }
 
@@ -590,6 +722,8 @@ onMounted(async () => {
 
     if (isSeller.value) {
         await refreshAll();
+        startUnreadPolling();
+        startNotifPolling();
     }
 
     window.addEventListener('popstate', handlePopState);
@@ -599,9 +733,116 @@ onMounted(async () => {
 onBeforeUnmount(() => {
     window.removeEventListener('popstate', handlePopState);
     window.removeEventListener('seller-nav', handleSellerNav);
+    stopUnreadPolling();
+    stopNotifPolling();
 });
 </script>
 
 <style scoped>
 @import '../../../css/seller/layout.css';
+
+/* Header notification bell panel */
+.notif-wrap {
+    position: relative;
+}
+
+.notif-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 16px;
+    text-align: center;
+}
+
+.notif-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+}
+
+.notif-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 50;
+    width: 320px;
+    max-height: 420px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    box-shadow: 0 12px 32px -8px rgba(15, 23, 42, 0.25);
+}
+
+.notif-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.7rem 0.9rem;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 0.85rem;
+}
+
+.notif-mark-all {
+    border: 0;
+    background: none;
+    color: #0f766e;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.notif-empty {
+    padding: 1.5rem 0.9rem;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.82rem;
+}
+
+.notif-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.notif-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.7rem 0.9rem;
+    border-bottom: 1px solid #f1f5f9;
+    cursor: pointer;
+}
+
+.notif-item:hover {
+    background: #f8fafc;
+}
+
+.notif-item.unread {
+    background: #f0fdfa;
+}
+
+.notif-item-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.notif-item-body {
+    font-size: 0.75rem;
+    color: #64748b;
+}
+
+.notif-item-time {
+    font-size: 0.68rem;
+    color: #94a3b8;
+}
 </style>
