@@ -13,7 +13,11 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('seller_compliance_actions', function (Blueprint $table) {
-            $table->uuid('id')->primary()->default(DB::raw('gen_random_uuid()'));
+            if (DB::connection()->getDriverName() === 'pgsql') {
+                $table->uuid('id')->default(DB::raw('gen_random_uuid()'))->primary();
+            } else {
+                $table->uuid('id')->primary();
+            }
             $table->foreignUuid('seller_id')->constrained('profiles')->cascadeOnDelete();
             $table->foreignUuid('product_id')->nullable()->constrained('products')->nullOnDelete();
             $table->string('action', 40);

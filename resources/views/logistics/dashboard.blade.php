@@ -9,7 +9,7 @@
     <!-- Supabase client (UMD build) — must load before the Vite bundle -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    @vite(['resources/css/logistics/logistics.css', 'resources/js/logistics/logistics.js'])
+    @vite('resources/js/logistics/logistics.js')
 </head>
 <body>
     <div id="app"></div>

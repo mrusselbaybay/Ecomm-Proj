@@ -32,19 +32,19 @@ class AuthenticateSupabaseUser
     {
         $token = $this->bearerToken($request);
 
-        if (!$token) {
+        if (! $token) {
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
         $supabaseUserId = $this->resolveSupabaseUserId($token);
 
-        if (!$supabaseUserId) {
+        if (! $supabaseUserId) {
             return response()->json(['message' => 'Invalid or expired session.'], 401);
         }
 
         $profile = Profile::find($supabaseUserId);
 
-        if (!$profile) {
+        if (! $profile) {
             return response()->json(['message' => 'No profile found for this account.'], 401);
         }
 
@@ -57,7 +57,7 @@ class AuthenticateSupabaseUser
     {
         $header = $request->header('Authorization', '');
 
-        if (!str_starts_with($header, 'Bearer ')) {
+        if (! str_starts_with($header, 'Bearer ')) {
             return null;
         }
 
@@ -74,28 +74,34 @@ class AuthenticateSupabaseUser
      */
     private function resolveSupabaseUserId(string $token): ?string
     {
-        $cacheKey = 'supabase_auth_token:' . hash('sha256', $token);
+        $cacheKey = 'supabase_auth_token:'.hash('sha256', $token);
 
         return Cache::remember($cacheKey, now()->addSeconds(30), function () use ($token) {
-            $url = rtrim((string) config('services.supabase.url'), '/') . '/auth/v1/user';
+            $url = rtrim((string) config('services.supabase.url'), '/').'/auth/v1/user';
             $anonKey = config('services.supabase.anon_key');
 
-            if (!$url || !$anonKey) {
+            if (! $url || ! $anonKey) {
                 return null;
             }
 
             try {
-                $response = Http::withHeaders([
+                $supabaseRequest = Http::withHeaders([
                     'apikey' => $anonKey,
                     'Authorization' => "Bearer {$token}",
-                ])->timeout(5)->get($url);
+                ])->timeout(5);
+
+                if (! config('services.supabase.verify_ssl', true)) {
+                    $supabaseRequest->withoutVerifying();
+                }
+
+                $response = $supabaseRequest->get($url);
             } catch (\Throwable $e) {
                 report($e);
 
                 return null;
             }
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 return null;
             }
 

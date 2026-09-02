@@ -13,7 +13,9 @@ use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\Api\Courier\CourierApplicationController;
 use App\Http\Controllers\Api\Courier\CourierProfileController;
 use App\Http\Controllers\Api\Courier\LogisticsCompanyController;
+use App\Http\Controllers\Api\Logistics\DeliveryAreaController;
 use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
+use App\Http\Controllers\Api\Logistics\ParcelAssignmentController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
 use App\Http\Controllers\PasswordResetController;
@@ -129,6 +131,22 @@ Route::prefix('logistics')->name('logistics.')->group(function () {
         ->name('applications.resume');
 });
 
+Route::middleware(['supabase.auth', 'logistics'])
+    ->prefix('logistics')
+    ->name('logistics.')
+    ->group(function () {
+        Route::apiResource('delivery-areas', DeliveryAreaController::class)
+            ->except('show');
+        Route::get('/parcel-assignments', [ParcelAssignmentController::class, 'index'])
+            ->name('parcel-assignments.index');
+        Route::post('/parcel-assignments/receive', [ParcelAssignmentController::class, 'receive'])
+            ->name('parcel-assignments.receive');
+        Route::put('/parcel-assignments/{parcelAssignment}/assign', [ParcelAssignmentController::class, 'assign'])
+            ->name('parcel-assignments.assign');
+        Route::put('/parcel-assignments/{parcelAssignment}/handoff', [ParcelAssignmentController::class, 'handoff'])
+            ->name('parcel-assignments.handoff');
+    });
+
 // ============================================================
 // ADMIN NOTIFICATION ROUTES
 // ============================================================
@@ -206,7 +224,7 @@ if (app()->environment('local')) {
             Mail::to('test@example.com')->send(new RegistrationApproved('Test User'));
 
             return response()->json(['message' => 'Email sent successfully!']);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
     });

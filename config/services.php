@@ -34,12 +34,13 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
-    
+
     // ✅ CORRECT: Single Supabase config with all keys
     'supabase' => [
         'url' => env('VITE_SUPABASE_URL'),
         'anon_key' => env('VITE_SUPABASE_ANON_KEY'),
         'service_role_key' => env('SUPABASE_SERVICE_ROLE_KEY'), // For backend operations
+        'verify_ssl' => env('SUPABASE_VERIFY_SSL', true),
     ],
 
     // Socialite driver config for "Continue with Google". Only used to
