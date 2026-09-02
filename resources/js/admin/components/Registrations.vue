@@ -136,12 +136,13 @@
         </div>
 
         <!-- Approve Confirmation Modal -->
+        <Transition name="modal-fade">
         <div
             v-if="showApproveModal"
             class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
             @click.self="closeApproveModal"
         >
-            <div class="card w-96 p-6">
+            <div class="card modal-panel w-96 p-6">
                 <h3 class="mb-2 font-bold text-slate-900">
                     Approve Application
                 </h3>
@@ -176,13 +177,15 @@
                 </div>
             </div>
         </div>
+        </Transition>
 
         <!-- Rejection Modal -->
+        <Transition name="modal-fade">
         <div
             v-if="showRejectModal"
             class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
         >
-            <div class="card max-h-[90vh] w-[34rem] overflow-y-auto p-6">
+            <div class="card modal-panel max-h-[90vh] w-[34rem] overflow-y-auto p-6">
                 <h3 class="mb-2 font-bold text-slate-900">
                     Reject Application
                 </h3>
@@ -262,21 +265,23 @@
                     <button
                         @click="submitRejection"
                         class="btn-danger-outline flex-1 py-2"
-                        :disabled="!canReject"
+                        :disabled="!canReject || isRejecting"
                     >
-                        Reject
+                        {{ isRejecting ? 'Rejecting…' : 'Reject' }}
                     </button>
                 </div>
             </div>
         </div>
+        </Transition>
 
         <!-- Approve/Reject Result Modal -->
+        <Transition name="modal-fade">
         <div
             v-if="showResultModal"
             class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
             @click.self="closeResultModal"
         >
-            <div class="card w-96 p-6 text-center">
+            <div class="card modal-panel w-96 p-6 text-center">
                 <div
                     class="result-icon"
                     :class="resultModalIsError ? 'result-icon-error' : 'result-icon-success'"
@@ -297,6 +302,7 @@
                 </button>
             </div>
         </div>
+        </Transition>
 
         <!-- Documents Modal -->
         <div
@@ -452,6 +458,7 @@ const showRejectModal = ref(false);
 const rejectUserData = ref(null);
 const selectedReason = ref('');
 const customReason = ref('');
+const isRejecting = ref(false);
 const showResultModal = ref(false);
 const resultModalMessage = ref('');
 const resultModalIsError = ref(false);
@@ -586,6 +593,11 @@ async function confirmApprove() {
         showResult(payload.message);
         await loadData(pagination.value.current_page);
     } catch (error) {
+        // Close the confirmation modal here too — otherwise a failed
+        // request left it open underneath the result modal that pops up
+        // next, stacking the two on top of each other instead of a clean
+        // handoff from one to the other.
+        closeApproveModal();
         showResult(`Failed to approve application: ${error.message}`, true);
     } finally {
         isApproving.value = false;
@@ -607,7 +619,7 @@ function closeRejectModal() {
 }
 
 async function submitRejection() {
-    if (!canReject.value) {
+    if (!canReject.value || isRejecting.value) {
         return;
     }
 
@@ -618,6 +630,8 @@ async function submitRejection() {
         selectedReason.value === 'others'
             ? customReason.value.trim()
             : `${reasonDefinition.label} — ${reasonDefinition.description}`;
+
+    isRejecting.value = true;
 
     try {
         const response = await adminFetch(
@@ -634,7 +648,14 @@ async function submitRejection() {
         showResult(payload.message);
         await loadData(pagination.value.current_page);
     } catch (error) {
+        // Close the confirmation modal here too — otherwise a failed
+        // request left it open underneath the result modal that pops up
+        // next, stacking the two on top of each other instead of a clean
+        // handoff from one to the other.
+        closeRejectModal();
         showResult(`Failed to reject application: ${error.message}`, true);
+    } finally {
+        isRejecting.value = false;
     }
 }
 
@@ -731,6 +752,30 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
     background: white;
     border: 1px solid #e5e7eb;
     border-radius: 0.75rem;
+}
+
+/* Approve/Reject/Result modal open+close animation. Backdrop fades in
+   place; the panel itself also eases in from a slight scale so the
+   handoff between the confirmation modal and the result modal (or a
+   closed modal and nothing) doesn't feel like an abrupt pop. */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+    transition: opacity 0.18s ease;
+}
+.modal-fade-enter-active .modal-panel,
+.modal-fade-leave-active .modal-panel {
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s ease;
+}
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+    opacity: 0;
+}
+.modal-fade-enter-from .modal-panel,
+.modal-fade-leave-to .modal-panel {
+    opacity: 0;
+    transform: scale(0.96);
 }
 .field-input {
     width: 100%;
