@@ -4,11 +4,19 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import ProductDetails from './ProductDetails.vue';
 import Cart from './Cart.vue';
 import Checkout from './Checkout.vue';
+import CategoryListing from './CategoryListing.vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
 import Orders from './Orders.vue';
 import Account from './Account.vue';
+import Wishlist from './Wishlist.vue';
+import Reviews from './Reviews.vue';
+import SavedAddresses from './SavedAddresses.vue';
+import PaymentMethods from './PaymentMethods.vue';
+import Chat from './Chat.vue';
+import ToastHost from './ToastHost.vue';
+import ConfirmDialog from './ConfirmDialog.vue';
 
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerProducts } from '../composables/useBuyerProducts';
@@ -50,10 +58,19 @@ const { loadSession } = useBuyerSession();
 const searchQuery = ref('');
 const selectedCategory = ref('All');
 
+// Set to a specific category name to show CategoryListing (the dedicated
+// browse-by-category page) instead of the homepage — see selectCategory()
+// below. Stays null while selectedCategory is 'All'.
+const browsingCategory = ref(null);
+
 const selectedProduct = ref(null);
 const showCart = ref(false);
 const showOrders = ref(false);
 const showAccount = ref(false);
+const showWishlist = ref(false);
+const showReviews = ref(false);
+const showAddresses = ref(false);
+const showPayments = ref(false);
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
 
@@ -66,10 +83,10 @@ const checkoutSource = ref(null);
 | see useBuyerProducts.js. `products` itself is the ref returned by that
 | composable; loaded on mount below.
 |
-| rating/reviewCount are NOT part of the real product shape (no reviews
-| table exists yet — see useBuyer.js's submitReview() note), so anything
-| that used to read product.rating/reviewCount falls back gracefully
-| rather than fabricating numbers.
+| Each product carries a real `rating` (average, or null when it has no
+| reviews) and `reviewCount` aggregated server-side from the reviews
+| table, plus a normalized `image` URL — no fabricated numbers, and the
+| card still renders "No reviews yet" when rating is null.
 |
 */
 
@@ -100,17 +117,42 @@ const filteredProducts = computed(() => {
 
 /*
 |--------------------------------------------------------------------------
+| Category Listing Page
+|--------------------------------------------------------------------------
+|
+| Every product already in memory (see useBuyerProducts.js) narrowed to
+| whatever category is currently being browsed — passed to
+| CategoryListing.vue as a prop rather than having that component fetch
+| its own copy, so it can never overwrite the shared `products` list the
+| homepage itself depends on.
+|
+*/
+
+const categoryProducts = computed(() => {
+    if (!browsingCategory.value) {
+        return [];
+    }
+
+    return products.value.filter(
+        product => product.category === browsingCategory.value
+    );
+});
+
+/*
+|--------------------------------------------------------------------------
 | Curated Sections (Flash Deals / Recommended / Best Sellers)
 |--------------------------------------------------------------------------
 |
 | There is no orders/sales-aggregation endpoint yet to drive a *real*
-| "recommended" or "best seller" ranking (that would need aggregating
-| order_items across all sellers), so these are reasonable proxies over
-| real data rather than fabricated flags:
+| units-sold ranking (that would need aggregating order_items across all
+| sellers), so these are explainable proxies over real data rather than
+| fabricated flags:
 |   - flashDeals: real products currently on sale (has a compare_price)
 |   - recommendedProducts: most recently listed in-stock products
-|   - bestSellers: highest-stock in-category products, as a stand-in
-| Flagged in the final report as a real gap, not hidden.
+|   - bestSellers: in-stock products ranked by real review count, then
+|     average rating — the strongest popularity signal available until a
+|     sales aggregate exists.
+| Flagged in the final report as a partial gap, not hidden.
 |
 */
 
@@ -119,6 +161,28 @@ const flashDeals = computed(() => {
         .filter(product => product.oldPrice && product.stock > 0)
         .slice(0, 4);
 });
+
+// Flash-deal cards show the real product photo when the API gave one
+// (normalized `image` string — see ProductController / App\Support\
+// ProductImage), same as ProductCard.vue. Fall back to the category-icon
+// tile for imageless products or if the image 404s. `v-for` renders many
+// cards, so failures are tracked per product id.
+const PLACEHOLDER_IMAGE = '/images/product-placeholder.svg';
+const failedDealImages = ref(new Set());
+
+function dealImage(deal) {
+    const src = deal.image;
+
+    if (!src || src === PLACEHOLDER_IMAGE || failedDealImages.value.has(deal.id)) {
+        return '';
+    }
+
+    return src;
+}
+
+function handleDealImageError(deal) {
+    failedDealImages.value = new Set(failedDealImages.value).add(deal.id);
+}
 
 const recommendedProducts = computed(() => {
     return products.value
@@ -129,7 +193,11 @@ const recommendedProducts = computed(() => {
 const bestSellers = computed(() => {
     return [...products.value]
         .filter(product => product.stock > 0)
-        .sort((a, b) => (b.stock || 0) - (a.stock || 0))
+        .sort((a, b) =>
+            (b.reviewCount || 0) - (a.reviewCount || 0)
+            || (b.rating || 0) - (a.rating || 0)
+            || (b.stock || 0) - (a.stock || 0),
+        )
         .slice(0, 8);
 });
 
@@ -182,7 +250,14 @@ function pad(value) {
 onMounted(() => {
     countdownTimer = setInterval(tickCountdown, 1000);
 
-    loadProducts();
+    // per_page bumped to the API's max (see ProductController@index) so
+    // CategoryListing — which filters this same in-memory list rather
+    // than issuing its own request (see categoryProducts above) — has
+    // as full a picture of each category as this endpoint can give
+    // without pagination support. Real limit worth flagging: a category
+    // with more than 100 live products would still only show the first
+    // 100 until the catalog endpoint grows real server-side pagination.
+    loadProducts({ per_page: 100 });
     // Populates buyerProfile if a Supabase session already exists (e.g.
     // carried over from the auth page); browsing itself stays public
     // either way — see useBuyerSession.js.
@@ -263,10 +338,38 @@ watch(isOverlayOpen, (open, wasOpen) => {
 |--------------------------------------------------------------------------
 | Category
 |--------------------------------------------------------------------------
+|
+| Choosing 'All' behaves as it always has (go/stay home, filter the
+| homepage's own grid). Choosing any real category now navigates to the
+| dedicated CategoryListing page for it — from the homepage's category
+| cards, from the header's subnav on ANY page, all the same entry point.
+|--------------------------------------------------------------------------
 */
+
+// Drops every full-screen sub-view (cart, orders, account, wishlist,
+// reviews, product details, checkout) back to the dashboard. Anything
+// that navigates the buyer "somewhere else" — a category, a global
+// search, the logo — has to run this first, otherwise the old view stays
+// mounted on top and the click looks like it did nothing.
+function closeAllSubViews() {
+    selectedProduct.value = null;
+    showCart.value = false;
+    showOrders.value = false;
+    showAccount.value = false;
+    showWishlist.value = false;
+    showReviews.value = false;
+    showAddresses.value = false;
+    showPayments.value = false;
+    checkoutItems.value = [];
+    checkoutSource.value = null;
+}
 
 function selectCategory(category) {
     selectedCategory.value = category;
+
+    closeAllSubViews();
+
+    browsingCategory.value = category === 'All' ? null : category;
 }
 
 /*
@@ -276,9 +379,8 @@ function selectCategory(category) {
 */
 
 function viewProduct(product) {
+    closeAllSubViews();
     selectedProduct.value = product;
-    showCart.value = false;
-    checkoutItems.value = [];
 }
 
 function backToProducts() {
@@ -292,8 +394,7 @@ function backToProducts() {
 */
 
 function openCart() {
-    selectedProduct.value = null;
-    checkoutItems.value = [];
+    closeAllSubViews();
     showCart.value = true;
 }
 
@@ -316,17 +417,27 @@ function buyNow(item) {
         return;
     }
 
+    // Carry the chosen variant through, same as the cart path — otherwise
+    // Buy Now on a product that has_variants 422s server-side for a
+    // missing variant_id.
+    const variant = item.variant || null;
+
+    const variationLabel = variant?.option_values
+        ? Object.entries(variant.option_values).map(([k, v]) => `${k}: ${v}`).join(', ')
+        : (item.variation || null);
+
     checkoutItems.value = [
         {
             cartId: null,
             productId: item.product.id,
+            variantId: variant?.id || null,
             name: item.product.name,
-            price: Number(item.product.price),
+            price: Number(variant?.price ?? item.product.price),
             category: item.product.category,
             seller:
                 item.product.seller ||
                 'NEXMART Seller',
-            variation: item.variation,
+            variation: variationLabel,
             quantity: Number(item.quantity)
         }
     ];
@@ -353,6 +464,10 @@ function checkoutFromCart(items) {
         item => ({
             cartId: item.cartId,
             productId: item.productId,
+            // Carry the chosen variant through to checkout — CheckoutService
+            // requires variant_id for a product that has_variants, so
+            // dropping it here made variant products 422 at checkout.
+            variantId: item.variantId || null,
             name: item.name,
             price: Number(item.price),
             category: item.category,
@@ -463,17 +578,23 @@ const relatedProducts = computed(() => {
 
 function handleSearch(query) {
     searchQuery.value = query;
-    backToProducts();
+
+    // A search from the header is global — leave whatever sub-view the
+    // buyer was on (Orders, Order Details, Order Tracking, Account, ...)
+    // and land back on the product grid with the query applied.
+    selectedCategory.value = 'All';
+    browsingCategory.value = null;
+    closeAllSubViews();
 }
 
 function handleSelectCategory(category) {
     selectCategory(category);
-    backToProducts();
 }
 
 function handleBrowseAll() {
     selectedCategory.value = 'All';
-    backToProducts();
+    browsingCategory.value = null;
+    closeAllSubViews();
 }
 
 /*
@@ -488,9 +609,7 @@ function handleBrowseAll() {
 */
 
 function openAccount() {
-    selectedProduct.value = null;
-    showCart.value = false;
-    showOrders.value = false;
+    closeAllSubViews();
     showAccount.value = true;
 }
 
@@ -499,12 +618,49 @@ function closeAccount() {
 }
 
 function openOrders() {
-    showAccount.value = false;
+    closeAllSubViews();
     showOrders.value = true;
 }
 
 function closeOrders() {
     showOrders.value = false;
+}
+
+function openWishlist() {
+    closeAllSubViews();
+    showWishlist.value = true;
+}
+
+function closeWishlist() {
+    showWishlist.value = false;
+    showReviews.value = false;
+}
+
+function openReviews() {
+    closeAllSubViews();
+    showReviews.value = true;
+}
+
+function closeReviews() {
+    showReviews.value = false;
+}
+
+function openAddresses() {
+    closeAllSubViews();
+    showAddresses.value = true;
+}
+
+function closeAddresses() {
+    showAddresses.value = false;
+}
+
+function openPayments() {
+    closeAllSubViews();
+    showPayments.value = true;
+}
+
+function closePayments() {
+    showPayments.value = false;
 }
 </script>
 
@@ -517,6 +673,15 @@ function closeOrders() {
     <Orders
         v-if="showOrders"
         @back="closeOrders"
+        @go-home="handleBrowseAll"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+        @view-profile="openAccount"
+        @view-wishlist="openWishlist"
+        @view-reviews="openReviews"
+        @view-addresses="openAddresses"
+        @view-payments="openPayments"
     />
 
     <!-- ================================================================ -->
@@ -527,6 +692,86 @@ function closeOrders() {
         v-else-if="showAccount"
         @back="closeAccount"
         @view-orders="openOrders"
+        @view-wishlist="openWishlist"
+        @view-reviews="openReviews"
+        @view-addresses="openAddresses"
+        @view-payments="openPayments"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+    />
+
+    <!-- ================================================================ -->
+    <!-- WISHLIST -->
+    <!-- ================================================================ -->
+
+    <Wishlist
+        v-else-if="showWishlist"
+        @back="closeWishlist"
+        @go-home="handleBrowseAll"
+        @view-profile="openAccount"
+        @view-orders="openOrders"
+        @view-reviews="openReviews"
+        @view-addresses="openAddresses"
+        @view-payments="openPayments"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+        @select-product="viewProduct"
+    />
+
+    <!-- ================================================================ -->
+    <!-- REVIEWS -->
+    <!-- ================================================================ -->
+
+    <Reviews
+        v-else-if="showReviews"
+        @back="closeReviews"
+        @go-home="handleBrowseAll"
+        @view-profile="openAccount"
+        @view-orders="openOrders"
+        @view-wishlist="openWishlist"
+        @view-addresses="openAddresses"
+        @view-payments="openPayments"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+    />
+
+    <!-- ================================================================ -->
+    <!-- SAVED ADDRESSES -->
+    <!-- ================================================================ -->
+
+    <SavedAddresses
+        v-else-if="showAddresses"
+        @back="closeAddresses"
+        @go-home="handleBrowseAll"
+        @view-profile="openAccount"
+        @view-orders="openOrders"
+        @view-wishlist="openWishlist"
+        @view-reviews="openReviews"
+        @view-payments="openPayments"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+    />
+
+    <!-- ================================================================ -->
+    <!-- PAYMENT METHODS -->
+    <!-- ================================================================ -->
+
+    <PaymentMethods
+        v-else-if="showPayments"
+        @back="closePayments"
+        @go-home="handleBrowseAll"
+        @view-profile="openAccount"
+        @view-orders="openOrders"
+        @view-wishlist="openWishlist"
+        @view-reviews="openReviews"
+        @view-addresses="openAddresses"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
     />
 
     <!-- ================================================================ -->
@@ -558,6 +803,7 @@ function closeOrders() {
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
         @select-product="viewProduct"
+        @view-profile="openAccount"
     />
 
     <!-- ================================================================ -->
@@ -574,6 +820,28 @@ function closeOrders() {
         @search="handleSearch"
         @select-category="handleSelectCategory"
         @open-cart="openCart"
+        @view-profile="openAccount"
+        @browse-all="handleBrowseAll"
+        @browse-categories="handleBrowseAll"
+    />
+
+    <!-- ================================================================ -->
+    <!-- CATEGORY LISTING -->
+    <!-- ================================================================ -->
+
+    <CategoryListing
+        v-else-if="browsingCategory"
+        :key="browsingCategory"
+        :category="browsingCategory"
+        :products="categoryProducts"
+        :is-loading="isLoadingProducts"
+        :load-error="productsLoadError"
+        @back="handleBrowseAll"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+        @account-click="openAccount"
+        @select-product="viewProduct"
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
     />
@@ -656,6 +924,7 @@ function closeOrders() {
                             'accent-' + metaFor(category).accent,
                             { active: selectedCategory === category }
                         ]"
+                        :aria-pressed="selectedCategory === category"
                         @click="selectCategory(category)"
                     >
                         <span
@@ -717,7 +986,16 @@ function closeOrders() {
                                 <span class="flash-deal-badge">
                                     -{{ discountPercent(deal) }}%
                                 </span>
+                                <img
+                                    v-if="dealImage(deal)"
+                                    class="flash-deal-photo"
+                                    :src="dealImage(deal)"
+                                    :alt="deal.name"
+                                    loading="lazy"
+                                    @error="handleDealImageError(deal)"
+                                >
                                 <span
+                                    v-else
                                     class="flash-deal-icon"
                                     v-html="metaFor(deal.category).icon"
                                 ></span>
@@ -791,8 +1069,14 @@ function closeOrders() {
 
                 <div class="info-banner-left">
 
-                    <div class="info-banner-icon">
-                        🚚
+                    <div class="info-banner-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/>
+                            <path d="M15 18H9"/>
+                            <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/>
+                            <circle cx="17" cy="18" r="2"/>
+                            <circle cx="7" cy="18" r="2"/>
+                        </svg>
                     </div>
 
                     <div class="info-banner-text">
@@ -914,5 +1198,17 @@ function closeOrders() {
         />
 
     </div>
+
+    <!-- Messaging popup — mounted once here, outside the view switch above,
+         so it stays alive on every buyer page. The header's message icon
+         drives it straight through useBuyerChat; nothing to wire per page. -->
+    <Chat />
+
+    <!-- Buyer-wide notification + confirmation hosts. Same "mount once,
+         outside the view switch" pattern as <Chat /> — every buyer page
+         renders inside this component, so these cover all of them. Driven
+         by useToasts / useConfirm; nothing to wire per page. -->
+    <ToastHost />
+    <ConfirmDialog />
 
 </template>

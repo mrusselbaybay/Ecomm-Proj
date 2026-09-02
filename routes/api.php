@@ -44,6 +44,7 @@ Route::prefix('auth')->group(function () {
 // ============================================================
 Route::get('/products', [ProductController::class, 'index'])->name('products.index');
 Route::get('/products/{id}', [ProductController::class, 'show'])->name('products.show');
+Route::get('/products/{id}/reviews', [ProductController::class, 'reviews'])->name('products.reviews');
 
 // ============================================================
 // PASSWORD RESET ROUTES

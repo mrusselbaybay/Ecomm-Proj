@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
 import {
     metaFor,
@@ -25,6 +25,29 @@ const favorited = computed(() => isFavorite(props.product.id));
 
 const hasDiscount = computed(() => !!props.product.oldPrice);
 
+// The API always returns a normalized `image` string (see ProductController
+// / App\Support\ProductImage). Show the real photo when there is one; fall
+// back to the existing category-icon tile for imageless products or if the
+// image fails to load, so the card looks exactly as it did before.
+const PLACEHOLDER_IMAGE = '/images/product-placeholder.svg';
+const imageFailed = ref(false);
+
+const cardImage = computed(() => {
+    const src = props.product.image;
+
+    if (!src || src === PLACEHOLDER_IMAGE || imageFailed.value) {
+        return '';
+    }
+
+    return src;
+});
+
+function handleImageError() {
+    imageFailed.value = true;
+}
+
+const isAdding = ref(false);
+
 function handleToggleFavorite() {
     toggleFavorite(props.product.id);
 }
@@ -38,7 +61,17 @@ function handleQuickAdd() {
         return;
     }
 
+    if (isAdding.value) {
+        return;
+    }
+
+    isAdding.value = true;
+    // addToCart surfaces its own success / out-of-stock / limit toast.
     addToCart(props.product, null, 1);
+
+    setTimeout(() => {
+        isAdding.value = false;
+    }, 400);
 }
 
 function handleView() {
@@ -74,7 +107,17 @@ function handleView() {
                 </svg>
             </button>
 
+            <img
+                v-if="cardImage"
+                class="product-image-photo"
+                :src="cardImage"
+                :alt="product.name"
+                loading="lazy"
+                @error="handleImageError"
+            >
+
             <span
+                v-else
                 class="product-image-icon"
                 v-html="metaFor(product.category).icon"
             ></span>
@@ -83,9 +126,10 @@ function handleView() {
                 <button
                     type="button"
                     class="product-quick-add-button"
+                    :disabled="isAdding"
                     @click="handleQuickAdd"
                 >
-                    Quick Add to Cart
+                    {{ isAdding ? 'Adding…' : 'Quick Add to Cart' }}
                 </button>
             </div>
 

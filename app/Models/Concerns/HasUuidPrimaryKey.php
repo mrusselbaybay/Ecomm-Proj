@@ -33,4 +33,4 @@ trait HasUuidPrimaryKey
             }
         });
     }
-}   
+}

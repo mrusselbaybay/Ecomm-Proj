@@ -110,8 +110,23 @@ class Profile extends Model
         return $this->hasMany(Complaint::class, 'respondent_id');
     }
 
-    // ---- Buyer-owned collections (additive, no existing relation/method/
-    // cast changed) ----
+    // ---- Buyer-owned collections (added for the buyer backend; additive,
+    // no existing relation/method/cast changed) ----
+
+    public function buyerAddresses(): HasMany
+    {
+        return $this->hasMany(BuyerAddress::class, 'buyer_profile_id');
+    }
+
+    public function wishlistItems(): HasMany
+    {
+        return $this->hasMany(WishlistItem::class, 'buyer_profile_id');
+    }
+
+    public function paymentMethods(): HasMany
+    {
+        return $this->hasMany(BuyerPaymentMethod::class, 'buyer_profile_id');
+    }
 
     public function returnRequests(): HasMany
     {

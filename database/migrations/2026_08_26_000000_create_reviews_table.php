@@ -26,11 +26,19 @@ use Illuminate\Support\Facades\DB;
  * has no real sentiment-analysis pipeline and no buyer-facing "helpful"/
  * "report" interaction to back those numbers with, so the UI doesn't
  * present anything under those names — see SellerFeedbackController.
+ *
+ * Guarded with hasTable(): public.reviews may already exist on the actual
+ * (shared) database if another branch's migration history created it
+ * first — see app/Models/Review.php's docblock. Safe to run either way.
  */
 return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('reviews')) {
+            return;
+        }
+
         $driver = DB::connection()->getDriverName();
 
         Schema::create('reviews', function (Blueprint $table) use ($driver) {

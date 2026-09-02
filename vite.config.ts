@@ -6,11 +6,14 @@ import tailwindcss from '@tailwindcss/vite';
 
 const inputs = [
     'resources/js/app.js',
+    'resources/css/app.css',
     'resources/js/admin/admin.js',
     'resources/js/logistics/logistics.js',
     'resources/js/pickup_courier/pickup_courier.js',
     'resources/js/seller/seller.js',
     'resources/js/buyer/buyer.js',
+    'resources/css/buyer/layout.css',
+    'resources/css/logistics/logistics.css',
 ].filter((entry) => existsSync(entry));
 
 export default defineConfig({

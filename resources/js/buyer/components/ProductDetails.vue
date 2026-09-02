@@ -1,15 +1,19 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
+import { useBuyerChat } from '../composables/useBuyerChat';
 import {
     metaFor,
     discountPercent as sharedDiscountPercent,
     ratingStars as sharedRatingStars,
     formatPrice as sharedFormatPrice
 } from '../composables/useCategoryMeta';
-import Header from './Header.vue';
+import { useToasts } from '../composables/useToasts';
 import Footer from './Footer.vue';
+import Header from './Header.vue';
 import ProductCard from './ProductCard.vue';
+import ProductReviewsDrawer from './ProductReviewsDrawer.vue';
+import StarRating from './StarRating.vue';
 
 const props = defineProps({
     product: {
@@ -29,13 +33,18 @@ const emit = defineEmits([
     'search',
     'select-category',
     'open-cart',
+    'view-profile',
     'browse-all',
     'browse-categories'
 ]);
 
 const { addToCart, toggleFavorite, isFavorite } = useBuyer();
+const { warning } = useToasts();
 
 const quantity = ref(1);
+// Guards against a double-tap firing two adds before the button visibly
+// settles.
+const isAdding = ref(false);
 const activeTab = ref('description');
 const selectedImageIndex = ref(0);
 
@@ -112,12 +121,6 @@ const selectedVariantUnavailable = computed(() => {
     return !!selectedVariant.value &&
         (selectedVariant.value.status !== 'active' || selectedVariant.value.stock <= 0);
 });
-
-function variantLabel(variant) {
-    return Object.entries(variant?.option_values || {})
-        .map(([name, value]) => `${name}: ${value}`)
-        .join(', ');
-}
 
 /*
 |--------------------------------------------------------------------------
@@ -282,10 +285,30 @@ const hasSpecifications = computed(() => {
         Object.keys(props.product.specifications).length > 0;
 });
 
-const hasReviews = computed(() => {
-    return Array.isArray(props.product?.reviews) &&
-        props.product.reviews.length > 0;
-});
+const reviewCount = computed(() => Number(props.product?.reviewCount) || 0);
+
+/*
+|--------------------------------------------------------------------------
+| Reviews
+|--------------------------------------------------------------------------
+|
+| The full list + rating breakdown + filters + pagination live in the
+| shared ProductReviewsDrawer (same component the cart uses), backed by
+| GET /api/products/{id}/reviews. It only fetches when opened, so the
+| product page load itself pulls nothing extra — the rating/count already
+| come with the product from ProductController@show.
+|
+*/
+
+const reviewsOpen = ref(false);
+
+function openReviews() {
+    if (!props.product) {
+        return;
+    }
+
+    reviewsOpen.value = true;
+}
 
 const favorited = computed(() => {
     return props.product ? isFavorite(props.product.id) : false;
@@ -341,23 +364,27 @@ function validateSelection() {
 
     if (hasVariants.value) {
         if (!allOptionsSelected.value) {
-            alert('Please select an option for every variant before continuing.');
+            warning('Please choose an option for every variant first.');
+
             return false;
         }
 
         if (!selectedVariant.value || selectedVariantUnavailable.value) {
-            alert('That combination is currently unavailable.');
+            warning('That combination is currently unavailable.');
+
             return false;
         }
     }
 
     if (inStock.value === false) {
-        alert('This product is currently out of stock.');
+        warning('This product is currently out of stock.');
+
         return false;
     }
 
     if (availableStock.value !== null && quantity.value > availableStock.value) {
-        alert(`Only ${availableStock.value} left in stock.`);
+        warning(`Only ${availableStock.value} left in stock.`);
+
         return false;
     }
 
@@ -371,20 +398,19 @@ function validateSelection() {
 */
 
 function handleAddToCart() {
-    if (!validateSelection()) {
+    if (isAdding.value || !validateSelection()) {
         return;
     }
 
+    isAdding.value = true;
+
+    // addToCart owns the "Added to cart." / stock-limit toast — see
+    // useBuyer.js. Nothing else to surface here.
     addToCart(props.product, selectedVariant.value, quantity.value);
 
-    const variantLine = selectedVariant.value
-        ? `\n${variantLabel(selectedVariant.value)}`
-        : '';
-
-    alert(
-        `${props.product.name} added to cart!\n` +
-        `Quantity: ${quantity.value}${variantLine}`
-    );
+    setTimeout(() => {
+        isAdding.value = false;
+    }, 400);
 }
 
 /*
@@ -413,6 +439,60 @@ function handleBuyNow() {
 
 function goBack() {
     emit('back');
+}
+
+/*
+|--------------------------------------------------------------------------
+| Message Seller
+|--------------------------------------------------------------------------
+|
+| Opens an inline composer for the first message, then hands off to
+| useBuyerChat.startConversation() — which finds/creates the buyer<->seller
+| thread for this product's seller and pops the messaging popup open on it.
+|
+*/
+
+const { startConversation } = useBuyerChat();
+
+const messageOpen = ref(false);
+const messageDraft = ref('');
+const messageSending = ref(false);
+const messageError = ref('');
+const messageInput = ref(null);
+
+function toggleMessageComposer() {
+    messageOpen.value = !messageOpen.value;
+    messageError.value = '';
+
+    if (messageOpen.value) {
+        nextTick(() => messageInput.value?.focus());
+    }
+}
+
+async function sendSellerMessage() {
+    const body = messageDraft.value.trim();
+
+    if (!body || !props.product?.seller_id) {
+        return;
+    }
+
+    messageSending.value = true;
+    messageError.value = '';
+
+    try {
+        await startConversation({
+            sellerId: props.product.seller_id,
+            productId: props.product.id,
+            body
+        });
+
+        messageDraft.value = '';
+        messageOpen.value = false;
+    } catch (err) {
+        messageError.value = err?.message || 'Could not send your message. Please sign in and try again.';
+    } finally {
+        messageSending.value = false;
+    }
 }
 
 /*
@@ -470,6 +550,7 @@ function selectRelatedProduct(item) {
             :active-category="product ? product.category : ''"
             @select-category="handleHeaderSelectCategory"
             @cart-click="emit('open-cart')"
+            @account-click="emit('view-profile')"
             @logo-click="goBack"
             @search="handleHeaderSearch"
         />
@@ -582,9 +663,20 @@ function selectRelatedProduct(item) {
                         class="product-rating-count"
                     >
                         {{ product.rating.toFixed(1) }}
-                        <template v-if="product.reviewCount">
-                            ({{ product.reviewCount }} Reviews)
-                        </template>
+                    </span>
+                    <button
+                        v-if="reviewCount > 0"
+                        type="button"
+                        class="product-rating-reviews-link"
+                        @click="openReviews"
+                    >
+                        {{ reviewCount }} {{ reviewCount === 1 ? 'review' : 'reviews' }}
+                    </button>
+                    <span
+                        v-else
+                        class="product-rating-count"
+                    >
+                        No reviews yet
                     </span>
                     <span
                         v-if="hasStock"
@@ -710,9 +802,10 @@ function selectRelatedProduct(item) {
                     <button
                         type="button"
                         class="add-to-cart-button"
+                        :disabled="isAdding"
                         @click="handleAddToCart"
                     >
-                        Add to Cart
+                        {{ isAdding ? 'Adding…' : 'Add to Cart' }}
                     </button>
 
                     <button
@@ -739,19 +832,103 @@ function selectRelatedProduct(item) {
                 </div>
 
                 <!-- ==================================================== -->
+                <!-- MESSAGE SELLER -->
+                <!-- ==================================================== -->
+
+                <div
+                    v-if="product.seller_id"
+                    class="message-seller"
+                >
+                    <button
+                        type="button"
+                        class="message-seller-toggle"
+                        @click="toggleMessageComposer"
+                    >
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                        </svg>
+                        {{ messageOpen ? 'Cancel' : `Message ${product.seller || 'Seller'}` }}
+                    </button>
+
+                    <div
+                        v-if="messageOpen"
+                        class="message-seller-composer"
+                    >
+                        <textarea
+                            ref="messageInput"
+                            v-model="messageDraft"
+                            rows="3"
+                            :placeholder="`Ask ${product.seller || 'the seller'} about “${product.name}”…`"
+                            @keydown.enter.exact.prevent="sendSellerMessage"
+                        ></textarea>
+                        <p
+                            v-if="messageError"
+                            class="message-seller-error"
+                        >
+                            {{ messageError }}
+                        </p>
+                        <button
+                            type="button"
+                            class="message-seller-send"
+                            :disabled="messageSending || !messageDraft.trim()"
+                            @click="sendSellerMessage"
+                        >
+                            {{ messageSending ? 'Sending…' : 'Send Message' }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ==================================================== -->
                 <!-- SHIPPING / RETURNS -->
                 <!-- ==================================================== -->
 
                 <div class="shipping-info-grid">
                     <div class="shipping-info-item">
-                        <span class="shipping-info-icon">🚚</span>
+                        <span
+                            class="shipping-info-icon"
+                            aria-hidden="true"
+                        >
+                            <svg
+                                viewBox="0 0 24 24"
+                                width="18"
+                                height="18"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" />
+                                <path d="M15 18H9" />
+                                <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14" />
+                                <circle cx="17" cy="18" r="2" />
+                                <circle cx="7" cy="18" r="2" />
+                            </svg>
+                        </span>
                         <div>
                             <p class="shipping-info-title">Free Shipping</p>
                             <p class="shipping-info-text">Orders above ₱2,500</p>
                         </div>
                     </div>
                     <div class="shipping-info-item">
-                        <span class="shipping-info-icon">↩️</span>
+                        <span
+                            class="shipping-info-icon"
+                            aria-hidden="true"
+                        >
+                            <svg
+                                viewBox="0 0 24 24"
+                                width="18"
+                                height="18"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path d="M3 12a9 9 0 1 0 3-6.7" />
+                                <path d="M3 4v5h5" />
+                            </svg>
+                        </span>
                         <div>
                             <p class="shipping-info-title">30 Days Return</p>
                             <p class="shipping-info-text">Easy and free</p>
@@ -791,13 +968,12 @@ function selectRelatedProduct(item) {
                 </button>
 
                 <button
-                    v-if="hasReviews"
                     type="button"
                     class="product-tab-button"
                     :class="{ active: activeTab === 'reviews' }"
                     @click="activeTab = 'reviews'"
                 >
-                    Reviews ({{ product.reviews.length }})
+                    Reviews<template v-if="reviewCount"> ({{ reviewCount }})</template>
                 </button>
 
                 <button
@@ -830,14 +1006,38 @@ function selectRelatedProduct(item) {
                     </div>
                 </div>
 
-                <div v-else-if="activeTab === 'reviews' && hasReviews">
+                <div v-else-if="activeTab === 'reviews'">
                     <div
-                        v-for="review in product.reviews"
-                        :key="review.id"
-                        class="review-row"
+                        v-if="reviewCount > 0"
+                        class="pd-reviews-summary"
                     >
-                        <p class="review-author">{{ review.author }}</p>
-                        <p class="review-comment">{{ review.comment }}</p>
+                        <div class="pd-reviews-summary-score">
+                            <span class="pd-reviews-summary-number">{{ product.rating.toFixed(1) }}</span>
+                            <StarRating
+                                :rating="product.rating"
+                                :size="16"
+                            />
+                            <span class="pd-reviews-summary-count">
+                                Based on {{ reviewCount }} {{ reviewCount === 1 ? 'review' : 'reviews' }}
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            class="pd-reviews-open-button"
+                            @click="openReviews"
+                        >
+                            Read all reviews
+                        </button>
+                    </div>
+
+                    <div
+                        v-else
+                        class="pd-reviews-empty"
+                    >
+                        <p>This product has no reviews yet.</p>
+                        <p class="pd-reviews-empty-hint">
+                            Reviews can be written by buyers after their order is delivered.
+                        </p>
                     </div>
                 </div>
 
@@ -907,6 +1107,172 @@ function selectRelatedProduct(item) {
         @cart-click="emit('open-cart')"
     />
 
+    <ProductReviewsDrawer
+        v-if="product"
+        :show="reviewsOpen"
+        :product="{ id: product.id, name: product.name, rating: product.rating, reviewCount: reviewCount }"
+        @close="reviewsOpen = false"
+    />
+
     </div>
 
 </template>
+
+<style scoped>
+.message-seller {
+    margin-top: 1rem;
+}
+
+.message-seller-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.75rem;
+    background: #fff;
+    color: #0f766e;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.message-seller-toggle:hover {
+    background: #f0fdfa;
+    border-color: #0d9488;
+}
+
+.message-seller-composer {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.message-seller-composer textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.75rem;
+    font: inherit;
+    font-size: 0.875rem;
+    resize: vertical;
+}
+
+.message-seller-composer textarea:focus {
+    outline: none;
+    border-color: #0d9488;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
+}
+
+.message-seller-error {
+    color: #dc2626;
+    font-size: 0.8rem;
+}
+
+.message-seller-send {
+    align-self: flex-start;
+    padding: 0.6rem 1.25rem;
+    border: none;
+    border-radius: 0.75rem;
+    background: #0d9488;
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.message-seller-send:hover:not(:disabled) {
+    background: #0f766e;
+}
+
+.message-seller-send:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Reviews */
+.product-rating-reviews-link {
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #0f766e;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+
+.product-rating-reviews-link:hover {
+    color: #0d9488;
+}
+
+.product-rating-reviews-link:focus-visible {
+    outline: 2px solid #0d9488;
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.pd-reviews-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.pd-reviews-summary-score {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pd-reviews-summary-number {
+    font-size: 1.75rem;
+    font-weight: 800;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+
+.pd-reviews-summary-count {
+    font-size: 0.85rem;
+    color: #64748b;
+}
+
+.pd-reviews-open-button {
+    min-height: 40px;
+    padding: 0 18px;
+    border: 1px solid #0d9488;
+    border-radius: 12px;
+    background: #fff;
+    color: #0f766e;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.pd-reviews-open-button:hover {
+    background: #f0fdfa;
+}
+
+.pd-reviews-open-button:focus-visible {
+    outline: 2px solid #0d9488;
+    outline-offset: 2px;
+}
+
+.pd-reviews-empty {
+    color: #64748b;
+    font-size: 0.9rem;
+}
+
+.pd-reviews-empty-hint {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: #94a3b8;
+}
+</style>

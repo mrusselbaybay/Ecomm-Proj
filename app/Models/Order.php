@@ -2,12 +2,20 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasUuidPrimaryKey;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Uses HasUuidPrimaryKey (see its docblock) because CheckoutService does
+ * Order::create([...]) and immediately reads $order->id back to create the
+ * OrderItem/OrderStatusHistory rows in the same transaction.
+ */
 class Order extends Model
 {
+    use HasUuidPrimaryKey;
+
     protected $table = 'orders';
 
     public $incrementing = false;
@@ -35,6 +43,8 @@ class Order extends Model
         'placed_at' => 'datetime',
         'cancelled_at' => 'datetime',
     ];
+
+    public const PAYMENT_STATUSES = ['Unpaid', 'Paid', 'Refunded'];
 
     /*
     |--------------------------------------------------------------------------

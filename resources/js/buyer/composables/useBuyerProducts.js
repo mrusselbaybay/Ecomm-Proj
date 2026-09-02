@@ -10,7 +10,12 @@ const products = ref([]);
 const isLoadingProducts = ref(true);
 const loadError = ref('');
 
-async function loadProducts(params = {}) {
+// Shared across every caller of this composable (module scope), so two
+// components mounting at once — or a component re-triggering a load — reuse
+// the same request instead of firing duplicates at /api/products.
+let inFlight = null;
+
+async function fetchProducts(params) {
     isLoadingProducts.value = true;
     loadError.value = '';
 
@@ -38,6 +43,16 @@ async function loadProducts(params = {}) {
     } finally {
         isLoadingProducts.value = false;
     }
+}
+
+async function loadProducts(params = {}) {
+    if (!inFlight) {
+        inFlight = fetchProducts(params).finally(() => {
+            inFlight = null;
+        });
+    }
+
+    return inFlight;
 }
 
 async function getProductById(id) {
