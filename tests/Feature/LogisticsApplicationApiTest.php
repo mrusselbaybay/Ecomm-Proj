@@ -2,11 +2,14 @@
 
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 
 beforeEach(function () {
+    Schema::dropIfExists('profiles');
+
     Schema::create('profiles', function (Blueprint $table) {
         $table->string('id')->primary();
         $table->string('role');
@@ -45,6 +48,12 @@ beforeEach(function () {
         $table->string('reviewed_by')->nullable();
         $table->timestamp('reviewed_at')->nullable();
         $table->text('rejection_reason')->nullable();
+        $table->string('resume_original_name')->nullable();
+        $table->string('resume_path')->nullable();
+        $table->unsignedBigInteger('resume_size')->nullable();
+        $table->text('cover_note')->nullable();
+        $table->timestamp('interview_invited_at')->nullable();
+        $table->timestamp('interview_scheduled_at')->nullable();
         $table->timestamps();
     });
 
@@ -130,9 +139,10 @@ it('persists a courier application through the Laravel API', function () {
         'tin' => '123',
     ]);
     $response = $this->withToken('valid-access-token')
-        ->postJson('/api/courier/applications', [
+        ->post('/api/courier/applications', [
             'logistics_company_id' => $companyId,
-        ]);
+            'resume' => UploadedFile::fake()->create('resume.pdf', 100, 'application/pdf'),
+        ], ['Accept' => 'application/json']);
 
     $response->assertCreated()
         ->assertJsonPath('data.logistics_company_id', $companyId)
@@ -173,9 +183,10 @@ it('reactivates a withdrawn application when the courier applies again', functio
     ]);
 
     $response = $this->withToken('valid-access-token')
-        ->postJson('/api/courier/applications', [
+        ->post('/api/courier/applications', [
             'logistics_company_id' => $companyId,
-        ]);
+            'resume' => UploadedFile::fake()->create('updated-resume.pdf', 100, 'application/pdf'),
+        ], ['Accept' => 'application/json']);
 
     $response->assertOk()
         ->assertJsonPath('data.id', 'existing-application')

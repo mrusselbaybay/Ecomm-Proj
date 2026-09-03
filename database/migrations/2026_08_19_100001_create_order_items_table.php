@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Line items are snapshotted (product_name/sku/category/unit_price) so an
@@ -14,6 +14,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('order_items')) {
+            return;
+        }
+
         $driver = DB::connection()->getDriverName();
 
         Schema::create('order_items', function (Blueprint $table) use ($driver) {
@@ -50,6 +54,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            return;
+        }
+
         Schema::dropIfExists('order_items');
     }
 };

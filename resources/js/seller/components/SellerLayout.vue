@@ -406,6 +406,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useMessaging } from '../composables/useMessaging';
 import { useSeller } from '../composables/useSeller';
 import { useSellerNotifications } from '../composables/useSellerNotifications';
+import CustomerServicePage from '../../shared/CustomerServicePage.vue';
 
 import CourierHandover from './CourierHandover.vue';
 import Dashboard from './Dashboard.vue';
@@ -517,6 +518,7 @@ const pathToSection = {
     '/seller/feedback': 'feedback',
     '/seller/reports': 'reports',
     '/seller/messages': 'messages',
+    '/seller/customer-service': 'customerService',
     '/seller/account': 'account',
 };
 const sectionToPath = {
@@ -529,6 +531,7 @@ const sectionToPath = {
     feedback: '/seller/feedback',
     reports: '/seller/reports',
     messages: '/seller/messages',
+    customerService: '/seller/customer-service',
     account: '/seller/account',
 };
 
@@ -543,6 +546,7 @@ const componentMap = {
     feedback: Feedback,
     reports: Reports,
     messages: Messages,
+    customerService: CustomerServicePage,
     account: Profile,
 };
 
@@ -587,6 +591,7 @@ const sectionLabel = computed(() => {
         feedback: 'Feedback',
         reports: 'Reports',
         messages: 'Messages',
+        customerService: 'Customer Service',
         account: 'My Account',
     };
 
@@ -609,6 +614,7 @@ const navItems = computed(() => [
         sectionBefore: 'Communication',
         badge: unreadBadgeCount.value > 0 ? unreadBadgeCount.value : null,
     },
+    { id: 'customerService', label: 'Customer Service', icon: 'help' },
     {
         id: 'account',
         label: 'My Account',
@@ -628,6 +634,7 @@ function getIcon(iconName) {
         star: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2Z"/></svg>`,
         bar: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M6 21V10M12 21V4M18 21v-7"/></svg>`,
         mail: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>`,
+        help: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-.9.6-1.5 1.1-1.5 2.5"/><path d="M12 17h.01"/></svg>`,
         user: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>`,
     };
 

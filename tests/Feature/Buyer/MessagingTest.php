@@ -6,11 +6,13 @@ use App\Models\Message;
 it('starts a conversation with a seller and stores the first message', function () {
     $buyer = makeBuyer();
     $seller = makeSeller();
+    $product = makeProduct($seller);
 
     actingAsBuyer($buyer);
 
     $this->postJson('/api/buyer/messages/conversations', [
         'seller_id' => $seller->id,
+        'product_id' => $product->id,
         'body' => 'Hi, is this still available?',
     ])->assertCreated()
         ->assertJsonPath('data.seller', 'Test Storefront')
@@ -20,16 +22,26 @@ it('starts a conversation with a seller and stores the first message', function 
     expect(Conversation::count())->toBe(1);
     expect(Message::count())->toBe(1);
     expect(Conversation::first()->seller_unread_count)->toBe(1);
+    expect(Conversation::first()->participantRecords)->toHaveCount(2);
 });
 
-it('reuses the same general thread for the same seller', function () {
+it('reuses the same product thread for the same seller', function () {
     $buyer = makeBuyer();
     $seller = makeSeller();
+    $product = makeProduct($seller);
 
     actingAsBuyer($buyer);
 
-    $this->postJson('/api/buyer/messages/conversations', ['seller_id' => $seller->id, 'body' => 'first']);
-    $this->postJson('/api/buyer/messages/conversations', ['seller_id' => $seller->id, 'body' => 'second']);
+    $this->postJson('/api/buyer/messages/conversations', [
+        'seller_id' => $seller->id,
+        'product_id' => $product->id,
+        'body' => 'first',
+    ]);
+    $this->postJson('/api/buyer/messages/conversations', [
+        'seller_id' => $seller->id,
+        'product_id' => $product->id,
+        'body' => 'second',
+    ]);
 
     expect(Conversation::count())->toBe(1);
     expect(Message::count())->toBe(2);
@@ -68,8 +80,7 @@ it("rejects linking a thread to an order that isn't the buyer's", function () {
 it('marks a thread read and zeroes the unread count', function () {
     $buyer = makeBuyer();
     $seller = makeSeller();
-    $conversation = Conversation::create([
-        'buyer_id' => $buyer->id, 'seller_id' => $seller->id, 'status' => 'open',
+    $conversation = makeBuyerSellerConversation($buyer, $seller, overrides: [
         'buyer_unread_count' => 3,
     ]);
     Message::create([
@@ -84,15 +95,14 @@ it('marks a thread read and zeroes the unread count', function () {
     $this->getJson('/api/buyer/messages/unread-count')->assertJsonPath('data.count', 0);
 
     expect(Message::first()->read_at)->not->toBeNull();
+    expect($conversation->participantRecords()->where('user_id', $buyer->id)->first()->last_read_at)->not->toBeNull();
 });
 
 it("never exposes another buyer's conversation", function () {
     $me = makeBuyer();
     $other = makeBuyer();
     $seller = makeSeller();
-    $theirThread = Conversation::create([
-        'buyer_id' => $other->id, 'seller_id' => $seller->id, 'status' => 'open',
-    ]);
+    $theirThread = makeBuyerSellerConversation($other, $seller);
 
     actingAsBuyer($me);
 

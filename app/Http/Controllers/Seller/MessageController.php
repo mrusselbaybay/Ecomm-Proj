@@ -9,6 +9,7 @@ use App\Http\Requests\Seller\UpdateConversationStatusRequest;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageAttachment;
+use App\Policies\ConversationPolicy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,6 +45,8 @@ class MessageController extends Controller
     private const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
     private const ALLOWED_ATTACHMENT_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
+
+    public function __construct(private ConversationPolicy $conversationPolicy) {}
 
     /**
      * GET /api/seller/messages/conversations
@@ -186,8 +189,8 @@ class MessageController extends Controller
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        if ($conversation->status === 'archived') {
-            return response()->json(['message' => 'This conversation is archived.'], 422);
+        if (! $this->conversationPolicy->sendMessage($seller, $conversation)) {
+            return response()->json(['message' => 'This conversation is not open for new messages.'], 422);
         }
 
         $body = trim($request->validated('body'));
@@ -204,6 +207,7 @@ class MessageController extends Controller
                 'conversation_id' => $conversation->id,
                 'sender_id' => $seller->id,
                 'sender_role' => 'seller',
+                'message_type' => 'text',
                 'body' => $body,
                 'attachments' => $staged->map->toContractArray()->all(),
             ]);
@@ -252,6 +256,9 @@ class MessageController extends Controller
                 ->update(['read_at' => now()]);
 
             $conversation->forceFill(['seller_unread_count' => 0])->save();
+            $conversation->participantRecords()
+                ->where('user_id', $conversation->seller_id)
+                ->update(['last_read_at' => now()]);
         });
 
         return response()->json(['data' => ['unreadCount' => 0]]);
@@ -281,6 +288,10 @@ class MessageController extends Controller
     public function unreadCount(Request $request): JsonResponse
     {
         $count = (int) Conversation::where('seller_id', $request->user()->id)
+            ->where('type', '!=', 'support')
+            ->whereHas('participantRecords', fn (Builder $query) => $query
+                ->where('user_id', $request->user()->id)
+                ->whereNull('left_at'))
             ->sum('seller_unread_count');
 
         return response()->json(['data' => ['count' => $count]]);
@@ -360,7 +371,12 @@ class MessageController extends Controller
 
     private function searchScopedQuery(string $sellerId, Request $request): Builder
     {
-        $query = Conversation::query()->where('seller_id', $sellerId);
+        $query = Conversation::query()
+            ->where('seller_id', $sellerId)
+            ->where('type', '!=', 'support')
+            ->whereHas('participantRecords', fn (Builder $participantQuery) => $participantQuery
+                ->where('user_id', $sellerId)
+                ->whereNull('left_at'));
 
         if ($search = $request->string('search')->toString()) {
             $query->where(function (Builder $q) use ($search) {
@@ -396,6 +412,10 @@ class MessageController extends Controller
     {
         return Conversation::with($with)
             ->where('seller_id', $request->user()->id)
+            ->where('type', '!=', 'support')
+            ->whereHas('participantRecords', fn (Builder $query) => $query
+                ->where('user_id', $request->user()->id)
+                ->whereNull('left_at'))
             ->whereKey($id)
             ->first();
     }

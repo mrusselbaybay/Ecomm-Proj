@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\HasUuidPrimaryKey;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
@@ -26,10 +27,14 @@ class Conversation extends Model
     protected $keyType = 'string';
 
     protected $fillable = [
+        'type',
+        'created_by',
+        'context_key',
         'buyer_id',
         'seller_id',
         'order_id',
         'product_id',
+        'support_ticket_id',
         'subject',
         'status',
         'last_message_at',
@@ -45,7 +50,14 @@ class Conversation extends Model
         'seller_unread_count' => 'integer',
     ];
 
-    public const STATUSES = ['open', 'resolved', 'archived'];
+    public const STATUSES = ['open', 'active', 'resolved', 'archived', 'closed', 'blocked', 'under_review'];
+
+    public const WRITABLE_STATUSES = ['open', 'active'];
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(Profile::class, 'created_by');
+    }
 
     public function buyer(): BelongsTo
     {
@@ -65,6 +77,46 @@ class Conversation extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id');
+    }
+
+    public function supportTicket(): BelongsTo
+    {
+        return $this->belongsTo(SupportTicket::class);
+    }
+
+    public function participantRecords(): HasMany
+    {
+        return $this->hasMany(ConversationParticipant::class);
+    }
+
+    public function participants(): BelongsToMany
+    {
+        return $this->belongsToMany(Profile::class, 'conversation_participants', 'conversation_id', 'user_id')
+            ->withPivot(['joined_at', 'last_read_at', 'left_at'])
+            ->withTimestamps();
+    }
+
+    public function hasActiveParticipant(string $userId): bool
+    {
+        return $this->participantRecords()
+            ->where('user_id', $userId)
+            ->whereNull('left_at')
+            ->exists();
+    }
+
+    public function isWritable(): bool
+    {
+        return in_array($this->status, self::WRITABLE_STATUSES, true);
+    }
+
+    /**
+     * @param  array<int, string>  $participantIds
+     */
+    public static function makeContextKey(string $type, string $contextId, array $participantIds): string
+    {
+        sort($participantIds);
+
+        return hash('sha256', $type.':'.$contextId.':'.implode(':', $participantIds));
     }
 
     public function messages(): HasMany

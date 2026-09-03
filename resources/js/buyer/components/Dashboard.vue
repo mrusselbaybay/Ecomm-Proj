@@ -17,6 +17,7 @@ import PaymentMethods from './PaymentMethods.vue';
 import Chat from './Chat.vue';
 import ToastHost from './ToastHost.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
+import CustomerServicePage from '../../shared/CustomerServicePage.vue';
 
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerProducts } from '../composables/useBuyerProducts';
@@ -71,6 +72,7 @@ const showWishlist = ref(false);
 const showReviews = ref(false);
 const showAddresses = ref(false);
 const showPayments = ref(false);
+const showCustomerService = ref(false);
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
 
@@ -662,6 +664,14 @@ function openPayments() {
 function closePayments() {
     showPayments.value = false;
 }
+
+function openCustomerService() {
+    showCustomerService.value = true;
+}
+
+function closeCustomerService() {
+    showCustomerService.value = false;
+}
 </script>
 
 <template>
@@ -1204,6 +1214,20 @@ function closePayments() {
          drives it straight through useBuyerChat; nothing to wire per page. -->
     <Chat />
 
+    <button
+        type="button"
+        class="customer-service-launcher"
+        aria-label="Open Customer Service"
+        @click="openCustomerService"
+    >
+        Customer Service
+    </button>
+    <CustomerServicePage
+        v-if="showCustomerService"
+        modal
+        @close="closeCustomerService"
+    />
+
     <!-- Buyer-wide notification + confirmation hosts. Same "mount once,
          outside the view switch" pattern as <Chat /> — every buyer page
          renders inside this component, so these cover all of them. Driven
@@ -1212,3 +1236,26 @@ function closePayments() {
     <ConfirmDialog />
 
 </template>
+
+<style scoped>
+.customer-service-launcher {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 1.25rem;
+    z-index: 45;
+    border: 1px solid #0d9488;
+    border-radius: 999px;
+    padding: 0.75rem 1rem;
+    background: #0d9488;
+    color: #fff;
+    box-shadow: 0 10px 28px rgba(13, 148, 136, 0.28);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.customer-service-launcher:hover {
+    background: #0f766e;
+}
+</style>

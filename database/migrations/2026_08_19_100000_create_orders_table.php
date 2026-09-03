@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Orders are split per seller at checkout time (same pattern the seller
@@ -22,6 +22,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('orders')) {
+            return;
+        }
+
         $driver = DB::connection()->getDriverName();
 
         Schema::create('orders', function (Blueprint $table) use ($driver) {
@@ -84,6 +88,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            return;
+        }
+
         Schema::dropIfExists('orders');
     }
 };

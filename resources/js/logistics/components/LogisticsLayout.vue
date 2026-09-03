@@ -114,6 +114,7 @@
                 @open-section="selectTab"
             />
             <Couriers v-else-if="activeTab === 'couriers'" />
+            <CustomerServicePage v-else-if="activeTab === 'customer-service'" />
             <PortalPlaceholder v-else :section="activeTab" />
         </main>
         <div
@@ -149,6 +150,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import CustomerServicePage from '../../shared/CustomerServicePage.vue';
 import Applications from './Applications.vue';
 import Couriers from './Couriers.vue';
 import Dashboard from './Dashboard.vue';
@@ -178,6 +180,7 @@ const operationTabs = [
 ];
 const managementTabs = [
     { key: 'messages', label: 'Messages', symbol: '◇' },
+    { key: 'customer-service', label: 'Customer Service', symbol: '?' },
     { key: 'reports', label: 'Reports', symbol: '▥' },
     { key: 'account', label: 'Account Settings', symbol: '⚙' },
 ];

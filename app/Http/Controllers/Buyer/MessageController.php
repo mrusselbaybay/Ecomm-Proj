@@ -7,14 +7,12 @@ use App\Http\Requests\Buyer\SendMessageRequest;
 use App\Http\Requests\Buyer\StartConversationRequest;
 use App\Models\Conversation;
 use App\Models\Message;
-use App\Models\Order;
-use App\Models\Product;
-use App\Models\Profile;
+use App\Policies\ConversationPolicy;
+use App\Services\DirectConversationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 
 /**
  * Buyer side of buyer <-> seller messaging (conversations / messages).
@@ -30,6 +28,11 @@ class MessageController extends Controller
 {
     private const MESSAGE_PAGE = 50;
 
+    public function __construct(
+        private DirectConversationService $directConversationService,
+        private ConversationPolicy $conversationPolicy,
+    ) {}
+
     public function conversations(Request $request): JsonResponse
     {
         $buyer = $request->user();
@@ -37,6 +40,10 @@ class MessageController extends Controller
         $conversations = Conversation::query()
             ->with(['seller.sellerDetail', 'product'])
             ->where('buyer_id', $buyer->id)
+            ->where('type', '!=', 'support')
+            ->whereHas('participantRecords', fn ($query) => $query
+                ->where('user_id', $buyer->id)
+                ->whereNull('left_at'))
             ->orderByRaw('last_message_at desc nulls last')
             ->orderByDesc('created_at')
             ->get();
@@ -54,55 +61,14 @@ class MessageController extends Controller
         $buyer = $request->user();
         $data = $request->validated();
 
-        $seller = Profile::where('id', $data['seller_id'])->where('role', 'seller')->first();
-
-        if (! $seller) {
-            throw ValidationException::withMessages(['seller_id' => 'That seller is not available.']);
-        }
-
-        $orderId = null;
-
-        if (! empty($data['order_number'])) {
-            $order = Order::query()
-                ->where('order_number', ltrim($data['order_number'], '#'))
-                ->where('buyer_profile_id', $buyer->id)
-                ->where('seller_id', $seller->id)
-                ->first();
-
-            if (! $order) {
-                throw ValidationException::withMessages(['order_number' => 'That order was not found on your account.']);
-            }
-
-            $orderId = $order->id;
-        }
-
-        $productId = $data['product_id'] ?? null;
-
-        if ($productId) {
-            $productOk = Product::whereKey($productId)->where('seller_id', $seller->id)->exists();
-
-            if (! $productOk) {
-                throw ValidationException::withMessages(['product_id' => 'That product does not belong to this seller.']);
-            }
-        }
-
-        $conversation = DB::transaction(function () use ($buyer, $seller, $orderId, $productId, $data) {
-            $conversation = Conversation::query()
-                ->where('buyer_id', $buyer->id)
-                ->where('seller_id', $seller->id)
-                ->when($orderId, fn ($q) => $q->where('order_id', $orderId), fn ($q) => $q->whereNull('order_id'))
-                ->first();
-
-            if (! $conversation) {
-                $conversation = Conversation::create([
-                    'buyer_id' => $buyer->id,
-                    'seller_id' => $seller->id,
-                    'order_id' => $orderId,
-                    'product_id' => $productId,
-                    'subject' => $data['subject'] ?? null,
-                    'status' => 'open',
-                ]);
-            }
+        $conversation = DB::transaction(function () use ($buyer, $data) {
+            $conversation = $this->directConversationService->findOrCreateBuyerSeller(
+                $buyer,
+                $data['seller_id'],
+                $data['order_number'] ?? null,
+                $data['product_id'] ?? null,
+                $data['subject'] ?? null,
+            );
 
             $this->appendMessage($conversation, $buyer->id, 'buyer', $data['body']);
 
@@ -125,7 +91,7 @@ class MessageController extends Controller
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        $this->markConversationRead($conversation);
+        $this->markConversationRead($conversation, $request->user()->id);
 
         return response()->json([
             'data' => $this->transformConversation(
@@ -163,6 +129,10 @@ class MessageController extends Controller
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
+        if (! $this->conversationPolicy->sendMessage($request->user(), $conversation)) {
+            return response()->json(['message' => 'This conversation is not open for new messages.'], 422);
+        }
+
         $message = DB::transaction(function () use ($conversation, $request) {
             return $this->appendMessage($conversation, $request->user()->id, 'buyer', $request->validated('body'));
         });
@@ -178,7 +148,7 @@ class MessageController extends Controller
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        $this->markConversationRead($conversation);
+        $this->markConversationRead($conversation, $request->user()->id);
 
         return response()->json(['data' => ['unread' => 0]]);
     }
@@ -213,6 +183,10 @@ class MessageController extends Controller
     {
         return Conversation::query()
             ->where('buyer_id', $request->user()->id)
+            ->where('type', '!=', 'support')
+            ->whereHas('participantRecords', fn ($query) => $query
+                ->where('user_id', $request->user()->id)
+                ->whereNull('left_at'))
             ->whereKey($id)
             ->first();
     }
@@ -222,6 +196,7 @@ class MessageController extends Controller
         $message = $conversation->messages()->create([
             'sender_id' => $senderId,
             'sender_role' => $role,
+            'message_type' => 'text',
             'body' => $body,
         ]);
 
@@ -242,7 +217,7 @@ class MessageController extends Controller
         return $message;
     }
 
-    private function markConversationRead(Conversation $conversation): void
+    private function markConversationRead(Conversation $conversation, string $readerId): void
     {
         $conversation->messages()
             ->where('sender_role', 'seller')
@@ -250,6 +225,9 @@ class MessageController extends Controller
             ->update(['read_at' => now()]);
 
         $conversation->update(['buyer_unread_count' => 0]);
+        $conversation->participantRecords()
+            ->where('user_id', $readerId)
+            ->update(['last_read_at' => now()]);
     }
 
     /**

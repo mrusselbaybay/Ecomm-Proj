@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Mirrors the existing public.status_audit_log pattern (used for
@@ -14,6 +14,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('order_status_history')) {
+            return;
+        }
+
         $driver = DB::connection()->getDriverName();
 
         Schema::create('order_status_history', function (Blueprint $table) use ($driver) {
@@ -41,6 +45,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            return;
+        }
+
         Schema::dropIfExists('order_status_history');
     }
 };

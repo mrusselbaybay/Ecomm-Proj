@@ -18,8 +18,8 @@ class StartConversationRequest extends FormRequest
     {
         return [
             'seller_id' => ['required', 'uuid', 'exists:profiles,id'],
-            'order_number' => ['nullable', 'string', 'max:64'],
-            'product_id' => ['nullable', 'uuid', 'exists:products,id'],
+            'order_number' => ['nullable', 'required_without:product_id', 'string', 'max:64'],
+            'product_id' => ['nullable', 'required_without:order_number', 'uuid', 'exists:products,id'],
             'subject' => ['nullable', 'string', 'max:200'],
             'body' => ['required', 'string', 'max:4000'],
         ];

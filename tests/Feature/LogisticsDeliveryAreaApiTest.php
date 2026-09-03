@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 
 beforeEach(function () {
+    Schema::dropIfExists('profiles');
+
     Schema::create('profiles', function (Blueprint $table) {
         $table->string('id')->primary();
         $table->string('role');
