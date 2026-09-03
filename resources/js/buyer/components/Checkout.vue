@@ -74,14 +74,28 @@ const checkoutForm = reactive({
 |
 */
 
-const { defaultAddress } = useBuyerAddresses();
-const { profile: buyerProfile, address: buyerAddress, loadBuyerAccount } = useBuyerAccount();
+const { defaultAddress, isLoading: isAddressBookLoading } = useBuyerAddresses();
+const {
+    profile: buyerProfile,
+    address: buyerAddress,
+    isLoadingProfile,
+    loadBuyerAccount
+} = useBuyerAccount();
 
 // `profile`/`address` are shared module state — skip the refetch if a
 // prior visit to Account already populated them this session.
 if (!buyerProfile.value) {
     loadBuyerAccount();
 }
+
+// True while either the saved-address book or the account profile is
+// still being fetched — i.e. the recipient name / contact / address
+// fields may still be about to change under the buyer via applyPrefill().
+// Placing an order in that window could submit stale/blank delivery
+// details, so both the button and placeOrder() itself guard on this.
+const isDeliveryDetailsLoading = computed(
+    () => isAddressBookLoading.value || isLoadingProfile.value
+);
 
 const touched = reactive({ recipientName: false, contactNumber: false, address: false });
 
@@ -507,6 +521,12 @@ async function placeOrder() {
         return;
     }
 
+    if (isDeliveryDetailsLoading.value) {
+        warning('Please wait — we\'re still loading your recipient and address details.');
+
+        return;
+    }
+
     if (!checkoutForm.recipientName.trim()) {
         warning('Address information is incomplete — add a recipient name.');
 
@@ -728,7 +748,8 @@ async function placeOrder() {
                                 </div>
                                 <div>
                                     <h2>Delivery Address</h2>
-                                    <p>Where should we deliver your order?</p>
+                                    <p v-if="isDeliveryDetailsLoading">Loading your saved recipient and address details…</p>
+                                    <p v-else>Where should we deliver your order?</p>
                                 </div>
                             </div>
 
@@ -1220,10 +1241,14 @@ async function placeOrder() {
                             <button
                                 type="button"
                                 class="cart-checkout-button"
-                                :disabled="isPlacingOrder"
+                                :disabled="isPlacingOrder || isDeliveryDetailsLoading"
                                 @click="placeOrder"
                             >
-                                {{ isPlacingOrder ? 'Placing Order…' : 'Place Order' }}
+                                {{
+                                    isPlacingOrder
+                                        ? 'Placing Order…'
+                                        : (isDeliveryDetailsLoading ? 'Loading details' : 'Place Order')
+                                }}
                             </button>
 
                             <div class="cart-summary-notes">

@@ -83,6 +83,25 @@
                         Print Invoice
                     </button>
                     <button
+                        v-if="order.dispatch && order.dispatch.qrPayload"
+                        class="btn-outline"
+                        @click="printDeliveryDetails(order)"
+                    >
+                        <svg
+                            class="icon"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.6"
+                        >
+                            <rect x="3" y="3" width="6" height="6" rx="1" />
+                            <rect x="11" y="3" width="6" height="6" rx="1" />
+                            <rect x="3" y="11" width="6" height="6" rx="1" />
+                            <path d="M11 11h2v2h-2zM15 11h2v2h-2zM11 15h2v2h-2zM15 15h2v2h-2z" />
+                        </svg>
+                        Delivery Details
+                    </button>
+                    <button
                         v-if="order.shipping.trackingNumber"
                         class="btn-outline"
                         @click="trackPackage"
@@ -339,6 +358,29 @@
                                 </div>
                             </div>
                         </div>
+
+                        <div
+                            v-if="order.dispatch && order.dispatch.qrPayload"
+                            class="card order-detail-page-card order-parcel-qr-card"
+                        >
+                            <h3 class="order-section-label">
+                                Parcel Confirmation Code
+                            </h3>
+                            <p class="order-address-sub">
+                                Scanned by the courier at pickup and again on
+                                delivery.
+                            </p>
+                            <ParcelQrCode
+                                :value="order.dispatch.qrPayload"
+                                :size="150"
+                            />
+                            <button
+                                class="btn-outline order-parcel-qr-print"
+                                @click="printDeliveryDetails(order)"
+                            >
+                                Print delivery details
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -444,6 +486,9 @@
             </div>
 
             <!-- Footer actions -->
+            <p v-if="updateError" class="save-msg error" style="margin: 0 0 1rem">
+                {{ updateError }}
+            </p>
             <div class="order-detail-page-footer">
                 <a
                     href="#"
@@ -508,12 +553,15 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import OrderJourneyMap from '../../shared/OrderJourneyMap.vue';
 import { useOrders } from '../composables/useOrders';
+import { printDeliveryDetails } from '../lib/deliveryDetailsPrint';
+import ParcelQrCode from './ParcelQrCode.vue';
 
 const props = defineProps({
     orderId: { type: String, default: null },
 });
 
 const {
+    orders,
     getOrderById,
     getOrderTracking,
     updateOrderStatus,
@@ -522,6 +570,7 @@ const {
     formatCurrency,
     cancelOrder,
     rejectOrder,
+    updateError,
 } = useOrders();
 
 const actionBusy = ref(false);
@@ -598,9 +647,33 @@ const isLoading = ref(true);
 const order = ref(null);
 const journeyCard = ref(null);
 
+// Statuses reachable only before an order ships — there's no parcel
+// assignment yet at any of these, so the journey/tracking payload
+// (geo resolution + a parcel_locations query — "the most expensive part
+// of the payload" per SellerOrderController::transformDetail) is always
+// empty for them. When the order's status is already known from the same
+// module-scoped `orders` list Orders.vue/Courier Handover/Prepare Orders
+// share, skip asking for it — the far more common "still being prepared"
+// case then avoids paying for a payload guaranteed to come back empty.
+// Anything that has shipped, or could have before being cancelled/rejected
+// afterward (see Delivery.vue's "Issues" tab), still requests it as
+// before — this only ever skips work it's certain is wasted.
+const PRE_SHIPMENT_STATUSES = ['New', 'Confirmed', 'Processing', 'Packed', 'Ready for Pickup'];
+
 async function loadOrder() {
     isLoading.value = true;
-    order.value = props.orderId ? await getOrderById(props.orderId) : null;
+
+    if (!props.orderId) {
+        order.value = null;
+        isLoading.value = false;
+
+        return;
+    }
+
+    const cachedStatus = orders.value.find((o) => o.id === props.orderId)?.status;
+    const includeJourney = !cachedStatus || !PRE_SHIPMENT_STATUSES.includes(cachedStatus);
+
+    order.value = await getOrderById(props.orderId, { includeJourney });
     isLoading.value = false;
 }
 
@@ -608,7 +681,10 @@ async function loadOrder() {
 | Live tracking poll — while the order is in transit, refresh just the
 | journey payload every 12s so OrderJourneyMap animates the courier as new
 | GPS pings land (real ones, or `tracking:simulate` ones). Stops as soon
-| as the order leaves "In Transit" or the page unmounts.
+| as the order leaves "In Transit", the tab is backgrounded (no point
+| spending a request animating a map nobody can see), or the page
+| unmounts — and resumes with an immediate refresh as soon as the tab is
+| visible again, so the map isn't stale on return.
 */
 const TRACKING_POLL_MS = 12000;
 let trackingTimer = null;
@@ -631,7 +707,7 @@ function stopTrackingPoll() {
 }
 
 function syncTrackingPoll(status) {
-    if (status === 'In Transit') {
+    if (status === 'In Transit' && !document.hidden) {
         if (!trackingTimer) {
             pollTracking();
             trackingTimer = setInterval(pollTracking, TRACKING_POLL_MS);
@@ -641,10 +717,21 @@ function syncTrackingPoll(status) {
     }
 }
 
-watch(() => order.value?.status, syncTrackingPoll);
+function handleVisibilityChange() {
+    syncTrackingPoll(order.value?.status);
+}
 
-onMounted(loadOrder);
-onBeforeUnmount(stopTrackingPoll);
+watch(() => order.value?.status, syncTrackingPoll);
+watch(() => props.orderId, loadOrder);
+
+onMounted(() => {
+    loadOrder();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+});
+onBeforeUnmount(() => {
+    stopTrackingPoll();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+});
 
 const customerInitials = computed(() => {
     if (!order.value?.customer) {

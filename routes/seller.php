@@ -31,6 +31,11 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     Route::get('/orders/{id}', [SellerOrderController::class, 'show'])->name('orders.show');
     Route::get('/orders/{id}/tracking', [SellerOrderController::class, 'tracking'])->name('orders.tracking');
     Route::put('/orders/{id}/status', [SellerOrderController::class, 'updateStatus'])->name('orders.update-status');
+    // Assign (once) and return the order's dispatch identifiers — parcel
+    // confirmation token + QR payload + tracking number — so Prepare
+    // Orders can show them before the seller confirms dispatch. Dispatch
+    // itself reuses whatever this assigned.
+    Route::post('/orders/{id}/dispatch-prep', [SellerOrderController::class, 'dispatchPrep'])->name('orders.dispatch-prep');
 
     Route::get('/products', [SellerProductController::class, 'index'])->name('products.index');
     Route::get('/products/{id}', [SellerProductController::class, 'show'])->name('products.show');

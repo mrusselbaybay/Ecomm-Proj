@@ -30,6 +30,7 @@ class ParcelAssignment extends Model
         'logistics_company_id',
         'delivery_area_id',
         'rider_profile_id',
+        'picked_up_by',
         'status',
         'received_by',
         'assigned_by',
@@ -38,6 +39,7 @@ class ParcelAssignment extends Model
         'sorted_at',
         'assigned_at',
         'handed_off_at',
+        'pickup_photo_path',
         'delivered_at',
         'delivery_photo_path',
     ];
@@ -73,6 +75,11 @@ class ParcelAssignment extends Model
     public function deliveryArea(): BelongsTo
     {
         return $this->belongsTo(LogisticsDeliveryArea::class);
+    }
+
+    public function pickedUpBy(): BelongsTo
+    {
+        return $this->belongsTo(Profile::class, 'picked_up_by');
     }
 
     public function rider(): BelongsTo

@@ -32,14 +32,7 @@ import { useBuyer } from '../composables/useBuyer';
 import { useBuyerChat } from '../composables/useBuyerChat';
 import { metaFor } from '../composables/useCategoryMeta';
 import { useConfirm } from '../composables/useConfirm';
-import {
-    trackingSteps,
-    stepLabels,
-    stepDescriptions,
-    stepIcons,
-    isTrackingStepCompleted,
-    timelineTimestamp
-} from '../composables/useOrderTimeline';
+import { buildTimeline } from '../composables/useOrderTimeline';
 import { useToasts } from '../composables/useToasts';
 import Footer from './Footer.vue';
 import Header from './Header.vue';
@@ -107,6 +100,13 @@ const isCancelled = computed(() => {
 const isReturned = computed(() => false);
 
 const deliveryAddress = computed(() => props.order?.delivery_address || {});
+
+// One pass over order.statusHistory for the whole timeline (see
+// buildTimeline's docblock in useOrderTimeline.js) instead of the
+// per-cell isTrackingStepCompleted()/timelineTimestamp()/isCurrentStep()
+// calls the template used to make directly — recomputed only when
+// `order` changes, not on every unrelated re-render.
+const timeline = computed(() => buildTimeline(props.order));
 
 const orderTotals = computed(() => ({
     subtotal: Number(props.order?.subtotal || 0),
@@ -801,42 +801,42 @@ function handleHeaderSelectCategory(category) {
                                     class="p-8"
                                 >
                                     <div
-                                        v-for="(step, index) in trackingSteps"
-                                        :key="step"
+                                        v-for="row in timeline"
+                                        :key="row.step"
                                         class="flex gap-6 relative"
-                                        :class="index < trackingSteps.length - 1 ? 'pb-10' : ''"
+                                        :class="row.index < timeline.length - 1 ? 'pb-10' : ''"
                                     >
                                         <span
-                                            v-if="index < trackingSteps.length - 1"
+                                            v-if="row.index < timeline.length - 1"
                                             class="absolute left-5 top-10 bottom-0 w-0.5"
-                                            :class="isTrackingStepCompleted(order, index + 1) ? 'bg-[#0d9488]' : 'bg-slate-200'"
+                                            :class="row.lineToNextCompleted ? 'bg-[#0d9488]' : 'bg-slate-200'"
                                         ></span>
 
                                         <div
                                             class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 z-10"
-                                            :class="isTrackingStepCompleted(order, index)
+                                            :class="row.completed
                                                 ? 'bg-[#0d9488] text-white shadow-lg shadow-[#0d9488]/20'
                                                 : 'bg-slate-100 border-2 border-slate-200 text-slate-300'"
                                         >
-                                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="stepIcons[step]"></svg>
+                                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="row.icon"></svg>
                                         </div>
 
                                         <div class="flex-1">
                                             <div class="flex items-center justify-between gap-3">
                                                 <h4
                                                     class="font-bold"
-                                                    :class="isTrackingStepCompleted(order, index) ? 'text-slate-900' : 'text-slate-400'"
+                                                    :class="row.completed ? 'text-slate-900' : 'text-slate-400'"
                                                 >
-                                                    {{ stepLabels[step] || step }}
+                                                    {{ row.label }}
                                                 </h4>
                                                 <span
-                                                    v-if="formatDate(timelineTimestamp(order, step))"
+                                                    v-if="formatDate(row.timestamp)"
                                                     class="text-xs font-semibold text-slate-400 shrink-0"
                                                 >
-                                                    {{ formatDate(timelineTimestamp(order, step)) }}
+                                                    {{ formatDate(row.timestamp) }}
                                                 </span>
                                                 <span
-                                                    v-else-if="order.status === step"
+                                                    v-else-if="row.isCurrent"
                                                     class="text-xs font-semibold text-[#0d9488] shrink-0"
                                                 >
                                                     Current status
@@ -844,9 +844,9 @@ function handleHeaderSelectCategory(category) {
                                             </div>
                                             <p
                                                 class="text-sm mt-1"
-                                                :class="isTrackingStepCompleted(order, index) ? 'text-slate-500' : 'text-slate-400'"
+                                                :class="row.completed ? 'text-slate-500' : 'text-slate-400'"
                                             >
-                                                {{ stepDescriptions[step] }}
+                                                {{ row.description }}
                                             </p>
                                         </div>
                                     </div>

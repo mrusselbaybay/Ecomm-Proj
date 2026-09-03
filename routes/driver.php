@@ -32,9 +32,19 @@ Route::middleware(['supabase.auth', 'driver'])->prefix('driver')->name('api.driv
 
     // "Deliveries" tab (driver_deliveries_screen.dart) — parcels the
     // logistics team has assigned to this rider/courier. Listing itself is
-    // read-only; "deliver" is the one rider-initiated action (going from
-    // "assigned" to "picked up" is dispatch's handoff, not the rider's).
+    // read-only; "pickup" and "deliver" are the two rider-initiated,
+    // photo-gated actions that walk a row from "assigned" -> "handed_off"
+    // -> delivered (see DriverDeliveryController's docblock).
     Route::get('/deliveries', [DriverDeliveryController::class, 'index'])->name('deliveries.index');
+    // Resolve a scanned parcel confirmation QR ("NXP:<token>") to one of
+    // this rider's deliveries. Read-only lookup + 'verify' scan log; the
+    // pickup/deliver actions below take the same token to log their scan.
+    Route::post('/deliveries/verify-qr', [DriverDeliveryController::class, 'verifyQr'])
+        ->name('deliveries.verify-qr');
+    Route::post('/deliveries/{parcelAssignment}/pickup', [DriverDeliveryController::class, 'pickup'])
+        ->name('deliveries.pickup');
+    Route::get('/deliveries/{parcelAssignment}/pickup-photo', [DriverDeliveryController::class, 'pickupPhoto'])
+        ->name('deliveries.pickup-photo');
     Route::post('/deliveries/{parcelAssignment}/deliver', [DriverDeliveryController::class, 'deliver'])
         ->name('deliveries.deliver');
     Route::get('/deliveries/{parcelAssignment}/photo', [DriverDeliveryController::class, 'photo'])

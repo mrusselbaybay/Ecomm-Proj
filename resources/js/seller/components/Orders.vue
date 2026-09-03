@@ -280,14 +280,23 @@
                         </div>
                     </div>
 
+                    <p
+                        v-if="actionError"
+                        class="save-msg error"
+                        style="padding: 0 1.5rem"
+                    >
+                        {{ actionError }}
+                    </p>
+
                     <div class="order-footer-actions">
                         <button
                             class="btn-text-danger"
                             :disabled="
+                                isUpdatingStatus ||
                                 selectedOrder.status === 'Cancelled' ||
                                 selectedOrder.status === 'Delivered'
                             "
-                            @click="rejectOrder(selectedOrder.id)"
+                            @click="handleReject"
                         >
                             Reject Order
                         </button>
@@ -297,10 +306,10 @@
                             </button>
                             <button
                                 class="btn-primary"
-                                :disabled="selectedOrder.status !== 'New'"
-                                @click="acceptOrder(selectedOrder.id)"
+                                :disabled="isUpdatingStatus || selectedOrder.status !== 'New'"
+                                @click="handleAccept"
                             >
-                                Accept Order
+                                {{ isUpdatingStatus ? 'Accepting…' : 'Accept Order' }}
                             </button>
                         </div>
                     </div>
@@ -347,7 +356,55 @@ const {
     formatCurrency,
     acceptOrder,
     rejectOrder,
+    isUpdatingStatus,
+    updateError,
 } = useOrders();
+
+// acceptOrder()/rejectOrder() swallow their own errors into `updateError`
+// (see useOrders.js) rather than throwing, so a failed request — an
+// expired session, a lost connection, a since-changed order — used to
+// leave this panel looking exactly like a successful click: the button
+// just went back to normal with nothing said. That's how an order can
+// stay stuck on "New" while the seller believes they already accepted
+// it. Mirror it into a local ref so it's shown right where the buttons
+// are, and cleared automatically on the next attempt.
+const actionError = ref('');
+
+async function handleAccept() {
+    if (!selectedOrder.value || isUpdatingStatus.value) {
+        return;
+    }
+
+    actionError.value = '';
+
+    const updated = await acceptOrder(selectedOrder.value.id);
+
+    if (!updated) {
+        actionError.value = updateError.value || 'Could not accept this order. Please try again.';
+    }
+}
+
+async function handleReject() {
+    if (!selectedOrder.value || isUpdatingStatus.value) {
+        return;
+    }
+
+    const reason = window.prompt(
+        'Why are you rejecting this order? (unavailable stock, invalid order info, unable to fulfil, …)',
+    );
+
+    if (!reason || reason.trim().length < 3) {
+        return;
+    }
+
+    actionError.value = '';
+
+    const updated = await rejectOrder(selectedOrder.value.id, reason.trim()).catch(() => null);
+
+    if (!updated) {
+        actionError.value = updateError.value || 'Could not reject this order. Please try again.';
+    }
+}
 
 const activeFilter = ref('all');
 const searchQuery = ref('');

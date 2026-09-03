@@ -146,29 +146,26 @@
                             <td>
                                 <span
                                     class="badge"
-                                    :class="statusClass(parcel.status)"
-                                    >{{ statusLabel(parcel.status) }}</span
+                                    :class="statusClass(parcel)"
+                                    >{{ statusLabel(parcel) }}</span
                                 >
                                 <span
                                     v-if="!parcel.is_scanned"
                                     class="parcel-recipient"
-                                    >Awaiting drop-off — not yet scanned in</span
+                                    >Awaiting drop-off — not yet scanned
+                                    in</span
                                 >
                             </td>
                             <td class="text-right">
                                 <button
-                                    v-if="parcel.status !== 'handed_off'"
+                                    v-if="isActionable(parcel)"
                                     class="btn-sm-primary"
                                     @click="openAssignment(parcel)"
                                 >
-                                    {{
-                                        parcel.status === 'assigned'
-                                            ? 'Review'
-                                            : 'Assign'
-                                    }}
+                                    {{ actionLabel(parcel) }}
                                 </button>
                                 <span v-else class="handoff-time"
-                                    >Completed
+                                    >Handed off
                                     {{ formatDate(parcel.handed_off_at) }}</span
                                 >
                             </td>
@@ -322,11 +319,13 @@ const activeAreaCount = computed(() => activeAreas.value.length);
 const assignedAreaCount = computed(
     () => activeAreas.value.filter((area) => area.riders?.length).length,
 );
+// "Still needs someone here to act on it": either not handed off yet
+// (needs a pickup rider), or handed off but back in the pool with no
+// rider (the pickup courier confirmed collection — needs a delivery
+// rider). A handed-off parcel that already has a rider is out for
+// delivery and off this desk.
 const waitingCount = computed(
-    () =>
-        parcelAssignments.value.filter(
-            (parcel) => parcel.status !== 'handed_off',
-        ).length,
+    () => parcelAssignments.value.filter(isActionable).length,
 );
 
 function focusScanner() {
@@ -349,18 +348,38 @@ function formatCoverage(area) {
         .filter(Boolean)
         .join(', ');
 }
-// The underlying lifecycle is still received -> sorted -> assigned ->
-// handed_off (drives routing/assignment/handoff below), but from a
-// "what do I still need to do with this parcel" standpoint there are
-// really only two states: still at the sorting center waiting to go out
-// (To pick up — the default the moment a seller hands it over, before
-// anyone here has even scanned it in) or already with a rider (To
-// deliver, once handed off).
-function statusLabel(status) {
-    return status === 'handed_off' ? 'To deliver' : 'To pick up';
+// The underlying lifecycle is received -> sorted -> assigned ->
+// handed_off, but pickup and delivery are two legs run by two people, so
+// there are three "what's left to do" states:
+//   - not handed off yet .............. "To pick up" (needs a pickup rider)
+//   - handed off, no rider ............ "To be delivered" (pickup courier
+//     confirmed collection; the parcel is back here and needs a delivery
+//     rider assigned — see Driver\DriverDeliveryController::pickup)
+//   - handed off, has a rider ......... "Out for delivery" (done here)
+function isReadyForDelivery(parcel) {
+    return parcel.status === 'handed_off' && !parcel.rider;
 }
-function statusClass(status) {
-    return status === 'handed_off' ? 'badge-teal' : 'badge-amber';
+function isActionable(parcel) {
+    return parcel.status !== 'handed_off' || !parcel.rider;
+}
+function statusLabel(parcel) {
+    if (parcel.status !== 'handed_off') {
+        return 'To pick up';
+    }
+
+    return parcel.rider ? 'Out for delivery' : 'To be delivered';
+}
+function statusClass(parcel) {
+    return parcel.status === 'handed_off' && parcel.rider
+        ? 'badge-teal'
+        : 'badge-amber';
+}
+function actionLabel(parcel) {
+    if (isReadyForDelivery(parcel)) {
+        return 'Assign delivery';
+    }
+
+    return parcel.status === 'assigned' ? 'Review' : 'Assign';
 }
 function formatDate(value) {
     return value
@@ -386,6 +405,7 @@ function selectAreaRider() {
     const area = deliveryAreas.value.find(
         (item) => item.id === assignmentForm.delivery_area_id,
     );
+
     // Only auto-fill when the area has exactly one appointed rider —
     // several appointed riders means the staff picks, not a guess.
     if (area?.riders?.length === 1) {
@@ -395,6 +415,7 @@ function selectAreaRider() {
 async function receive() {
     receiving.value = true;
     lookupMessage.value = '';
+
     try {
         const parcel = await receiveParcel(trackingNumber.value);
         lookupMessage.value = parcel.delivery_area
@@ -412,6 +433,7 @@ async function receive() {
 async function confirmAssignment() {
     saving.value = true;
     assignmentError.value = '';
+
     try {
         await assignParcel(
             selectedParcel.value.id,
@@ -429,6 +451,7 @@ async function confirmAssignment() {
 async function handoff() {
     saving.value = true;
     assignmentError.value = '';
+
     try {
         await handoffParcel(selectedParcel.value.id);
         notify('Rider handoff confirmed.');

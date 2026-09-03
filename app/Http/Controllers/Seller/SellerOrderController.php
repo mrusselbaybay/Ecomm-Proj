@@ -7,12 +7,15 @@ use App\Http\Requests\Seller\UpdateOrderStatusRequest;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderStatusHistory;
+use App\Models\ParcelAssignment;
 use App\Services\InventoryService;
 use App\Services\OrderTrackingService;
 use App\Services\ParcelIntakeService;
 use App\Services\SellerNotifier;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -21,6 +24,11 @@ class SellerOrderController extends Controller
     /**
      * Event-phrased labels for the order timeline on the details page.
      * (Order::STATUS_LABELS has the plain noun labels for badges.)
+     *
+     * 'In Transit' has no entry here — it never reaches this lookup.
+     * timelineRows() below handles it specially, replacing the old flat
+     * "Shipped" label with "Parcel in Sorting Center" / "Parcel is out
+     * for delivery", picked from the order's ParcelAssignment.
      */
     private const STATUS_LABELS = [
         'New' => 'Order Placed',
@@ -28,7 +36,6 @@ class SellerOrderController extends Controller
         'Processing' => 'Preparing items',
         'Packed' => 'Packed',
         'Ready for Pickup' => 'Ready for pickup',
-        'In Transit' => 'Shipped',
         'Delivered' => 'Delivered',
         'Cancelled' => 'Cancelled',
         'Rejected' => 'Rejected',
@@ -115,10 +122,17 @@ class SellerOrderController extends Controller
      * Scoped by seller_id in the query itself (rather than route-model
      * binding) so an order belonging to another seller resolves as a
      * plain 404 instead of leaking that the order exists via a 403.
+     *
+     * Query: include_journey? (default true) — set to 0/false to skip the
+     * tracking-map payload (OrderTrackingService::journey), the priciest
+     * part of this endpoint (geo resolution + a parcel_locations query).
+     * Prepare Orders doesn't render the tracking map, so it opts out;
+     * Order Details needs it on first paint and leaves the default.
      */
     public function show(Request $request, string $id): JsonResponse
     {
         $seller = $request->user();
+        $includeJourney = $request->boolean('include_journey', true);
 
         $order = Order::with([
             'items.product:id,images',
@@ -127,6 +141,7 @@ class SellerOrderController extends Controller
             'statusHistory.changedBy',
             'seller.address',
             'seller.sellerDetail',
+            'parcelAssignment',
         ])
             ->where('seller_id', $seller->id)
             ->where('order_number', ltrim($id, '#'))
@@ -136,7 +151,7 @@ class SellerOrderController extends Controller
             return response()->json(['message' => 'Order not found.'], 404);
         }
 
-        return response()->json(['data' => $this->transformDetail($order)]);
+        return response()->json(['data' => $this->transformDetail($order, $includeJourney)]);
     }
 
     /**
@@ -280,6 +295,50 @@ class SellerOrderController extends Controller
         return response()->json(['data' => $this->transformDetail($order)]);
     }
 
+    /**
+     * POST /api/seller/orders/{id}/dispatch-prep
+     *
+     * Assigns (on first call) and returns the identifiers Prepare Orders
+     * needs before dispatch: the parcel confirmation token + its QR
+     * payload, and a generated tracking number (TRK-YYYYMMDD-NNNN). Both
+     * are persisted, so the later move to 'In Transit' just reuses them
+     * (Order::booted() only fills either in when still missing).
+     */
+    public function dispatchPrep(Request $request, string $id): JsonResponse
+    {
+        $seller = $request->user();
+
+        $order = Order::where('seller_id', $seller->id)
+            ->where('order_number', ltrim($id, '#'))
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Order not found.'], 404);
+        }
+
+        if (in_array($order->status, ['Cancelled', 'Rejected'], true)) {
+            return response()->json(['message' => "This order isn't going out for delivery."], 422);
+        }
+
+        if (blank($order->confirmation_token)) {
+            $order->confirmation_token = Order::generateConfirmationToken();
+        }
+
+        if (blank($order->tracking_number)) {
+            $order->tracking_number = Order::generateTrackingNumber();
+        }
+
+        if ($order->isDirty()) {
+            $order->save();
+        }
+
+        return response()->json(['data' => [
+            'confirmationToken' => $order->confirmation_token,
+            'qrPayload' => $order->confirmationQrPayload(),
+            'trackingNumber' => $order->tracking_number,
+        ]]);
+    }
+
     private function reloadDetail(Order $order): Order
     {
         return $order->fresh([
@@ -289,6 +348,7 @@ class SellerOrderController extends Controller
             'statusHistory.changedBy',
             'seller.address',
             'seller.sellerDetail',
+            'parcelAssignment',
         ]);
     }
 
@@ -378,7 +438,7 @@ class SellerOrderController extends Controller
         return null;
     }
 
-    private function transformDetail(Order $order): array
+    private function transformDetail(Order $order, bool $includeJourney = true): array
     {
         $summary = $this->transformSummary($order);
 
@@ -406,16 +466,18 @@ class SellerOrderController extends Controller
             'trackingNumber' => $order->tracking_number,
         ];
 
-        $summary['timeline'] = $order->statusHistory->map(fn (OrderStatusHistory $h) => [
-            'label' => self::STATUS_LABELS[$h->status] ?? $h->status,
-            'status' => $h->status,
-            'previousStatus' => $h->previous_status,
-            'time' => $h->created_at?->format('F d, Y \a\t h:i A'),
-            'at' => optional($h->created_at)->toIso8601String(),
-            'actor' => $h->changedBy?->full_name,
-            'done' => true,
-            'detail' => $h->note,
-        ])->all();
+        // Parcel confirmation QR — present once the order has been
+        // dispatched (Order::booted mints the token on the move to 'In
+        // Transit'). `qrPayload` is the exact string to encode; the seller
+        // SPA renders it locally (resources/js/seller/components/ParcelQrCode.vue).
+        $summary['dispatch'] = [
+            'confirmationToken' => $order->confirmation_token,
+            'qrPayload' => $order->confirmationQrPayload(),
+        ];
+
+        $summary['timeline'] = $order->statusHistory
+            ->flatMap(fn (OrderStatusHistory $h) => $this->timelineRows($h, $order->parcelAssignment))
+            ->all();
 
         $summary['cancellation'] = $order->cancellation_reason ? [
             'reason' => $order->cancellation_reason,
@@ -432,9 +494,86 @@ class SellerOrderController extends Controller
 
         // Estimated-position tracking map data (shared with the buyer
         // Order Details screen). See OrderTrackingService — the parcel
-        // position is derived from order status, not a live feed.
-        $summary['journey'] = (new OrderTrackingService)->journey($order);
+        // position is derived from order status, not a live feed. This is
+        // the most expensive part of the payload (geo resolution + a
+        // parcel_locations query), so callers that don't render the map
+        // (Prepare Orders) can skip it via show()'s include_journey=0.
+        $summary['journey'] = $includeJourney ? (new OrderTrackingService)->journey($order) : null;
 
         return $summary;
+    }
+
+    /**
+     * One order_status_history row -> one or more timeline entries.
+     *
+     * Every status other than 'In Transit' maps 1:1 onto its plain
+     * STATUS_LABELS phrase. 'In Transit' ("the item is tagged To be
+     * delivered") is the one status both the seller's dispatch handover
+     * AND logistics' own workflow share, so on its own it can't say
+     * whether the parcel is still waiting at a sorting center or already
+     * out with a rider — that lives on the order's ParcelAssignment (see
+     * ParcelIntakeService / Api\Logistics\ParcelAssignmentController), not
+     * on Order::status. So it fans out into up to two checkpoints instead:
+     *
+     *   - "Parcel in Sorting Center" — always shown once the order is In
+     *     Transit; this is the resting state until a rider is assigned.
+     *   - "Parcel is out for delivery" — added once a rider has been
+     *     assigned OR the parcel has been handed off (the pickup courier
+     *     confirms collection then releases the rider — see
+     *     Driver\DriverDeliveryController::pickup — so once it's
+     *     'handed_off' the parcel has demonstrably left the seller even
+     *     while it briefly has no rider). Always after the sorting-center
+     *     row so it never renders out of order, and never removed once
+     *     added.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function timelineRows(OrderStatusHistory $h, ?ParcelAssignment $assignment): array
+    {
+        if ($h->status !== 'In Transit') {
+            return [$this->timelineRow(
+                self::STATUS_LABELS[$h->status] ?? $h->status,
+                $h,
+                $h->created_at,
+                $h->note,
+            )];
+        }
+
+        $rows = [$this->timelineRow(
+            'Parcel in Sorting Center',
+            $h,
+            $assignment?->received_at ?? $h->created_at,
+            $h->note,
+        )];
+
+        if ($assignment?->rider_profile_id || $assignment?->status === ParcelAssignment::STATUS_HANDED_OFF) {
+            $rows[] = $this->timelineRow(
+                'Parcel is out for delivery',
+                $h,
+                $assignment->assigned_at ?? $h->created_at,
+                null,
+            );
+        }
+
+        return $rows;
+    }
+
+    /** @return array<string, mixed> */
+    private function timelineRow(
+        string $label,
+        OrderStatusHistory $h,
+        Carbon|CarbonImmutable|null $at,
+        ?string $detail,
+    ): array {
+        return [
+            'label' => $label,
+            'status' => $h->status,
+            'previousStatus' => $h->previous_status,
+            'time' => $at?->format('F d, Y \a\t h:i A'),
+            'at' => optional($at)->toIso8601String(),
+            'actor' => $h->changedBy?->full_name,
+            'done' => true,
+            'detail' => $detail,
+        ];
     }
 }

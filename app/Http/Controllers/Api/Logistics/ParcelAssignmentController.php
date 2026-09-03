@@ -22,9 +22,7 @@ use Illuminate\Validation\ValidationException;
 
 class ParcelAssignmentController extends Controller
 {
-    public function __construct(private readonly ParcelIntakeService $parcelIntake)
-    {
-    }
+    public function __construct(private readonly ParcelIntakeService $parcelIntake) {}
 
     /**
      * Display a listing of the resource.
@@ -123,9 +121,20 @@ class ParcelAssignmentController extends Controller
         $company = $this->companyFor($request);
         $this->ensureAssignmentBelongsToCompany($parcelAssignment, $company);
 
-        if ($parcelAssignment->status === ParcelAssignment::STATUS_HANDED_OFF) {
+        // A handed-off parcel that STILL has a rider is out for delivery —
+        // genuinely terminal here. But once the pickup courier confirms
+        // collection the rider is released (see
+        // Driver\DriverDeliveryController::pickup) and the parcel comes
+        // back to this queue tagged "To be delivered"; assigning it now is
+        // how a delivery rider gets picked. Keep it 'handed_off' in that
+        // case — it's already collected, so the delivery rider goes
+        // straight to "mark delivered", not back through pickup.
+        $isDeliveryDispatch = $parcelAssignment->status === ParcelAssignment::STATUS_HANDED_OFF
+            && $parcelAssignment->rider_profile_id === null;
+
+        if ($parcelAssignment->status === ParcelAssignment::STATUS_HANDED_OFF && ! $isDeliveryDispatch) {
             throw ValidationException::withMessages([
-                'parcel' => 'A handed-off parcel can no longer be reassigned.',
+                'parcel' => 'A parcel already out for delivery can no longer be reassigned.',
             ]);
         }
 
@@ -149,7 +158,11 @@ class ParcelAssignmentController extends Controller
         $parcelAssignment->update([
             'delivery_area_id' => $area->id,
             'rider_profile_id' => $riderProfileId,
-            'status' => ParcelAssignment::STATUS_ASSIGNED,
+            // Delivery dispatch (parcel already collected) stays 'handed_off';
+            // a first-leg pickup assignment moves to 'assigned'.
+            'status' => $isDeliveryDispatch
+                ? ParcelAssignment::STATUS_HANDED_OFF
+                : ParcelAssignment::STATUS_ASSIGNED,
             'assigned_by' => $profile->id,
             'sorted_at' => $parcelAssignment->sorted_at ?? now(),
             'assigned_at' => now(),

@@ -35,8 +35,8 @@ import {
     stepLabels,
     stepDescriptions,
     stepIcons,
-    isTrackingStepCompleted,
-    timelineTimestamp,
+    currentStepKey,
+    buildTimeline,
     lastUpdated
 } from '../composables/useOrderTimeline';
 
@@ -67,11 +67,15 @@ const isCancelled = computed(() => props.order?.status === ORDER_STATUSES.CANCEL
 
 const deliveryAddress = computed(() => props.order?.delivery_address || {});
 
-const currentStepIndex = computed(() => trackingSteps.indexOf(props.order?.status));
+const currentStepLabel = computed(() => stepLabels[currentStepKey(props.order)] || props.order?.status || 'Unknown');
+const currentStepDescription = computed(() => stepDescriptions[currentStepKey(props.order)] || '');
+const currentStepIcon = computed(() => stepIcons[currentStepKey(props.order)] || stepIcons[trackingSteps[0]]);
 
-const currentStepLabel = computed(() => stepLabels[props.order?.status] || props.order?.status || 'Unknown');
-const currentStepDescription = computed(() => stepDescriptions[props.order?.status] || '');
-const currentStepIcon = computed(() => stepIcons[props.order?.status] || stepIcons[ORDER_STATUSES.TO_SHIP]);
+// One pass over order.statusHistory for the whole timeline (see
+// buildTimeline's docblock) instead of the per-cell function calls the
+// template used to make directly — recomputed only when `order` changes.
+const timeline = computed(() => buildTimeline(props.order));
+const lastUpdatedLabel = computed(() => formatDate(lastUpdated(props.order)));
 
 function formatDate(date) {
     if (!date) {
@@ -366,10 +370,10 @@ function handleHeaderSelectCategory(category) {
                                     <h2 class="text-2xl font-bold text-slate-900 mb-2">{{ currentStepLabel }}</h2>
                                     <p class="text-slate-500 max-w-md mx-auto">{{ currentStepDescription }}</p>
                                     <p
-                                        v-if="formatDate(lastUpdated(order))"
+                                        v-if="lastUpdatedLabel"
                                         class="text-xs text-slate-400 mt-4"
                                     >
-                                        Last updated {{ formatDate(lastUpdated(order)) }}
+                                        Last updated {{ lastUpdatedLabel }}
                                     </p>
                                     <p class="text-xs text-slate-400 mt-6 max-w-sm mx-auto border-t border-slate-100 pt-4">
                                         Live courier location isn't available yet — once your order ships, you can follow it directly with {{ order.shipping_carrier || 'the courier' }} using the tracking number above.
@@ -387,42 +391,42 @@ function handleHeaderSelectCategory(category) {
 
                                     <div class="p-8">
                                         <div
-                                            v-for="(step, index) in trackingSteps"
-                                            :key="step"
+                                            v-for="row in timeline"
+                                            :key="row.step"
                                             class="flex gap-6 relative"
-                                            :class="index < trackingSteps.length - 1 ? 'pb-10' : ''"
+                                            :class="row.index < timeline.length - 1 ? 'pb-10' : ''"
                                         >
                                             <span
-                                                v-if="index < trackingSteps.length - 1"
+                                                v-if="row.index < timeline.length - 1"
                                                 class="absolute left-5 top-10 bottom-0 w-0.5"
-                                                :class="isTrackingStepCompleted(order, index + 1) ? 'bg-[#0d9488]' : 'bg-slate-200'"
+                                                :class="row.lineToNextCompleted ? 'bg-[#0d9488]' : 'bg-slate-200'"
                                             ></span>
 
                                             <div
                                                 class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 z-10"
-                                                :class="isTrackingStepCompleted(order, index)
+                                                :class="row.completed
                                                     ? 'bg-[#0d9488] text-white shadow-lg shadow-[#0d9488]/20'
                                                     : 'bg-slate-100 border-2 border-slate-200 text-slate-300'"
                                             >
-                                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="stepIcons[step]"></svg>
+                                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="row.icon"></svg>
                                             </div>
 
                                             <div class="flex-1">
                                                 <div class="flex items-center justify-between gap-3">
                                                     <h4
                                                         class="font-bold"
-                                                        :class="isTrackingStepCompleted(order, index) ? 'text-slate-900' : 'text-slate-400'"
+                                                        :class="row.completed ? 'text-slate-900' : 'text-slate-400'"
                                                     >
-                                                        {{ stepLabels[step] || step }}
+                                                        {{ row.label }}
                                                     </h4>
                                                     <span
-                                                        v-if="formatDate(timelineTimestamp(order, step))"
+                                                        v-if="formatDate(row.timestamp)"
                                                         class="text-xs font-semibold text-slate-400 shrink-0"
                                                     >
-                                                        {{ formatDate(timelineTimestamp(order, step)) }}
+                                                        {{ formatDate(row.timestamp) }}
                                                     </span>
                                                     <span
-                                                        v-else-if="order.status === step"
+                                                        v-else-if="row.isCurrent"
                                                         class="text-xs font-semibold text-[#0d9488] shrink-0"
                                                     >
                                                         Current status
@@ -430,9 +434,9 @@ function handleHeaderSelectCategory(category) {
                                                 </div>
                                                 <p
                                                     class="text-sm mt-1"
-                                                    :class="isTrackingStepCompleted(order, index) ? 'text-slate-500' : 'text-slate-400'"
+                                                    :class="row.completed ? 'text-slate-500' : 'text-slate-400'"
                                                 >
-                                                    {{ stepDescriptions[step] }}
+                                                    {{ row.description }}
                                                 </p>
                                             </div>
                                         </div>

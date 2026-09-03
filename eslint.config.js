@@ -93,6 +93,9 @@ export default defineConfigWithVueTs(
             'resources/js/components/ui/*',
             'resources/js/routes/**',
             'resources/js/wayfinder/**',
+            // Third-party code vendored verbatim (Nayuki qrcodegen) — kept
+            // re-syncable with upstream, not held to the project style rules.
+            'resources/js/**/vendor/**',
         ],
     },
     prettier, // Turn off all rules that might conflict with Prettier

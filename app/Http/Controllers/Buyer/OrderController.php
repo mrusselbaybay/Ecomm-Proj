@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Buyer;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\OrderReturnRequest;
+use App\Models\ParcelAssignment;
 use App\Services\OrderCancellationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
-    private const WITH = ['items.review', 'items.returnRequests', 'seller.sellerDetail', 'statusHistory'];
+    private const WITH = ['items.review', 'items.returnRequests', 'seller.sellerDetail', 'statusHistory', 'parcelAssignment'];
 
     /**
      * GET /api/buyer/orders
@@ -129,6 +130,25 @@ class OrderController extends Controller
                 'note' => $history->note,
                 'createdAt' => optional($history->created_at)->toIso8601String(),
             ])->all(),
+            // The logistics-side handling of this order's parcel (sorting
+            // center receipt, rider assignment) — null until the seller's
+            // dispatch handover or a sorting-center scan creates it (see
+            // ParcelIntakeService). 'In Transit' alone can't tell "still at
+            // the sorting center" apart from "a rider has it now"; the
+            // buyer order timeline (useOrderTimeline.js) uses this the same
+            // way SellerOrderController's does for the seller's.
+            'parcel' => $order->parcelAssignment ? [
+                // True once a rider is on it OR it's been handed off — the
+                // pickup courier releases the rider when they confirm
+                // collection (Driver\DriverDeliveryController::pickup), so
+                // a handed-off parcel counts as "moving" even in the brief
+                // window before a delivery rider is assigned. Never flips
+                // back to false.
+                'riderAssigned' => (bool) $order->parcelAssignment->rider_profile_id
+                    || $order->parcelAssignment->status === ParcelAssignment::STATUS_HANDED_OFF,
+                'receivedAt' => optional($order->parcelAssignment->received_at)->toIso8601String(),
+                'assignedAt' => optional($order->parcelAssignment->assigned_at)->toIso8601String(),
+            ] : null,
             'items' => $order->items->map(fn ($item) => [
                 'id' => $item->id,
                 'product_id' => $item->product_id,

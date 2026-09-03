@@ -108,11 +108,34 @@ async function loadOrders(params = {}) {
 // Fetches a single order with its full detail (address, shipping,
 // timeline). Always hits the API rather than reading the summary list
 // in memory, since the list response omits those detail-only fields.
-async function getOrderById(id) {
+//
+// `includeJourney: false` skips the tracking-map payload server-side —
+// the priciest part of this endpoint — for callers (Prepare Orders) that
+// never render it. Order Details leaves it on for first paint.
+async function getOrderById(id, { includeJourney = true } = {}) {
     try {
-        return await apiFetch(`/orders/${encodeURIComponent(id)}`);
+        const suffix = includeJourney ? '' : '?include_journey=0';
+
+        return await apiFetch(`/orders/${encodeURIComponent(id)}${suffix}`);
     } catch (err) {
         console.error('Error loading order:', err);
+
+        return null;
+    }
+}
+
+// Assigns (once) and returns an order's dispatch identifiers — parcel
+// confirmation token + QR payload + generated tracking number — so Prepare
+// Orders can show them before dispatch. Returns null on failure; the UI
+// then shows a "not ready" state rather than blocking.
+async function ensureDispatchPrep(id) {
+    try {
+        return await apiFetch(
+            `/orders/${encodeURIComponent(id)}/dispatch-prep`,
+            { method: 'POST' },
+        );
+    } catch (err) {
+        console.error('Error preparing this order for dispatch:', err);
 
         return null;
     }
@@ -265,6 +288,7 @@ export function useOrders() {
         loadLogisticsCompanies,
         loadOrders,
         getOrderById,
+        ensureDispatchPrep,
         getOrderTracking,
         updateOrderStatus,
         statusBadgeClass,

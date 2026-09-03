@@ -91,7 +91,7 @@ class OrderCancellationService
                 'changed_by' => $buyer->id,
             ]);
 
-            return $order->load(['items.review', 'items.returnRequests', 'seller.sellerDetail', 'statusHistory']);
+            return $order->load(['items.review', 'items.returnRequests', 'seller.sellerDetail', 'statusHistory', 'parcelAssignment']);
         });
     }
 }

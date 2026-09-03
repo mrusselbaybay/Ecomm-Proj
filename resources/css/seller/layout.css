@@ -494,6 +494,9 @@ body {
     display: block;
     margin-bottom: 0.3rem;
 }
+.prep-required {
+    color: #dc2626;
+}
 
 /* ============================================================
    QUICK ACTIONS LAUNCHPAD
@@ -2714,6 +2717,17 @@ body {
     grid-template-columns: 1fr 1fr;
     gap: 1.75rem;
 }
+/* Parcel confirmation QR — spans the address/shipping grid, centred. */
+.order-parcel-qr-card {
+    grid-column: 1 / -1;
+    text-align: center;
+}
+.order-parcel-qr-card .parcel-qr {
+    margin: 0.75rem auto 0;
+}
+.order-parcel-qr-print {
+    margin-top: 0.85rem;
+}
 .order-section-label {
     font-size: 0.62rem;
     font-weight: 700;
@@ -3656,6 +3670,154 @@ body {
     width: calc(100% - 2.8rem);
 }
 
+/* ---- Dispatch review sheet + parcel QR sheet (PrepareOrders.vue) ---- */
+.prep-review-panel {
+    width: 30rem;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+.prep-review-section {
+    padding: 0.85rem 0;
+    border-top: 1px solid #eef2f6;
+}
+.prep-review-section:first-of-type {
+    border-top: none;
+}
+/* The confirmation-code block sits at the very top of the review sheet. */
+.prep-review-section--qr {
+    border-top: none;
+    text-align: center;
+    background: #f8fafc;
+    border: 1px solid #eef2f6;
+    border-radius: 0.75rem;
+    padding: 1rem 0.9rem;
+    margin-bottom: 0.25rem;
+}
+.prep-review-section--qr .prep-review-sub {
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 17rem;
+}
+.prep-review-section--qr .prep-qr-poster {
+    margin-left: auto;
+    margin-right: auto;
+}
+.prep-review-label {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--slate);
+    margin-bottom: 0.4rem;
+}
+.prep-review-value {
+    margin: 0;
+    font-weight: 700;
+    color: var(--teal-900);
+}
+.prep-review-sub {
+    margin: 0.15rem 0 0;
+    font-size: 0.8rem;
+    color: var(--slate);
+}
+.prep-review-items {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.prep-review-items li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    font-size: 0.85rem;
+    color: #334155;
+}
+.prep-review-qty {
+    font-weight: 700;
+    color: var(--teal-800);
+    white-space: nowrap;
+}
+.prep-review-grid {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem 1rem;
+}
+.prep-review-grid-wide {
+    grid-column: 1 / -1;
+}
+.prep-review-grid dt {
+    font-size: 0.72rem;
+    color: var(--slate);
+    margin-bottom: 0.1rem;
+}
+.prep-review-grid dd {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--teal-900);
+    word-break: break-word;
+}
+
+.prep-qr-panel {
+    width: 24rem;
+    text-align: center;
+}
+.prep-qr-poster {
+    margin: 0.5rem auto 0;
+    padding: 1.25rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.9rem;
+    background: white;
+}
+.prep-qr-poster-shop {
+    margin: 0 0 0.15rem;
+    font-weight: 800;
+    color: var(--teal-900);
+}
+.prep-qr-poster-order {
+    margin: 0 0 0.9rem;
+    font-size: 0.82rem;
+    color: var(--slate);
+}
+.prep-qr-poster .parcel-qr {
+    margin: 0 auto;
+}
+.prep-review-qr {
+    margin-top: 0.6rem;
+    max-width: 15rem;
+}
+.prep-review-qr-loading {
+    display: flex;
+    justify-content: center;
+    padding: 1.5rem 0;
+}
+.prep-review-print {
+    margin-top: 0.7rem;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.8rem;
+}
+/* Auto-assigned tracking number — shown, not typed. */
+.prep-tracking-input[readonly] {
+    background: #f8fafc;
+    color: var(--teal-900);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    cursor: default;
+}
+.prep-qr-poster-track {
+    margin: 0.85rem 0 0;
+    font-size: 0.8rem;
+    color: var(--slate);
+    word-break: break-all;
+}
+
 .prep-picker-list {
     padding: 0.5rem 1rem 1.4rem;
     display: flex;
@@ -4485,6 +4647,46 @@ body {
 }
 .feedback-clear-btn {
     align-self: flex-end;
+}
+
+/* ---- Prepare Orders loading skeleton ---- */
+.prep-skeleton-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+.prep-skeleton-line,
+.prep-skeleton-block {
+    background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%);
+    background-size: 400% 100%;
+    animation: prep-skeleton-shimmer 1.4s ease infinite;
+}
+.prep-skeleton-line {
+    height: 0.75rem;
+    border-radius: 999px;
+}
+.prep-skeleton-block {
+    border-radius: 0.6rem;
+}
+.prep-skeleton-item-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.85rem 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+.prep-skeleton-item-row:last-child {
+    border-bottom: none;
+}
+@keyframes prep-skeleton-shimmer {
+    0% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0 50%;
+    }
 }
 
 /* ---- loading skeleton ---- */

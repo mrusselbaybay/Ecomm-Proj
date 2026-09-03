@@ -1,9 +1,37 @@
 <!-- resources/js/seller/components/PrepareOrders.vue -->
 <template>
-    <div v-if="isLoading" class="card">
-        <div class="placeholder-page">
-            <div class="loading-spinner"></div>
-            <p style="margin-top: 1rem">Loading order…</p>
+    <div v-if="isLoading" class="prep-skeleton" aria-busy="true" aria-label="Loading order">
+        <header class="prep-skeleton-header">
+            <div style="flex: 1">
+                <div class="prep-skeleton-line" style="width: 40%; height: 1.1rem; margin-bottom: 0.6rem"></div>
+                <div class="prep-skeleton-line" style="width: 25%; height: 0.7rem"></div>
+            </div>
+            <div class="prep-skeleton-block" style="width: 150px; height: 2.5rem"></div>
+        </header>
+
+        <div class="prep-grid">
+            <div class="prep-col">
+                <div class="card">
+                    <div class="prep-skeleton-line" style="width: 35%; height: 1rem; margin-bottom: 1.25rem"></div>
+                    <div v-for="n in 3" :key="n" class="prep-skeleton-item-row">
+                        <div class="prep-skeleton-block" style="width: 20px; height: 20px; flex-shrink: 0"></div>
+                        <div style="flex: 1">
+                            <div class="prep-skeleton-line" style="width: 60%; margin-bottom: 0.5rem"></div>
+                            <div class="prep-skeleton-line" style="width: 30%; height: 0.6rem"></div>
+                        </div>
+                        <div class="prep-skeleton-block" style="width: 70px; height: 1.5rem"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="prep-col">
+                <div class="card">
+                    <div class="prep-skeleton-line" style="width: 55%; height: 1rem; margin-bottom: 1.25rem"></div>
+                    <div class="prep-skeleton-block" style="height: 2.5rem; margin-bottom: 1rem"></div>
+                    <div class="prep-skeleton-block" style="height: 2.5rem; margin-bottom: 1rem"></div>
+                    <div class="prep-skeleton-block" style="height: 2.5rem"></div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -228,29 +256,59 @@
                     <div class="prep-form">
                         <div class="sheet-field-row">
                             <div>
-                                <label class="field-label">Package Weight (kg)</label>
+                                <label class="field-label">Package Weight (kg) <span class="prep-required">*</span></label>
                                 <input
                                     type="number"
                                     min="0"
                                     step="0.01"
+                                    inputmode="decimal"
                                     class="field-input"
                                     v-model.number="packageWeight"
                                     placeholder="0.00"
+                                    @keydown="blockNonNumericKey"
+                                    @paste="sanitizeNumericPaste"
                                 />
                             </div>
                             <div>
-                                <label class="field-label">Dimensions L×W×H (cm)</label>
+                                <label class="field-label">Dimensions L×W×H (cm) <span class="prep-required">*</span></label>
                                 <div class="prep-dims-row">
-                                    <input type="number" min="0" class="field-input" v-model.number="packageDims.l" placeholder="L" />
-                                    <input type="number" min="0" class="field-input" v-model.number="packageDims.w" placeholder="W" />
-                                    <input type="number" min="0" class="field-input" v-model.number="packageDims.h" placeholder="H" />
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        inputmode="decimal"
+                                        class="field-input"
+                                        v-model.number="packageDims.l"
+                                        placeholder="L"
+                                        @keydown="blockNonNumericKey"
+                                        @paste="sanitizeNumericPaste"
+                                    />
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        inputmode="decimal"
+                                        class="field-input"
+                                        v-model.number="packageDims.w"
+                                        placeholder="W"
+                                        @keydown="blockNonNumericKey"
+                                        @paste="sanitizeNumericPaste"
+                                    />
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        inputmode="decimal"
+                                        class="field-input"
+                                        v-model.number="packageDims.h"
+                                        placeholder="H"
+                                        @keydown="blockNonNumericKey"
+                                        @paste="sanitizeNumericPaste"
+                                    />
                                 </div>
                             </div>
                         </div>
 
                         <div class="sheet-field-row">
                             <div>
-                                <label class="field-label">Courier / Carrier</label>
+                                <label class="field-label">Courier / Carrier <span class="prep-required">*</span></label>
                                 <select class="field-input" v-model="shippingCarrier">
                                     <option value="" disabled>
                                         {{ isLoadingLogisticsCompanies ? 'Loading couriers…' : 'Select a courier' }}
@@ -282,18 +340,15 @@
                         </div>
 
                         <div>
-                            <label class="field-label"
-                                >Tracking Number
-                                <span style="color: #dc2626">*</span></label
-                            >
+                            <label class="field-label">Tracking Number</label>
                             <input
                                 type="text"
-                                class="field-input"
-                                v-model="trackingNumber"
-                                placeholder="Enter the courier's tracking number"
+                                class="field-input prep-tracking-input"
+                                :value="trackingNumber || (isPreppingDispatch ? 'Generating…' : 'Assigned on dispatch')"
+                                readonly
                             />
                             <p class="field-hint">
-                                Required before dispatch — this is what buyers
+                                Generated automatically — this is what buyers
                                 will see to track their order.
                             </p>
                         </div>
@@ -309,11 +364,6 @@
                         <strong>In Transit</strong> and shares the tracking
                         details above with the buyer.
                     </p>
-                    <p v-if="!allPacked" class="prep-dispatch-warning">
-                        {{ totalItems - packedCount }} item(s) still marked as
-                        pending — you can still dispatch, but double-check
-                        your box first.
-                    </p>
                     <button
                         class="btn-primary prep-dispatch-btn"
                         :disabled="!canDispatch"
@@ -325,12 +375,170 @@
                 </div>
             </div>
         </div>
+
+        <!-- ================================================================
+         DISPATCH REVIEW — the last look before the parcel goes out
+         ================================================================ -->
+        <div
+            v-if="reviewOpen"
+            class="modal-overlay"
+            @click.self="reviewOpen = false"
+        >
+            <div class="modal-panel prep-review-panel">
+                <div class="modal-header">
+                    <h3>Review delivery details</h3>
+                    <button class="modal-close" aria-label="Close" @click="reviewOpen = false">
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 5l10 10M15 5 5 15" />
+                        </svg>
+                    </button>
+                </div>
+                <p class="modal-desc">
+                    Confirm everything below is correct. Dispatching moves
+                    {{ order.id }} to <strong>In Transit</strong> and can't be
+                    undone.
+                </p>
+
+                <div class="prep-review-section prep-review-section--qr">
+                    <span class="prep-review-label">Parcel confirmation code</span>
+                    <p class="prep-review-sub">
+                        The courier scans this at pickup and again on delivery.
+                        Print it and attach it to the parcel.
+                    </p>
+                    <div v-if="isPreppingDispatch" class="prep-review-qr-loading">
+                        <div class="loading-spinner"></div>
+                    </div>
+                    <div
+                        v-else-if="reviewQrPayload"
+                        ref="reviewPosterRef"
+                        class="prep-qr-poster prep-review-qr"
+                    >
+                        <p class="prep-qr-poster-shop">
+                            {{ order.seller?.name || 'Store' }}
+                        </p>
+                        <p class="prep-qr-poster-order">Order {{ order.id }}</p>
+                        <ParcelQrCode :value="reviewQrPayload" :size="176" />
+                        <p v-if="trackingNumber" class="prep-qr-poster-track">
+                            Tracking: {{ trackingNumber }}
+                        </p>
+                    </div>
+                    <p v-else class="prep-review-sub">
+                        The code isn't ready yet — you can still dispatch and
+                        print it from the order afterwards.
+                    </p>
+                </div>
+
+                <div class="prep-review-section">
+                    <span class="prep-review-label">Shop</span>
+                    <p class="prep-review-value">{{ order.seller?.name || 'Store' }}</p>
+                    <p v-if="shopLocation" class="prep-review-sub">{{ shopLocation }}</p>
+                </div>
+
+                <div class="prep-review-section">
+                    <span class="prep-review-label">Items</span>
+                    <ul class="prep-review-items">
+                        <li v-for="(item, idx) in order.items" :key="idx">
+                            <span>{{ item.name }}<template v-if="item.variant"> · {{ item.variant }}</template></span>
+                            <span class="prep-review-qty">× {{ item.qty }}</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="prep-review-section">
+                    <span class="prep-review-label">Shipping configuration</span>
+                    <dl class="prep-review-grid">
+                        <div>
+                            <dt>Weight</dt>
+                            <dd>{{ packageWeight ? `${packageWeight} kg` : '—' }}</dd>
+                        </div>
+                        <div>
+                            <dt>Dimensions</dt>
+                            <dd>{{ dimensionsLabel }}</dd>
+                        </div>
+                        <div>
+                            <dt>Courier</dt>
+                            <dd>{{ shippingCarrier || '—' }}</dd>
+                        </div>
+                        <div>
+                            <dt>Service tier</dt>
+                            <dd>{{ shippingService || '—' }}</dd>
+                        </div>
+                        <div class="prep-review-grid-wide">
+                            <dt>Tracking number</dt>
+                            <dd>{{ trackingNumber || '—' }}</dd>
+                        </div>
+                    </dl>
+                </div>
+
+                <p v-if="!allPacked" class="prep-dispatch-warning">
+                    {{ totalItems - packedCount }} item(s) still marked as pending.
+                </p>
+                <p v-if="updateError" class="save-msg error">{{ updateError }}</p>
+
+                <div class="modal-actions">
+                    <button class="btn-outline" @click="reviewOpen = false">Back</button>
+                    <button class="btn-outline" @click="printDeliveryDetails">
+                        Print
+                    </button>
+                    <button
+                        class="btn-primary"
+                        :disabled="isUpdatingStatus"
+                        @click="doDispatch"
+                    >
+                        {{ isUpdatingStatus ? 'Dispatching…' : 'Confirm & Dispatch' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================================================================
+         PARCEL QR — the confirmation code, shown after a successful dispatch
+         ================================================================ -->
+        <div v-if="qrOpen" class="modal-overlay">
+            <div class="modal-panel prep-qr-panel">
+                <div class="modal-header">
+                    <h3>Parcel confirmation code</h3>
+                </div>
+                <p class="modal-desc">
+                    Print this and attach it to the parcel. The courier scans
+                    it to confirm each hand-off — at pickup, and again on
+                    delivery.
+                </p>
+
+                <div ref="qrPosterRef" class="prep-qr-poster">
+                    <p class="prep-qr-poster-shop">
+                        {{ dispatchedOrder?.seller?.name || 'Store' }}
+                    </p>
+                    <p class="prep-qr-poster-order">Order {{ dispatchedOrder?.id }}</p>
+                    <ParcelQrCode
+                        v-if="qrPayload"
+                        :value="qrPayload"
+                        :size="200"
+                    />
+                    <p
+                        v-if="dispatchedOrder?.shipping?.trackingNumber"
+                        class="prep-qr-poster-track"
+                    >
+                        Tracking: {{ dispatchedOrder.shipping.trackingNumber }}
+                    </p>
+                </div>
+
+                <div class="modal-actions">
+                    <button class="btn-outline" @click="printDeliveryDetails">
+                        Print
+                    </button>
+                    <button class="btn-primary" @click="finishDispatch">Done</button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { useOrders } from '../composables/useOrders';
+import { printDeliveryDetails as printDeliveryDetailsDoc } from '../lib/deliveryDetailsPrint';
+import ParcelQrCode from './ParcelQrCode.vue';
 
 const props = defineProps({
     orderId: { type: String, default: null },
@@ -341,6 +549,7 @@ const {
     isLoadingOrders,
     loadOrders,
     getOrderById,
+    ensureDispatchPrep,
     statusBadgeClass,
     statusLabel,
     formatCurrency,
@@ -371,32 +580,119 @@ const packageWeight = ref(null);
 const packageDims = ref({ l: null, w: null, h: null });
 const draftSavedAt = ref(null);
 
-async function loadOrder() {
-    isLoading.value = true;
+// Confirm-dispatch flow: review sheet (with the QR) -> dispatch -> parcel
+// QR sheet (same code again, for printing after the fact).
+const reviewOpen = ref(false);
+const qrOpen = ref(false);
+const dispatchedOrder = ref(null); // the full order returned by shipOrder()
+const qrPosterRef = ref(null); // poster node in the post-dispatch sheet
+const reviewPosterRef = ref(null); // poster node in the review sheet
 
-    if (props.orderId) {
-        order.value = await getOrderById(props.orderId);
+// Dispatch identifiers assigned by the backend the moment an order is
+// opened for preparation: the parcel QR payload (shown in the review sheet
+// and reused post-dispatch) and the generated tracking number (shown
+// read-only on the form — sellers never type it).
+const reviewQrPayload = ref('');
+const isPreppingDispatch = ref(false);
 
-        if (order.value) {
-            packedState.value = Object.fromEntries(
-                order.value.items.map((_, idx) => [idx, false]),
-            );
-            draftSavedAt.value = null;
-            loadDraft();
-        }
-    } else {
-        // No specific order — e.g. the seller clicked "Prepare Orders" in
-        // the sidebar directly, rather than a specific order's "Prepare
-        // Shipment" button. Load the order list so we can offer a picker
-        // instead of a dead end.
-        order.value = null;
+const shopLocation = computed(() => {
+    const s = order.value?.seller;
 
-        if (!orders.value.length) {
-            await loadOrders();
-        }
+    return s ? [s.city, s.province].filter(Boolean).join(', ') : '';
+});
+
+const dimensionsLabel = computed(() => {
+    const d = packageDims.value;
+
+    if (!d || (!d.l && !d.w && !d.h)) {
+        return '—';
     }
 
+    return `${d.l || '?'} × ${d.w || '?'} × ${d.h || '?'} cm`;
+});
+
+// The string the seller SPA encodes into the parcel QR. Same value in the
+// review sheet and the post-dispatch sheet — the backend hands back the
+// order's existing token rather than minting a second one.
+const qrPayload = computed(
+    () => dispatchedOrder.value?.dispatch?.qrPayload || reviewQrPayload.value || '',
+);
+
+// Runs once `order.value` is populated (from cache or a fresh fetch):
+// seeds the local packing checklist, restores any saved draft, shows a
+// known tracking number, and kicks off dispatch-prep in the background.
+function afterOrderLoaded() {
+    packedState.value = Object.fromEntries(
+        order.value.items.map((_, idx) => [idx, false]),
+    );
+    draftSavedAt.value = null;
+    loadDraft();
+    // If the order already carries a tracking number (e.g. resumed
+    // later), show that; otherwise ask the backend to assign one. The
+    // cached list summary carries it flat; the full detail nests it
+    // under `shipping` — check both.
+    trackingNumber.value = order.value.shipping?.trackingNumber || order.value.trackingNumber || '';
+    prepareDispatch();
+}
+
+async function loadOrder() {
+    reviewOpen.value = false;
+    qrOpen.value = false;
+    dispatchedOrder.value = null;
+    reviewQrPayload.value = '';
+    trackingNumber.value = '';
+
+    if (!props.orderId) {
+        // No specific order — e.g. the seller clicked "Prepare Orders" in
+        // the sidebar directly, rather than a specific order's "Prepare
+        // Shipment" button. Show the picker shell immediately; its own
+        // isLoadingOrders spinner covers the (not awaited) list fetch
+        // instead of blocking this whole component behind it.
+        order.value = null;
+        isLoading.value = false;
+
+        if (!orders.value.length) {
+            loadOrders();
+        }
+
+        return;
+    }
+
+    // Instant paint: if this order is already in the cached list (the
+    // seller got here from the Orders list, Courier Handover, or this
+    // page's own picker — all backed by the same module-scoped `orders`
+    // ref), seed the page from that summary right away instead of making
+    // the seller wait on a network round trip for data we already have.
+    // The summary already carries items/status/customer in full.
+    const cached = orders.value.find((o) => o.id === props.orderId);
+
+    if (cached) {
+        order.value = { ...cached };
+        isLoading.value = false;
+        afterOrderLoaded();
+
+        // Backfill the detail-only fields the summary doesn't carry
+        // (seller/shop info) in the background — never blocks the page.
+        // Tracking is skipped; this view never renders it.
+        getOrderById(props.orderId, { includeJourney: false }).then((full) => {
+            if (full && order.value?.id === props.orderId) {
+                order.value = { ...order.value, ...full };
+            }
+        });
+
+        return;
+    }
+
+    // Cold path (e.g. a direct link) — nothing cached, so show the
+    // skeleton while fetching. Tracking is skipped; this view never
+    // renders it and it's the priciest part of the response.
+    isLoading.value = true;
+    order.value = await getOrderById(props.orderId, { includeJourney: false });
     isLoading.value = false;
+
+    if (order.value) {
+        afterOrderLoaded();
+    }
 }
 
 onMounted(loadOrder);
@@ -433,12 +729,54 @@ function togglePacked(idx) {
     packedState.value = { ...packedState.value, [idx]: !packedState.value[idx] };
 }
 
+// Package weight, dimensions and courier are required before dispatch —
+// the buyer-facing shipment record needs them, and there's no sane
+// default to fall back on for any of the three.
+const shippingConfigComplete = computed(() => {
+    const d = packageDims.value || {};
+
+    return (
+        Number(packageWeight.value) > 0 &&
+        Number(d.l) > 0 &&
+        Number(d.w) > 0 &&
+        Number(d.h) > 0 &&
+        shippingCarrier.value.trim().length > 0
+    );
+});
+
 const canDispatch = computed(
-    () => canPrepare.value && trackingNumber.value.trim().length > 0 && !isUpdatingStatus.value,
+    () =>
+        canPrepare.value &&
+        trackingNumber.value.trim().length > 0 &&
+        shippingConfigComplete.value &&
+        !isUpdatingStatus.value,
 );
 const dispatchDisabledReason = computed(() => {
     if (isUpdatingStatus.value) return '';
-    if (!trackingNumber.value.trim()) return 'Enter a tracking number before dispatching.';
+    if (!trackingNumber.value.trim()) {
+        return isPreppingDispatch.value
+            ? 'Preparing this shipment…'
+            : 'This shipment isn\'t ready to dispatch yet.';
+    }
+
+    if (!shippingConfigComplete.value) {
+        const d = packageDims.value || {};
+        const missing = [];
+
+        if (!(Number(packageWeight.value) > 0)) {
+            missing.push('weight');
+        }
+
+        if (!(Number(d.l) > 0 && Number(d.w) > 0 && Number(d.h) > 0)) {
+            missing.push('dimensions');
+        }
+
+        if (!shippingCarrier.value.trim()) {
+            missing.push('courier');
+        }
+
+        return `Enter the package ${missing.join(', ')} before dispatching.`;
+    }
 
     return '';
 });
@@ -460,7 +798,7 @@ function loadDraft() {
 
         const draft = JSON.parse(raw);
         packedState.value = { ...packedState.value, ...(draft.packedState || {}) };
-        trackingNumber.value = draft.trackingNumber || '';
+        // trackingNumber is assigned by the backend, not drafted here.
         shippingCarrier.value = draft.shippingCarrier || '';
         shippingService.value = draft.shippingService || 'Standard';
         packageWeight.value = draft.packageWeight ?? null;
@@ -477,7 +815,6 @@ function saveDraft() {
         draftKey.value,
         JSON.stringify({
             packedState: packedState.value,
-            trackingNumber: trackingNumber.value,
             shippingCarrier: shippingCarrier.value,
             shippingService: shippingService.value,
             packageWeight: packageWeight.value,
@@ -493,17 +830,55 @@ function clearDraft() {
     }
 }
 
-async function confirmDispatch() {
-    if (!canDispatch.value) return;
-
-    if (
-        !allPacked.value &&
-        !window.confirm(
-            `${totalItems.value - packedCount.value} item(s) are still marked as pending. Dispatch this shipment anyway?`,
-        )
-    ) {
+// Ask the backend to assign this order's dispatch identifiers (parcel QR
+// token + tracking number). Runs once when the order is opened; safe to
+// call again as a retry if the first attempt failed.
+async function prepareDispatch() {
+    if ((reviewQrPayload.value && trackingNumber.value) || !order.value) {
         return;
     }
+
+    isPreppingDispatch.value = true;
+
+    const res = await ensureDispatchPrep(order.value.id);
+
+    isPreppingDispatch.value = false;
+
+    if (res) {
+        reviewQrPayload.value = res.qrPayload || reviewQrPayload.value;
+        trackingNumber.value = res.trackingNumber || trackingNumber.value;
+    }
+}
+
+// "Confirm Dispatch" opens the review sheet rather than dispatching
+// straight away — the seller checks the QR, shop, items and shipping
+// summary (and the still-pending-items warning) there before committing.
+function confirmDispatch() {
+    if (!canDispatch.value) return;
+
+    reviewOpen.value = true;
+    prepareDispatch();
+}
+
+// Keep the weight / dimension boxes to digits (and a single decimal
+// point). type="number" already ignores letters on most browsers; this
+// covers "e"/"+"/"-" and pasted text so nothing but a number gets in.
+function blockNonNumericKey(event) {
+    if (['e', 'E', '+', '-'].includes(event.key)) {
+        event.preventDefault();
+    }
+}
+
+function sanitizeNumericPaste(event) {
+    const text = (event.clipboardData || window.clipboardData)?.getData('text') ?? '';
+
+    if (!/^\d*\.?\d*$/.test(text.trim())) {
+        event.preventDefault();
+    }
+}
+
+async function doDispatch() {
+    if (!canDispatch.value) return;
 
     const updated = await shipOrder(order.value.id, {
         tracking_number: trackingNumber.value.trim(),
@@ -511,10 +886,44 @@ async function confirmDispatch() {
         shipping_service: shippingService.value || null,
     });
 
-    if (updated) {
-        clearDraft();
+    // shipOrder() swallows the error and surfaces it via updateError —
+    // keep the review sheet open so the seller sees it and can retry.
+    if (!updated) return;
+
+    clearDraft();
+    dispatchedOrder.value = updated;
+    reviewOpen.value = false;
+
+    // Show the parcel QR the courier will scan at each checkpoint. If the
+    // backend didn't return one, just go straight to the order.
+    if (updated.dispatch?.qrPayload) {
+        qrOpen.value = true;
+    } else {
         goToOrderDetails();
     }
+}
+
+function finishDispatch() {
+    qrOpen.value = false;
+    goToOrderDetails();
+}
+
+// Print the full delivery summary — shop, items, shipping config, tracking
+// number and the parcel QR. Shared with Order Details (see
+// lib/deliveryDetailsPrint.js) so it can be reprinted after the order has
+// left this list. Weight/dimensions live only on this screen, so pass
+// them through as extras.
+function printDeliveryDetails() {
+    const o = dispatchedOrder.value || order.value;
+
+    if (!o) {
+        return;
+    }
+
+    printDeliveryDetailsDoc(o, {
+        weight: packageWeight.value,
+        dims: packageDims.value,
+    });
 }
 
 function goTo(section) {
