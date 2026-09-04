@@ -13,9 +13,11 @@ use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\Api\Courier\CourierApplicationController;
 use App\Http\Controllers\Api\Courier\CourierProfileController;
 use App\Http\Controllers\Api\Courier\LogisticsCompanyController;
+use App\Http\Controllers\Api\Courier\ResignationRequestController as CourierResignationRequestController;
 use App\Http\Controllers\Api\Logistics\DeliveryAreaController;
 use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
 use App\Http\Controllers\Api\Logistics\ParcelAssignmentController;
+use App\Http\Controllers\Api\Logistics\ResignationRequestController as LogisticsResignationRequestController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
 use App\Http\Controllers\PasswordResetController;
@@ -115,6 +117,16 @@ Route::prefix('courier')->name('courier.')->group(function () {
         ->name('applications.license');
     Route::get('/profile/employment', [CourierProfileController::class, 'employment'])
         ->name('profile.employment');
+
+    // Resignation — a courier employed by a logistics company asks to leave.
+    Route::get('/resignation-requests', [CourierResignationRequestController::class, 'index'])
+        ->name('resignation-requests.index');
+    Route::post('/resignation-requests', [CourierResignationRequestController::class, 'store'])
+        ->name('resignation-requests.store');
+    Route::delete('/resignation-requests/{resignationRequest}', [CourierResignationRequestController::class, 'destroy'])
+        ->name('resignation-requests.destroy');
+    Route::get('/resignation-requests/{resignationRequest}/letter', [CourierResignationRequestController::class, 'letter'])
+        ->name('resignation-requests.letter');
 });
 
 // ============================================================
@@ -133,6 +145,20 @@ Route::prefix('logistics')->name('logistics.')->group(function () {
         ->name('applications.resume');
     Route::get('/applications/{application}/license', [LogisticsApplicationController::class, 'license'])
         ->name('applications.license');
+    // "Fire" an accepted courier from the Rider Applications page.
+    Route::post('/applications/{application}/terminate', [LogisticsApplicationController::class, 'terminate'])
+        ->name('applications.terminate');
+
+    // Resignation requests addressed to the signed-in logistics company
+    // (the "Resignation requests" panel on the Rider Applications page).
+    Route::get('/resignation-requests', [LogisticsResignationRequestController::class, 'index'])
+        ->name('resignation-requests.index');
+    Route::get('/resignation-requests/{resignationRequest}/letter', [LogisticsResignationRequestController::class, 'letter'])
+        ->name('resignation-requests.letter');
+    Route::post('/resignation-requests/{resignationRequest}/approve', [LogisticsResignationRequestController::class, 'approve'])
+        ->name('resignation-requests.approve');
+    Route::post('/resignation-requests/{resignationRequest}/reject', [LogisticsResignationRequestController::class, 'reject'])
+        ->name('resignation-requests.reject');
 });
 
 Route::middleware(['supabase.auth', 'logistics'])

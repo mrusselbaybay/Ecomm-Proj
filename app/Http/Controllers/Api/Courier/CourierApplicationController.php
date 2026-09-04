@@ -15,9 +15,7 @@ use Illuminate\Support\Str;
 
 class CourierApplicationController extends Controller
 {
-    public function __construct(private readonly SupabaseStorageService $supabaseStorage)
-    {
-    }
+    public function __construct(private readonly SupabaseStorageService $supabaseStorage) {}
 
     /** Return the signed-in profile that can use the courier work flow. */
     private function authenticatedProfile(Request $request): Profile|JsonResponse
@@ -94,6 +92,23 @@ class CourierApplicationController extends Controller
         $company = LogisticsCompany::query()->find($validated['logistics_company_id']);
         if (! $company) {
             return response()->json(['message' => 'Logistics company not found.'], 404);
+        }
+
+        // One employer at a time: a courier already accepted somewhere must
+        // resign (Api\Courier\ResignationRequestController) before applying
+        // elsewhere.
+        $employer = CourierApplication::query()
+            ->with('logisticsCompany')
+            ->where('courier_profile_id', $profile->id)
+            ->where('status', CourierApplication::STATUS_ACCEPTED)
+            ->first();
+
+        if ($employer) {
+            $employerName = $employer->logisticsCompany?->company_name ?? 'your current logistics company';
+
+            return response()->json([
+                'message' => "You're already employed by {$employerName}. Submit a resignation request before applying to another company.",
+            ], 422);
         }
 
         $existing = CourierApplication::query()

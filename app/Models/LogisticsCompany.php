@@ -22,11 +22,16 @@ class LogisticsCompany extends Model
         'region',
         'status',
         'account_status',
+        'description',
+        'monthly_salary',
+        'is_hiring',
     ];
 
     protected $casts = [
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'monthly_salary' => 'decimal:2',
+        'is_hiring' => 'boolean',
     ];
 
     public function owner()

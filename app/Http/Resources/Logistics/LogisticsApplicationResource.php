@@ -38,6 +38,8 @@ class LogisticsApplicationResource extends JsonResource
                     'last_name' => $this->courier?->last_name,
                     'email' => $this->courier?->email,
                     'contact_no' => $this->courier?->contact_no,
+                    'birthday' => $this->courier?->birthday?->toDateString(),
+                    'address' => $this->courier?->address?->full_address,
                 ];
             }),
             'courier_details' => $this->whenLoaded('courier', function (): ?array {

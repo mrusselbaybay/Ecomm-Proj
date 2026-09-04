@@ -34,11 +34,18 @@
     --lg-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Lock the page shell to the viewport so the ONLY scrollbar is inside
+   .logistics-main. Without `overflow: hidden` here a tall page (Account
+   Settings) scrolls the window as well, giving two side-by-side vertical
+   scrollbars. Mirrors the seller portal's reset. */
 html,
-body,
-#app {
-    min-height: 100%;
+body {
+    height: 100%;
     margin: 0;
+    overflow: hidden;
+}
+#app {
+    height: 100%;
 }
 
 body {
@@ -186,6 +193,15 @@ body {
     display: flex;
     flex-direction: column;
     gap: 24px;
+    /* On a short viewport the nav + account block can exceed 100vh; scroll
+       it rather than letting .logistics-shell's overflow:hidden clip the
+       account block off the bottom. */
+    height: 100vh;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+.logistics-sidebar::-webkit-scrollbar {
+    display: none;
 }
 .sidebar-brand {
     display: flex;
@@ -363,6 +379,14 @@ body {
     overflow-y: auto;
     overflow-x: hidden;
     min-width: 0;
+    /* Promote this scroll container to its own GPU compositing layer.
+       Without it, a bulk style change inside here (e.g. every field
+       flipping :disabled on Account Settings save) landing at the same
+       moment as the fixed-position toast's enter/leave transition can
+       leave Chromium's compositor with a stale, unpainted region until
+       the next resize forces a full re-layout — a known Chromium repaint
+       bug, not an app bug. transform: translateZ(0) forces a repaint. */
+    transform: translateZ(0);
 }
 .logistics-page {
     max-width: 1240px;
@@ -693,6 +717,17 @@ body {
     font-size: 14px;
     vertical-align: middle;
 }
+/* `.text-right` / `.text-center` (specificity 0,1,0) lost to
+   `.admin-table th` (0,1,1), so a header marked text-center still
+   rendered left-aligned while its column's buttons were centred. */
+.admin-table th.text-right,
+.admin-table td.text-right {
+    text-align: right;
+}
+.admin-table th.text-center,
+.admin-table td.text-center {
+    text-align: center;
+}
 .admin-table tbody tr {
     transition: background-color 0.12s var(--lg-ease);
 }
@@ -790,8 +825,15 @@ body {
 .action-buttons {
     display: flex;
     gap: 8px;
-    justify-content: flex-end;
+    justify-content: center;
     flex-wrap: wrap;
+}
+/* A lone "Fire" action reads better with some body to it than a tiny
+   pill floating under the centred "Actions" header. */
+.btn-fire {
+    min-width: 104px;
+    padding-left: 20px;
+    padding-right: 20px;
 }
 
 button {
@@ -1184,51 +1226,7 @@ button:disabled:hover {
 }
 
 /* ===================== Sorting operations ===================== */
-.workflow-strip {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 8px;
-    margin-bottom: 22px;
-}
-.workflow-step {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 11px;
-    border: 1px solid var(--lg-border);
-    background: white;
-    border-radius: var(--lg-radius-sm);
-    color: var(--lg-slate-600);
-    font-size: 11px;
-}
-.workflow-step span {
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: var(--lg-primary-light);
-    color: var(--lg-primary-dark);
-    font-weight: 800;
-}
-.operations-grid {
-    display: grid;
-    grid-template-columns: 1.25fr 0.75fr;
-    gap: 18px;
-    margin-bottom: 18px;
-}
-.operation-panel {
-    padding: 22px;
-}
-.operation-panel h3,
-.table-heading h3,
-.placeholder-card h3 {
-    margin: 5px 0 7px;
-    font-size: 17px;
-}
-.panel-copy,
-.table-heading p,
-.placeholder-card p {
+.panel-copy {
     margin: 0;
     color: var(--lg-slate);
     font-size: 13px;
@@ -1250,25 +1248,7 @@ button:disabled:hover {
     color: var(--lg-amber);
     font-size: 12px;
 }
-.area-panel {
-    background: linear-gradient(145deg, #fff, var(--lg-primary-light));
-}
-.area-panel .btn-outline {
-    margin-top: 18px;
-}
-.parcel-table-card {
-    overflow: hidden;
-}
-.table-heading {
-    padding: 18px 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    border-bottom: 1px solid var(--lg-border);
-}
-.empty-box,
-.placeholder-icon {
+.empty-box {
     display: grid;
     place-items: center;
     width: 48px;
@@ -1286,33 +1266,6 @@ button:disabled:hover {
 }
 .empty-state p {
     margin: 0;
-}
-.placeholder-card {
-    padding: 64px 24px;
-    text-align: center;
-}
-.dashboard-alert {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 18px;
-    padding: 12px 14px;
-    border: 1px solid var(--lg-red-border);
-    border-radius: var(--lg-radius-sm);
-    background: #fff7f7;
-    color: var(--lg-red);
-    font-size: 12px;
-}
-.dashboard-alert span {
-    flex: 1;
-    color: #7f1d1d;
-}
-.dashboard-alert button {
-    border: 0;
-    background: transparent;
-    color: var(--lg-red);
-    font-weight: 800;
-    cursor: pointer;
 }
 
 /* ===================== Delivery area management ===================== */
@@ -1690,9 +1643,9 @@ button:disabled:hover {
     text-align: center;
 }
 .avatar-lg {
-    width: 64px;
-    height: 64px;
-    font-size: 20px;
+    width: 76px;
+    height: 76px;
+    font-size: 24px;
 }
 .rider-view-name {
     font-size: 16px;
@@ -1853,9 +1806,6 @@ button:disabled:hover {
 }
 
 @media (max-width: 1000px) {
-    .workflow-strip {
-        grid-template-columns: repeat(3, 1fr);
-    }
     .area-card-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -1947,12 +1897,6 @@ button:disabled:hover {
     .logistics-main {
         padding: 0 16px 32px;
     }
-    .portal-header {
-        padding-top: 20px;
-    }
-    .operations-grid {
-        grid-template-columns: 1fr;
-    }
     .page-title {
         font-size: 20px;
     }
@@ -1971,13 +1915,7 @@ button:disabled:hover {
         max-height: 92vh;
     }
     .action-buttons {
-        justify-content: flex-start;
-    }
-    .portal-header-actions .live-indicator {
-        display: none;
-    }
-    .workflow-strip {
-        grid-template-columns: repeat(2, 1fr);
+        justify-content: center;
     }
     .scan-form {
         flex-direction: column;
@@ -1989,5 +1927,1121 @@ button:disabled:hover {
     }
     .full-field {
         grid-column: auto;
+    }
+}
+
+/* ============================================================
+   PORTAL SHELL & PAGE CHROME (2026 revamp)
+   The portal used to stack three headers — a mobile topbar, a
+   "Company / Page" bar, and each page's own title block — all
+   repeating the same words. There is now exactly one page
+   header, owned by the page, so these rules give the main
+   column the top spacing the removed bar used to provide.
+   ============================================================ */
+.logistics-main {
+    padding-top: 28px;
+}
+
+.nav-icon {
+    flex-shrink: 0;
+}
+
+.topbar-avatar {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+}
+
+.page-header {
+    padding-bottom: 4px;
+}
+.page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.sync-note {
+    color: var(--lg-slate);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* ===================== Buttons ===================== */
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+.btn-link {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--lg-primary-dark);
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.btn-link:hover {
+    text-decoration: underline;
+}
+
+/* ===================== Callouts ===================== */
+.callout-amber {
+    background: var(--lg-amber-bg);
+    border: 1px solid #fcd9a4;
+    color: #7c4a03;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+/* Inline banner form: icon, message, optional action on one row. */
+.callout-block {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 18px;
+}
+.callout-block > span,
+.callout-block > div {
+    flex: 1;
+    min-width: 0;
+}
+.callout-block strong {
+    display: block;
+}
+.callout-block p {
+    margin: 2px 0 0;
+    font-size: 12.5px;
+}
+.callout-block .btn-outline,
+.callout-block .btn-link {
+    flex-shrink: 0;
+}
+
+/* ===================== Stat cards ===================== */
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 26px;
+}
+.stat-card.accent-neutral {
+    --lg-card-accent: var(--lg-border-strong);
+}
+.stat-card.accent-neutral .stat-icon {
+    background: #f1f5f9;
+    color: var(--lg-slate-600);
+}
+.stat-card.is-clickable {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+}
+.stat-card.is-clickable:focus-visible {
+    outline: 2px solid var(--lg-primary);
+    outline-offset: 2px;
+}
+.stat-value {
+    margin: 10px 0 0;
+    font-size: 27px;
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+}
+.stat-neutral {
+    color: var(--lg-slate-600);
+}
+.stat-hint {
+    margin: 5px 0 0;
+    color: var(--lg-slate);
+    font-size: 11.5px;
+    line-height: 1.45;
+}
+
+/* ===================== Loading skeletons =====================
+   Shown instead of a spinner (or, worse, a real-looking "0")
+   while a list or counter is still loading. */
+.skeleton {
+    display: block;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #eef2f6 25%, #f8fafc 37%, #eef2f6 63%);
+    background-size: 400% 100%;
+    animation: skeleton-sweep 1.4s ease infinite;
+}
+.skeleton-stat {
+    width: 62px;
+    height: 30px;
+    margin: 10px 0 0;
+}
+.skeleton-row {
+    width: 100%;
+    height: 15px;
+}
+.skeleton-row:nth-child(even) {
+    width: 78%;
+}
+.skeleton-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.skeleton-table {
+    padding: 22px 20px;
+    gap: 16px;
+}
+@keyframes skeleton-sweep {
+    from {
+        background-position: 100% 50%;
+    }
+    to {
+        background-position: 0 50%;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .skeleton {
+        animation: none;
+    }
+}
+
+/* ===================== Dashboard ===================== */
+.dashboard-split {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    align-items: start;
+}
+.card-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.card-heading .section-label {
+    margin: 0;
+}
+
+.metric-list {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.metric-list > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--lg-border);
+}
+.metric-list > div:last-child {
+    border-bottom: 0;
+}
+.metric-list dt {
+    color: var(--lg-slate-600);
+    font-size: 13px;
+}
+.metric-list dd {
+    margin: 0;
+    color: var(--lg-ink);
+    font-size: 15px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+.metric-warn {
+    color: var(--lg-amber);
+}
+
+.people-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.person-row {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--lg-border);
+}
+.person-row:last-child {
+    border-bottom: 0;
+}
+.person-copy {
+    flex: 1;
+    min-width: 0;
+}
+.person-copy strong {
+    display: block;
+    color: var(--lg-ink);
+    font-size: 13.5px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.person-copy span {
+    color: var(--lg-slate);
+    font-size: 11.5px;
+}
+.card .callout-amber {
+    margin-top: 16px;
+}
+
+/* ===================== Parcel intake ===================== */
+.scan-card {
+    padding: 22px;
+    margin-bottom: 18px;
+    background: linear-gradient(145deg, #fff 55%, var(--lg-primary-light));
+}
+.scan-card-copy h3 {
+    margin: 5px 0 7px;
+    font-size: 17px;
+}
+.scan-input-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 220px;
+}
+.scan-input-icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--lg-primary);
+    pointer-events: none;
+}
+.scan-input {
+    padding-left: 38px;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+}
+.scan-form .btn-primary {
+    flex-shrink: 0;
+}
+.lookup-message.is-error {
+    background: var(--lg-red-bg);
+    color: #7f1d1d;
+}
+
+/* ===================== Queue: filters, table, footer ===================== */
+.queue-card {
+    overflow: hidden;
+}
+.queue-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--lg-border);
+    flex-wrap: wrap;
+}
+.queue-search {
+    flex: 0 1 320px;
+    min-width: 200px;
+}
+.queue-search .icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--lg-slate);
+    pointer-events: none;
+}
+.queue-search input {
+    width: 100%;
+    padding: 9px 12px 9px 34px;
+    border: 1px solid var(--lg-border);
+    border-radius: var(--lg-radius-sm);
+    font-size: 13px;
+    background: var(--lg-surface);
+    color: var(--lg-ink);
+}
+.queue-search input:focus {
+    outline: none;
+    border-color: var(--lg-primary);
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+}
+
+.filter-chips {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 12px;
+    border: 1px solid var(--lg-border);
+    border-radius: 999px;
+    background: var(--lg-surface);
+    color: var(--lg-slate-600);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+        background 0.15s var(--lg-ease),
+        border-color 0.15s var(--lg-ease),
+        color 0.15s var(--lg-ease);
+}
+.filter-chip:hover {
+    border-color: var(--lg-border-strong);
+    background: var(--lg-bg);
+}
+.filter-chip.active {
+    background: var(--lg-primary);
+    border-color: var(--lg-primary);
+    color: #fff;
+}
+.filter-chip:focus-visible {
+    outline: 2px solid var(--lg-primary);
+    outline-offset: 2px;
+}
+.filter-chip-count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 20px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--lg-bg);
+    color: var(--lg-slate-600);
+    font-size: 11px;
+    font-weight: 800;
+}
+.filter-chip.active .filter-chip-count {
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+}
+
+.queue-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--lg-border);
+    flex-wrap: wrap;
+}
+.queue-count {
+    margin: 0;
+    color: var(--lg-slate);
+    font-size: 12.5px;
+}
+
+.parcel-meta {
+    display: block;
+    margin-top: 2px;
+    color: #94a3b8;
+    font-size: 11px;
+}
+.muted-cell {
+    color: #94a3b8;
+}
+
+/* ===================== Toasts ===================== */
+.toast {
+    align-items: flex-start;
+    max-width: 26rem;
+}
+.toast span {
+    flex: 1;
+    line-height: 1.45;
+}
+.toast .nav-icon {
+    margin-top: 1px;
+}
+.toast-close {
+    border: 0;
+    background: none;
+    padding: 0;
+    margin-left: 4px;
+    color: inherit;
+    opacity: 0.65;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.toast-close:hover {
+    opacity: 1;
+}
+
+/* ===================== Responsive ===================== */
+@media (max-width: 1100px) {
+    .stat-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .dashboard-split {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 900px) {
+    .logistics-main {
+        padding-top: 20px;
+    }
+    .queue-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+    .queue-search {
+        flex-basis: auto;
+    }
+    .filter-chips {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 4px;
+        scrollbar-width: thin;
+    }
+}
+
+@media (max-width: 560px) {
+    .stat-grid {
+        grid-template-columns: 1fr;
+    }
+    .page-header-actions {
+        width: 100%;
+    }
+    .page-header-actions .btn-outline,
+    .page-header-actions .btn-primary {
+        flex: 1;
+        justify-content: center;
+    }
+    .sync-note {
+        width: 100%;
+    }
+    .callout-block {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
+
+/* ============================================================
+   ACCOUNT SETTINGS (AccountSettings.vue)
+   Ported from the seller account page
+   (resources/css/seller/layout.css) with the seller design
+   tokens swapped for the logistics --lg-* tokens. Reuses the
+   portal's existing .card / .field-input / .field-label /
+   .btn-* / .badge / .modal-* / .empty-state classes.
+   ============================================================ */
+.acct-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0 auto 1.5rem;
+    max-width: 60rem;
+    flex-wrap: wrap;
+}
+.acct-title {
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: var(--lg-ink);
+    letter-spacing: -0.01em;
+    margin: 0;
+}
+.acct-last-updated {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    font-style: italic;
+}
+
+.acct-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    max-width: 60rem;
+    margin: 0 auto;
+}
+.acct-content form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+.acct-section {
+    padding: 1.6rem;
+    scroll-margin-top: 1rem;
+}
+.acct-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.4rem;
+    flex-wrap: wrap;
+}
+.acct-section-head h3 {
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--lg-ink);
+    margin: 0;
+}
+.acct-section-sub {
+    font-size: 0.78rem;
+    color: var(--lg-slate);
+    margin: 0.2rem 0 0;
+}
+
+.acct-avatar-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+.acct-avatar {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 1rem;
+    background: linear-gradient(
+        135deg,
+        var(--lg-primary),
+        var(--lg-primary-dark)
+    );
+    background-size: cover;
+    background-position: center;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 800;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+.acct-avatar-edit {
+    position: absolute;
+    right: -4px;
+    bottom: -4px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid white;
+    border-radius: 50%;
+    background: var(--lg-primary);
+    color: white;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.acct-avatar-edit:hover {
+    background: var(--lg-primary-dark);
+}
+.acct-avatar-edit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+.acct-avatar-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.acct-verified-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.7rem;
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    flex-shrink: 0;
+}
+
+.acct-section-danger {
+    border-color: var(--lg-red-border);
+    background: #fffafa;
+}
+.acct-section-danger .acct-section-head h3 {
+    color: var(--lg-red);
+}
+
+.acct-toast {
+    position: fixed;
+    top: 1.25rem;
+    right: 1.25rem;
+    z-index: 200;
+    /* Its own compositing layer, isolated from the rest of the page —
+       see the matching note on .logistics-main. */
+    will-change: transform, opacity;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.85rem 1.1rem;
+    border-radius: 0.85rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+    max-width: 22rem;
+}
+.acct-toast.success {
+    background: var(--lg-ink);
+    color: white;
+}
+.acct-toast.success svg {
+    color: #10b981;
+}
+.acct-toast.error {
+    background: #fef2f2;
+    color: var(--lg-red);
+    border: 1px solid var(--lg-red-border);
+}
+.acct-toast-fade-enter-active,
+.acct-toast-fade-leave-active {
+    transition:
+        opacity 0.2s ease,
+        transform 0.2s ease;
+}
+.acct-toast-fade-enter-from,
+.acct-toast-fade-leave-to {
+    opacity: 0;
+    transform: translateY(-8px);
+}
+
+/* "Currently hiring" switch — a settings row: label + hint on the left,
+   the switch + its state word on the right, vertically centred. */
+.acct-toggle-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.25rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--lg-border);
+    border-radius: var(--lg-radius-sm);
+    background: var(--lg-primary-light);
+}
+.acct-toggle-field.disabled {
+    opacity: 0.75;
+}
+.acct-toggle-field-text {
+    min-width: 0;
+}
+.acct-toggle-field-text .field-hint {
+    margin-top: 0.15rem;
+}
+.acct-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.acct-toggle-field.disabled .acct-switch {
+    cursor: not-allowed;
+}
+.acct-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+}
+.acct-switch-track {
+    position: relative;
+    width: 42px;
+    height: 24px;
+    border-radius: 999px;
+    background: var(--lg-border-strong);
+    transition: background 0.15s ease;
+    flex-shrink: 0;
+}
+.acct-switch-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.3);
+    transition: transform 0.15s ease;
+}
+.acct-switch input:checked + .acct-switch-track {
+    background: var(--lg-primary);
+}
+.acct-switch input:checked + .acct-switch-track .acct-switch-thumb {
+    transform: translateX(18px);
+}
+.acct-switch input:focus-visible + .acct-switch-track {
+    outline: 2px solid var(--lg-primary);
+    outline-offset: 2px;
+}
+.acct-switch-text {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--lg-slate-600);
+    min-width: 3rem;
+}
+
+/* form grid + actions + messages (seller "form-*" / "save-msg") */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.9rem;
+}
+.form-grid .full-span {
+    grid-column: 1 / -1;
+}
+.form-grid textarea.field-input {
+    resize: vertical;
+    min-height: 5rem;
+    font-family: inherit;
+}
+.form-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    max-width: 60rem;
+    margin: 0 auto;
+}
+.save-msg {
+    font-size: 0.8rem;
+}
+.save-msg.success {
+    color: var(--lg-primary-dark);
+    font-weight: 600;
+}
+.save-msg.error {
+    color: var(--lg-red);
+    font-weight: 600;
+}
+.field-hint {
+    margin: 0.4rem 0 0;
+    font-size: 0.72rem;
+    color: var(--lg-slate);
+    line-height: 1.4;
+}
+.req {
+    color: var(--lg-primary);
+}
+
+.prep-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--lg-slate);
+}
+.ch-success-note {
+    font-size: 0.78rem;
+    color: #059669;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    border-radius: 0.6rem;
+    padding: 0.5rem 0.75rem;
+    margin: 0;
+}
+
+/* ------------------------------------------------------------
+   SECURITY & PASSWORD — card + 3-step change-password modal.
+   Ported from the buyer account page (resources/css/buyer/
+   layout.css, the .account-* classes) with the buyer --nx-*
+   tokens swapped for the logistics --lg-* tokens, so the flow
+   looks and behaves the same as buyer/admin.
+   ------------------------------------------------------------ */
+.account-password-display {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--lg-bg);
+    border: 1px solid var(--lg-border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+}
+.account-password-dots {
+    font-size: 17px;
+    letter-spacing: 2px;
+    color: var(--lg-ink);
+}
+.account-password-note {
+    margin-left: auto;
+    color: #94a3b8;
+    font-size: 12px;
+}
+.account-security-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 20px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid var(--lg-border-strong);
+    background: var(--lg-surface);
+    color: var(--lg-ink);
+}
+.account-security-button:hover {
+    background: var(--lg-bg);
+}
+
+.account-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.5);
+    padding: 20px;
+}
+.account-modal-panel {
+    width: 100%;
+    max-width: 420px;
+    max-height: 90vh;
+    overflow-y: auto;
+    background: var(--lg-surface);
+    border-radius: 20px;
+    padding: 28px;
+    box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.3);
+}
+.account-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.account-modal-header h3 {
+    margin: 0;
+    color: var(--lg-ink);
+    font-size: 17px;
+    font-weight: 800;
+}
+.account-modal-close {
+    flex-shrink: 0;
+    display: flex;
+    border: none;
+    background: none;
+    color: var(--lg-slate);
+    cursor: pointer;
+}
+.account-modal-desc {
+    margin: 0 0 16px;
+    color: var(--lg-slate);
+    font-size: 13.5px;
+    line-height: 1.5;
+}
+.account-modal-desc strong {
+    color: var(--lg-ink);
+}
+.account-modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+.account-modal-actions button {
+    flex: 1;
+    padding: 11px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.account-btn-outline {
+    border: 1px solid var(--lg-border);
+    background: var(--lg-surface);
+    color: var(--lg-ink);
+}
+.account-btn-outline:hover:not(:disabled) {
+    background: var(--lg-bg);
+}
+.account-btn-primary {
+    border: none;
+    background: var(--lg-primary);
+    color: #ffffff;
+    transition: background 0.15s ease;
+}
+.account-btn-primary:hover:not(:disabled) {
+    background: var(--lg-primary-dark);
+}
+.account-modal-actions button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.account-field {
+    display: block;
+}
+.account-field > span:first-child {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--lg-ink);
+}
+.account-field input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--lg-border);
+    border-radius: 10px;
+    font-size: 14px;
+    background: var(--lg-surface);
+    color: var(--lg-ink);
+}
+.account-field input:focus {
+    outline: none;
+    border-color: var(--lg-primary);
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+}
+.account-field input.invalid {
+    border-color: #dc2626;
+}
+.account-field small {
+    display: block;
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--lg-slate);
+}
+
+.account-otp-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 12px;
+}
+.account-otp-box {
+    width: 42px;
+    height: 48px;
+    text-align: center;
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--lg-ink);
+    border: 1px solid var(--lg-border);
+    border-radius: 12px;
+    background: var(--lg-bg);
+}
+.account-otp-box:focus {
+    outline: none;
+    border-color: var(--lg-primary);
+    background: var(--lg-surface);
+    box-shadow: 0 0 0 4px rgba(13, 148, 136, 0.1);
+}
+.account-otp-box.invalid {
+    border-color: #dc2626;
+}
+.account-otp-timer {
+    text-align: center;
+    color: var(--lg-slate);
+    font-size: 12.5px;
+    margin-bottom: 4px;
+}
+.account-link-button {
+    border: none;
+    background: none;
+    color: var(--lg-primary);
+    font-weight: 700;
+    font-size: 12.5px;
+    cursor: pointer;
+    padding: 0;
+}
+.account-link-button:disabled {
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+.account-strength-meter {
+    height: 6px;
+    background: var(--lg-border);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+.account-strength-bar {
+    height: 100%;
+    border-radius: 999px;
+    transition:
+        width 0.2s ease,
+        background 0.2s ease;
+}
+.account-strength-weak {
+    background: #dc2626;
+}
+.account-strength-medium {
+    background: #f59e0b;
+}
+.account-strength-strong {
+    background: #16a34a;
+}
+.account-strength-text-weak {
+    color: #dc2626 !important;
+}
+.account-strength-text-medium {
+    color: #b45309 !important;
+}
+.account-strength-text-strong {
+    color: #16a34a !important;
+}
+.account-requirements-list {
+    list-style: none;
+    padding: 0;
+    margin: 10px 0 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    font-size: 11.5px;
+    color: #94a3b8;
+}
+.account-requirements-list li::before {
+    content: '○ ';
+}
+.account-requirements-list li.met {
+    color: #16a34a;
+}
+.account-requirements-list li.met::before {
+    content: '● ';
+}
+.account-field-error {
+    color: #dc2626;
+    font-size: 12.5px;
+    margin: 0;
+}
+.account-mb-2 {
+    margin-bottom: 8px;
+}
+.account-mb-3 {
+    margin-bottom: 12px;
+}
+.account-text-center {
+    text-align: center;
+}
+
+@media (max-width: 720px) {
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .acct-toggle-field {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
     }
 }

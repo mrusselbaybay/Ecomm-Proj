@@ -22,6 +22,9 @@ class LogisticsCompanyController extends Controller
         ]);
 
         $companies = LogisticsCompany::query()
+            // Only companies that have switched hiring on in their portal
+            // Account Settings are offered to couriers looking for work.
+            ->where('is_hiring', true)
             ->when($filters['region'] ?? null, function (Builder $query, string $region): void {
                 $query->where('region', $region);
             })
@@ -35,6 +38,7 @@ class LogisticsCompanyController extends Controller
             ->get();
 
         $regions = LogisticsCompany::query()
+            ->where('is_hiring', true)
             ->whereNotNull('region')
             ->where('region', '!=', '')
             ->distinct()

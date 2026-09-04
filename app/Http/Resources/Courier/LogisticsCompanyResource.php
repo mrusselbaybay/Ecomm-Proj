@@ -22,6 +22,13 @@ class LogisticsCompanyResource extends JsonResource
             'region' => $this->region,
             'status' => $this->status,
             'account_status' => $this->account_status,
+            // Courier-recruitment fields the logistics company edits from
+            // its portal Account Settings page. `is_hiring` is already
+            // filtered to true by LogisticsCompanyController, but it is
+            // returned anyway so the client can label the listing.
+            'description' => $this->description,
+            'monthly_salary' => $this->monthly_salary !== null ? (float) $this->monthly_salary : null,
+            'is_hiring' => (bool) $this->is_hiring,
             'created_at' => $this->created_at?->toISOString(),
         ];
     }

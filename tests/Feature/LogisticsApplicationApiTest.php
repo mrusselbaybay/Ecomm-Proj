@@ -250,3 +250,104 @@ it('does not withdraw a reviewed courier application', function () {
         'status' => 'accepted',
     ]);
 });
+
+it('fires an accepted courier: withdraws the application, clears area appointments and emails them', function () {
+    Illuminate\Support\Facades\Mail::fake();
+
+    $applicationId = 'e3b0c442-98fc-4c14-9afb-000000000101';
+    $areaId = 'e3b0c442-98fc-4c14-9afb-000000000201';
+
+    DB::table('logistics_companies')->insert([
+        'id' => 'company-a',
+        'owner_profile_id' => 'logistics-owner',
+        'company_name' => 'Company A',
+        'company_email' => 'a@example.test',
+        'company_contact_no' => '09170000001',
+        'tin' => '123',
+    ]);
+    DB::table('profiles')->insert([
+        'id' => 'courier-a',
+        'role' => 'courier',
+        'first_name' => 'Ana',
+        'last_name' => 'Cruz',
+        'email' => 'ana@example.test',
+    ]);
+    DB::table('courier_applications')->insert([
+        'id' => $applicationId,
+        'courier_profile_id' => 'courier-a',
+        'logistics_company_id' => 'company-a',
+        'status' => 'accepted',
+        'applied_at' => now(),
+    ]);
+    DB::table('logistics_delivery_areas')->insert([
+        'id' => $areaId,
+        'logistics_company_id' => 'company-a',
+        'name' => 'Area A',
+        'province_name' => 'Metro Manila',
+        'municipality_name' => 'Quezon City',
+        'is_active' => true,
+    ]);
+    DB::table('logistics_delivery_area_riders')->insert([
+        'delivery_area_id' => $areaId,
+        'rider_profile_id' => 'courier-a',
+    ]);
+
+    $response = $this->withToken('valid-access-token')
+        ->postJson("/api/logistics/applications/{$applicationId}/terminate", [
+            'reason' => 'Repeated missed pickups',
+        ]);
+
+    $response->assertOk()
+        ->assertJsonPath('data.id', $applicationId)
+        ->assertJsonPath('data.status', 'withdrawn');
+
+    $this->assertDatabaseHas('courier_applications', [
+        'id' => $applicationId,
+        'status' => 'withdrawn',
+        'rejection_reason' => 'Repeated missed pickups',
+        'reviewed_by' => 'logistics-owner',
+    ]);
+    $this->assertDatabaseMissing('logistics_delivery_area_riders', [
+        'delivery_area_id' => $areaId,
+        'rider_profile_id' => 'courier-a',
+    ]);
+    Illuminate\Support\Facades\Mail::assertSent(App\Mail\Logistics\ApplicationTerminated::class);
+});
+
+it('does not fire a courier whose application is not accepted', function () {
+    Illuminate\Support\Facades\Mail::fake();
+
+    $applicationId = 'e3b0c442-98fc-4c14-9afb-000000000102';
+
+    DB::table('logistics_companies')->insert([
+        'id' => 'company-a',
+        'owner_profile_id' => 'logistics-owner',
+        'company_name' => 'Company A',
+        'company_email' => 'a@example.test',
+        'company_contact_no' => '09170000001',
+        'tin' => '123',
+    ]);
+    DB::table('profiles')->insert([
+        'id' => 'courier-a',
+        'role' => 'courier',
+        'email' => 'ana@example.test',
+    ]);
+    DB::table('courier_applications')->insert([
+        'id' => $applicationId,
+        'courier_profile_id' => 'courier-a',
+        'logistics_company_id' => 'company-a',
+        'status' => 'pending',
+        'applied_at' => now(),
+    ]);
+
+    $this->withToken('valid-access-token')
+        ->postJson("/api/logistics/applications/{$applicationId}/terminate")
+        ->assertUnprocessable()
+        ->assertJsonPath('message', 'Only a currently accepted courier can be let go.');
+
+    $this->assertDatabaseHas('courier_applications', [
+        'id' => $applicationId,
+        'status' => 'pending',
+    ]);
+    Illuminate\Support\Facades\Mail::assertNothingSent();
+});

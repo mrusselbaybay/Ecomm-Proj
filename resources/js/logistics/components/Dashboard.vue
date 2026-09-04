@@ -1,216 +1,294 @@
-<!-- resources/js/logistics/components/Dashboard.vue -->
+<!-- resources/js/logistics/components/Dashboard.vue
+     An operations dashboard for a sorting centre: what is on the desk
+     right now, then hiring. It previously showed four application-status
+     counters — two of which ("Total Couriers" and "Accepted") were always
+     the same number, because the courier roster IS the accepted
+     applications, and the duplicate cost a second HTTP request to
+     /applications?status=accepted for data already in hand. -->
 <template>
     <div class="logistics-page">
-        <div class="page-header">
+        <header class="page-header">
             <div>
                 <h2 class="page-title">Dashboard</h2>
                 <p class="page-subtitle">
-                    Overview of {{ companyName }}'s courier network.
+                    {{ companyName || 'Your company' }} · today's operations at
+                    a glance
                 </p>
             </div>
-        </div>
-
-        <div v-if="loadError" class="dashboard-alert" role="alert">
-            <strong>We couldn't load the latest logistics data.</strong>
-            <span>{{ loadError }}</span>
-            <button type="button" @click="loadDashboard">Try again</button>
-        </div>
-
-        <div class="mb-6 grid grid-cols-4 gap-4">
-            <div class="stat-card accent-total">
-                <div class="stat-card-top">
-                    <p class="field-label">Total Couriers</p>
-                    <span class="stat-icon" aria-hidden="true">
-                        <svg class="icon-sm" viewBox="0 0 24 24" fill="none">
-                            <path
-                                d="M4 17V8a1 1 0 0 1 1-1h9v10M4 17h10M4 17a2 2 0 1 0 4 0m6 0a2 2 0 1 0 4 0M14 10h4l3 3v4h-2"
-                                stroke="currentColor"
-                                stroke-width="1.8"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            />
-                        </svg>
-                    </span>
-                </div>
-                <p class="stat-total text-2xl font-bold">
-                    {{ couriers.length }}
-                </p>
-            </div>
-            <div class="stat-card accent-pending">
-                <div class="stat-card-top">
-                    <p class="field-label">Pending Applications</p>
-                    <span class="stat-icon" aria-hidden="true">
-                        <svg class="icon-sm" viewBox="0 0 24 24" fill="none">
-                            <circle
-                                cx="12"
-                                cy="12"
-                                r="8.5"
-                                stroke="currentColor"
-                                stroke-width="1.8"
-                            />
-                            <path
-                                d="M12 7.5V12l3 2"
-                                stroke="currentColor"
-                                stroke-width="1.8"
-                                stroke-linecap="round"
-                            />
-                        </svg>
-                    </span>
-                </div>
-                <p class="stat-pending text-2xl font-bold">
-                    {{ pendingCount }}
-                </p>
-            </div>
-            <div class="stat-card accent-active">
-                <div class="stat-card-top">
-                    <p class="field-label">Accepted</p>
-                    <span class="stat-icon" aria-hidden="true">
-                        <svg class="icon-sm" viewBox="0 0 24 24" fill="none">
-                            <path
-                                d="m5 13 4 4L19 7"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            />
-                        </svg>
-                    </span>
-                </div>
-                <p class="stat-active text-2xl font-bold">
-                    {{ acceptedCount }}
-                </p>
-            </div>
-            <div class="stat-card accent-deactivated">
-                <div class="stat-card-top">
-                    <p class="field-label">Rejected</p>
-                    <span class="stat-icon" aria-hidden="true">
-                        <svg class="icon-sm" viewBox="0 0 24 24" fill="none">
-                            <path
-                                d="M6 6l12 12M18 6 6 18"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                            />
-                        </svg>
-                    </span>
-                </div>
-                <p class="stat-deactivated text-2xl font-bold">
-                    {{ rejectedCount }}
-                </p>
-            </div>
-        </div>
-
-        <div class="card p-6">
-            <h3 class="section-label mb-3">Recent Applications</h3>
-            <div v-if="recentApplications.length === 0" class="empty-state">
-                <svg
-                    class="icon-lg empty-state-icon"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    aria-hidden="true"
+            <div class="page-header-actions">
+                <span v-if="lastSyncedAt" class="sync-note">
+                    Updated {{ formatRelative(lastSyncedAt) }}
+                </span>
+                <button
+                    type="button"
+                    class="btn-outline btn-icon"
+                    :disabled="refreshing"
+                    @click="load(true)"
                 >
-                    <path
-                        d="M9 12h6M9 16h6M9 8h1M6 4h8l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"
-                        stroke="currentColor"
-                        stroke-width="1.6"
-                        stroke-linejoin="round"
-                    />
-                </svg>
-                <p>No applications yet.</p>
+                    <NavIcon name="refresh" :size="15" />
+                    Refresh
+                </button>
             </div>
-            <div v-else class="doc-list">
-                <div
-                    v-for="app in recentApplications"
-                    :key="app.id"
-                    class="doc-row"
-                >
-                    <div class="doc-info">
-                        <div class="avatar" aria-hidden="true">
-                            {{ initials(app) }}
-                        </div>
-                        <div>
-                            <p class="doc-type">
-                                {{ app.courier?.first_name }}
-                                {{ app.courier?.last_name }}
-                            </p>
-                            <p class="doc-date">
-                                Applied {{ formatDate(app.applied_at) }}
-                            </p>
-                        </div>
+        </header>
+
+        <div v-if="loadError" class="callout-red callout-block" role="alert">
+            <NavIcon name="alert" :size="18" />
+            <div>
+                <strong>We couldn't load the latest logistics data.</strong>
+                <p>{{ loadError }}</p>
+            </div>
+            <button type="button" class="btn-outline" @click="load(true)">
+                Try again
+            </button>
+        </div>
+
+        <!-- ---------------- Parcels on the desk ---------------- -->
+        <h3 class="section-label">Parcels on the desk</h3>
+        <div class="stat-grid">
+            <button
+                v-for="card in parcelCards"
+                :key="card.key"
+                type="button"
+                class="stat-card is-clickable"
+                :class="card.accent"
+                @click="emit('open-section', 'parcels')"
+            >
+                <div class="stat-card-top">
+                    <p class="field-label">{{ card.label }}</p>
+                    <span class="stat-icon" aria-hidden="true">
+                        <NavIcon :name="card.icon" :size="16" />
+                    </span>
+                </div>
+                <p v-if="loading" class="skeleton skeleton-stat"></p>
+                <p v-else class="stat-value" :class="card.tone">
+                    {{ card.value }}
+                </p>
+                <p class="stat-hint">{{ card.hint }}</p>
+            </button>
+        </div>
+
+        <!-- ---------------- Network + hiring ---------------- -->
+        <div class="dashboard-split">
+            <section class="card p-6">
+                <div class="card-heading">
+                    <h3 class="section-label">Delivery network</h3>
+                    <button
+                        type="button"
+                        class="btn-link"
+                        @click="emit('open-section', 'couriers')"
+                    >
+                        Manage areas
+                    </button>
+                </div>
+
+                <div v-if="loading" class="skeleton-list">
+                    <span
+                        v-for="n in 3"
+                        :key="n"
+                        class="skeleton skeleton-row"
+                    ></span>
+                </div>
+                <dl v-else class="metric-list">
+                    <div>
+                        <dt>Active delivery areas</dt>
+                        <dd>{{ areaStats.active }}</dd>
                     </div>
-                    <span class="badge" :class="badgeClass(app.status)">{{
-                        app.status
-                    }}</span>
+                    <div>
+                        <dt>Areas with an appointed rider</dt>
+                        <dd
+                            :class="{
+                                'metric-warn': unstaffedAreas > 0,
+                            }"
+                        >
+                            {{ areaStats.staffed }} / {{ areaStats.active }}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>Riders on the roster</dt>
+                        <dd>{{ rosterSize }}</dd>
+                    </div>
+                </dl>
+
+                <p v-if="!loading && unstaffedAreas > 0" class="callout-amber">
+                    {{ unstaffedAreas }}
+                    {{ unstaffedAreas === 1 ? 'area has' : 'areas have' }}
+                    no appointed rider — parcels routed there can't be assigned.
+                </p>
+            </section>
+
+            <section class="card p-6">
+                <div class="card-heading">
+                    <h3 class="section-label">Recent applications</h3>
+                    <button
+                        type="button"
+                        class="btn-link"
+                        @click="emit('open-section', 'applications')"
+                    >
+                        View all
+                    </button>
                 </div>
-            </div>
+
+                <div v-if="loading" class="skeleton-list">
+                    <span
+                        v-for="n in 4"
+                        :key="n"
+                        class="skeleton skeleton-row"
+                    ></span>
+                </div>
+                <div
+                    v-else-if="recentApplications.length === 0"
+                    class="empty-state"
+                >
+                    <NavIcon name="inbox" :size="28" />
+                    <strong>No applications yet</strong>
+                    <p>Riders who apply to your company will show up here.</p>
+                </div>
+                <ul v-else class="people-list">
+                    <li
+                        v-for="app in recentApplications"
+                        :key="app.id"
+                        class="person-row"
+                    >
+                        <span class="avatar" aria-hidden="true">{{
+                            initials(app.courier)
+                        }}</span>
+                        <div class="person-copy">
+                            <strong>{{
+                                personName(app.courier, 'Unnamed applicant')
+                            }}</strong>
+                            <span
+                                >Applied {{ formatDate(app.applied_at) }}</span
+                            >
+                        </div>
+                        <span class="badge" :class="badgeClass(app.status)">{{
+                            app.status
+                        }}</span>
+                    </li>
+                </ul>
+
+                <p v-if="!loading && pendingCount > 0" class="callout-amber">
+                    {{ pendingCount }} application{{
+                        pendingCount === 1 ? '' : 's'
+                    }}
+                    waiting on your decision.
+                </p>
+            </section>
         </div>
     </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onActivated, onMounted, ref } from 'vue';
 import { useLogistics } from '../composables/useLogistics';
+import { useLogisticsUi } from '../composables/useLogisticsUi';
+import NavIcon from './NavIcon.vue';
+
+const emit = defineEmits(['open-section']);
 
 const {
     companyName,
     applications,
-    couriers,
+    areaRiders,
     pendingCount,
+    parcelStats,
+    areaStats,
+    lastSyncedAt,
     loadApplications,
-    loadCouriers,
+    loadParcelAssignments,
+    loadDeliveryAreas,
 } = useLogistics();
+const {
+    notifyError,
+    formatDate,
+    formatRelative,
+    initials,
+    personName,
+    badgeClass,
+} = useLogisticsUi();
 
-const acceptedCount = computed(
-    () => applications.value.filter((a) => a.status === 'accepted').length,
-);
-const rejectedCount = computed(
-    () => applications.value.filter((a) => a.status === 'rejected').length,
-);
-const recentApplications = computed(() => applications.value.slice(0, 5));
+const loading = ref(true); // first-load skeleton gate; never re-armed for refreshes
+const refreshing = ref(false);
 const loadError = ref('');
 
-function initials(app) {
-    const n =
-        `${app.courier?.first_name || ''} ${app.courier?.last_name || ''}`.trim();
-    return (
-        n
-            .split(' ')
-            .filter(Boolean)
-            .slice(0, 2)
-            .map((p) => p[0])
-            .join('')
-            .toUpperCase() || '?'
-    );
-}
+const parcelCards = computed(() => [
+    {
+        key: 'toPickUp',
+        label: 'To pick up',
+        value: parcelStats.value.toPickUp,
+        hint: 'Waiting on a pickup rider',
+        icon: 'inbox',
+        accent: 'accent-pending',
+        tone: 'stat-pending',
+    },
+    {
+        key: 'toDeliver',
+        label: 'To be delivered',
+        value: parcelStats.value.toDeliver,
+        hint: 'Collected — needs a delivery rider',
+        icon: 'pin',
+        accent: 'accent-total',
+        tone: 'stat-total',
+    },
+    {
+        key: 'outForDelivery',
+        label: 'Out for delivery',
+        value: parcelStats.value.outForDelivery,
+        hint: 'With a rider, en route',
+        icon: 'truck',
+        accent: 'accent-active',
+        tone: 'stat-active',
+    },
+    {
+        key: 'total',
+        label: 'In the queue',
+        value: parcelStats.value.total,
+        hint: 'All parcels held at this centre',
+        icon: 'parcels',
+        accent: 'accent-neutral',
+        tone: 'stat-neutral',
+    },
+]);
 
-function formatDate(dateStr) {
-    if (!dateStr) return '';
-    return new Date(dateStr).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-    });
-}
+const unstaffedAreas = computed(() =>
+    Math.max(areaStats.value.active - areaStats.value.staffed, 0),
+);
+const rosterSize = computed(() => areaRiders.value.length);
+const recentApplications = computed(() => applications.value.slice(0, 5));
 
-function badgeClass(status) {
-    return {
-        'badge-teal': status === 'accepted',
-        'badge-amber': status === 'pending',
-        'badge-red': status === 'rejected' || status === 'withdrawn',
-    };
-}
-
-async function loadDashboard() {
+/**
+ * All three reads go through the shared cache, so the Parcel Sorting and
+ * Riders & Areas tabs reuse exactly this data instead of refetching it.
+ * `loading` is not flipped back on for refreshes — it is a first-load-only
+ * skeleton gate, so re-entering the tab never flashes skeletons over data
+ * that is already rendered.
+ */
+async function load(force = false) {
     loadError.value = '';
+    refreshing.value = true;
 
     try {
-        await Promise.all([loadApplications(), loadCouriers()]);
+        await Promise.all([
+            loadApplications({}, { force }),
+            loadParcelAssignments({ force }),
+            loadDeliveryAreas({ force }),
+        ]);
     } catch (error) {
-        console.error('Failed to load logistics dashboard:', error);
         loadError.value =
             error.message || 'Please refresh the page and try again.';
+
+        if (force) {
+            notifyError(error, 'Could not refresh the dashboard.');
+        }
+    } finally {
+        loading.value = false;
+        refreshing.value = false;
     }
 }
 
-onMounted(loadDashboard);
+onMounted(() => load());
+
+// <KeepAlive> means onMounted fires once, so re-entering the tab re-checks
+// staleness. The shared cache makes this free when the data is still
+// fresh and refetches only once it has aged past the TTL.
+onActivated(() => load());
 </script>

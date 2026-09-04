@@ -1,5 +1,21 @@
 // resources/js/logistics/composables/useLogistics.js
-import { ref } from 'vue';
+//
+// Shared data layer for the logistics portal.
+//
+// Two things keep the portal's request count down:
+//
+//   1. `cached()` memoises each loader for CACHE_TTL_MS and collapses
+//      concurrent callers onto one in-flight promise. Tab switches (which
+//      keep components alive via <KeepAlive>) and two components asking
+//      for the same list therefore cost zero extra requests.
+//   2. Mutations patch the already-loaded row in place from the response
+//      body — every one of these endpoints returns the updated resource —
+//      instead of re-downloading the whole list. Assigning one parcel used
+//      to re-fetch the entire sorting queue.
+//
+// Anything that genuinely invalidates other data calls `invalidate()` for
+// just those keys, so the next reader refetches and nothing else does.
+import { computed, ref } from 'vue';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -13,13 +29,21 @@ function getSupabase() {
                     'is present in the <head> of dashboard.blade.php, before @vite(...).',
             );
         }
+
         _supabase = window.supabase.createClient(
             SUPABASE_URL,
             SUPABASE_ANON_KEY,
         );
     }
+
     return _supabase;
 }
+
+// Exported so useLogisticsProfile.js (the Account Settings composable)
+// reuses this exact singleton instead of creating a second client.
+export { getSupabase };
+
+// ---------------------------------------------------------------- state
 
 const companyId = ref(null);
 const companyName = ref('');
@@ -28,11 +52,118 @@ const couriers = ref([]);
 const deliveryAreas = ref([]);
 const areaRiders = ref([]);
 const parcelAssignments = ref([]);
+const resignationRequests = ref([]);
+const resignationRequestsMeta = ref({
+    currentPage: 1,
+    lastPage: 1,
+    total: 0,
+    pendingTotal: 0,
+});
 const pendingCount = ref(0);
 const loadingCompany = ref(true);
 const isLoading = ref(true);
 const isAuthenticated = ref(false);
 const logisticsProfile = ref(null);
+const lastSyncedAt = ref(null);
+
+// ------------------------------------------------- request cache / dedupe
+
+const CACHE_TTL_MS = 30_000;
+const CACHE = new Map(); // key -> { at, signature, value, promise }
+
+export const CACHE_KEYS = {
+    applications: 'applications',
+    couriers: 'couriers',
+    deliveryAreas: 'delivery-areas',
+    parcels: 'parcel-assignments',
+    resignations: 'resignation-requests',
+};
+
+/**
+ * Runs `loader` at most once per TTL per (key, signature), and collapses
+ * concurrent callers onto the same promise.
+ *
+ * `signature` distinguishes different argument sets for the same key —
+ * e.g. the applications list filtered by status/search must not be served
+ * from a cache entry built for a different filter.
+ */
+function cached(key, signature, loader, { force = false } = {}) {
+    const entry = CACHE.get(key);
+
+    if (!force && entry) {
+        if (entry.promise) {
+            return entry.promise;
+        }
+
+        if (
+            entry.signature === signature &&
+            Date.now() - entry.at < CACHE_TTL_MS
+        ) {
+            return Promise.resolve(entry.value);
+        }
+    }
+
+    const promise = loader()
+        .then((value) => {
+            CACHE.set(key, { at: Date.now(), signature, value, promise: null });
+            lastSyncedAt.value = new Date();
+
+            return value;
+        })
+        .catch((error) => {
+            CACHE.delete(key);
+
+            throw error;
+        });
+
+    CACHE.set(key, { at: 0, signature, value: entry?.value, promise });
+
+    return promise;
+}
+
+/** Marks entries stale so the next reader refetches. */
+function invalidate(...keys) {
+    keys.forEach((key) => CACHE.delete(key));
+}
+
+/** Clears everything — used on logout so a second sign-in starts clean. */
+function resetCache() {
+    CACHE.clear();
+    applications.value = [];
+    couriers.value = [];
+    deliveryAreas.value = [];
+    areaRiders.value = [];
+    parcelAssignments.value = [];
+    resignationRequests.value = [];
+    resignationRequestsMeta.value = {
+        currentPage: 1,
+        lastPage: 1,
+        total: 0,
+        pendingTotal: 0,
+    };
+    pendingCount.value = 0;
+    lastSyncedAt.value = null;
+}
+
+/** Replaces a row by id in a ref'd array, or prepends it when new. */
+function upsertRow(listRef, row) {
+    if (!row?.id) {
+        return;
+    }
+
+    const index = listRef.value.findIndex((item) => item.id === row.id);
+
+    listRef.value =
+        index === -1
+            ? [row, ...listRef.value]
+            : listRef.value.map((item, i) => (i === index ? row : item));
+}
+
+function removeRow(listRef, id) {
+    listRef.value = listRef.value.filter((item) => item.id !== id);
+}
+
+// ------------------------------------------------------------------ auth
 
 async function checkAuth() {
     const supabase = getSupabase();
@@ -46,6 +177,7 @@ async function checkAuth() {
 
         if (error || !user) {
             window.location.href = '/login';
+
             return false;
         }
 
@@ -68,15 +200,18 @@ async function checkAuth() {
             document.cookie =
                 'nexmart_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
             window.location.href = '/login';
+
             return false;
         }
 
         logisticsProfile.value = profile;
         isAuthenticated.value = true;
+
         return true;
     } catch (error) {
         console.error('Logistics authentication failed:', error);
         window.location.href = '/login';
+
         return false;
     } finally {
         isLoading.value = false;
@@ -93,6 +228,7 @@ async function logout() {
         companyName.value = '';
         logisticsProfile.value = null;
         isAuthenticated.value = false;
+        resetCache();
         window.location.href = '/login';
     }
 }
@@ -114,10 +250,13 @@ async function logisticsFetch(url, options = {}) {
 
     if (!session?.access_token) {
         const { data, error } = await supabase.auth.refreshSession();
+
         if (error || !data.session?.access_token) {
             await logout();
+
             throw new Error('Your session has expired. Please sign in again.');
         }
+
         session = data.session;
     }
 
@@ -125,8 +264,10 @@ async function logisticsFetch(url, options = {}) {
 
     if (response.status === 401) {
         const { data, error } = await supabase.auth.refreshSession();
+
         if (error || !data.session?.access_token) {
             await logout();
+
             throw new Error('Your session has expired. Please sign in again.');
         }
 
@@ -135,160 +276,220 @@ async function logisticsFetch(url, options = {}) {
 
     if (response.status === 401) {
         await logout();
+
         throw new Error('Your session has expired. Please sign in again.');
     }
 
     return response;
 }
 
-async function resolveCompany() {
+/** Reads a JSON API response, raising the first validation message it finds. */
+async function readJson(response, fallbackMessage) {
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        const validationMessage = Object.values(payload.errors || {})
+            .flat()
+            .at(0);
+
+        throw new Error(
+            validationMessage ||
+                payload.message ||
+                payload.error ||
+                fallbackMessage,
+        );
+    }
+
+    return payload;
+}
+
+/**
+ * Finds the company this account belongs to — as owner, or as appointed
+ * logistics staff.
+ *
+ * `uid` is passed in by the caller that already has it (the layout, right
+ * after checkAuth) so this doesn't make a second auth.getUser() round-trip
+ * for a user it was just handed.
+ */
+async function resolveCompany(uid = null) {
+    if (companyId.value) {
+        return companyId.value;
+    }
+
     const supabase = getSupabase();
     loadingCompany.value = true;
+
     try {
-        const { data: userData } = await supabase.auth.getUser();
-        const uid = userData?.user?.id;
-        if (!uid) {
-            console.warn('No user ID found');
+        let profileId = uid;
+
+        if (!profileId) {
+            const { data: userData } = await supabase.auth.getUser();
+            profileId = userData?.user?.id;
+        }
+
+        if (!profileId) {
             return null;
         }
 
-        console.log('Resolving company for user:', uid);
-
-        // Check if user is owner
-        const { data: owned, error: ownerError } = await supabase
+        const { data: owned } = await supabase
             .from('logistics_companies')
             .select('id, company_name')
-            .eq('owner_profile_id', uid)
+            .eq('owner_profile_id', profileId)
             .maybeSingle();
-
-        if (ownerError) {
-            console.error('Error checking ownership:', ownerError);
-        }
 
         if (owned) {
             companyId.value = owned.id;
             companyName.value = owned.company_name;
-            console.log('Found owned company:', owned);
+
             return owned.id;
         }
 
-        // Check if user is logistics_admin
-        const { data: staff, error: staffError } = await supabase
+        const { data: staff } = await supabase
             .from('logistics_admin_details')
             .select('logistics_company_id, logistics_companies(company_name)')
-            .eq('profile_id', uid)
+            .eq('profile_id', profileId)
             .maybeSingle();
-
-        if (staffError) {
-            console.error('Error checking staff:', staffError);
-        }
 
         if (staff) {
             companyId.value = staff.logistics_company_id;
             companyName.value = staff.logistics_companies?.company_name || '';
-            console.log('Found staff company:', staff);
+
             return staff.logistics_company_id;
         }
 
-        console.log('No company found for user');
         return null;
     } catch (error) {
-        console.error('Error resolving company:', error);
+        console.error('Error resolving the logistics company:', error);
+
         return null;
     } finally {
         loadingCompany.value = false;
     }
 }
 
-async function loadApplications(filters = {}) {
-    const supabase = getSupabase();
+// ---------------------------------------------------------- applications
 
-    // Make sure company is resolved
+async function loadApplications(filters = {}, { force = false } = {}) {
     if (!companyId.value) {
         await resolveCompany();
     }
 
     if (!companyId.value) {
-        console.warn('No company ID found, cannot load applications');
         return [];
     }
 
-    console.log('Loading applications for company:', companyId.value);
-
     const params = new URLSearchParams();
-    if (filters.status) params.set('status', filters.status);
-    if (filters.search) params.set('search', filters.search);
+
+    if (filters.status) {
+        params.set('status', filters.status);
+    }
+
+    if (filters.search) {
+        params.set('search', filters.search);
+    }
 
     const query = params.toString();
-    const url = `/api/logistics/applications${query ? `?${query}` : ''}`;
 
-    try {
-        const response = await logisticsFetch(url);
-
-        const payload = await response.json();
-        if (!response.ok) {
-            throw new Error(
-                payload.message ||
-                    payload.error ||
-                    'Failed to load applications.',
+    return cached(
+        CACHE_KEYS.applications,
+        query,
+        async () => {
+            const response = await logisticsFetch(
+                `/api/logistics/applications${query ? `?${query}` : ''}`,
             );
-        }
+            const payload = await readJson(
+                response,
+                'Failed to load applications.',
+            );
 
-        applications.value = payload.data || [];
-        pendingCount.value = applications.value.filter(
-            (a) => a.status === 'pending',
-        ).length;
-        return applications.value;
-    } catch (error) {
-        console.error('Error loading applications:', error);
-        throw error;
-    }
+            applications.value = payload.data || [];
+
+            // Only an unfiltered read reflects the true company-wide
+            // pending total; a filtered one would under-report the badge.
+            if (!query) {
+                pendingCount.value = applications.value.filter(
+                    (item) => item.status === 'pending',
+                ).length;
+            }
+
+            return applications.value;
+        },
+        { force },
+    );
 }
 
-async function loadCouriers() {
+/** Patches one application row locally after an accept/reject/interview. */
+function patchApplication(id, changes) {
+    applications.value = applications.value.map((item) =>
+        item.id === id ? { ...item, ...changes } : item,
+    );
+    pendingCount.value = applications.value.filter(
+        (item) => item.status === 'pending',
+    ).length;
+
+    // The roster and the accepted-rider pool both derive from this list.
+    invalidate(CACHE_KEYS.couriers, CACHE_KEYS.deliveryAreas);
+}
+
+async function loadCouriers({ force = false } = {}) {
     if (!companyId.value) {
         await resolveCompany();
     }
 
     if (!companyId.value) {
         couriers.value = [];
+
         return [];
     }
 
-    const response = await logisticsFetch(
-        '/api/logistics/applications?status=accepted',
+    return cached(
+        CACHE_KEYS.couriers,
+        'accepted',
+        async () => {
+            const response = await logisticsFetch(
+                '/api/logistics/applications?status=accepted',
+            );
+            const payload = await readJson(
+                response,
+                'Failed to load the accepted rider roster.',
+            );
+
+            couriers.value = (payload.data || []).map((application) => ({
+                profile_id: application.courier?.id,
+                application_id: application.id,
+                vehicle: application.courier_details?.vehicle || null,
+                plate_number: application.courier_details?.plate_number || null,
+                profile: application.courier,
+            }));
+
+            return couriers.value;
+        },
+        { force },
     );
-    const payload = await response.json();
-
-    if (!response.ok) {
-        throw new Error(
-            payload.message || 'Failed to load the accepted rider roster.',
-        );
-    }
-
-    couriers.value = (payload.data || []).map((application) => ({
-        profile_id: application.courier?.id,
-        application_id: application.id,
-        vehicle: application.courier_details?.vehicle || null,
-        plate_number: application.courier_details?.plate_number || null,
-        profile: application.courier,
-    }));
-
-    return couriers.value;
 }
 
-async function loadDeliveryAreas() {
-    const response = await logisticsFetch('/api/logistics/delivery-areas');
-    const payload = await response.json();
+// -------------------------------------------------------- delivery areas
 
-    if (!response.ok) {
-        throw new Error(payload.message || 'Failed to load delivery areas.');
-    }
+async function loadDeliveryAreas({ force = false } = {}) {
+    return cached(
+        CACHE_KEYS.deliveryAreas,
+        'all',
+        async () => {
+            const response = await logisticsFetch(
+                '/api/logistics/delivery-areas',
+            );
+            const payload = await readJson(
+                response,
+                'Failed to load delivery areas.',
+            );
 
-    deliveryAreas.value = payload.areas || [];
-    areaRiders.value = payload.riders || [];
+            deliveryAreas.value = payload.areas || [];
+            areaRiders.value = payload.riders || [];
 
-    return payload;
+            return payload;
+        },
+        { force },
+    );
 }
 
 async function saveDeliveryArea(area, id = null) {
@@ -302,20 +503,15 @@ async function saveDeliveryArea(area, id = null) {
             body: JSON.stringify(area),
         },
     );
-    const payload = await response.json();
+    const payload = await readJson(
+        response,
+        'Failed to save the delivery area.',
+    );
 
-    if (!response.ok) {
-        const validationMessage = Object.values(payload.errors || {})
-            .flat()
-            .at(0);
-        throw new Error(
-            validationMessage ||
-                payload.message ||
-                'Failed to save the delivery area.',
-        );
-    }
+    // The endpoint returns the saved area, so patch it in rather than
+    // re-downloading every area and the whole rider roster.
+    upsertRow(deliveryAreas, payload.data);
 
-    await loadDeliveryAreas();
     return payload.data;
 }
 
@@ -324,15 +520,9 @@ async function deleteDeliveryArea(id) {
         `/api/logistics/delivery-areas/${id}`,
         { method: 'DELETE' },
     );
-    const payload = await response.json();
+    await readJson(response, 'Failed to delete the delivery area.');
 
-    if (!response.ok) {
-        throw new Error(
-            payload.message || 'Failed to delete the delivery area.',
-        );
-    }
-
-    await loadDeliveryAreas();
+    removeRow(deliveryAreas, id);
 }
 
 async function addAreaRider(areaId, riderProfileId) {
@@ -344,18 +534,22 @@ async function addAreaRider(areaId, riderProfileId) {
             body: JSON.stringify({ rider_profile_id: riderProfileId }),
         },
     );
-    const payload = await response.json();
+    const payload = await readJson(response, 'Failed to add the driver.');
 
-    if (!response.ok) {
-        const validationMessage = Object.values(payload.errors || {})
-            .flat()
-            .at(0);
-        throw new Error(
-            validationMessage || payload.message || 'Failed to add the driver.',
-        );
-    }
+    upsertRow(deliveryAreas, payload.data);
 
-    await loadDeliveryAreas();
+    return payload.data;
+}
+
+async function removeAreaRider(areaId, riderProfileId) {
+    const response = await logisticsFetch(
+        `/api/logistics/delivery-areas/${areaId}/riders/${riderProfileId}`,
+        { method: 'DELETE' },
+    );
+    const payload = await readJson(response, 'Failed to remove the driver.');
+
+    upsertRow(deliveryAreas, payload.data);
+
     return payload.data;
 }
 
@@ -364,50 +558,47 @@ async function addAreaRider(areaId, riderProfileId) {
 // that's the whole company roster, unpaginated, used for the summary
 // table further down the page — this is scoped to one area, excludes
 // riders already appointed to it, and is fetched only when the panel is
-// actually opened.
+// actually opened. Not cached: the pool changes as riders are appointed.
 async function loadAvailableRiders(areaId, { search = '', page = 1 } = {}) {
     const params = new URLSearchParams();
-    if (search) params.set('search', search);
-    if (page > 1) params.set('page', String(page));
+
+    if (search) {
+        params.set('search', search);
+    }
+
+    if (page > 1) {
+        params.set('page', String(page));
+    }
 
     const query = params.toString();
     const response = await logisticsFetch(
         `/api/logistics/delivery-areas/${areaId}/available-riders${query ? `?${query}` : ''}`,
     );
-    const payload = await response.json();
 
-    if (!response.ok) {
-        throw new Error(payload.message || 'Failed to load available riders.');
-    }
-
-    return payload;
+    return readJson(response, 'Failed to load available riders.');
 }
 
-async function removeAreaRider(areaId, riderProfileId) {
-    const response = await logisticsFetch(
-        `/api/logistics/delivery-areas/${areaId}/riders/${riderProfileId}`,
-        { method: 'DELETE' },
+// ----------------------------------------------------- parcel assignments
+
+async function loadParcelAssignments({ force = false } = {}) {
+    return cached(
+        CACHE_KEYS.parcels,
+        'all',
+        async () => {
+            const response = await logisticsFetch(
+                '/api/logistics/parcel-assignments',
+            );
+            const payload = await readJson(
+                response,
+                'Failed to load the sorting queue.',
+            );
+
+            parcelAssignments.value = payload.data || [];
+
+            return parcelAssignments.value;
+        },
+        { force },
     );
-    const payload = await response.json();
-
-    if (!response.ok) {
-        throw new Error(payload.message || 'Failed to remove the driver.');
-    }
-
-    await loadDeliveryAreas();
-    return payload.data;
-}
-
-async function loadParcelAssignments() {
-    const response = await logisticsFetch('/api/logistics/parcel-assignments');
-    const payload = await response.json();
-
-    if (!response.ok) {
-        throw new Error(payload.message || 'Failed to load the sorting queue.');
-    }
-
-    parcelAssignments.value = payload.data || [];
-    return parcelAssignments.value;
 }
 
 async function receiveParcel(trackingNumber) {
@@ -419,13 +610,10 @@ async function receiveParcel(trackingNumber) {
             body: JSON.stringify({ tracking_number: trackingNumber }),
         },
     );
-    const payload = await response.json();
+    const payload = await readJson(response, 'Failed to receive the parcel.');
 
-    if (!response.ok) {
-        throw new Error(payload.message || 'Failed to receive the parcel.');
-    }
+    upsertRow(parcelAssignments, payload.data);
 
-    await loadParcelAssignments();
     return payload.data;
 }
 
@@ -441,20 +629,10 @@ async function assignParcel(id, deliveryAreaId, riderProfileId) {
             }),
         },
     );
-    const payload = await response.json();
+    const payload = await readJson(response, 'Failed to assign the parcel.');
 
-    if (!response.ok) {
-        const validationMessage = Object.values(payload.errors || {})
-            .flat()
-            .at(0);
-        throw new Error(
-            validationMessage ||
-                payload.message ||
-                'Failed to assign the parcel.',
-        );
-    }
+    upsertRow(parcelAssignments, payload.data);
 
-    await loadParcelAssignments();
     return payload.data;
 }
 
@@ -463,14 +641,146 @@ async function handoffParcel(id) {
         `/api/logistics/parcel-assignments/${id}/handoff`,
         { method: 'PUT' },
     );
-    const payload = await response.json();
+    const payload = await readJson(response, 'Failed to hand off the parcel.');
 
-    if (!response.ok) {
-        throw new Error(payload.message || 'Failed to hand off the parcel.');
+    upsertRow(parcelAssignments, payload.data);
+
+    return payload.data;
+}
+
+/**
+ * "Still needs someone at this desk to act on it": either not handed off
+ * yet (needs a pickup rider), or handed off but back in the pool with no
+ * rider (the pickup courier confirmed collection — needs a delivery
+ * rider). A handed-off parcel that already has a rider is out for
+ * delivery and off this desk.
+ */
+function isParcelActionable(parcel) {
+    return parcel.status !== 'handed_off' || !parcel.rider;
+}
+
+const parcelStats = computed(() => {
+    const stats = { toPickUp: 0, toDeliver: 0, outForDelivery: 0, total: 0 };
+
+    for (const parcel of parcelAssignments.value) {
+        stats.total += 1;
+
+        if (parcel.status !== 'handed_off') {
+            stats.toPickUp += 1;
+        } else if (!parcel.rider) {
+            stats.toDeliver += 1;
+        } else {
+            stats.outForDelivery += 1;
+        }
     }
 
-    await loadParcelAssignments();
+    return stats;
+});
+
+const areaStats = computed(() => {
+    const active = deliveryAreas.value.filter((area) => area.is_active);
+
+    return {
+        active: active.length,
+        staffed: active.filter((area) => area.riders?.length).length,
+        total: deliveryAreas.value.length,
+    };
+});
+
+// ------------------------------------------------- resignation requests
+
+// 5 per page — this used to pull the company's entire resignation history
+// in one shot every time the panel opened.
+async function loadResignationRequests({ page = 1, force = false } = {}) {
+    return cached(
+        CACHE_KEYS.resignations,
+        String(page),
+        async () => {
+            const response = await logisticsFetch(
+                `/api/logistics/resignation-requests?page=${page}`,
+            );
+            const payload = await readJson(
+                response,
+                'Failed to load resignation requests.',
+            );
+
+            resignationRequests.value = payload.data || [];
+            resignationRequestsMeta.value = {
+                currentPage: payload.meta?.current_page || 1,
+                lastPage: payload.meta?.last_page || 1,
+                total: payload.meta?.total || 0,
+                // Company-wide, independent of which page is loaded — the
+                // pending badge shouldn't only reflect one page of 5.
+                pendingTotal: payload.meta?.pending_total || 0,
+            };
+
+            return resignationRequests.value;
+        },
+        { force },
+    );
+}
+
+const pendingResignationCount = computed(
+    () => resignationRequestsMeta.value.pendingTotal,
+);
+
+async function reviewResignation(id, action, note = null) {
+    const wasPending =
+        resignationRequests.value.find((item) => item.id === id)?.status ===
+        'pending';
+
+    const response = await logisticsFetch(
+        `/api/logistics/resignation-requests/${id}/${action}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(note ? { note } : {}),
+        },
+    );
+    const payload = await readJson(
+        response,
+        `Failed to ${action} the resignation request.`,
+    );
+
+    upsertRow(resignationRequests, payload.data);
+
+    // Keep the pending badge accurate immediately rather than waiting on
+    // a refetch — the row just left the pending bucket.
+    if (wasPending && payload.data.status !== 'pending') {
+        resignationRequestsMeta.value = {
+            ...resignationRequestsMeta.value,
+            pendingTotal: Math.max(
+                0,
+                resignationRequestsMeta.value.pendingTotal - 1,
+            ),
+        };
+    }
+
+    // A review can change which rows belong on which page (pending sorts
+    // first), so the cached pages are no longer trustworthy — the caller
+    // re-fetches the page it's looking at.
+    invalidate(CACHE_KEYS.resignations);
+
+    // Approving detaches the rider from every delivery area they served,
+    // so those lists are no longer accurate.
+    if (action === 'approve') {
+        invalidate(CACHE_KEYS.deliveryAreas, CACHE_KEYS.couriers);
+    }
+
     return payload.data;
+}
+
+const approveResignation = (id, note = null) =>
+    reviewResignation(id, 'approve', note);
+const rejectResignation = (id, note) => reviewResignation(id, 'reject', note);
+
+async function resignationLetterUrl(id) {
+    const response = await logisticsFetch(
+        `/api/logistics/resignation-requests/${id}/letter`,
+    );
+    const payload = await readJson(response, 'Could not open the letter.');
+
+    return payload.url;
 }
 
 export function useLogistics() {
@@ -483,16 +793,23 @@ export function useLogistics() {
         deliveryAreas,
         areaRiders,
         parcelAssignments,
+        resignationRequests,
+        resignationRequestsMeta,
         pendingCount,
+        pendingResignationCount,
+        parcelStats,
+        areaStats,
         loadingCompany,
         isLoading,
         isAuthenticated,
         logisticsProfile,
+        lastSyncedAt,
         checkAuth,
         logout,
         logisticsFetch,
         resolveCompany,
         loadApplications,
+        patchApplication,
         loadCouriers,
         loadDeliveryAreas,
         saveDeliveryArea,
@@ -504,5 +821,11 @@ export function useLogistics() {
         receiveParcel,
         assignParcel,
         handoffParcel,
+        isParcelActionable,
+        loadResignationRequests,
+        approveResignation,
+        rejectResignation,
+        resignationLetterUrl,
+        invalidate,
     };
 }

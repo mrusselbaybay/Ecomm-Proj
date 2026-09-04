@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api\Courier;
 
 use App\Http\Controllers\Controller;
+use App\Models\CourierApplication;
 use App\Models\Profile;
+use App\Models\ResignationRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -38,8 +40,12 @@ class CourierProfileController extends Controller
     }
 
     /**
-     * Return the signed-in courier's employment status: whether a logistics
-     * company has taken them on, plus the vehicle/plate on file for them.
+     * Return the signed-in courier's employment status. "Employed" means an
+     * 'accepted' row in courier_applications (the source of truth the rest
+     * of the logistics flow keys off) — the payload carries the hiring
+     * company's contact details + offered salary so the Flutter "Find
+     * Work" screen can show the employer card, plus any pending resignation
+     * request so it can show that state instead of a "resign" button.
      */
     public function employment(Request $request): JsonResponse
     {
@@ -48,16 +54,41 @@ class CourierProfileController extends Controller
             return $profile;
         }
 
-        $details = $profile->courierDetail()->with('logisticsCompany')->first();
-        $company = $details?->logisticsCompany;
+        $application = CourierApplication::query()
+            ->with('logisticsCompany')
+            ->where('courier_profile_id', $profile->id)
+            ->where('status', CourierApplication::STATUS_ACCEPTED)
+            ->latest('reviewed_at')
+            ->first();
+
+        $company = $application?->logisticsCompany;
+        $details = $profile->courierDetail;
+
+        $pending = $company === null ? null : ResignationRequest::query()
+            ->where('courier_profile_id', $profile->id)
+            ->where('status', ResignationRequest::STATUS_PENDING)
+            ->orderByDesc('submitted_at')
+            ->first();
 
         return response()->json([
             'data' => [
                 'is_employed' => $company !== null,
+                'courier_application_id' => $application?->id,
                 'logistics_company_id' => $company?->id,
                 'company_name' => $company?->company_name,
+                'company_email' => $company?->company_email,
+                'company_contact_no' => $company?->company_contact_no,
+                'region' => $company?->region,
+                'description' => $company?->description,
+                'monthly_salary' => $company?->monthly_salary !== null ? (float) $company->monthly_salary : null,
+                'employed_since' => $application?->reviewed_at?->toISOString(),
                 'vehicle' => $details?->vehicle,
                 'plate_number' => $details?->plate_number,
+                'pending_resignation' => $pending ? [
+                    'id' => $pending->id,
+                    'status' => $pending->status,
+                    'submitted_at' => $pending->submitted_at?->toISOString(),
+                ] : null,
             ],
         ]);
     }
