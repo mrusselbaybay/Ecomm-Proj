@@ -254,7 +254,7 @@
                                         {{
                                             selectedComplaint.respondent
                                                 ?.full_name ||
-                                            'NEXMART platform'
+                                            'BuyTheWay platform'
                                         }}
                                     </p>
                                     <p class="text-xs text-slate-500">

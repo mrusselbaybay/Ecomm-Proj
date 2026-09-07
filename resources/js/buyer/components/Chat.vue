@@ -5,7 +5,7 @@
 |--------------------------------------------------------------------------
 |
 | Adapted from a pasted reference design ("ShopVerse Modern Multi-Pane
-| Chat Popup") onto NEXMART's stack the same way as the rest of the buyer
+| Chat Popup") onto BuyTheWay's stack the same way as the rest of the buyer
 | area: Tailwind utilities, inline SVG icons (the reference's iconify web
 | component isn't a dependency here), #0d9488 brand teal.
 |

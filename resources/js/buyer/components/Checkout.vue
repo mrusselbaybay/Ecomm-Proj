@@ -406,7 +406,7 @@ const shippingFee = computed(() => {
 |
 | Temporary mock voucher:
 |
-| NEXMART10 = 10% discount
+| BuyTheWay10 = 10% discount
 |
 | Later, applyVoucher() can call your Laravel/Supabase API instead.
 |
@@ -417,7 +417,7 @@ const discount = computed(() => {
         return 0;
     }
 
-    if (appliedVoucher.value.code === 'NEXMART10') {
+    if (appliedVoucher.value.code === 'BuyTheWay10') {
         return subtotal.value * 0.10;
     }
 
@@ -466,9 +466,9 @@ function applyVoucher() {
         return;
     }
 
-    if (code === 'NEXMART10') {
+    if (code === 'BuyTheWay10') {
         appliedVoucher.value = {
-            code: 'NEXMART10'
+            code: 'BuyTheWay10'
         };
 
         success('Voucher applied. You received a 10% discount.');
@@ -920,7 +920,7 @@ async function placeOrder() {
                                 </div>
                                 <div>
                                     <h2>Voucher / Discount</h2>
-                                    <p>Enter an available NEXMART voucher.</p>
+                                    <p>Enter an available BuyTheWay voucher.</p>
                                 </div>
                             </div>
 
@@ -957,7 +957,7 @@ async function placeOrder() {
                                 v-if="appliedVoucher"
                                 class="voucher-applied"
                             >
-                                NEXMART10 applied. You received a 10% discount.
+                                BuyTheWay10 applied. You received a 10% discount.
                             </p>
 
                         </section>

@@ -317,7 +317,7 @@ async function exportReport() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `nexmart-${reportType.value}-report.csv`;
+        link.download = `buytheway-${reportType.value}-report.csv`;
         link.click();
         URL.revokeObjectURL(url);
     } catch (error) {

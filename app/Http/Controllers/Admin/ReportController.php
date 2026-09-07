@@ -50,7 +50,7 @@ class ReportController extends Controller
     public function export(GenerateReportRequest $request): StreamedResponse
     {
         $type = $request->validated('type');
-        $filename = "nexmart-{$type}-report-".now()->format('Y-m-d-His').'.csv';
+        $filename = "buytheway-{$type}-report-".now()->format('Y-m-d-His').'.csv';
 
         return response()->streamDownload(function () use ($request, $type): void {
             $output = fopen('php://output', 'w');

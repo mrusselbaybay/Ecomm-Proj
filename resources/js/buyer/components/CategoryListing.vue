@@ -7,7 +7,7 @@
 | The dedicated "browse a single category" page — what clicking a category
 | card/tab anywhere in the buyer app now navigates to, instead of just
 | filtering the homepage's inline grid. Adapted from a pasted reference
-| design ("ShopVerse"); ported onto NEXMART's own data, components
+| design ("ShopVerse"); ported onto BuyTheWay's own data, components
 | (Header/Footer/ProductCard), and #0d9488 brand teal, which the reference
 | already happened to share.
 |

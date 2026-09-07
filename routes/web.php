@@ -106,17 +106,12 @@ if (file_exists($buyerRoutes)) {
 // same as the existing api/courier/* routes the same app already calls).
 
 // ---------- Registration (server-side, service-role protected) ----------
-// NOTE: Your project already has /api/signup/send-code, /api/signup/verify-code,
-// and /api/signup/resend-code routes wired to PasswordResetController (referenced
-// from app.js) that weren't included in the web.php you gave me. If those live in
-// a different route file (e.g. routes/api.php), move this group there to match —
-// otherwise this is fine to leave here.
-Route::prefix('api/signup')->name('api.signup.')->group(function () {
-    Route::post('/register', [AuthController::class, 'registerUser'])->name('register');
-    Route::post('/register-logistics', [AuthController::class, 'registerLogistics'])->name('register-logistics');
-    Route::post('/complete-google', [AuthController::class, 'completeGoogleSignup'])->name('complete-google');
-    Route::post('/complete-google-logistics', [AuthController::class, 'completeGoogleLogistics'])->name('complete-google-logistics');
-});
+// The /api/signup/register* endpoints now live in routes/api.php next to
+// the /api/signup/send-code sibling they belong with — moved there so the
+// Flutter signup wizard (a stateless client with no session/XSRF cookie)
+// can reach them, exactly as the note that used to sit here suggested.
+// The browser wizard's URLs are unchanged; its X-CSRF-TOKEN header is
+// simply ignored by the 'api' group.
 // ---------- Buyer SPA ----------
 Route::prefix('buyer')->name('buyer.')->group(function () {
     Route::get('/{any?}', function () {

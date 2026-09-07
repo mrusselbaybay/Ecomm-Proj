@@ -26,7 +26,7 @@ import { buyerApi } from './useBuyerApi';
 |
 */
 
-const COD_KEY = 'nexmart_buyer_cod_enabled';
+const COD_KEY = 'buytheway_buyer_cod_enabled';
 
 const WALLET_PROVIDERS = ['GCash', 'Maya'];
 

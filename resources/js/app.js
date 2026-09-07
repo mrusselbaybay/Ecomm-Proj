@@ -312,6 +312,70 @@ const CodeInput = {
     `,
 };
 
+// ---------- Password Strength Meter ----------
+// Display-only feedback for every "create a password" field (signup
+// Security steps + the password-reset wizard). Purely local heuristic —
+// length, character-class variety — no dependency, no network. The
+// actual gate stays the min-8 check in validate*SecurityFields().
+const PasswordStrength = {
+    props: { password: { type: String, default: '' } },
+    setup(props) {
+        const score = computed(() => {
+            const pw = props.password || '';
+
+            if (!pw) {
+                return 0;
+            }
+
+            let s = 0;
+
+            if (pw.length >= 8) s++;
+            if (pw.length >= 12) s++;
+            if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) s++;
+            if (/\d/.test(pw)) s++;
+            if (/[^A-Za-z0-9]/.test(pw)) s++;
+
+            return s;
+        });
+
+        // 0-5 raw score -> 4 visible levels.
+        const level = computed(() => {
+            const s = score.value;
+
+            if (s <= 1) return 1;
+            if (s === 2) return 2;
+            if (s === 3) return 3;
+
+            return 4;
+        });
+
+        const meta = computed(
+            () =>
+                ({
+                    1: { key: 'weak', label: 'Weak' },
+                    2: { key: 'fair', label: 'Fair' },
+                    3: { key: 'good', label: 'Good' },
+                    4: { key: 'strong', label: 'Strong' },
+                })[level.value],
+        );
+
+        return { level, meta };
+    },
+    template: `
+      <div v-if="password" class="pw-strength" :class="'pw-strength--' + meta.key">
+        <div class="pw-strength-track">
+          <span
+            v-for="i in 4"
+            :key="i"
+            class="pw-strength-seg"
+            :class="{ filled: i <= level }"
+          ></span>
+        </div>
+        <span class="pw-strength-label">{{ meta.label }}</span>
+      </div>
+    `,
+};
+
 // ---------- Main Application ----------
 const App = {
     setup() {
@@ -328,8 +392,8 @@ const App = {
         const errorMsg = ref('');
         const successMsg = ref('');
         const loggedInUser = ref(
-            getCookie('nexmart_session')
-                ? JSON.parse(getCookie('nexmart_session'))
+            getCookie('buytheway_session')
+                ? JSON.parse(getCookie('buytheway_session'))
                 : null,
         );
         const isLogisticsSignup = ref(false);
@@ -2667,7 +2731,7 @@ const App = {
             };
 
             setCookie(
-                'nexmart_session',
+                'buytheway_session',
                 JSON.stringify(loggedInUser.value),
                 remember ? 30 : 1,
             );
@@ -2937,7 +3001,7 @@ const App = {
 
         function logout() {
             loggedInUser.value = null;
-            deleteCookie('nexmart_session');
+            deleteCookie('buytheway_session');
             resetMessages();
             supabase.auth.signOut();
         }
@@ -3052,21 +3116,21 @@ const App = {
                 if (
                     event === 'SIGNED_IN' &&
                     session?.user &&
-                    !getCookie('nexmart_session')
+                    !getCookie('buytheway_session')
                 ) {
                     completeLogin(session.user, rememberMe.value);
                 }
             });
 
             // ========== Check existing session ==========
-            // The 'nexmart_session' cookie is only a UI hint (used to show
+            // The 'buytheway_session' cookie is only a UI hint (used to show
             // "You're in!" instantly without waiting on Supabase). It must
             // never be trusted on its own to redirect: if it's stale (e.g.
             // left behind by a logout on another role page) we'd bounce the
             // visitor to a role dashboard they're no longer authenticated
             // for, which shows "Access Denied" before it sends them back
             // here. Always verify the real Supabase session first.
-            const sessionCookie = getCookie('nexmart_session');
+            const sessionCookie = getCookie('buytheway_session');
 
             if (!sessionCookie) {
                 return;
@@ -3077,7 +3141,7 @@ const App = {
             try {
                 userData = JSON.parse(sessionCookie);
             } catch {
-                deleteCookie('nexmart_session');
+                deleteCookie('buytheway_session');
 
                 return;
             }
@@ -3089,7 +3153,7 @@ const App = {
             if (!session) {
                 // Stale cookie from an earlier logout — clear it so it
                 // doesn't keep tricking this check on future visits.
-                deleteCookie('nexmart_session');
+                deleteCookie('buytheway_session');
 
                 return;
             }
@@ -3219,7 +3283,7 @@ const App = {
           <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
           </div>
-          <span class="text-lg font-bold tracking-wide">NEXMART</span>
+          <span class="text-lg font-bold tracking-wide">BuyTheWay</span>
         </div>
         <p class="text-teal-400 text-xs font-bold tracking-widest uppercase mb-4">Philippines' Trusted Marketplace</p>
         <h1 class="display-font text-4xl md:text-[2.6rem] leading-tight font-extrabold mb-5">
@@ -3227,7 +3291,7 @@ const App = {
           <span class="text-teal-400">Every</span> role.
         </h1>
         <p class="text-slate-400 text-sm leading-relaxed mb-10 max-w-sm">
-          Whether you're shopping, running a store, or delivering parcels — NEXMART is built to grow with you.
+          Whether you're shopping, running a store, or delivering parcels — BuyTheWay is built to grow with you.
         </p>
 
         <div class="space-y-3">
@@ -3279,7 +3343,7 @@ const App = {
             </h2>
           </div>
           <p class="text-slate-500 text-sm mb-4">
-            {{ mode === 'login' ? 'Sign in to your NEXMART account.' : mode === 'forgot' || mode === 'reset' ? 'Reset your password securely.' : (isLogisticsSignup ? 'Register your logistics company.' : (selectedRole === 'driver' ? 'Register as a driver.' : 'Select your role to get started.')) }}
+            {{ mode === 'login' ? 'Sign in to your BuyTheWay account.' : mode === 'forgot' || mode === 'reset' ? 'Reset your password securely.' : (isLogisticsSignup ? 'Register your logistics company.' : (selectedRole === 'driver' ? 'Register as a driver.' : 'Select your role to get started.')) }}
           </p>
 
           <!-- TABS -->
@@ -3355,6 +3419,7 @@ const App = {
                     <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 8 10 8a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3.5 8 10 8a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
                   </button>
                 </div>
+                <password-strength :password="newPassword" />
               </div>
               <div class="mt-2">
                 <label class="field-label">Confirm New Password <span class="text-teal-500">*</span></label>
@@ -3412,7 +3477,7 @@ const App = {
           <div v-else-if="mode === 'signup'" style="display:flex;flex-direction:column;height:100%;">
             <!-- ROLE SELECTION -->
             <div v-if="signupStep === 'role' && !isLogisticsSignup" class="space-y-4" style="flex:1;display:flex;flex-direction:column;justify-content:center;">
-              <p v-if="isGoogleSignup" class="text-sm text-slate-600">Signed in as <strong>{{ googleUser?.email }}</strong> with Google. Choose how you'd like to use NEXMART to finish setting up your account.</p>
+              <p v-if="isGoogleSignup" class="text-sm text-slate-600">Signed in as <strong>{{ googleUser?.email }}</strong> with Google. Choose how you'd like to use BuyTheWay to finish setting up your account.</p>
               <p v-else class="text-sm text-slate-600">Select your role to start your registration.</p>
               <div class="grid grid-cols-2 gap-3">
                 <button v-for="r in roles" :key="r.id" @click="selectRole(r.id)" class="signup-role-card rounded-xl p-4 text-center" :class="{ selected: selectedRole === r.id }">
@@ -3555,6 +3620,7 @@ const App = {
                           <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 8 10 8a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3.5 8 10 8a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
                         </button>
                       </div>
+                      <password-strength :password="form.driverPassword" />
                       <span v-if="validationErrors.driverPassword" class="text-xs text-red-500">{{ validationErrors.driverPassword }}</span>
                     </div>
                     <div class="full-width">
@@ -3733,6 +3799,7 @@ const App = {
                           <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 8 10 8a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3.5 8 10 8a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
                         </button>
                       </div>
+                      <password-strength :password="password" />
                     </div>
                     <div class="full-width"><label class="field-label">Confirm Password <span class="text-teal-500">*</span></label><input :type="showPassword ? 'text' : 'password'" v-model="confirmPassword" placeholder="Re-enter password" class="field-input" /></div>
                     <div class="full-width flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" v-model="showPassword" /> Show passwords</div>
@@ -3908,6 +3975,7 @@ const App = {
                           <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 8 10 8a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3.5 8 10 8a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
                         </button>
                       </div>
+                      <password-strength :password="password" />
                       <span v-if="validationErrors.password" class="text-xs text-red-500">{{ validationErrors.password }}</span>
                     </div>
                     <div class="full-width">
@@ -4013,4 +4081,5 @@ const App = {
 createApp(App)
     .component('FileDropzone', FileDropzone)
     .component('CodeInput', CodeInput)
+    .component('PasswordStrength', PasswordStrength)
     .mount('#auth-app');

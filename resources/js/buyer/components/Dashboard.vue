@@ -436,7 +436,7 @@ function buyNow(item) {
             category: item.product.category,
             seller:
                 item.product.seller ||
-                'NEXMART Seller',
+                'BuyTheWay Seller',
             variation: variationLabel,
             quantity: Number(item.quantity)
         }
@@ -473,7 +473,7 @@ function checkoutFromCart(items) {
             category: item.category,
             seller:
                 item.seller ||
-                'NEXMART Seller',
+                'BuyTheWay Seller',
             variation: item.variation,
             quantity: Number(item.quantity)
         })
@@ -881,7 +881,7 @@ function closePayments() {
                 <div class="buyer-hero-content">
 
                     <span class="buyer-hero-badge">
-                        NEXMART Marketplace
+                        BuyTheWay Marketplace
                     </span>
 
                     <h1>

@@ -57,7 +57,7 @@ function handleSearchSubmit() {
 
         <!-- Top Bar -->
         <div class="buyer-topbar">
-            Shop trusted local sellers on NEXMART — quality goods, delivered to your door.
+            Shop trusted local sellers on BuyTheWay — quality goods, delivered to your door.
         </div>
 
         <div class="buyer-header-wrap">

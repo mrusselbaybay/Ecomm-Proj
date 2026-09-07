@@ -33,7 +33,7 @@
         </div>
         <div class="content">
             <p>Hello <strong>{{ $name }}</strong>,</p>
-            <p>Your NEXMART account has been <span class="status-{{ $status }}">{{ $statusLabel }}</span>.</p>
+            <p>Your BuyTheWay account has been <span class="status-{{ $status }}">{{ $statusLabel }}</span>.</p>
             
             <div class="reason-box">
                 <p><span class="label">Reason:</span></p>
@@ -43,7 +43,7 @@
             @if($status === 'active')
             <p>Your account is now fully active. You can log in and start using all features of the platform.</p>
             <p style="text-align: center;">
-                <a href="{{ $appUrl }}/login" class="btn">Login to NEXMART</a>
+                <a href="{{ $appUrl }}/login" class="btn">Login to BuyTheWay</a>
             </p>
             @elseif($status === 'suspended')
             <p>Your account has been temporarily suspended. Please contact support for more information.</p>
@@ -51,10 +51,10 @@
             <p>Your account has been permanently deactivated. If this was a mistake, please contact support.</p>
             @endif
             
-            <p>Thanks,<br><strong>NEXMART Team</strong></p>
+            <p>Thanks,<br><strong>BuyTheWay Team</strong></p>
         </div>
         <div class="footer">
-            <p>&copy; {{ date('Y') }} NEXMART. All rights reserved.</p>
+            <p>&copy; {{ date('Y') }} BuyTheWay. All rights reserved.</p>
         </div>
     </div>
 </body>

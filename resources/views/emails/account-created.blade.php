@@ -24,7 +24,7 @@
         </div>
         <div class="content">
             <p>Hello <strong>{{ $name }}</strong>,</p>
-            <p>A <span class="highlight">{{ $roleLabel }}</span> account has been created for you on NEXMART.</p>
+            <p>A <span class="highlight">{{ $roleLabel }}</span> account has been created for you on BuyTheWay.</p>
             
             <div class="credentials">
                 <p><strong>Your login credentials:</strong></p>
@@ -34,13 +34,13 @@
             </div>
             
             <p style="text-align: center;">
-                <a href="{{ $appUrl }}/login" class="btn">Login to NEXMART</a>
+                <a href="{{ $appUrl }}/login" class="btn">Login to BuyTheWay</a>
             </p>
             
-            <p>Thanks,<br><strong>NEXMART Team</strong></p>
+            <p>Thanks,<br><strong>BuyTheWay Team</strong></p>
         </div>
         <div class="footer">
-            <p>&copy; {{ date('Y') }} NEXMART. All rights reserved.</p>
+            <p>&copy; {{ date('Y') }} BuyTheWay. All rights reserved.</p>
         </div>
     </div>
 </body>

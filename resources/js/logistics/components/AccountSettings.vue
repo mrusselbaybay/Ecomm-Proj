@@ -2049,7 +2049,7 @@ async function confirmDeactivate() {
         setTimeout(async () => {
             await supabase.auth.signOut();
             document.cookie =
-                'nexmart_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
+                'buytheway_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
             window.location.href = '/login';
         }, 1500);
     } catch (err) {

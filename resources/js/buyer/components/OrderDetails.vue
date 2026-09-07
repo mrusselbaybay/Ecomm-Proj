@@ -353,10 +353,10 @@ async function handleReturnSubmit(requestData) {
 const needHelpMailtoHref = computed(() => {
     const subject = encodeURIComponent(`Help with order ${props.order?.orderId || ''}`);
     const body = encodeURIComponent(
-        `Hi NEXMART support,\n\nI need help with my order ${props.order?.orderId || ''}.\n\n`
+        `Hi BuyTheWay support,\n\nI need help with my order ${props.order?.orderId || ''}.\n\n`
     );
 
-    return `mailto:support@nexmart.com?subject=${subject}&body=${body}`;
+    return `mailto:support@buytheway.com?subject=${subject}&body=${body}`;
 });
 
 /*
@@ -698,7 +698,7 @@ function handleHeaderSelectCategory(category) {
                                             <div class="flex-1">
                                                 <h3 class="font-bold text-slate-900">{{ item.name || `Product #${item.product_id}` }}</h3>
                                                 <p class="text-sm text-slate-500 mt-1">
-                                                    Seller: {{ item.seller || 'NEXMART Seller' }}
+                                                    Seller: {{ item.seller || 'BuyTheWay Seller' }}
                                                     <template v-if="item.variation"> • {{ item.variation }}</template>
                                                 </p>
                                             </div>

@@ -259,7 +259,7 @@ class MessageController extends Controller
     {
         $sellerName = $c->seller?->sellerDetail?->business_name
             ?? $c->seller?->full_name
-            ?? 'NEXMART Seller';
+            ?? 'BuyTheWay Seller';
 
         $out = [
             'id' => $c->id,

@@ -31,6 +31,10 @@ class UpdateDriverProfileRequest extends FormRequest
             'birthday' => ['required', 'date', 'before:today'],
             'contact_no' => ['required', 'string', 'regex:/^09\d{9}$/'],
 
+            // Island group, not a PSGC region — same three values the
+            // signup wizard collects into addresses.region_name (see
+            // AuthController::registerUser's 'region' rule).
+            'region_name' => ['required', 'string', 'in:Luzon,Visayas,Mindanao'],
             'province_code' => ['required', 'string', 'max:20'],
             'province_name' => ['required', 'string', 'max:255'],
             'municipality_code' => ['required', 'string', 'max:20'],
@@ -55,6 +59,8 @@ class UpdateDriverProfileRequest extends FormRequest
             'sex.in' => 'Please select a valid sex.',
             'birthday.before' => 'Birthday cannot be in the future.',
             'contact_no.regex' => 'Enter a valid 11-digit number starting with 09.',
+            'region_name.required' => 'Please select a region.',
+            'region_name.in' => 'Please select a valid region.',
             'province_code.required' => 'Please select a province.',
             'municipality_code.required' => 'Please select a municipality/city.',
             'barangay.required' => 'Please select a barangay.',

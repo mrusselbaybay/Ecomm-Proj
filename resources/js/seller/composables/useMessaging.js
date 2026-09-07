@@ -492,7 +492,7 @@ function stopUnreadPolling() {
 
 // ---- drafts (per-conversation, localStorage-backed) ----
 function draftKey(id) {
-    return `nexmart_seller_message_draft_${id}`;
+    return `buytheway_seller_message_draft_${id}`;
 }
 function getDraft(id) {
     try {

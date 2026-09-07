@@ -5,7 +5,7 @@
 |--------------------------------------------------------------------------
 |
 | Adapted from a pasted reference design ("ShopVerse Premium Saved
-| Addresses") onto NEXMART's stack the same way as the rest of the
+| Addresses") onto BuyTheWay's stack the same way as the rest of the
 | account area: Tailwind utilities, the shared Header/Footer, inline SVG
 | icons (the reference's iconify web component isn't a dependency here),
 | #0d9488 brand teal.

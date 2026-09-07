@@ -124,7 +124,7 @@
                             </svg>
                         </div>
                         <div>
-                            <p class="logo-text">NEXMART</p>
+                            <p class="logo-text">BuyTheWay</p>
                             <p class="logo-sub">Seller Portal</p>
                         </div>
                     </div>
@@ -209,7 +209,7 @@
                             <p class="header-subtitle">Seller Center</p>
                             <h1 class="header-title">{{ sectionLabel }}</h1>
                             <p class="header-breadcrumb">
-                                NEXMART Seller Center &gt; {{ sectionLabel }}
+                                BuyTheWay Seller Center &gt; {{ sectionLabel }}
                             </p>
                         </div>
 

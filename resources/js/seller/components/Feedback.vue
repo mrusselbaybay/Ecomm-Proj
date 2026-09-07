@@ -876,7 +876,7 @@ next.add(id);
 // ---- drafts (in-memory + localStorage, so an unfinished reply survives
 // a refresh or a filter change "when practical" per the design brief) ----
 function draftKey(id) {
-    return `nexmart_seller_feedback_draft_${id}`;
+    return `buytheway_seller_feedback_draft_${id}`;
 }
 function persistDraft(id) {
     try {

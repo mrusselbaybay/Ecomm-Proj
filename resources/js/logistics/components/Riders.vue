@@ -134,11 +134,26 @@
                                     </span>
                                 </td>
                                 <td>
-                                    <span class="badge badge-indigo">{{
-                                        assignedAreasFor(
-                                            rider.courier_profile_id,
-                                        )
-                                    }}</span>
+                                    <div
+                                        v-if="
+                                            assignedAreasFor(
+                                                rider.courier_profile_id,
+                                            ).length
+                                        "
+                                        class="area-chip-list"
+                                    >
+                                        <span
+                                            v-for="name in assignedAreasFor(
+                                                rider.courier_profile_id,
+                                            )"
+                                            :key="name"
+                                            class="badge badge-indigo"
+                                            >{{ name }}</span
+                                        >
+                                    </div>
+                                    <span v-else class="text-xs text-slate-500"
+                                        >Unassigned</span
+                                    >
                                 </td>
                                 <td>
                                     <span class="rider-quota-badge">{{
@@ -620,12 +635,24 @@ function clearSearch() {
     load(true);
 }
 
-function assignedAreasFor(courierId) {
-    const count = deliveryAreas.value.filter((area) =>
-        area.riders?.some((rider) => rider.id === courierId),
-    ).length;
+// courier_profile_id -> [area name, …] the rider currently handles, built
+// once per roster/area change instead of re-filtering every area for every
+// table row on each render.
+const areaNamesByRider = computed(() => {
+    const map = new Map();
 
-    return `${count} ${count === 1 ? 'area' : 'areas'}`;
+    for (const area of deliveryAreas.value) {
+        for (const rider of area.riders || []) {
+            const list = map.get(rider.id);
+            list ? list.push(area.name) : map.set(rider.id, [area.name]);
+        }
+    }
+
+    return map;
+});
+
+function assignedAreasFor(courierId) {
+    return areaNamesByRider.value.get(courierId) || [];
 }
 
 // Backed by courier_details.delivery_status in Supabase — the flag behind
@@ -847,5 +874,11 @@ onActivated(() => load());
 }
 .details-field-grid .field-input:disabled {
     cursor: default;
+}
+.area-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-width: 260px;
 }
 </style>

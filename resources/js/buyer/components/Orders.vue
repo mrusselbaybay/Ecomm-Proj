@@ -472,7 +472,7 @@ function handleHeaderSelectCategory(category) {
                                     <div class="flex-1 min-w-0">
                                         <h3 class="font-bold text-slate-900 truncate">{{ item.name || `Product #${item.product_id}` }}</h3>
                                         <p class="text-sm text-slate-500 mt-0.5">
-                                            {{ item.seller || 'NEXMART Seller' }}
+                                            {{ item.seller || 'BuyTheWay Seller' }}
                                             <template v-if="item.variation"> • {{ item.variation }}</template>
                                             • Qty {{ item.quantity }}
                                         </p>

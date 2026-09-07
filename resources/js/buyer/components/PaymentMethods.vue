@@ -5,7 +5,7 @@
 |--------------------------------------------------------------------------
 |
 | Adapted from a pasted reference design ("ShopVerse Modern Payment
-| Management") onto NEXMART's stack the same way as SavedAddresses.vue:
+| Management") onto BuyTheWay's stack the same way as SavedAddresses.vue:
 | Tailwind utilities, the shared Header/Footer, the same account-area
 | sidebar, inline SVG icons (the reference's iconify + brand-logo web
 | components aren't dependencies here — brands render as text pills).
@@ -780,7 +780,7 @@ function handleHeaderSelectCategory(category) {
                         </div>
                         <div>
                             <h4 class="font-bold text-sm mb-1">Only tokens are stored here</h4>
-                            <p class="text-xs text-slate-400 leading-relaxed">This screen keeps a card's brand, last 4 digits, and expiry — never the full number or CVV. Payment itself isn't processed by NEXMART yet; this list is for filling checkout in faster.</p>
+                            <p class="text-xs text-slate-400 leading-relaxed">This screen keeps a card's brand, last 4 digits, and expiry — never the full number or CVV. Payment itself isn't processed by BuyTheWay yet; this list is for filling checkout in faster.</p>
                         </div>
                     </div>
                 </div>

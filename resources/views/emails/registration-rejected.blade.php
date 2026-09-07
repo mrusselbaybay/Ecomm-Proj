@@ -22,7 +22,7 @@
         </div>
         <div class="content">
             <p>Hello <strong>{{ $name }}</strong>,</p>
-            <p>We regret to inform you that your NEXMART account application has been <span class="highlight">rejected</span>.</p>
+            <p>We regret to inform you that your BuyTheWay account application has been <span class="highlight">rejected</span>.</p>
             
             <div class="reason-box">
                 <strong>Reason for rejection:</strong><br>
@@ -30,10 +30,10 @@
             </div>
             
             <p>If you believe this is a mistake or you'd like to reapply, please contact our support team.</p>
-            <p>Thanks,<br><strong>NEXMART Team</strong></p>
+            <p>Thanks,<br><strong>BuyTheWay Team</strong></p>
         </div>
         <div class="footer">
-            <p>&copy; {{ date('Y') }} NEXMART. All rights reserved.</p>
+            <p>&copy; {{ date('Y') }} BuyTheWay. All rights reserved.</p>
         </div>
     </div>
 </body>

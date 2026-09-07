@@ -11,7 +11,7 @@ const { success: toastSuccess, error: toastError, warning: toastWarning, info: t
 // survive a hard refresh (same pattern as favorites below). Persisted
 // name/price/image can go stale if a seller edits the product later; that's
 // cosmetic, since checkout recalculates regardless.
-const CART_STORAGE_KEY = 'nexmart_buyer_cart';
+const CART_STORAGE_KEY = 'buytheway_buyer_cart';
 
 function loadStoredCart() {
     try {
@@ -41,7 +41,7 @@ watch(cart, (value) => {
 // table). localStorage is kept only as an offline cache and as the store
 // for a signed-out visitor's favorites, which are merged up to the server
 // by loadWishlist() once they sign in.
-const FAVORITES_STORAGE_KEY = 'nexmart_buyer_favorites';
+const FAVORITES_STORAGE_KEY = 'buytheway_buyer_favorites';
 
 function loadStoredFavorites() {
     try {
@@ -103,7 +103,7 @@ function snapshotFrom(item, product, variant) {
     item.name = product.name ?? item.name;
     item.price = Number(variant?.price ?? product.price ?? item.price);
     item.category = product.category ?? item.category;
-    item.seller = product.seller || item.seller || 'NEXMART Seller';
+    item.seller = product.seller || item.seller || 'BuyTheWay Seller';
     item.image = item.image
         || variant?.image?.url
         || (Array.isArray(product.images) ? product.images[0] || null : null);
@@ -203,7 +203,7 @@ function addToCart(product, variant, quantity) {
         category: product.category,
         variation: variantLabel,
         quantity: quantityToAdd,
-        seller: product.seller || 'NEXMART Seller',
+        seller: product.seller || 'BuyTheWay Seller',
         image: variant?.image?.url
             || (Array.isArray(product.images) ? product.images[0] || null : null),
         oldPrice: product.oldPrice ?? null,

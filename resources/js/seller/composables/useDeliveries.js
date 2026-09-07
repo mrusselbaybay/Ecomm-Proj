@@ -196,7 +196,7 @@ async function exportCsv() {
         const blob = await response.blob();
         const disposition = response.headers.get('Content-Disposition') || '';
         const match = disposition.match(/filename="?([^"]+)"?/);
-        const filename = match ? match[1] : `nexmart-deliveries-${new Date().toISOString().slice(0, 10)}.csv`;
+        const filename = match ? match[1] : `buytheway-deliveries-${new Date().toISOString().slice(0, 10)}.csv`;
 
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');

@@ -146,6 +146,46 @@
   box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
 }
 
+/* Password Strength Meter — 4-segment bar (see PasswordStrength in app.js) */
+#auth-app .pw-strength {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+#auth-app .pw-strength-track {
+  display: flex;
+  flex: 1;
+  gap: 0.25rem;
+}
+
+#auth-app .pw-strength-seg {
+  flex: 1;
+  height: 4px;
+  border-radius: 9999px;
+  background: #e5e7eb;
+  transition: background 0.15s ease;
+}
+
+#auth-app .pw-strength-label {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+#auth-app .pw-strength--weak .pw-strength-seg.filled { background: #ef4444; }
+#auth-app .pw-strength--fair .pw-strength-seg.filled { background: #f59e0b; }
+#auth-app .pw-strength--good .pw-strength-seg.filled { background: #eab308; }
+#auth-app .pw-strength--strong .pw-strength-seg.filled { background: #22c55e; }
+
+#auth-app .pw-strength--weak .pw-strength-label { color: #dc2626; }
+#auth-app .pw-strength--fair .pw-strength-label { color: #d97706; }
+#auth-app .pw-strength--good .pw-strength-label { color: #a16207; }
+#auth-app .pw-strength--strong .pw-strength-label { color: #16a34a; }
+
 /* Select Dropdowns */
 #auth-app select.field-input {
   appearance: auto;

@@ -30,7 +30,7 @@ class ComplaintStatusChanged extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'NEXMART complaint update: '.$this->complaintSubject,
+            subject: 'BuyTheWay complaint update: '.$this->complaintSubject,
         );
     }
 

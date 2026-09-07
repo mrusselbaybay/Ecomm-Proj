@@ -331,7 +331,7 @@ class SellerReportController extends Controller
         $csv = stream_get_contents($handle);
         fclose($handle);
 
-        $filename = sprintf('nexmart-seller-report-%s-to-%s.csv', $from->toDateString(), $to->toDateString());
+        $filename = sprintf('buytheway-seller-report-%s-to-%s.csv', $from->toDateString(), $to->toDateString());
 
         return response($csv, 200, [
             'Content-Type' => 'text/csv',

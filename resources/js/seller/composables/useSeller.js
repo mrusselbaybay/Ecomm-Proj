@@ -398,7 +398,7 @@ async function confirmLogout() {
         // real session, which showed "Access Denied" before they could
         // reach the login form.
         document.cookie =
-            'nexmart_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
+            'buytheway_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
         window.location.href = '/';
     }
 }

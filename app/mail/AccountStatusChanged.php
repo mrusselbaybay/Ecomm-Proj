@@ -35,7 +35,7 @@ class AccountStatusChanged extends Mailable
 
     public function build()
     {
-        return $this->subject("Your NEXMART Account Has Been {$this->statusLabel}")
+        return $this->subject("Your BuyTheWay Account Has Been {$this->statusLabel}")
                     ->view('emails.account-status-changed');
     }
 }

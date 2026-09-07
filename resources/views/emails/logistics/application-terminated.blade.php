@@ -9,7 +9,7 @@
       <strong>Reason:</strong> {{ $reason }}
     </div>
   @endif
-  <p>Your account remains active. You're free to apply to other logistics companies on NEXMART right away.</p>
-  <p style="margin-top: 32px; color: #64748b; font-size: 13px;">— The NEXMART Team</p>
+  <p>Your account remains active. You're free to apply to other logistics companies on BuyTheWay right away.</p>
+  <p style="margin-top: 32px; color: #64748b; font-size: 13px;">— The BuyTheWay Team</p>
 </body>
 </html>

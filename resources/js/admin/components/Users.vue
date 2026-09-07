@@ -668,7 +668,7 @@ const accountStatusReasons = [
         value: 'policy_violation',
         label: 'Violation of platform policies',
         description:
-            "The account holder violated NEXMART's terms of service or seller/buyer guidelines.",
+            "The account holder violated BuyTheWay's terms of service or seller/buyer guidelines.",
     },
     {
         value: 'fraudulent_activity',

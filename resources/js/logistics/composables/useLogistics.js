@@ -209,7 +209,7 @@ async function checkAuth() {
         ) {
             await supabase.auth.signOut();
             document.cookie =
-                'nexmart_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
+                'buytheway_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
             window.location.href = '/login';
 
             return false;
@@ -234,7 +234,7 @@ async function logout() {
         await getSupabase().auth.signOut();
     } finally {
         document.cookie =
-            'nexmart_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
+            'buytheway_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
         companyId.value = null;
         companyName.value = '';
         logisticsProfile.value = null;

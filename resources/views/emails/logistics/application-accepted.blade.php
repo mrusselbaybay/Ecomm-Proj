@@ -5,6 +5,6 @@
   <p>Hi {{ $courierName }},</p>
   <p><strong>{{ $companyName }}</strong> has accepted your application. Welcome aboard!</p>
   <p>They'll be in touch with next steps shortly.</p>
-  <p style="margin-top: 32px; color: #64748b; font-size: 13px;">— The NEXMART Team</p>
+  <p style="margin-top: 32px; color: #64748b; font-size: 13px;">— The BuyTheWay Team</p>
 </body>
 </html>

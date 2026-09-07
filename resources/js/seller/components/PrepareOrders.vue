@@ -786,7 +786,7 @@ const dispatchDisabledReason = computed(() => {
 // this is a convenience so a seller can leave mid-pack and come back
 // without losing their checklist. Nothing here is sent to the server
 // until Confirm Dispatch actually calls shipOrder().
-const draftKey = computed(() => (order.value ? `nexmart:prepare-draft:${order.value.id}` : null));
+const draftKey = computed(() => (order.value ? `buytheway:prepare-draft:${order.value.id}` : null));
 
 function loadDraft() {
     if (!draftKey.value) return;

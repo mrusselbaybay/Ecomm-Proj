@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NEXMART — Admin</title>
+    <title>BuyTheWay — Admin</title>
 
     <!-- Supabase JS. `defer` unblocks parsing/painting while it downloads;
          it still executes before the Vite module bundle below (both run

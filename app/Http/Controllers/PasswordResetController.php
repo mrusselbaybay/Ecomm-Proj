@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use App\Mail\PasswordResetCodeMail;
+use App\Mail\SignupVerificationCodeMail;
 use App\Models\PasswordResetCode;
 
 class PasswordResetController extends Controller
@@ -116,7 +117,7 @@ class PasswordResetController extends Controller
     ]);
 
     try {
-        Mail::to($email)->send(new PasswordResetCodeMail($code));
+        Mail::to($email)->send(new SignupVerificationCodeMail($code));
     } catch (\Exception $e) {
         Log::error('Signup email send failed', ['error' => $e->getMessage()]);
         return response()->json(['message' => 'Failed to send email. Please try again.'], 500);

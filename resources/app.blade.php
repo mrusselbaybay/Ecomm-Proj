@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>NEXMART</title>
+    <title>BuyTheWay</title>
 </head>
 <body>
     <div id="app"></div>

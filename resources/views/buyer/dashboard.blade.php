@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>NEXMART - Buyer</title>
+    <title>BuyTheWay - Buyer</title>
 
     <!-- Supabase client (UMD build) — must load before the Vite bundle.
          Used to read the signed-in buyer's session and forward it as a

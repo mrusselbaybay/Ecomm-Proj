@@ -9,7 +9,7 @@
       <strong>Reason:</strong> {{ $reason }}
     </div>
   @endif
-  <p>You're welcome to apply to other logistics companies on NEXMART, or reapply here later.</p>
-  <p style="margin-top: 32px; color: #64748b; font-size: 13px;">— The NEXMART Team</p>
+  <p>You're welcome to apply to other logistics companies on BuyTheWay, or reapply here later.</p>
+  <p style="margin-top: 32px; color: #64748b; font-size: 13px;">— The BuyTheWay Team</p>
 </body>
 </html>

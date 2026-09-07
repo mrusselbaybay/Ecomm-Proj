@@ -32,7 +32,7 @@ it('lists a parcel the logistics team has assigned to the signed-in rider', func
     $buyer = makeBuyer();
     $seller = makeSeller();
     $courier = makeCourier(['first_name' => 'Marco', 'last_name' => 'Rivera']);
-    $company = makeLogisticsCompany(['company_name' => 'NexMart Logistics']);
+    $company = makeLogisticsCompany(['company_name' => 'BuyTheWay Logistics']);
     $area = LogisticsDeliveryArea::factory()->create([
         'logistics_company_id' => $company->id,
         'name' => 'Area B',
@@ -71,7 +71,7 @@ it('lists a parcel the logistics team has assigned to the signed-in rider', func
         ->assertJsonPath('data.0.customer_name', 'Liza Cruz')
         ->assertJsonPath('data.0.delivery_area', 'Area B')
         ->assertJsonPath('data.0.dropoff_label', '14, Maple St, Sikatuna Village, Quezon City, Metro Manila')
-        ->assertJsonPath('data.0.pickup_label', 'NexMart Logistics — Sorting Hub')
+        ->assertJsonPath('data.0.pickup_label', 'BuyTheWay Logistics — Sorting Hub')
         ->assertJsonPath('data.0.parcels', 1)
         ->assertJsonPath('data.0.status', 'assigned');
 });

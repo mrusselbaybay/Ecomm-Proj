@@ -121,7 +121,7 @@ function subscribeNewsletter() {
         </div>
 
         <div class="buyer-footer-bottom">
-            <span>© {{ new Date().getFullYear() }} NEXMART. All rights reserved.</span>
+            <span>© {{ new Date().getFullYear() }} BuyTheWay. All rights reserved.</span>
         </div>
 
     </footer>

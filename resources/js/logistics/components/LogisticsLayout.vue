@@ -24,7 +24,7 @@
             </button>
             <div class="topbar-brand">
                 <span class="brand-mark">N</span>
-                <span>{{ companyName || 'NEXMART Logistics' }}</span>
+                <span>{{ companyName || 'BuyTheWay Logistics' }}</span>
             </div>
             <span class="topbar-avatar" :title="profileName">{{
                 profileInitials
@@ -46,7 +46,7 @@
             <div class="sidebar-brand">
                 <span class="brand-mark">N</span>
                 <div>
-                    <p class="brand-name">NEXMART</p>
+                    <p class="brand-name">BuyTheWay</p>
                     <p class="brand-sub">Sorting Center</p>
                 </div>
             </div>
@@ -187,7 +187,7 @@
         >
             <div class="modal-panel modal-sm">
                 <div class="modal-header">
-                    <h3>Log out of NEXMART?</h3>
+                    <h3>Log out of BuyTheWay?</h3>
                     <button
                         class="modal-close"
                         aria-label="Close"

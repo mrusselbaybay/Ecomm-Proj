@@ -465,7 +465,7 @@ return;
         const blob = await response.blob();
         const disposition = response.headers.get('Content-Disposition') || '';
         const match = disposition.match(/filename="?([^"]+)"?/);
-        const filename = match ? match[1] : `nexmart-seller-report-${range.value.from}-to-${range.value.to}.csv`;
+        const filename = match ? match[1] : `buytheway-seller-report-${range.value.from}-to-${range.value.to}.csv`;
 
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');

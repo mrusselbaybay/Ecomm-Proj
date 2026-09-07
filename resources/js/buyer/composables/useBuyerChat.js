@@ -108,7 +108,7 @@ function mapMessage(message) {
 function mapConversation(conversation) {
     return {
         id: conversation.id,
-        seller: conversation.seller || 'NEXMART Seller',
+        seller: conversation.seller || 'BuyTheWay Seller',
         sellerId: conversation.sellerId || null,
         status: conversation.status || 'open',
         online: Boolean(conversation.online),

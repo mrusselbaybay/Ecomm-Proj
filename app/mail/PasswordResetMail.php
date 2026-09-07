@@ -19,7 +19,7 @@ class PasswordResetMail extends Mailable
 
     public function build()
     {
-        return $this->subject('Reset your NEXMART password')
+        return $this->subject('Reset your BuyTheWay password')
             ->markdown('emails.password-reset');
     }
 }

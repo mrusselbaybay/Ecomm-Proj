@@ -81,7 +81,7 @@ const showSkeleton = computed(
 | Per-seller helpers
 |--------------------------------------------------------------------------
 |
-| NEXMART splits checkout into one order per seller (CheckoutService), so
+| BuyTheWay splits checkout into one order per seller (CheckoutService), so
 | items stay grouped by seller, each group with its own select-all row and
 | subtotal. Required behaviour, not styling.
 |
@@ -347,7 +347,7 @@ function selectRecommendedProduct(product) {
                         Your cart is empty
                     </h2>
                     <p class="text-slate-500 mb-6">
-                        Browse NEXMART and add items you like — they'll wait for you here, even after a refresh.
+                        Browse BuyTheWay and add items you like — they'll wait for you here, even after a refresh.
                     </p>
                     <button
                         type="button"
@@ -363,7 +363,7 @@ function selectRecommendedProduct(product) {
                     class="mt-16"
                 >
                     <h2 class="text-xl font-bold text-slate-900 mb-6">
-                        Popular on NEXMART
+                        Popular on BuyTheWay
                     </h2>
                     <div class="product-grid">
                         <ProductCard

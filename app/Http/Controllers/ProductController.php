@@ -281,7 +281,7 @@ class ProductController extends Controller
             'seller_id' => $product->seller_id,
             'seller' => $product->seller?->sellerDetail?->business_name
                 ?? $product->seller?->full_name
-                ?? 'NEXMART Seller',
+                ?? 'BuyTheWay Seller',
             // Sellers have exactly one category === their line_of_business
             // (enforced by DB trigger), exposed by name for the homepage's
             // "line of business" labelling without a second lookup.
@@ -351,7 +351,7 @@ class ProductController extends Controller
 
         return [
             'id' => $review->id,
-            'author' => $author !== '' ? $author : 'NEXMART Buyer',
+            'author' => $author !== '' ? $author : 'BuyTheWay Buyer',
             'rating' => (int) $review->rating,
             'comment' => $review->comment,
             'createdAt' => optional($review->created_at)->toIso8601String(),

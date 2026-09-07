@@ -24,7 +24,7 @@ class RegistrationRejected extends Mailable
 
     public function build()
     {
-        return $this->subject('Your NEXMART Account Application')
+        return $this->subject('Your BuyTheWay Account Application')
                     ->view('emails.registration-rejected')
                     ->with([
                         'name' => $this->name,

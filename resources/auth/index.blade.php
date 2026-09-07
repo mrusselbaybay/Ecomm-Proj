@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NEXMART — Sign Up</title>
+    <title>BuyTheWay — Sign Up</title>
     
     <!-- External CSS -->
     <script src="https://cdn.tailwindcss.com"></script>

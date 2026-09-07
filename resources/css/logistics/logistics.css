@@ -1369,13 +1369,16 @@ button:disabled:hover {
     color: var(--lg-slate);
     font-size: 11px;
 }
-/* Fixed height, not content height. Switching Location <-> Assigned
-   drivers, adding a municipality chip, or surfacing an error used to
-   re-flow the whole centred panel, so the modal jumped on nearly every
-   interaction. Header + tabs stay pinned at the top, the actions row at
-   the bottom, and only .area-modal-body scrolls. */
+/* Fixed size, not content size. Switching Location <-> Assigned
+   drivers, adding a municipality chip, surfacing an error, or opening
+   the "Add courier" panel used to re-flow the whole centred panel, so
+   the modal jumped on nearly every interaction. A constant width (not
+   `100%` of the fit-content row) plus a constant height keeps it still:
+   header + tabs stay pinned at the top, the actions row at the bottom,
+   and only .area-modal-body scrolls. */
 .area-form-modal {
-    max-width: 660px;
+    width: 660px;
+    max-width: 100%;
     height: min(620px, 85vh);
     display: flex;
     flex-direction: column;

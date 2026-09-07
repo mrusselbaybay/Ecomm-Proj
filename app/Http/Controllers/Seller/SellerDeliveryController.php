@@ -200,8 +200,8 @@ class SellerDeliveryController extends Controller
 
         $range = $range ?? [null, null];
         $filename = $range[0]
-            ? sprintf('nexmart-deliveries-%s-to-%s.csv', $range[0]->toDateString(), $range[1]->toDateString())
-            : 'nexmart-deliveries-' . now()->format('Y-m-d') . '.csv';
+            ? sprintf('buytheway-deliveries-%s-to-%s.csv', $range[0]->toDateString(), $range[1]->toDateString())
+            : 'buytheway-deliveries-' . now()->format('Y-m-d') . '.csv';
 
         return response($csv, 200, [
             'Content-Type' => 'text/csv',

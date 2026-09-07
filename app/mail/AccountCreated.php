@@ -36,7 +36,7 @@ class AccountCreated extends Mailable
 
     public function build()
     {
-        return $this->subject("Your NEXMART {$this->roleLabel} Account Has Been Created")
+        return $this->subject("Your BuyTheWay {$this->roleLabel} Account Has Been Created")
                     ->view('emails.account-created')
                     ->with([
                         'name' => $this->name,

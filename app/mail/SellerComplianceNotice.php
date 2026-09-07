@@ -24,7 +24,7 @@ class SellerComplianceNotice extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'NEXMART Seller Compliance Notice',
+            subject: 'BuyTheWay Seller Compliance Notice',
         );
     }
 

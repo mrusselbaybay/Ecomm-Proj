@@ -62,6 +62,7 @@ class DriverProfileController extends Controller
             ]);
 
             $addressPayload = [
+                'region_name' => $request->validated('region_name'),
                 'province_code' => $request->validated('province_code'),
                 'province_name' => $request->validated('province_name'),
                 'municipality_code' => $request->validated('municipality_code'),
@@ -119,6 +120,55 @@ class DriverProfileController extends Controller
                 ? "You're online — dispatch can now assign you deliveries."
                 : "You're offline — you won't receive new delivery assignments.",
             'delivery_status' => $status,
+        ]);
+    }
+
+    /**
+     * Upload/replace the rider's profile picture. Identical contract to
+     * Buyer\BuyerProfileController::uploadAvatar — same public `avatars`
+     * Supabase Storage bucket, same fixed `{profile id}/avatar.{ext}` path
+     * so a re-upload overwrites in place instead of accumulating orphaned
+     * files and the public URL never changes once first set.
+     */
+    public function uploadAvatar(Request $request): JsonResponse
+    {
+        $request->validate([
+            'avatar' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ]);
+
+        /** @var Profile $profile */
+        $profile = $request->user();
+        $file = $request->file('avatar');
+        $path = $profile->id.'/avatar.'.$file->getClientOriginalExtension();
+
+        // Guessed from the file's own bytes rather than taken from the
+        // client's Content-Type header: the mobile client posts its
+        // cropped JPEG as a raw multipart part with no per-part media
+        // type, and storing the object as application/octet-stream would
+        // make the public avatar URL download instead of render.
+        $mime = $file->getMimeType() ?: $file->getClientMimeType();
+
+        $response = Http::withHeaders([
+            'apikey' => config('services.supabase.service_role_key'),
+            'Authorization' => 'Bearer '.config('services.supabase.service_role_key'),
+            'Content-Type' => $mime,
+            'x-upsert' => 'true',
+        ])->withBody(
+            file_get_contents($file->getRealPath()),
+            $mime,
+        )->post(config('services.supabase.url')."/storage/v1/object/avatars/{$path}");
+
+        if (! $response->successful()) {
+            Log::error('Driver avatar upload failed', ['body' => $response->body()]);
+
+            return response()->json(['message' => 'Failed to upload profile picture.'], 500);
+        }
+
+        $profile->update(['avatar_path' => $path]);
+
+        return response()->json([
+            'message' => 'Profile picture updated.',
+            'avatar_url' => $profile->avatar_url,
         ]);
     }
 
@@ -227,6 +277,7 @@ class DriverProfileController extends Controller
             'email' => $profile->email,
             'contact_no' => $profile->contact_no,
             'birthday' => optional($profile->birthday)->toDateString(),
+            'avatar_url' => $profile->avatar_url,
             'role' => $profile->role,
             'account_status' => $profile->account_status,
             'status' => $profile->status,
@@ -245,6 +296,7 @@ class DriverProfileController extends Controller
         }
 
         return [
+            'region_name' => $address->region_name,
             'province_code' => $address->province_code,
             'province_name' => $address->province_name,
             'municipality_code' => $address->municipality_code,

@@ -18,20 +18,20 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎉 Welcome to NEXMART!</h1>
+            <h1>🎉 Welcome to BuyTheWay!</h1>
         </div>
         <div class="content">
             <p>Hello <strong>{{ $name }}</strong>,</p>
-            <p>We're excited to inform you that your NEXMART account has been <span class="highlight">approved</span>!</p>
+            <p>We're excited to inform you that your BuyTheWay account has been <span class="highlight">approved</span>!</p>
             <p>You can now log in to your account and start using our platform.</p>
             <p style="text-align: center;">
                 <a href="{{ $appUrl }}/login" class="btn">Login to Your Account</a>
             </p>
             <p>If you have any questions, feel free to contact our support team.</p>
-            <p>Thanks,<br><strong>NEXMART Team</strong></p>
+            <p>Thanks,<br><strong>BuyTheWay Team</strong></p>
         </div>
         <div class="footer">
-            <p>&copy; {{ date('Y') }} NEXMART. All rights reserved.</p>
+            <p>&copy; {{ date('Y') }} BuyTheWay. All rights reserved.</p>
         </div>
     </div>
 </body>

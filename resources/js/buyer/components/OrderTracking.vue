@@ -137,10 +137,10 @@ async function copyTrackingNumber() {
 const needHelpMailtoHref = computed(() => {
     const subject = encodeURIComponent(`Where's my order ${props.order?.orderId || ''}?`);
     const body = encodeURIComponent(
-        `Hi NEXMART support,\n\nI'd like an update on my order ${props.order?.orderId || ''}.\n\n`
+        `Hi BuyTheWay support,\n\nI'd like an update on my order ${props.order?.orderId || ''}.\n\n`
     );
 
-    return `mailto:support@nexmart.com?subject=${subject}&body=${body}`;
+    return `mailto:support@buytheway.com?subject=${subject}&body=${body}`;
 });
 
 /*

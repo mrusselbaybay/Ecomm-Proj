@@ -15,6 +15,6 @@
     </div>
   @endif
   <p>Your application status stays <strong>pending</strong> while this is arranged — the company will reach out if anything changes.</p>
-  <p style="margin-top: 32px; color: #64748b; font-size: 13px;">— The NEXMART Team</p>
+  <p style="margin-top: 32px; color: #64748b; font-size: 13px;">— The BuyTheWay Team</p>
 </body>
 </html>

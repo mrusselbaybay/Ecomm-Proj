@@ -86,6 +86,16 @@ Route::prefix('signup')->name('signup.')->group(function () {
     Route::post('/resend-code', [PasswordResetController::class, 'resendSignupCode'])
         ->middleware('throttle:3,1')
         ->name('resend-code');
+
+    // Account creation itself (service-role protected, server-side). Lives
+    // in the 'api' group — not 'web' — because the signup wizard now has
+    // two clients: the browser SPA (resources/js/app.js) and the Flutter
+    // mobile app, and the latter is a stateless caller with no session/
+    // XSRF cookie to satisfy a CSRF check with. Same URLs as before.
+    Route::post('/register', [AuthController::class, 'registerUser'])->name('register');
+    Route::post('/register-logistics', [AuthController::class, 'registerLogistics'])->name('register-logistics');
+    Route::post('/complete-google', [AuthController::class, 'completeGoogleSignup'])->name('complete-google');
+    Route::post('/complete-google-logistics', [AuthController::class, 'completeGoogleLogistics'])->name('complete-google-logistics');
 });
 
 // ============================================================

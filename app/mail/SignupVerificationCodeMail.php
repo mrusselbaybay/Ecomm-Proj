@@ -6,7 +6,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
 
-class PasswordResetCodeMail extends Mailable
+class SignupVerificationCodeMail extends Mailable
 {
     use Queueable, SerializesModels;
 
@@ -19,7 +19,7 @@ class PasswordResetCodeMail extends Mailable
 
     public function build()
     {
-        return $this->subject('BuyTheWay - Password Reset Code')
-            ->markdown('emails.password-reset-code');
+        return $this->subject('BuyTheWay - Verify Your Email')
+            ->markdown('emails.signup-verification-code');
     }
 }

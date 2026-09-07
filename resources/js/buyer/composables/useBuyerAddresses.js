@@ -26,7 +26,7 @@ import { buyerApi } from './useBuyerApi';
 |
 */
 
-const STORAGE_KEY = 'nexmart_buyer_addresses';
+const STORAGE_KEY = 'buytheway_buyer_addresses';
 
 const ADDRESS_LABELS = ['Home', 'Work', 'Other'];
 

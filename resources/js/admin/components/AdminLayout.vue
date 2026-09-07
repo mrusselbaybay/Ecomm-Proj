@@ -105,7 +105,7 @@
                             </svg>
                         </div>
                         <div>
-                            <p class="logo-text">NEXMART</p>
+                            <p class="logo-text">BuyTheWay</p>
                             <p class="logo-sub">Admin Panel</p>
                         </div>
                     </div>

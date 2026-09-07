@@ -160,7 +160,7 @@ onBeforeUnmount(() => {
                     </p>
                     <p>
                         Seller:
-                        {{ item?.seller || 'NEXMART Seller' }}
+                        {{ item?.seller || 'BuyTheWay Seller' }}
                     </p>
                 </div>
             </div>

@@ -34,8 +34,8 @@ class PickupCourierController extends Controller
             return Auth::id();
         }
         
-        // Third: Try from the nexmart_session cookie
-        $sessionCookie = $request->cookie('nexmart_session');
+        // Third: Try from the buytheway_session cookie
+        $sessionCookie = $request->cookie('buytheway_session');
         if ($sessionCookie) {
             try {
                 $userData = json_decode($sessionCookie, true);

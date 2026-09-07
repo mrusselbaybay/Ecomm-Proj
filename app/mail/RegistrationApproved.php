@@ -22,7 +22,7 @@ class RegistrationApproved extends Mailable
 
     public function build()
     {
-        return $this->subject('Welcome to NEXMART! Your Account Has Been Approved')
+        return $this->subject('Welcome to BuyTheWay! Your Account Has Been Approved')
                     ->view('emails.registration-approved')
                     ->with([
                         'name' => $this->name,

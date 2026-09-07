@@ -21,13 +21,13 @@
     @endif
 
     @if ($action === 'warn')
-        <p>Please correct the issue and ensure future listings follow NEXMART policies.</p>
+        <p>Please correct the issue and ensure future listings follow BuyTheWay policies.</p>
     @elseif ($action === 'remove')
         <p>The product has been made inactive and is no longer available to buyers.</p>
     @elseif ($action === 'suspend')
         <p>Your seller account has been suspended. Contact platform support before attempting further activity.</p>
     @endif
 
-    <p>Thank you,<br>NEXMART Compliance Team</p>
+    <p>Thank you,<br>BuyTheWay Compliance Team</p>
 </body>
 </html>
