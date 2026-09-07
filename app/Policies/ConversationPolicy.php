@@ -79,6 +79,17 @@ class ConversationPolicy
                 && $conversation->order?->seller_id === $conversation->seller_id;
         }
 
+        if ($conversation->type === 'shipment') {
+            $assignment = $conversation->parcelAssignment;
+
+            return $assignment !== null
+                && $conversation->seller_id !== null
+                && $conversation->logistics_company_id !== null
+                && $assignment->order?->seller_id === $conversation->seller_id
+                && $assignment->logistics_company_id === $conversation->logistics_company_id
+                && $assignment->rider_profile_id !== null;
+        }
+
         return false;
     }
 }

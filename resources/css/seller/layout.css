@@ -5143,7 +5143,83 @@ body {
     overflow: hidden;
 }
 .msg-list-header {
-    padding: 1.1rem 1.1rem 0.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 1.15rem 1.1rem 0.85rem;
+}
+.msg-list-eyebrow {
+    margin: 0 0 0.15rem;
+    color: #94a3b8;
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.msg-list-unread {
+    padding: 0.3rem 0.55rem;
+    border-radius: 999px;
+    background: var(--teal-100);
+    color: var(--teal-800);
+    font-size: 0.66rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.logistics-contact-strip {
+    margin: 0 0.65rem 0.85rem;
+    padding: 0.75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    background: #f8fafc;
+}
+
+.logistics-contact-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-bottom: 0.6rem;
+}
+.logistics-contact-icon {
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    flex: none;
+    place-items: center;
+    border-radius: 0.6rem;
+    background: var(--teal-100);
+    color: var(--teal-800);
+}
+.logistics-contact-heading label {
+    display: block;
+    color: #475569;
+    font-size: 0.7rem;
+    font-weight: 800;
+}
+.logistics-contact-heading p {
+    margin: 0.08rem 0 0;
+    color: #94a3b8;
+    font-size: 0.66rem;
+    line-height: 1.35;
+}
+
+.logistics-contact-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.logistics-contact-controls .field-input {
+    min-width: 0;
+    height: 2.35rem;
+    padding: 0 0.65rem;
+    font-size: 0.75rem;
+}
+
+.logistics-contact-controls .btn-primary {
+    flex: none;
+    white-space: nowrap;
 }
 .msg-list-title {
     font-size: 1.15rem;
@@ -5333,6 +5409,16 @@ body {
     align-items: center;
     gap: 0.4rem;
     margin-top: 0.15rem;
+}
+.msg-convo-type {
+    padding: 0.15rem 0.35rem;
+    border-radius: 0.35rem;
+    background: var(--teal-100);
+    color: var(--teal-800);
+    font-size: 0.6rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
 }
 .msg-convo-order {
     font-size: 0.62rem;
@@ -6055,6 +6141,22 @@ body {
     .msg-row,
     .msg-row.sent {
         max-width: 88%;
+    }
+}
+
+@media (max-width: 420px) {
+    .logistics-contact-controls {
+        align-items: stretch;
+        flex-direction: column;
+    }
+    .logistics-contact-controls .btn-primary {
+        width: 100%;
+    }
+    .msg-chat-header {
+        padding-inline: 0.75rem;
+    }
+    .msg-chat-actions {
+        gap: 0.1rem;
     }
 }
 

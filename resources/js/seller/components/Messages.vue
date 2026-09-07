@@ -4,7 +4,38 @@
         <!-- ============ CONVERSATION LIST ============ -->
         <aside class="msg-list-panel">
             <div class="msg-list-header">
-                <h2 class="msg-list-title">Messages</h2>
+                <div>
+                    <p class="msg-list-eyebrow">Inbox</p>
+                    <h2 class="msg-list-title">Messages</h2>
+                </div>
+                <span v-if="tabCount('unread')" class="msg-list-unread">{{ tabCount('unread') }} unread</span>
+            </div>
+
+            <div v-if="logisticsContacts.length" class="logistics-contact-strip">
+                <div class="logistics-contact-heading">
+                    <span class="logistics-contact-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7h11v10H3zM14 10h4l3 3v4h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+                    </span>
+                    <div>
+                        <label for="logistics-contact">Contact logistics</label>
+                        <p>Choose the shipment you need help with.</p>
+                    </div>
+                </div>
+                <div class="logistics-contact-controls">
+                    <select id="logistics-contact" v-model="selectedLogisticsAssignment" class="field-input">
+                        <option value="">Choose a shipment…</option>
+                        <option
+                            v-for="contact in logisticsContacts"
+                            :key="contact.parcel_assignment_id"
+                            :value="contact.parcel_assignment_id"
+                        >
+                            #{{ contact.order_number }} · {{ contact.company }} ({{ contact.region }})
+                        </option>
+                    </select>
+                    <button type="button" class="btn-primary btn-sm" :disabled="!selectedLogisticsAssignment || openingLogisticsChat" @click="contactLogistics">
+                        {{ openingLogisticsChat ? 'Opening…' : 'Open chat' }}
+                    </button>
+                </div>
             </div>
 
             <div class="header-search msg-search">
@@ -14,7 +45,7 @@
                 <input
                     type="text"
                     :value="searchInput"
-                    placeholder="Search buyer, order #, product…"
+                    placeholder="Search buyer, logistics, order #, product…"
                     aria-label="Search conversations"
                     @input="onSearchInput($event.target.value)"
                 />
@@ -73,7 +104,7 @@
                         <rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" />
                     </svg>
                     <p style="font-weight: 700; color: #1e293b">No conversations yet</p>
-                    <p class="empty-hint">Buyer messages about orders and products will show up here.</p>
+                    <p class="empty-hint">Buyer and assigned logistics conversations will show up here.</p>
                 </div>
 
                 <!-- No results for filter/search -->
@@ -103,6 +134,7 @@
                                 <span v-if="c.lastMessage?.senderRole === 'seller'">You: </span>{{ c.lastMessage?.body || 'No messages yet' }}
                             </span>
                             <span class="msg-convo-tags">
+                                <span v-if="c.buyer.role === 'logistics'" class="msg-convo-type">Logistics</span>
                                 <span v-if="c.needsResponse" class="badge badge-amber">Needs Response</span>
                                 <span v-else-if="c.status === 'resolved'" class="badge badge-emerald">Resolved</span>
                                 <span v-else-if="c.status === 'archived'" class="badge badge-slate">Archived</span>
@@ -205,7 +237,7 @@
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="12" cy="19" r="1.2" /></svg>
                             </button>
                             <div v-if="showMoreMenu" class="msg-more-dropdown">
-                                <button type="button" class="msg-more-item danger" @click="openReportModal">
+                                <button v-if="activeConversation.buyer.role === 'buyer'" type="button" class="msg-more-item danger" @click="openReportModal">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01" /><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /></svg>
                                     Report Buyer
                                 </button>
@@ -235,7 +267,7 @@
                         <template v-for="item in groupedMessages" :key="item.key">
                             <div v-if="item.type === 'date'" class="msg-date-sep"><span>{{ item.label }}</span></div>
                             <div v-else class="msg-row" :class="item.message.senderRole === 'seller' ? 'sent' : 'received'">
-                                <span v-if="item.message.senderRole === 'buyer'" class="msg-row-avatar">
+                                <span v-if="item.message.senderRole !== 'seller'" class="msg-row-avatar">
                                     <span v-if="item.showMeta" class="msg-convo-avatar sm">{{ activeConversation?.buyer?.initials }}</span>
                                 </span>
                                 <div class="msg-bubble-col">
@@ -280,7 +312,7 @@
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
                     New message{{ newIncomingCount > 1 ? 's' : '' }}
                 </button>
-                <span class="sr-only" aria-live="polite">{{ newIncomingCount > 0 ? `${newIncomingCount} new message${newIncomingCount > 1 ? 's' : ''} from buyer` : '' }}</span>
+                <span class="sr-only" aria-live="polite">{{ newIncomingCount > 0 ? `${newIncomingCount} new message${newIncomingCount > 1 ? 's' : ''}` : '' }}</span>
 
                 <!-- Composer -->
                 <div class="msg-composer">
@@ -345,7 +377,7 @@
         </section>
 
         <!-- ============ CONTEXT PANEL (buyer / order / product) ============ -->
-        <aside class="msg-context-panel" :class="{ open: showContextPanel }" aria-label="Buyer and order details">
+        <aside class="msg-context-panel" :class="{ open: showContextPanel }" aria-label="Conversation and order details">
             <div class="msg-context-header">
                 <h3>Details</h3>
                 <button type="button" class="modal-close" aria-label="Close details" @click="showContextPanel = false">
@@ -357,6 +389,9 @@
                 <div class="msg-context-buyer">
                     <span class="msg-convo-avatar lg">{{ activeConversation.buyer.initials }}</span>
                     <h4>{{ activeConversation.buyer.name }}</h4>
+                    <p v-if="activeConversation.shipment" class="msg-context-empty">
+                        {{ activeConversation.shipment.region }} · Rider: {{ activeConversation.shipment.rider || 'Assigned rider' }}
+                    </p>
                 </div>
 
                 <div v-if="activeConversation.order" class="msg-context-section">
@@ -468,6 +503,8 @@ const {
     filters,
     setFilter,
     loadConversations,
+    loadLogisticsContacts,
+    startLogisticsConversation,
 
     activeConversationId,
     activeConversation,
@@ -534,6 +571,9 @@ const pendingArchive = ref(false);
 const showReportModal = ref(false);
 const reportReason = ref('');
 const isReporting = ref(false);
+const logisticsContacts = ref([]);
+const selectedLogisticsAssignment = ref('');
+const openingLogisticsChat = ref(false);
 
 const hasActiveListFilters = computed(
     () => !!(filters.value.search || (filters.value.status && filters.value.status !== 'all')),
@@ -852,9 +892,26 @@ watch(activeConversationId, (id) => {
 
 onMounted(() => {
     loadConversations();
+    loadLogisticsContacts().then(data => { logisticsContacts.value = data; }).catch(() => {});
     document.addEventListener('click', onDocClick);
     document.addEventListener('keydown', onGlobalKeydown);
 });
+
+async function contactLogistics() {
+    if (!selectedLogisticsAssignment.value || openingLogisticsChat.value) return;
+    openingLogisticsChat.value = true;
+    conversationsError.value = '';
+    try {
+        await startLogisticsConversation(selectedLogisticsAssignment.value);
+        selectedLogisticsAssignment.value = '';
+        await nextTick();
+        scrollToBottom(false);
+    } catch (error) {
+        conversationsError.value = error?.message || 'Could not open the logistics conversation.';
+    } finally {
+        openingLogisticsChat.value = false;
+    }
+}
 onBeforeUnmount(() => {
     clearTimeout(searchDebounce);
     clearInterval(messagePollTimer);

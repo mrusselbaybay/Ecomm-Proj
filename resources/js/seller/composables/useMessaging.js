@@ -121,6 +121,7 @@ const conversationsMeta = ref({
 const isLoadingConversations = ref(false);
 const conversationsError = ref('');
 const backendMissing = ref(false);
+let conversationRequestSequence = 0;
 
 const filters = ref({ search: '', status: 'all', page: 1 });
 
@@ -128,6 +129,7 @@ const activeConversationId = ref(null);
 const activeConversation = ref(null);
 const isLoadingActiveConversation = ref(false);
 const activeConversationError = ref('');
+let activeConversationRequestSequence = 0;
 
 const messages = ref([]);
 const messagesMeta = ref({ hasMore: false, nextCursor: null });
@@ -181,6 +183,21 @@ async function apiFetch(path, options = {}) {
     return body;
 }
 
+async function loadLogisticsContacts() {
+    const body = await apiFetch('/messages/logistics-contacts');
+    return body.data || [];
+}
+
+async function startLogisticsConversation(parcelAssignmentId) {
+    const body = await apiFetch('/messages/logistics-conversations', {
+        method: 'POST',
+        body: JSON.stringify({ parcel_assignment_id: parcelAssignmentId }),
+    });
+    await loadConversations();
+    await openConversation(body.data.id);
+    return body.data;
+}
+
 function buildQuery() {
     const params = new URLSearchParams();
     const f = filters.value;
@@ -191,24 +208,42 @@ function buildQuery() {
 }
 
 async function loadConversations() {
-    isLoadingConversations.value = true;
+    const requestSequence = ++conversationRequestSequence;
+    const showLoadingState = conversations.value.length === 0;
+
+    if (showLoadingState) {
+        isLoadingConversations.value = true;
+    }
     conversationsError.value = '';
 
     try {
         const body = await apiFetch(`/messages/conversations?${buildQuery()}`);
+
+        if (requestSequence !== conversationRequestSequence) {
+            return;
+        }
+
         conversations.value = body.data;
         conversationsMeta.value = body.meta;
         backendMissing.value = false;
     } catch (err) {
+        if (requestSequence !== conversationRequestSequence) {
+            return;
+        }
+
         console.error('Error loading conversations:', err);
         if (err.status === 404) {
             backendMissing.value = true;
         } else {
             conversationsError.value = err?.message || 'Something went wrong while loading your conversations.';
         }
-        conversations.value = [];
+        if (showLoadingState) {
+            conversations.value = [];
+        }
     } finally {
-        isLoadingConversations.value = false;
+        if (requestSequence === conversationRequestSequence) {
+            isLoadingConversations.value = false;
+        }
     }
 }
 
@@ -221,12 +256,14 @@ function setFilter(patch) {
 }
 
 async function openConversation(id) {
+    const requestSequence = ++activeConversationRequestSequence;
     activeConversationId.value = id;
     activeConversation.value = null;
     messages.value = [];
     messagesMeta.value = { hasMore: false, nextCursor: null };
     isLoadingActiveConversation.value = true;
     isLoadingMessages.value = true;
+    isLoadingOlderMessages.value = false;
     activeConversationError.value = '';
     messagesError.value = '';
 
@@ -235,6 +272,7 @@ async function openConversation(id) {
             apiFetch(`/messages/conversations/${encodeURIComponent(id)}`),
             apiFetch(`/messages/conversations/${encodeURIComponent(id)}/messages?limit=${MESSAGES_PAGE_SIZE}`),
         ]);
+        if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== id) return;
         activeConversation.value = detailBody.data;
         messages.value = messagesBody.data;
         messagesMeta.value = messagesBody.meta;
@@ -243,6 +281,7 @@ async function openConversation(id) {
         backendMissing.value = false;
         markRead(id);
     } catch (err) {
+        if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== id) return;
         console.error('Error opening conversation:', err);
         if (err.status === 404) {
             backendMissing.value = true;
@@ -250,15 +289,19 @@ async function openConversation(id) {
             activeConversationError.value = err?.message || "Couldn't load this conversation.";
         }
     } finally {
-        isLoadingActiveConversation.value = false;
-        isLoadingMessages.value = false;
+        if (requestSequence === activeConversationRequestSequence) {
+            isLoadingActiveConversation.value = false;
+            isLoadingMessages.value = false;
+        }
     }
 }
 
 function closeActiveConversation() {
+    ++activeConversationRequestSequence;
     activeConversationId.value = null;
     activeConversation.value = null;
     messages.value = [];
+    isLoadingOlderMessages.value = false;
     newIncomingCount.value = 0;
     newestKnownMessageId = null;
 }
@@ -276,17 +319,22 @@ function closeActiveConversation() {
 async function pollNewMessages(isAtBottom) {
     if (!activeConversationId.value || !newestKnownMessageId) return;
 
+    const conversationId = activeConversationId.value;
+    const knownMessageId = newestKnownMessageId;
+    const requestSequence = activeConversationRequestSequence;
+
     try {
         const body = await apiFetch(
-            `/messages/conversations/${encodeURIComponent(activeConversationId.value)}/messages?after=${encodeURIComponent(newestKnownMessageId)}&limit=${MESSAGES_PAGE_SIZE}`,
+            `/messages/conversations/${encodeURIComponent(conversationId)}/messages?after=${encodeURIComponent(knownMessageId)}&limit=${MESSAGES_PAGE_SIZE}`,
         );
+        if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== conversationId) return;
         if (!body.data.length) return;
 
         messages.value = [...messages.value, ...body.data];
         newestKnownMessageId = body.data.at(-1).id;
 
         if (isAtBottom) {
-            markRead(activeConversationId.value);
+            markRead(conversationId);
         } else {
             newIncomingCount.value += body.data.filter((m) => m.senderRole === 'buyer').length;
         }
@@ -309,11 +357,15 @@ async function loadOlderMessages() {
     }
 
     isLoadingOlderMessages.value = true;
+    const conversationId = activeConversationId.value;
+    const nextCursor = messagesMeta.value.nextCursor;
+    const requestSequence = activeConversationRequestSequence;
 
     try {
         const body = await apiFetch(
-            `/messages/conversations/${encodeURIComponent(activeConversationId.value)}/messages?limit=${MESSAGES_PAGE_SIZE}&before=${encodeURIComponent(messagesMeta.value.nextCursor)}`,
+            `/messages/conversations/${encodeURIComponent(conversationId)}/messages?limit=${MESSAGES_PAGE_SIZE}&before=${encodeURIComponent(nextCursor)}`,
         );
+        if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== conversationId) return;
         messages.value = [...body.data, ...messages.value];
         messagesMeta.value = body.meta;
     } catch (err) {
@@ -322,7 +374,7 @@ async function loadOlderMessages() {
         // interrupting the conversation with an error banner. The seller
         // can just scroll again to retry.
     } finally {
-        isLoadingOlderMessages.value = false;
+        if (requestSequence === activeConversationRequestSequence) isLoadingOlderMessages.value = false;
     }
 }
 
@@ -530,6 +582,8 @@ export function useMessaging() {
         filters,
         setFilter,
         loadConversations,
+        loadLogisticsContacts,
+        startLogisticsConversation,
 
         activeConversationId,
         activeConversation,

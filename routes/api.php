@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\Logistics\ParcelAssignmentController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CustomerService\SupportTicketController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
+use App\Http\Controllers\Logistics\MessageController as LogisticsMessageController;
 use App\Http\Controllers\Messaging\MessageAttachmentController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProductController;
@@ -174,6 +175,13 @@ Route::middleware(['supabase.auth', 'logistics'])
             ->name('parcel-assignments.assign');
         Route::put('/parcel-assignments/{parcelAssignment}/handoff', [ParcelAssignmentController::class, 'handoff'])
             ->name('parcel-assignments.handoff');
+        Route::get('/messages/unread-count', [LogisticsMessageController::class, 'unreadCount']);
+        Route::get('/messages/conversations', [LogisticsMessageController::class, 'conversations']);
+        Route::get('/messages/conversations/{id}', [LogisticsMessageController::class, 'show']);
+        Route::get('/messages/conversations/{id}/messages', [LogisticsMessageController::class, 'messages']);
+        Route::post('/messages/conversations/{id}/messages', [LogisticsMessageController::class, 'send'])
+            ->middleware('throttle:30,1');
+        Route::put('/messages/conversations/{id}/read', [LogisticsMessageController::class, 'markRead']);
     });
 
 // ============================================================

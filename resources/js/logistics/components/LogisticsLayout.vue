@@ -114,6 +114,7 @@
                 @open-section="selectTab"
             />
             <Couriers v-else-if="activeTab === 'couriers'" />
+            <Messages v-else-if="activeTab === 'messages'" />
             <CustomerServicePage v-else-if="activeTab === 'customer-service'" />
             <PortalPlaceholder v-else :section="activeTab" />
         </main>
@@ -154,6 +155,7 @@ import CustomerServicePage from '../../shared/CustomerServicePage.vue';
 import Applications from './Applications.vue';
 import Couriers from './Couriers.vue';
 import Dashboard from './Dashboard.vue';
+import Messages from './Messages.vue';
 import ParcelOperations from './ParcelOperations.vue';
 import PortalPlaceholder from './PortalPlaceholder.vue';
 import { useLogistics } from '../composables/useLogistics';

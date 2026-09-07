@@ -9,7 +9,7 @@ class UploadMessageAttachmentRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return in_array($this->user()?->getAttribute('role'), ['buyer', 'seller'], true);
+        return in_array($this->user()?->getAttribute('role'), ['buyer', 'seller', 'logistics'], true);
     }
 
     /**

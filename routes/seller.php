@@ -101,6 +101,11 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     Route::prefix('messages')->name('messages.')->group(function () {
         Route::get('/unread-count', [MessageController::class, 'unreadCount'])->name('unread-count');
         Route::get('/conversations', [MessageController::class, 'conversations'])->name('conversations.index');
+        Route::get('/logistics-contacts', [MessageController::class, 'logisticsContacts'])
+            ->name('logistics-contacts.index');
+        Route::post('/logistics-conversations', [MessageController::class, 'startLogisticsConversation'])
+            ->middleware('throttle:10,1')
+            ->name('logistics-conversations.store');
         Route::post('/attachments', [MessageController::class, 'uploadAttachment'])->name('attachments.store');
         Route::get('/conversations/{id}', [MessageController::class, 'showConversation'])->name('conversations.show');
         Route::get('/conversations/{id}/messages', [MessageController::class, 'messages'])->name('conversations.messages.index');

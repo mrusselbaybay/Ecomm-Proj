@@ -6,13 +6,18 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Messaging\UploadMessageAttachmentRequest;
 use App\Http\Requests\Seller\ReportBuyerRequest;
 use App\Http\Requests\Seller\SendSellerMessageRequest;
+use App\Http\Requests\Seller\StartLogisticsConversationRequest;
 use App\Http\Requests\Seller\UpdateConversationStatusRequest;
 use App\Models\Complaint;
 use App\Models\Conversation;
+use App\Models\CourierApplication;
 use App\Models\Message;
 use App\Models\MessageAttachment;
+use App\Models\ParcelAssignment;
+use App\Models\Profile;
 use App\Policies\ConversationPolicy;
 use App\Services\MessageAttachmentService;
+use App\Services\ShipmentConversationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -48,7 +53,57 @@ class MessageController extends Controller
     public function __construct(
         private ConversationPolicy $conversationPolicy,
         private MessageAttachmentService $messageAttachmentService,
+        private ShipmentConversationService $shipmentConversationService,
     ) {}
+
+    public function startLogisticsConversation(StartLogisticsConversationRequest $request): JsonResponse
+    {
+        $seller = $request->user();
+        $conversation = $this->shipmentConversationService->findOrCreate(
+            $seller,
+            $request->validated('parcel_assignment_id'),
+        );
+
+        $body = trim((string) $request->validated('body', ''));
+
+        if ($body !== '' && $conversation->messages()->doesntExist()) {
+            $this->storeMessage($conversation, $seller, $body, []);
+        }
+
+        return response()->json([
+            'data' => $this->transformConversationDetail(
+                $conversation->fresh(['buyer', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider']),
+            ),
+        ], 201);
+    }
+
+    public function logisticsContacts(Request $request): JsonResponse
+    {
+        $assignments = ParcelAssignment::query()
+            ->with(['order', 'logisticsCompany', 'rider'])
+            ->whereNotNull('rider_profile_id')
+            ->whereHas('order', fn (Builder $query) => $query->where('seller_id', $request->user()->id))
+            ->whereHas('logisticsCompany', fn (Builder $query) => $query
+                ->whereIn('region', ['Luzon', 'Visayas', 'Mindanao'])
+                ->where('status', 'approved')
+                ->where('account_status', 'active'))
+            ->latest('assigned_at')
+            ->get()
+            ->filter(fn (ParcelAssignment $assignment) => CourierApplication::query()
+                ->where('logistics_company_id', $assignment->logistics_company_id)
+                ->where('courier_profile_id', $assignment->rider_profile_id)
+                ->where('status', CourierApplication::STATUS_ACCEPTED)
+                ->exists())
+            ->values();
+
+        return response()->json(['data' => $assignments->map(fn (ParcelAssignment $assignment) => [
+            'parcel_assignment_id' => $assignment->id,
+            'order_number' => $assignment->order?->order_number,
+            'company' => $assignment->logisticsCompany?->company_name,
+            'region' => $assignment->logisticsCompany?->region,
+            'rider' => $assignment->rider?->full_name,
+        ])]);
+    }
 
     /**
      * GET /api/seller/messages/conversations
@@ -70,13 +125,13 @@ class MessageController extends Controller
             'all' => (clone $base)->count(),
             'unread' => (clone $base)->where('seller_unread_count', '>', 0)->count(),
             'needsResponse' => (clone $base)->where('status', 'open')
-                ->where('last_message_sender_role', 'buyer')->count(),
+                ->where('last_message_sender_role', '!=', 'seller')->count(),
             'resolved' => (clone $base)->where('status', 'resolved')->count(),
             'archived' => (clone $base)->where('status', 'archived')->count(),
         ];
 
         $query = $this->applyStatusFilter(clone $base, $request->string('status')->toString())
-            ->with(['buyer', 'order', 'product'])
+            ->with(['buyer', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider'])
             ->orderByRaw('last_message_at desc nulls last')
             ->orderByDesc('created_at');
 
@@ -105,7 +160,7 @@ class MessageController extends Controller
      */
     public function showConversation(Request $request, string $id): JsonResponse
     {
-        $conversation = $this->findForSeller($request, $id, ['buyer', 'order', 'product']);
+        $conversation = $this->findForSeller($request, $id, ['buyer', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider']);
 
         if (! $conversation) {
             return response()->json(['message' => 'Conversation not found.'], 404);
@@ -199,47 +254,55 @@ class MessageController extends Controller
         $attachmentIds = $request->validated('attachment_ids', []);
 
         $message = DB::transaction(function () use ($conversation, $seller, $body, $attachmentIds) {
-            $staged = $this->messageAttachmentService->findOwnedUnlinked($seller, $attachmentIds);
-
-            if ($staged->count() !== count($attachmentIds)) {
-                throw ValidationException::withMessages([
-                    'attachment_ids' => 'One or more attachments are unavailable.',
-                ]);
-            }
-
-            $message = Message::create([
-                'conversation_id' => $conversation->id,
-                'sender_id' => $seller->id,
-                'sender_role' => 'seller',
-                'message_type' => $body === '' ? 'attachment' : 'text',
-                'body' => $body,
-                'attachments' => $staged->map->toStoredArray()->all(),
-            ]);
-
-            $this->messageAttachmentService->linkToMessage($staged, $message);
-
-            // The seller replying means they've seen everything in the
-            // thread — clear their unread and stamp buyer messages read.
-            Message::where('conversation_id', $conversation->id)
-                ->where('sender_role', 'buyer')
-                ->whereNull('read_at')
-                ->update(['read_at' => now()]);
-
-            $conversation->forceFill([
-                'last_message_at' => $message->created_at,
-                'last_message_preview' => $body !== ''
-                    ? Str::limit($body, 140)
-                    : ($staged->count() === 1 ? 'Sent an attachment' : 'Sent attachments'),
-                'last_message_sender_role' => 'seller',
-                'seller_unread_count' => 0,
-            ])->save();
-
-            $conversation->increment('buyer_unread_count');
-
-            return $message;
+            return $this->storeMessage($conversation, $seller, $body, $attachmentIds);
         });
 
         return response()->json(['data' => $this->transformMessage($message)], 201);
+    }
+
+    /** @param list<string> $attachmentIds */
+    private function storeMessage(Conversation $conversation, Profile $seller, string $body, array $attachmentIds): Message
+    {
+        $staged = $this->messageAttachmentService->findOwnedUnlinked($seller, $attachmentIds);
+
+        if ($staged->count() !== count($attachmentIds)) {
+            throw ValidationException::withMessages([
+                'attachment_ids' => 'One or more attachments are unavailable.',
+            ]);
+        }
+
+        $message = Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_id' => $seller->id,
+            'sender_role' => 'seller',
+            'message_type' => $body === '' ? 'attachment' : 'text',
+            'body' => $body,
+            'attachments' => $staged->map->toStoredArray()->all(),
+        ]);
+
+        $this->messageAttachmentService->linkToMessage($staged, $message);
+
+        // The seller replying means they've seen everything in the
+        // thread — clear their unread and stamp buyer messages read.
+        Message::where('conversation_id', $conversation->id)
+            ->where('sender_role', '!=', 'seller')
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        $conversation->forceFill([
+            'last_message_at' => $message->created_at,
+            'last_message_preview' => $body !== ''
+                ? Str::limit($body, 140)
+                : ($staged->count() === 1 ? 'Sent an attachment' : 'Sent attachments'),
+            'last_message_sender_role' => 'seller',
+            'seller_unread_count' => 0,
+        ])->save();
+
+        $conversation->increment(
+            $conversation->type === 'shipment' ? 'logistics_unread_count' : 'buyer_unread_count'
+        );
+
+        return $message;
     }
 
     /**
@@ -255,7 +318,7 @@ class MessageController extends Controller
 
         DB::transaction(function () use ($conversation) {
             Message::where('conversation_id', $conversation->id)
-                ->where('sender_role', 'buyer')
+                ->where('sender_role', '!=', 'seller')
                 ->whereNull('read_at')
                 ->update(['read_at' => now()]);
 
@@ -273,7 +336,7 @@ class MessageController extends Controller
      */
     public function setStatus(UpdateConversationStatusRequest $request, string $id): JsonResponse
     {
-        $conversation = $this->findForSeller($request, $id, ['buyer', 'order', 'product']);
+        $conversation = $this->findForSeller($request, $id, ['buyer', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider']);
 
         if (! $conversation) {
             return response()->json(['message' => 'Conversation not found.'], 404);
@@ -290,7 +353,7 @@ class MessageController extends Controller
         $conversation->forceFill(['status' => $status])->save();
 
         return response()->json([
-            'data' => $this->transformConversationDetail($conversation->fresh(['buyer', 'order', 'product'])),
+            'data' => $this->transformConversationDetail($conversation->fresh(['buyer', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider'])),
         ]);
     }
 
@@ -332,7 +395,7 @@ class MessageController extends Controller
         $seller = $request->user();
         $conversation = $this->findForSeller($request, $id, ['buyer']);
 
-        if (! $conversation) {
+        if (! $conversation || $conversation->type === 'shipment') {
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
@@ -375,6 +438,8 @@ class MessageController extends Controller
                     ->orWhereHas('buyer', function (Builder $bq) use ($search) {
                         $bq->where(DB::raw("(first_name || ' ' || last_name)"), 'ilike', "%{$search}%");
                     })
+                    ->orWhereHas('logisticsCompany', fn (Builder $logisticsQuery) => $logisticsQuery
+                        ->where('company_name', 'ilike', "%{$search}%"))
                     ->orWhereHas('order', function (Builder $oq) use ($search) {
                         $oq->where('order_number', 'ilike', "%{$search}%");
                     });
@@ -388,7 +453,7 @@ class MessageController extends Controller
     {
         return match ($status) {
             'unread' => $query->where('seller_unread_count', '>', 0),
-            'needs_response' => $query->where('status', 'open')->where('last_message_sender_role', 'buyer'),
+            'needs_response' => $query->where('status', 'open')->where('last_message_sender_role', '!=', 'seller'),
             'resolved' => $query->where('status', 'resolved'),
             'archived' => $query->where('status', 'archived'),
             default => $query,
@@ -437,14 +502,26 @@ class MessageController extends Controller
 
     private function transformConversation(Conversation $c): array
     {
+        $counterpartyName = $c->type === 'shipment'
+            ? ($c->logisticsCompany?->company_name ?: 'Logistics')
+            : ($c->buyer?->full_name ?: 'Buyer');
+
         return [
             'id' => $c->id,
+            'type' => $c->type,
             'status' => $c->status,
             'buyer' => [
-                'id' => $c->buyer_id,
-                'name' => $c->buyer?->full_name ?: 'Buyer',
-                'initials' => $this->initialsFor($c->buyer?->full_name),
+                'id' => $c->type === 'shipment' ? $c->logisticsCompany?->owner_profile_id : $c->buyer_id,
+                'name' => $counterpartyName,
+                'initials' => $this->initialsFor($counterpartyName),
+                'role' => $c->type === 'shipment' ? 'logistics' : 'buyer',
             ],
+            'shipment' => $c->parcelAssignment ? [
+                'id' => $c->parcelAssignment->id,
+                'region' => $c->logisticsCompany?->region,
+                'company' => $c->logisticsCompany?->company_name,
+                'rider' => $c->parcelAssignment->rider?->full_name,
+            ] : null,
             'order' => $c->order ? [
                 'id' => $c->order->order_number,
                 'orderNumber' => $c->order->order_number,
@@ -465,7 +542,7 @@ class MessageController extends Controller
                 'createdAt' => optional($c->last_message_at)->toIso8601String(),
             ] : null,
             'unreadCount' => (int) $c->seller_unread_count,
-            'needsResponse' => $c->status === 'open' && $c->last_message_sender_role === 'buyer',
+            'needsResponse' => $c->status === 'open' && $c->last_message_sender_role !== 'seller',
             'updatedAt' => optional($c->last_message_at ?? $c->updated_at)->toIso8601String(),
         ];
     }
