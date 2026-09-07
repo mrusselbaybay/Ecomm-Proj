@@ -35,6 +35,9 @@ beforeEach(function () {
         $table->string('vehicle')->nullable();
         $table->string('plate_number')->nullable();
         $table->string('logistics_company_id')->nullable();
+        // Shift flag Profile::isAvailableForDelivery() reads — intake only
+        // pre-fills the sole area rider when it's 'available'.
+        $table->string('delivery_status')->default('unavailable');
     });
     Schema::create('courier_applications', function (Blueprint $table) {
         $table->string('id')->primary();
@@ -64,13 +67,24 @@ beforeEach(function () {
         'status' => 'accepted',
         'applied_at' => now(),
     ]);
+    // On shift, so intake's "sole rider of the area" auto-fill applies.
+    DB::table('courier_details')->insert([
+        'profile_id' => '20000000-0000-0000-0000-000000000002',
+        'delivery_status' => 'available',
+    ]);
     DB::table('logistics_delivery_areas')->insert([
         'id' => '50000000-0000-0000-0000-000000000005',
         'logistics_company_id' => '30000000-0000-0000-0000-000000000003',
         'name' => 'Area A',
         'province_name' => 'Laguna',
-        'municipality_name' => 'Santa Cruz',
         'is_active' => true,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    DB::table('logistics_delivery_area_municipalities')->insert([
+        'id' => '51000000-0000-0000-0000-000000000005',
+        'delivery_area_id' => '50000000-0000-0000-0000-000000000005',
+        'municipality_name' => 'Santa Cruz',
         'created_at' => now(),
         'updated_at' => now(),
     ]);
@@ -118,6 +132,21 @@ it('receives an in-transit parcel and automatically matches its area and rider',
         ->assertJsonPath('data.status', 'sorted')
         ->assertJsonPath('data.delivery_area.name', 'Area A')
         ->assertJsonPath('data.rider.first_name', 'Rider');
+});
+
+it('matches the area but leaves the rider empty when the sole area rider is off shift', function () {
+    DB::table('courier_details')
+        ->where('profile_id', '20000000-0000-0000-0000-000000000002')
+        ->update(['delivery_status' => 'unavailable']);
+
+    $this->withToken('valid-token')
+        ->postJson('/api/logistics/parcel-assignments/receive', [
+            'tracking_number' => 'NXM-10001',
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.status', 'sorted')
+        ->assertJsonPath('data.delivery_area.name', 'Area A')
+        ->assertJsonPath('data.rider', null);
 });
 
 it('assigns a sorted parcel and confirms rider handoff', function () {

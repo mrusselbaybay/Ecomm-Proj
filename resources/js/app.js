@@ -189,6 +189,129 @@ const FileDropzone = {
     `,
 };
 
+// ---------- Verification Code Input ----------
+// Six individual digit boxes instead of one free-text field. It still
+// behaves like a single control — v-model is the joined 6-character
+// string — so callers only swap <input> for <code-input>. Handles paste,
+// backspace-to-previous and left/right arrow navigation.
+const CodeInput = {
+    props: {
+        modelValue: { type: String, default: '' },
+        length: { type: Number, default: 6 },
+    },
+    emits: ['update:modelValue', 'complete'],
+    setup(props, { emit }) {
+        const boxes = ref([]);
+
+        const digits = computed(() => {
+            const chars = (props.modelValue || '')
+                .replace(/\D/g, '')
+                .split('');
+
+            return Array.from(
+                { length: props.length },
+                (_, i) => chars[i] || '',
+            );
+        });
+
+        function emitValue(next) {
+            const clean = next.replace(/\D/g, '').slice(0, props.length);
+            emit('update:modelValue', clean);
+
+            if (clean.length === props.length) {
+                emit('complete', clean);
+            }
+        }
+
+        function onInput(event, index) {
+            const typed = event.target.value.replace(/\D/g, '');
+            const current = digits.value.slice();
+
+            if (!typed) {
+                current[index] = '';
+                emitValue(current.join(''));
+
+                return;
+            }
+
+            // Accept multi-character input (autofill, fast typing) by
+            // spreading it across this box and the ones after it.
+            typed.split('').forEach((char, offset) => {
+                if (index + offset < props.length) {
+                    current[index + offset] = char;
+                }
+            });
+            emitValue(current.join(''));
+            boxes.value[
+                Math.min(index + typed.length, props.length - 1)
+            ]?.focus();
+        }
+
+        function onKeydown(event, index) {
+            if (
+                event.key === 'Backspace' &&
+                !digits.value[index] &&
+                index > 0
+            ) {
+                event.preventDefault();
+                const current = digits.value.slice();
+                current[index - 1] = '';
+                emitValue(current.join(''));
+                boxes.value[index - 1]?.focus();
+            } else if (event.key === 'ArrowLeft' && index > 0) {
+                boxes.value[index - 1]?.focus();
+            } else if (
+                event.key === 'ArrowRight' &&
+                index < props.length - 1
+            ) {
+                boxes.value[index + 1]?.focus();
+            }
+        }
+
+        function onPaste(event) {
+            event.preventDefault();
+            const pasted = (event.clipboardData || window.clipboardData)
+                .getData('text')
+                .replace(/\D/g, '');
+
+            if (!pasted) {
+                return;
+            }
+
+            emitValue(pasted);
+            boxes.value[
+                Math.min(pasted.length, props.length - 1)
+            ]?.focus();
+        }
+
+        function setBox(el, index) {
+            if (el) {
+                boxes.value[index] = el;
+            }
+        }
+
+        return { boxes, digits, onInput, onKeydown, onPaste, setBox };
+    },
+    template: `
+      <div class="code-input" @paste="onPaste">
+        <input
+          v-for="(digit, index) in digits"
+          :key="index"
+          :ref="(el) => setBox(el, index)"
+          class="code-input-box"
+          type="text"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          maxlength="1"
+          :value="digit"
+          @input="onInput($event, index)"
+          @keydown="onKeydown($event, index)"
+          @focus="$event.target.select()"
+        />
+      </div>
+    `,
+};
+
 // ---------- Main Application ----------
 const App = {
     setup() {
@@ -224,6 +347,31 @@ const App = {
         const isSendingSignupCode = ref(false);
         const isVerifyingSignupCode = ref(false);
         const signupEmailVerified = ref(false);
+        // Seconds left before "Resend code" is allowed again — shared by
+        // the signup email-verification step and the password-reset
+        // wizard (they're never on screen at the same time). Stops a user
+        // hammering the resend endpoint / their inbox.
+        const resendCooldown = ref(0);
+        let resendTimer = null;
+
+        function startResendCooldown(seconds = 60) {
+            clearInterval(resendTimer);
+            resendCooldown.value = seconds;
+            resendTimer = setInterval(() => {
+                resendCooldown.value -= 1;
+
+                if (resendCooldown.value <= 0) {
+                    clearInterval(resendTimer);
+                    resendTimer = null;
+                }
+            }, 1000);
+        }
+
+        function stopResendCooldown() {
+            clearInterval(resendTimer);
+            resendTimer = null;
+            resendCooldown.value = 0;
+        }
 
         // Password Reset Wizard
         const resetStep = ref(1);
@@ -390,6 +538,21 @@ const App = {
             'security',
             'documents',
         ];
+        // Logistics signup via "Continue with Google": the Google account is
+        // already created and its email already verified, and the account has
+        // no password — so skip the Verify Email and Security steps.
+        const googleLogisticsSteps = [
+            'Company Info',
+            'Owner Details',
+            'Address',
+            'Documents',
+        ];
+        const googleLogisticsStepKeys = [
+            'company',
+            'owner',
+            'address',
+            'documents',
+        ];
         // Google onboarding skips email verification (Google already
         // proved it) and password (no password on this account) — just
         // the personal fields Google didn't give us, address, and docs.
@@ -407,17 +570,28 @@ const App = {
             isGoogleSignup.value ? googleStepKeys : stepKeys,
         );
 
+        // Logistics wizard labels/keys, swapped to the shorter Google set
+        // when the owner arrived via "Continue with Google".
+        const activeLogisticsSteps = computed(() =>
+            isGoogleSignup.value ? googleLogisticsSteps : logisticsSteps,
+        );
+        const activeLogisticsStepKeys = computed(() =>
+            isGoogleSignup.value ? googleLogisticsStepKeys : logisticsStepKeys,
+        );
+
         // Computed: Current Step Index
         const currentStepIndex = computed(() => {
             if (isLogisticsSignup.value) {
-                const stepMap = {
-                    company: 0,
-                    companyVerifyEmail: 1,
-                    owner: 2,
-                    address: 3,
-                    security: 4,
-                    documents: 5,
-                };
+                const stepMap = isGoogleSignup.value
+                    ? { company: 0, owner: 1, address: 2, documents: 3 }
+                    : {
+                          company: 0,
+                          companyVerifyEmail: 1,
+                          owner: 2,
+                          address: 3,
+                          security: 4,
+                          documents: 5,
+                      };
 
                 return stepMap[signupStep.value] !== undefined
                     ? stepMap[signupStep.value]
@@ -834,15 +1008,13 @@ const App = {
                 companyContactNo,
                 companyEmail,
                 companyTIN,
-                companyRegion,
             } = form.value;
 
             if (
                 !companyName ||
                 !companyContactNo ||
                 !companyEmail ||
-                !companyTIN ||
-                !companyRegion
+                !companyTIN
             ) {
                 errorMsg.value = 'Please fill in all required company fields.';
 
@@ -897,6 +1069,7 @@ const App = {
 
         function validateLogisticsAddress() {
             const {
+                companyRegion,
                 companyProvince,
                 companyMunicipality,
                 companyBarangay,
@@ -904,6 +1077,7 @@ const App = {
             } = form.value;
 
             if (
+                !companyRegion ||
                 !companyProvince ||
                 !companyMunicipality ||
                 !companyBarangay ||
@@ -1007,6 +1181,7 @@ const App = {
                 signupEmailVerified.value = false;
                 successMsg.value =
                     'A verification code has been sent to your email.';
+                startResendCooldown();
 
                 return true;
             } catch (err) {
@@ -1082,6 +1257,11 @@ const App = {
         }
 
         async function resendSignupVerificationCode() {
+            // Still counting down from the last send — ignore the click.
+            if (resendCooldown.value > 0 || isSendingSignupCode.value) {
+                return;
+            }
+
             const targetEmail = getSignupEmailForVerification();
 
             if (!targetEmail || !validateEmail(targetEmail)) {
@@ -1089,6 +1269,8 @@ const App = {
 
                 return;
             }
+
+            isSendingSignupCode.value = true;
 
             try {
                 const csrfToken =
@@ -1125,10 +1307,13 @@ const App = {
                 signupVerifyCode.value = '';
                 signupEmailVerified.value = false;
                 successMsg.value = 'New verification code sent to your email.';
+                startResendCooldown();
             } catch (err) {
                 console.error('Resend error:', err);
                 errorMsg.value =
                     err.message || 'Could not resend code. Please try again.';
+            } finally {
+                isSendingSignupCode.value = false;
             }
         }
 
@@ -1539,7 +1724,149 @@ const App = {
             }
         }
 
-        function submitRegistration() {
+        // Logistics signup for an owner who came in through "Continue with
+        // Google": the Supabase auth user already exists and its email is
+        // verified, so there's no password and no email/code — we attach the
+        // company to the live Google session via its bearer token. The
+        // company email is the Google account email (form.companyEmail was
+        // prefilled read-only in startLogisticsSignup()).
+        async function submitGoogleLogisticsRegistration() {
+            try {
+                const fd = new FormData();
+                fd.append('company_name', form.value.companyName || '');
+                fd.append(
+                    'company_contact_no',
+                    form.value.companyContactNo || '',
+                );
+                fd.append('company_tin', form.value.companyTIN || '');
+
+                if (form.value.companySECReg) {
+                    fd.append(
+                        'company_sec_registration',
+                        form.value.companySECReg,
+                    );
+                }
+
+                if (form.value.companyRegion) {
+                    fd.append('company_region', form.value.companyRegion);
+                }
+
+                fd.append('owner_first_name', form.value.ownerFirstName || '');
+                fd.append('owner_last_name', form.value.ownerLastName || '');
+                fd.append(
+                    'owner_middle_initial',
+                    form.value.ownerMiddleInitial || '',
+                );
+                fd.append('owner_sex', form.value.ownerSex || '');
+                fd.append('owner_birthday', form.value.ownerBirthday || '');
+
+                if (form.value.companyProvinceCode) {
+                    fd.append(
+                        'company_province_code',
+                        form.value.companyProvinceCode,
+                    );
+                    fd.append(
+                        'company_province_name',
+                        form.value.companyProvince || '',
+                    );
+                    fd.append(
+                        'company_municipality_code',
+                        form.value.companyMunicipalityCode || '',
+                    );
+                    fd.append(
+                        'company_municipality_name',
+                        form.value.companyMunicipality || '',
+                    );
+                    fd.append(
+                        'company_barangay',
+                        form.value.companyBarangay || '',
+                    );
+                    fd.append('company_street', form.value.companyStreet || '');
+
+                    if (form.value.companyHouseNo) {
+                        fd.append(
+                            'company_house_no',
+                            form.value.companyHouseNo,
+                        );
+                    }
+                }
+
+                if (form.value.ownerIdFile) {
+                    fd.append('owner_id_file', form.value.ownerIdFile);
+                }
+
+                if (form.value.ownerIdType) {
+                    fd.append('owner_id_type', form.value.ownerIdType);
+                }
+
+                if (form.value.businessPermitFile) {
+                    fd.append(
+                        'business_permit_file',
+                        form.value.businessPermitFile,
+                    );
+                }
+
+                if (form.value.mayorPermitFile) {
+                    fd.append('mayor_permit_file', form.value.mayorPermitFile);
+                }
+
+                if (form.value.dtiRegFile) {
+                    fd.append('dti_reg_file', form.value.dtiRegFile);
+                }
+
+                const {
+                    data: { session },
+                } = await supabase.auth.getSession();
+
+                const csrfToken =
+                    document
+                        .querySelector('meta[name="csrf-token"]')
+                        ?.getAttribute('content') || '';
+
+                const response = await fetch(
+                    '/api/signup/complete-google-logistics',
+                    {
+                        method: 'POST',
+                        headers: {
+                            Accept: 'application/json',
+                            'X-CSRF-TOKEN': csrfToken,
+                            Authorization:
+                                'Bearer ' + (session?.access_token || ''),
+                        },
+                        body: fd,
+                    },
+                );
+
+                const result = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error(
+                        result.message ||
+                            'Registration failed. Please try again.',
+                    );
+                }
+
+                // Account created but pending approval — drop the live Google
+                // session so a later real login hits the "pending approval"
+                // gate like any other new signup.
+                await supabase.auth.signOut();
+
+                console.log(
+                    '✅ Google logistics company registered:',
+                    result.company_id,
+                );
+                successMsg.value =
+                    result.message ||
+                    'Logistics company registration submitted! Please wait for administrator approval.';
+                signupStep.value = 'complete';
+            } catch (error) {
+                console.error('Google logistics registration error:', error);
+                errorMsg.value =
+                    error.message || 'Registration failed. Please try again.';
+            }
+        }
+
+        async function submitRegistration() {
             resetMessages();
 
             if (isSubmitting.value) {
@@ -1551,26 +1878,24 @@ const App = {
             try {
                 if (isLogisticsSignup.value) {
                     if (!validateLogisticsDocuments()) {
-                        isSubmitting.value = false;
-
                         return;
                     }
 
-                    submitLogisticsRegistration();
-                    isSubmitting.value = false;
+                    if (isGoogleSignup.value) {
+                        await submitGoogleLogisticsRegistration();
+                    } else {
+                        await submitLogisticsRegistration();
+                    }
 
                     return;
                 }
 
                 if (isGoogleSignup.value) {
                     if (!validateDocuments()) {
-                        isSubmitting.value = false;
-
                         return;
                     }
 
-                    submitGoogleSignup();
-                    isSubmitting.value = false;
+                    await submitGoogleSignup();
 
                     return;
                 }
@@ -1581,19 +1906,15 @@ const App = {
                         !validateDriverSecurityFields() ||
                         !validateDocuments()
                     ) {
-                        isSubmitting.value = false;
-
                         return;
                     }
                 } else {
                     if (!validateDocuments()) {
-                        isSubmitting.value = false;
-
                         return;
                     }
                 }
 
-                submitUserRegistration();
+                await submitUserRegistration();
             } catch (error) {
                 console.error('Submit error:', error);
                 errorMsg.value =
@@ -1900,6 +2221,7 @@ const App = {
             signupEmailVerified.value = false;
             isSendingSignupCode.value = false;
             isVerifyingSignupCode.value = false;
+            stopResendCooldown();
 
             form.value = {
                 lastName: '',
@@ -1981,6 +2303,18 @@ const App = {
             isLogisticsSignup.value = true;
             signupStep.value = 'company';
             resetMessages();
+
+            // Google owner: the company email IS the Google account email —
+            // prefill it (shown read-only) and seed the owner name from
+            // whatever Google gave us so the Owner Details step starts filled.
+            if (isGoogleSignup.value && googleUser.value) {
+                form.value.companyEmail = googleUser.value.email;
+                form.value.ownerFirstName =
+                    form.value.ownerFirstName || form.value.firstName || '';
+                form.value.ownerLastName =
+                    form.value.ownerLastName || form.value.lastName || '';
+            }
+
             // Company step needs companyProvinceOptions — fetch now instead
             // of on every page load (fetchProvinces() is cache-guarded, so
             // this is a no-op if it already ran for this session).
@@ -1990,17 +2324,12 @@ const App = {
         function selectRole(role) {
             // Logistics companies use their own dedicated signup wizard
             // (same one the old "Sign up here" link opened) rather than
-            // the generic buyer/seller/courier funnel below. That wizard
-            // registers its own email/password login unrelated to
-            // whichever personal Google account got them here, so drop
-            // the Google session first if one is active.
+            // the generic buyer/seller/courier funnel below. When the owner
+            // arrived via "Continue with Google" we keep that session: the
+            // Google account becomes the company login, its email is used as
+            // the company email, and the Verify Email / Security steps are
+            // skipped (see googleLogisticsSteps + submitGoogleLogisticsRegistration).
             if (role === 'logistics') {
-                if (isGoogleSignup.value) {
-                    isGoogleSignup.value = false;
-                    googleUser.value = null;
-                    supabase.auth.signOut();
-                }
-
                 startLogisticsSignup();
 
                 return;
@@ -2131,6 +2460,26 @@ const App = {
 
                 if (step === 'documents' && signupStep.value === 'security') {
                     if (!validateSecurityFields()) {
+                        return;
+                    }
+                }
+            } else if (isGoogleSignup.value) {
+                // Google logistics: company -> owner -> address -> documents.
+                // No email verification (Google did it), no password step.
+                if (step === 'owner' && signupStep.value === 'company') {
+                    if (!validateCompany()) {
+                        return;
+                    }
+                }
+
+                if (step === 'address' && signupStep.value === 'owner') {
+                    if (!validateOwner()) {
+                        return;
+                    }
+                }
+
+                if (step === 'documents' && signupStep.value === 'address') {
+                    if (!validateLogisticsAddress()) {
                         return;
                     }
                 }
@@ -2418,6 +2767,7 @@ const App = {
                 resetStep.value = 2;
                 successMsg.value =
                     'A verification code has been sent to your email.';
+                startResendCooldown();
             } catch (err) {
                 errorMsg.value =
                     err.message || 'Could not send code. Please try again.';
@@ -2534,6 +2884,11 @@ const App = {
         }
 
         async function handleResendCode() {
+            // Still counting down from the last send — ignore the click.
+            if (resendCooldown.value > 0) {
+                return;
+            }
+
             resetMessages();
 
             if (!resetEmail.value) {
@@ -2568,6 +2923,7 @@ const App = {
                 }
 
                 successMsg.value = 'New verification code sent to your email.';
+                startResendCooldown();
             } catch (err) {
                 errorMsg.value =
                     err.message || 'Could not resend code. Please try again.';
@@ -2616,6 +2972,17 @@ const App = {
         function formatName(event, field) {
             let value = event.target.value;
             value = value.replace(/[^A-Za-z\s\-]/g, '');
+            event.target.value = value;
+
+            if (field) {
+                form.value[field] = value;
+            }
+        }
+
+        // TIN is digits only (dashes allowed as separators) — block letters
+        // and other characters as the user types.
+        function formatTin(event, field) {
+            const value = event.target.value.replace(/[^0-9-]/g, '');
             event.target.value = value;
 
             if (field) {
@@ -2778,6 +3145,8 @@ const App = {
             googleUser,
             activeSteps,
             activeStepKeys,
+            activeLogisticsSteps,
+            activeLogisticsStepKeys,
             provinceOptions,
             municipalityOptions,
             barangayOptions,
@@ -2798,6 +3167,7 @@ const App = {
             isVerifyingSignupCode,
             signupEmailVerified,
             resendSignupVerificationCode,
+            resendCooldown,
             stepKeys,
             driverStepKeys,
             logisticsStepKeys,
@@ -2817,6 +3187,7 @@ const App = {
             formatContactNumber,
             formatName,
             formatMiddleInitial,
+            formatTin,
             validatePersonalFields,
             validateDriverPersonal,
             validateSecurityFields,
@@ -2893,6 +3264,15 @@ const App = {
 
         <!-- NOT LOGGED IN -->
         <div v-else class="form-container" style="padding:1rem 0;">
+          <!-- Submission overlay: veils the whole screen while a registration
+               request is in flight so the user isn't left wondering. -->
+          <div v-if="isSubmitting" class="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-3 bg-white/70 backdrop-blur-sm">
+            <svg class="animate-spin h-9 w-9 text-teal-600" viewBox="0 0 24 24" fill="none">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.4 0 0 5.4 0 12h4z"></path>
+            </svg>
+            <p class="text-sm font-medium text-slate-600">Submitting your registration…</p>
+          </div>
           <div class="flex items-center justify-between mb-1">
             <h2 class="display-font text-3xl font-bold text-slate-900">
               {{ mode === 'login' ? 'Welcome back' : mode === 'forgot' || mode === 'reset' ? 'Reset Password' : 'Create an account' }}
@@ -2945,7 +3325,7 @@ const App = {
               <p class="text-sm text-slate-500 mb-3">Enter the 6-digit code sent to your email.</p>
               <div>
                 <label class="field-label">Verification Code <span class="text-teal-500">*</span></label>
-                <input v-model="resetCode" type="text" placeholder="6-digit code" maxlength="6" class="field-input" />
+                <code-input v-model="resetCode" />
                 <p class="text-xs text-slate-400 mt-1">Check your email for the code. Expires in 15 minutes.</p>
               </div>
               <p v-if="errorMsg" class="text-sm text-red-600 mt-2">{{ errorMsg }}</p>
@@ -2955,7 +3335,7 @@ const App = {
               </button>
               <div class="flex items-center justify-between mt-3">
                 <p class="text-sm text-slate-500">
-                  <a href="#" @click.prevent="handleResendCode" class="text-teal-600 font-semibold hover:underline">Resend code</a>
+                  <button type="button" @click="handleResendCode" :disabled="resendCooldown > 0" class="text-teal-600 font-semibold hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{{ resendCooldown > 0 ? 'Resend code in ' + resendCooldown + 's' : 'Resend code' }}</button>
                 </p>
                 <p class="text-sm text-slate-500">
                   <a href="#" @click.prevent="goToResetStep(1)" class="text-teal-600 font-semibold hover:underline">Change email</a>
@@ -3121,10 +3501,10 @@ const App = {
                   <p class="text-sm text-slate-600 mb-3">We sent a 6-digit code to <strong>{{ form.driverEmail }}</strong>.</p>
                   <p v-if="successMsg" class="text-xs text-green-600 mb-2">{{ successMsg }}</p>
                   <label class="field-label">Verification Code <span class="text-teal-500">*</span></label>
-                  <input v-model="signupVerifyCode" type="text" placeholder="6-digit code" maxlength="6" class="field-input" />
+                  <code-input v-model="signupVerifyCode" />
                   <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
                   <div class="flex items-center justify-between mt-3">
-                    <a href="#" @click.prevent="resendSignupVerificationCode" class="text-teal-600 font-semibold text-sm hover:underline">Resend code</a>
+                    <button type="button" @click="resendSignupVerificationCode" :disabled="resendCooldown > 0 || isSendingSignupCode" class="text-teal-600 font-semibold text-sm hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{{ resendCooldown > 0 ? 'Resend code in ' + resendCooldown + 's' : 'Resend code' }}</button>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
@@ -3218,7 +3598,10 @@ const App = {
                 <div class="flex gap-3">
                   <button v-if="currentStepIndex > 0" @click="goToStep(driverStepKeys[currentStepIndex - 1])" class="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-lg hover:bg-slate-50">Back</button>
                   <button v-if="currentStepIndex < 4" @click="goToStep(driverStepKeys[currentStepIndex + 1])" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Next</button>
-                  <button v-if="currentStepIndex === 4" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg" :disabled="isSubmitting">Submit</button>
+                  <button v-if="currentStepIndex === 4" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg inline-flex items-center justify-center gap-2 disabled:opacity-70" :disabled="isSubmitting">
+                    <svg v-if="isSubmitting" class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.4 0 0 5.4 0 12h4z"></path></svg>
+                    {{ isSubmitting ? 'Submitting…' : 'Submit' }}
+                  </button>
                 </div>
               </div>
             </div>
@@ -3227,38 +3610,34 @@ const App = {
             <div v-else-if="isLogisticsSignup && signupStep !== 'complete'" style="display:flex;flex-direction:column;height:100%;">
               <!-- Step indicator -->
               <div class="flex items-center gap-1 mb-3">
-                <div v-for="(s, idx) in logisticsSteps" :key="idx" class="flex items-center" :class="{ 'flex-1': idx < logisticsSteps.length - 1 }">
+                <div v-for="(s, idx) in activeLogisticsSteps" :key="idx" class="flex items-center" :class="{ 'flex-1': idx < activeLogisticsSteps.length - 1 }">
                   <div class="step-dot" :class="{ 'bg-teal-500 text-white': currentStepIndex >= idx, 'bg-slate-200 text-slate-500': currentStepIndex < idx }">{{ idx + 1 }}</div>
-                  <div v-if="idx < logisticsSteps.length - 1" class="step-line" :class="{ 'active': currentStepIndex > idx }"></div>
+                  <div v-if="idx < activeLogisticsSteps.length - 1" class="step-line" :class="{ 'active': currentStepIndex > idx }"></div>
                 </div>
               </div>
 
               <div class="flex items-center justify-between mb-2">
                 <p class="text-sm text-slate-500">Logistics Company Registration</p>
-                <span class="text-sm font-medium text-teal-600">Step {{ currentStepIndex + 1 }} of 6</span>
+                <span class="text-sm font-medium text-teal-600">Step {{ currentStepIndex + 1 }} of {{ activeLogisticsSteps.length }}</span>
               </div>
-              <h3 class="display-font text-xl font-bold text-slate-900 mb-3">{{ logisticsSteps[currentStepIndex] }}</h3>
+              <h3 class="display-font text-xl font-bold text-slate-900 mb-3">{{ activeLogisticsSteps[currentStepIndex] }}</h3>
 
               <div class="fields-container">
                 <!-- COMPANY INFO -->
                 <div v-if="signupStep === 'company'">
                   <div class="form-grid">
                     <div class="full-width"><label class="field-label">Company Name <span class="text-teal-500">*</span></label><input v-model="form.companyName" placeholder="ABC Logistics Inc." class="field-input" /></div>
-                    <div class="full-width"><label class="field-label">Company Email <span class="text-teal-500">*</span></label><input v-model="form.companyEmail" type="email" placeholder="info@abclogistics.com" class="field-input" /></div>
-
                     <div class="full-width">
-                      <label class="field-label">Region <span class="text-teal-500">*</span></label>
-                      <select v-model="form.companyRegion" class="field-input">
-                        <option value="">Select Region</option>
-                        <option value="Luzon">Luzon</option>
-                        <option value="Visayas">Visayas</option>
-                        <option value="Mindanao">Mindanao</option>
-                      </select>
+                      <label class="field-label">Company Email <span class="text-teal-500">*</span></label>
+                      <template v-if="isGoogleSignup">
+                        <input :value="form.companyEmail" type="email" class="field-input bg-slate-50" disabled />
+                        <span class="text-xs text-slate-400">Linked to your Google account</span>
+                      </template>
+                      <input v-else v-model="form.companyEmail" type="email" placeholder="info@abclogistics.com" class="field-input" />
                     </div>
 
-
                     <div><label class="field-label">Contact No. <span class="text-teal-500">*</span></label><input v-model="form.companyContactNo" @input="formatContactNumber($event, 'companyContactNo')" placeholder="09XXXXXXXXX" class="field-input" /></div>
-                    <div><label class="field-label">TIN <span class="text-teal-500">*</span></label><input v-model="form.companyTIN" placeholder="123-456-789-000" class="field-input" /></div>
+                    <div><label class="field-label">TIN <span class="text-teal-500">*</span></label><input v-model="form.companyTIN" @input="formatTin($event, 'companyTIN')" inputmode="numeric" placeholder="123-456-789-000" class="field-input" /></div>
                     <div class="full-width"><label class="field-label">SEC Registration #</label><input v-model="form.companySECReg" placeholder="SEC Reg. No. (if applicable)" class="field-input" /></div>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
@@ -3269,10 +3648,10 @@ const App = {
                   <p class="text-sm text-slate-600 mb-3">We sent a 6-digit code to <strong>{{ form.companyEmail }}</strong>.</p>
                   <p v-if="successMsg" class="text-xs text-green-600 mb-2">{{ successMsg }}</p>
                   <label class="field-label">Verification Code <span class="text-teal-500">*</span></label>
-                  <input v-model="signupVerifyCode" type="text" placeholder="6-digit code" maxlength="6" class="field-input" />
+                  <code-input v-model="signupVerifyCode" />
                   <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
                   <div class="flex items-center justify-between mt-3">
-                    <a href="#" @click.prevent="resendSignupVerificationCode" class="text-teal-600 font-semibold text-sm hover:underline">Resend code</a>
+                    <button type="button" @click="resendSignupVerificationCode" :disabled="resendCooldown > 0 || isSendingSignupCode" class="text-teal-600 font-semibold text-sm hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{{ resendCooldown > 0 ? 'Resend code in ' + resendCooldown + 's' : 'Resend code' }}</button>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
@@ -3303,6 +3682,15 @@ const App = {
                 <!-- ADDRESS -->
                 <div v-if="signupStep === 'address'">
                   <div class="form-grid">
+                    <div class="full-width">
+                      <label class="field-label">Region <span class="text-teal-500">*</span></label>
+                      <select v-model="form.companyRegion" class="field-input">
+                        <option value="">Select Region</option>
+                        <option value="Luzon">Luzon</option>
+                        <option value="Visayas">Visayas</option>
+                        <option value="Mindanao">Mindanao</option>
+                      </select>
+                    </div>
                     <div class="full-width">
                       <label class="field-label">Province <span class="text-teal-500">*</span></label>
                       <select v-model="form.companyProvinceCode" @change="onCompanyProvinceChange" class="field-input" :disabled="loadingCompanyProvinces">
@@ -3370,15 +3758,17 @@ const App = {
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
 
-                <p v-if="successMsg" class="text-sm text-green-600 mt-2">{{ successMsg }}</p>
               </div>
 
               <!-- Navigation -->
               <div class="nav-container">
                 <div class="flex gap-3">
-                  <button v-if="currentStepIndex > 0" @click="goToStep(logisticsStepKeys[currentStepIndex - 1])" class="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-lg hover:bg-slate-50">Back</button>
-                  <button v-if="currentStepIndex < 5" @click="goToStep(logisticsStepKeys[currentStepIndex + 1])" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Next</button>
-                  <button v-if="currentStepIndex === 5" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg" :disabled="isSubmitting">Submit</button>
+                  <button v-if="currentStepIndex > 0" @click="goToStep(activeLogisticsStepKeys[currentStepIndex - 1])" class="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-lg hover:bg-slate-50">Back</button>
+                  <button v-if="currentStepIndex < activeLogisticsSteps.length - 1" @click="goToStep(activeLogisticsStepKeys[currentStepIndex + 1])" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Next</button>
+                  <button v-if="currentStepIndex === activeLogisticsSteps.length - 1" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg inline-flex items-center justify-center gap-2 disabled:opacity-70" :disabled="isSubmitting">
+                    <svg v-if="isSubmitting" class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.4 0 0 5.4 0 12h4z"></path></svg>
+                    {{ isSubmitting ? 'Submitting…' : 'Submit' }}
+                  </button>
                 </div>
               </div>
             </div>
@@ -3455,10 +3845,10 @@ const App = {
                   <p class="text-sm text-slate-600 mb-3">We sent a 6-digit code to <strong>{{ email }}</strong>.</p>
                   <p v-if="successMsg" class="text-xs text-green-600 mb-2">{{ successMsg }}</p>
                   <label class="field-label">Verification Code <span class="text-teal-500">*</span></label>
-                  <input v-model="signupVerifyCode" type="text" placeholder="6-digit code" maxlength="6" class="field-input" />
+                  <code-input v-model="signupVerifyCode" />
                   <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
                   <div class="flex items-center justify-between mt-3">
-                    <a href="#" @click.prevent="resendSignupVerificationCode" class="text-teal-600 font-semibold text-sm hover:underline">Resend code</a>
+                    <button type="button" @click="resendSignupVerificationCode" :disabled="resendCooldown > 0 || isSendingSignupCode" class="text-teal-600 font-semibold text-sm hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{{ resendCooldown > 0 ? 'Resend code in ' + resendCooldown + 's' : 'Resend code' }}</button>
                   </div>
                   <span v-if="errorMsg" class="text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
@@ -3589,7 +3979,6 @@ const App = {
                   <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
 
-                <p v-if="successMsg" class="text-sm text-green-600 mt-2">{{ successMsg }}</p>
               </div>
 
               <!-- Navigation -->
@@ -3597,7 +3986,10 @@ const App = {
                 <div class="flex gap-3">
                   <button v-if="currentStepIndex > 0" @click="goToStep(activeStepKeys[currentStepIndex - 1])" class="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-lg hover:bg-slate-50">Back</button>
                   <button v-if="currentStepIndex < activeStepKeys.length - 1" @click="goToStep(activeStepKeys[currentStepIndex + 1])" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg">Next</button>
-                  <button v-if="currentStepIndex === activeStepKeys.length - 1" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg" :disabled="isSubmitting">Submit</button>
+                  <button v-if="currentStepIndex === activeStepKeys.length - 1" @click="submitRegistration" class="flex-1 btn-gradient text-white font-semibold py-2 rounded-lg inline-flex items-center justify-center gap-2 disabled:opacity-70" :disabled="isSubmitting">
+                    <svg v-if="isSubmitting" class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.4 0 0 5.4 0 12h4z"></path></svg>
+                    {{ isSubmitting ? 'Submitting…' : 'Submit' }}
+                  </button>
                 </div>
               </div>
             </div>
@@ -3618,4 +4010,7 @@ const App = {
 };
 
 // Mount the app
-createApp(App).component('FileDropzone', FileDropzone).mount('#auth-app');
+createApp(App)
+    .component('FileDropzone', FileDropzone)
+    .component('CodeInput', CodeInput)
+    .mount('#auth-app');

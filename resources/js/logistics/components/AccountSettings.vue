@@ -684,6 +684,11 @@
             @crop="onAvatarCropped"
         />
 
+        <!-- Modals teleport out of .logistics-main (which has a transform,
+             so the fixed overlay would otherwise be contained by it and
+             its dim backdrop would scroll away instead of covering the
+             viewport). -->
+        <Teleport to=".logistics-shell">
         <!-- DEACTIVATION MODAL — STEP 1 -->
         <div
             v-if="showDeactivateStep1"
@@ -1048,6 +1053,7 @@
                 </template>
             </div>
         </div>
+        </Teleport>
     </div>
 </template>
 

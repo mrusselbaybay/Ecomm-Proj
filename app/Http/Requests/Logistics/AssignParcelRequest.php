@@ -22,7 +22,12 @@ class AssignParcelRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'delivery_area_id' => ['required', 'uuid'],
+            // Optional on the first assignment ("send a courier to collect
+            // this") — a parcel isn't committed to a delivery area until
+            // after it's been picked up, since it might be routed to
+            // another company entirely. ParcelAssignmentController::assign
+            // enforces it for the post-pickup delivery dispatch.
+            'delivery_area_id' => ['nullable', 'uuid'],
             'rider_profile_id' => ['required', 'uuid'],
         ];
     }

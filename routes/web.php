@@ -31,7 +31,7 @@ Route::prefix('pickup-courier')->name('pickup_courier.')->group(function () {
     Route::get('/', function () {
         return view('pickup_courier.index');
     })->name('index');
-    
+
     // API routes for the Vue app (AJAX calls)
     Route::get('/companies', [PickupCourierController::class, 'getCompanies'])->name('companies');
     Route::get('/applications/{application}/resume', [PickupCourierController::class, 'viewResume'])->name('applications.resume');
@@ -115,6 +115,7 @@ Route::prefix('api/signup')->name('api.signup.')->group(function () {
     Route::post('/register', [AuthController::class, 'registerUser'])->name('register');
     Route::post('/register-logistics', [AuthController::class, 'registerLogistics'])->name('register-logistics');
     Route::post('/complete-google', [AuthController::class, 'completeGoogleSignup'])->name('complete-google');
+    Route::post('/complete-google-logistics', [AuthController::class, 'completeGoogleLogistics'])->name('complete-google-logistics');
 });
 // ---------- Buyer SPA ----------
 Route::prefix('buyer')->name('buyer.')->group(function () {

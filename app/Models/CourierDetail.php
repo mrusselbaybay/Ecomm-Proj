@@ -12,10 +12,11 @@ class CourierDetail extends Model
     protected $keyType = 'string';
 
     protected $fillable = [
-        'profile_id', 
-        'vehicle', 
+        'profile_id',
+        'vehicle',
         'plate_number',
-        'logistics_company_id'
+        'logistics_company_id',
+        'delivery_status',
     ];
 
     public function logisticsCompany()

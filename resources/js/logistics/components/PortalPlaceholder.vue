@@ -43,8 +43,8 @@ const SECTIONS = {
         description: 'Coordinate with riders and marketplace staff.',
         icon: 'messages',
         heading: 'Messaging isn’t available yet',
-        note: 'Rider coordination and delivery escalation threads will live here. For now, rider contact numbers are on each rider’s record under Riders & Areas.',
-        action: { tab: 'couriers', label: 'Go to Riders & Areas' },
+        note: 'Rider coordination and delivery escalation threads will live here. For now, rider contact numbers are on each rider’s record under Riders.',
+        action: { tab: 'riders', label: 'Go to Riders' },
     },
     reports: {
         title: 'Reports',

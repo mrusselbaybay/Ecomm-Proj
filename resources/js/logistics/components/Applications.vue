@@ -235,22 +235,6 @@
                                             View Reason
                                         </button>
                                     </template>
-                                    <template
-                                        v-else-if="app.status === 'accepted'"
-                                    >
-                                        <button
-                                            class="btn-sm-outline"
-                                            @click="openDetailsModal(app)"
-                                        >
-                                            Details
-                                        </button>
-                                        <button
-                                            class="btn-danger-outline btn-fire"
-                                            @click="openFireModal(app)"
-                                        >
-                                            Fire
-                                        </button>
-                                    </template>
                                 </div>
                             </td>
                         </tr>
@@ -259,6 +243,11 @@
             </div>
         </div>
 
+        <!-- Modals teleport out of .logistics-main (which has a transform,
+             so a fixed overlay left inside it uses .logistics-main as its
+             containing block and its dim backdrop scrolls away with the
+             page instead of covering the viewport). -->
+        <Teleport to=".logistics-shell">
         <!-- REJECT MODAL -->
         <transition name="modal">
             <div
@@ -346,155 +335,6 @@
                             "
                         >
                             Reject Application
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </transition>
-
-        <!-- FIRE MODAL -->
-        <transition name="modal">
-            <div
-                v-if="fireApp"
-                class="modal-overlay"
-                @click.self="closeFireModal"
-            >
-                <div
-                    class="modal-panel modal-sm"
-                    role="alertdialog"
-                    aria-modal="true"
-                    aria-labelledby="fire-modal-title"
-                >
-                    <div class="modal-header">
-                        <h3 id="fire-modal-title">Fire courier</h3>
-                        <button
-                            class="modal-close"
-                            aria-label="Close"
-                            @click="closeFireModal"
-                        >
-                            ✕
-                        </button>
-                    </div>
-                    <p class="modal-desc">
-                        <strong>{{ personName(fireApp.courier) }}</strong> will
-                        be removed from your delivery areas immediately and
-                        freed to join another company. They'll be emailed about
-                        this.
-                    </p>
-                    <label class="field-label" for="fire-reason"
-                        >Reason
-                        <span class="text-slate-500"
-                            >(optional, shared with the courier)</span
-                        ></label
-                    >
-                    <textarea
-                        id="fire-reason"
-                        v-model="fireReason"
-                        class="field-input mt-1"
-                        rows="3"
-                        maxlength="2000"
-                        placeholder="e.g. Repeated missed pickups"
-                    ></textarea>
-                    <div class="modal-actions">
-                        <button class="btn-outline" @click="closeFireModal">
-                            Cancel
-                        </button>
-                        <button
-                            class="btn-danger"
-                            :disabled="firing"
-                            @click="submitFire"
-                        >
-                            {{ firing ? 'Firing…' : 'Fire courier' }}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </transition>
-
-        <!-- DETAILS MODAL -->
-        <transition name="modal">
-            <div
-                v-if="detailsApp"
-                class="modal-overlay rider-view-overlay"
-                @click.self="closeDetailsModal"
-            >
-                <div class="modal-panel modal-sm rider-view-panel">
-                    <div class="modal-header">
-                        <p class="eyebrow">Courier profile</p>
-                        <button
-                            type="button"
-                            class="modal-close"
-                            aria-label="Close"
-                            @click="closeDetailsModal"
-                        >
-                            &times;
-                        </button>
-                    </div>
-
-                    <div class="rider-view-identity">
-                        <div class="avatar avatar-lg">
-                            {{ initials(detailsApp.courier) }}
-                        </div>
-                        <h3 class="rider-view-name">
-                            {{ personName(detailsApp.courier) }}
-                        </h3>
-                    </div>
-
-                    <div class="details-field-grid">
-                        <div class="full-span">
-                            <label class="field-label">Address</label>
-                            <input
-                                class="field-input"
-                                disabled
-                                :value="
-                                    detailsApp.courier?.address ||
-                                    'No address on file'
-                                "
-                            />
-                        </div>
-                        <div>
-                            <label class="field-label">Birth date</label>
-                            <input
-                                class="field-input"
-                                disabled
-                                :value="
-                                    detailsApp.courier?.birthday
-                                        ? formatDate(detailsApp.courier.birthday)
-                                        : 'Not provided'
-                                "
-                            />
-                        </div>
-                        <div>
-                            <label class="field-label">Vehicle type</label>
-                            <input
-                                class="field-input"
-                                disabled
-                                :value="
-                                    detailsApp.courier_details?.vehicle ||
-                                    'Not provided'
-                                "
-                            />
-                        </div>
-                        <div class="full-span">
-                            <label class="field-label">Plate number</label>
-                            <input
-                                class="field-input"
-                                disabled
-                                :value="
-                                    detailsApp.courier_details?.plate_number ||
-                                    'Not provided'
-                                "
-                            />
-                        </div>
-                    </div>
-
-                    <div class="modal-actions">
-                        <button
-                            type="button"
-                            class="btn-outline"
-                            @click="closeDetailsModal"
-                        >
-                            Close
                         </button>
                     </div>
                 </div>
@@ -986,6 +826,7 @@
                 </div>
             </div>
         </transition>
+        </Teleport>
 
         <!-- The confirm dialog and the toast stack are rendered once by
              LogisticsLayout for the whole portal. -->
@@ -1040,12 +881,19 @@ const refreshing = ref(false);
 // narrowed client-side from the one unfiltered list, so the counters stay
 // accurate no matter which chip is selected and switching between them
 // costs no requests at all.
-const STATUSES = ['pending', 'accepted', 'rejected', 'withdrawn'];
+//
+// Accepted riders live on the Riders page now — this page is just the
+// review pipeline, so accepted rows are filtered out here.
+const STATUSES = ['pending', 'rejected', 'withdrawn'];
+
+const pipelineApplications = computed(() =>
+    applications.value.filter((app) => app.status !== 'accepted'),
+);
 
 const statusCounts = computed(() => {
     const counts = Object.fromEntries(STATUSES.map((s) => [s, 0]));
 
-    for (const app of applications.value) {
+    for (const app of pipelineApplications.value) {
         if (counts[app.status] !== undefined) {
             counts[app.status] += 1;
         }
@@ -1055,7 +903,7 @@ const statusCounts = computed(() => {
 });
 
 const statusOptions = computed(() => [
-    { value: '', label: 'All', count: applications.value.length },
+    { value: '', label: 'All', count: pipelineApplications.value.length },
     ...STATUSES.map((value) => ({
         value,
         label: titleCase(value),
@@ -1065,8 +913,10 @@ const statusOptions = computed(() => [
 
 const visibleApplications = computed(() =>
     statusFilter.value
-        ? applications.value.filter((app) => app.status === statusFilter.value)
-        : applications.value,
+        ? pipelineApplications.value.filter(
+              (app) => app.status === statusFilter.value,
+          )
+        : pipelineApplications.value,
 );
 
 const hasActiveFilters = computed(
@@ -1318,76 +1168,6 @@ async function submitRejection() {
         notify('Application rejected.');
     } catch (e) {
         notifyError(e, 'Failed to reject the application.');
-    }
-}
-
-// DETAILS MODAL — read-only profile popup for an accepted courier,
-// mirroring the rider-view popup on the Riders & Areas page.
-const detailsApp = ref(null);
-function openDetailsModal(app) {
-    detailsApp.value = app;
-}
-function closeDetailsModal() {
-    detailsApp.value = null;
-}
-
-// FIRE MODAL — end an accepted courier's engagement. Unlike the other
-// actions this goes through the Laravel API (not a direct Supabase
-// write): the server withdraws the application, pulls the rider off this
-// company's delivery areas in one transaction, and emails the courier —
-// the same "free the courier" path resignation approval uses.
-const fireApp = ref(null);
-const fireReason = ref('');
-const firing = ref(false);
-
-function openFireModal(app) {
-    fireApp.value = app;
-    fireReason.value = '';
-}
-function closeFireModal() {
-    if (firing.value) {
-        return;
-    }
-
-    fireApp.value = null;
-    fireReason.value = '';
-}
-
-async function submitFire() {
-    const app = fireApp.value;
-
-    if (!app || firing.value) {
-        return;
-    }
-
-    firing.value = true;
-
-    try {
-        const response = await logisticsFetch(
-            `/api/logistics/applications/${app.id}/terminate`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ reason: fireReason.value.trim() }),
-            },
-        );
-        const payload = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            throw new Error(payload.message || 'Failed to fire the courier.');
-        }
-
-        patchApplication(app.id, {
-            status: 'withdrawn',
-            rejection_reason: fireReason.value.trim() || null,
-        });
-        firing.value = false;
-        fireApp.value = null;
-        fireReason.value = '';
-        notify(`${app.courier?.first_name || 'Courier'} has been let go.`);
-    } catch (e) {
-        firing.value = false;
-        notifyError(e, 'Failed to fire the courier.');
     }
 }
 
@@ -1663,18 +1443,6 @@ onActivated(boot);
 </script>
 
 <style scoped>
-.details-field-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-}
-.details-field-grid .full-span {
-    grid-column: 1 / -1;
-}
-.details-field-grid .field-input:disabled {
-    cursor: default;
-}
-
 .resignations-btn {
     position: relative;
     white-space: nowrap;

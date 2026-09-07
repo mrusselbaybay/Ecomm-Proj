@@ -75,7 +75,7 @@
                     <button
                         type="button"
                         class="btn-link"
-                        @click="emit('open-section', 'couriers')"
+                        @click="emit('open-section', 'areas')"
                     >
                         Manage areas
                     </button>

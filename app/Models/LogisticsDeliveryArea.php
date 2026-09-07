@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
 class LogisticsDeliveryArea extends Model
@@ -22,9 +23,10 @@ class LogisticsDeliveryArea extends Model
         'logistics_company_id',
         'name',
         'province_name',
-        'municipality_name',
-        'barangay',
         'is_active',
+        // Where this area's round-robin rotation stopped last time "Auto
+        // assign" ran — see App\Services\ParcelAutoAssignService.
+        'last_auto_assigned_rider_profile_id',
     ];
 
     protected $casts = [
@@ -56,5 +58,14 @@ class LogisticsDeliveryArea extends Model
             'delivery_area_id',
             'rider_profile_id',
         );
+    }
+
+    // One province, several municipalities/cities (each optionally
+    // narrowed to a single barangay) — replaces the old single
+    // municipality_name/barangay pair on this row.
+    public function municipalities(): HasMany
+    {
+        return $this->hasMany(LogisticsDeliveryAreaMunicipality::class, 'delivery_area_id')
+            ->orderBy('municipality_name');
     }
 }

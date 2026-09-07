@@ -23,7 +23,11 @@ class AccountRegistrationController extends Controller
         $query = Profile::query()
             ->whereIn('role', Profile::REGISTRABLE_ROLES)
             ->whereIn('status', ['pending', 'rejected'])
-            ->with(['address', 'sellerDetail', 'courierDetail.logisticsCompany', 'driverDetail.logisticsCompany', 'documents']);
+            ->with([
+                'address', 'sellerDetail', 'courierDetail.logisticsCompany',
+                'driverDetail.logisticsCompany', 'documents',
+                'logisticsCompany.address', 'logisticsCompany.documents',
+            ]);
 
         if ($role = $request->string('role')->toString()) {
             $query->where('role', $role);
@@ -76,6 +80,8 @@ class AccountRegistrationController extends Controller
             'courierDetail.logisticsCompany',
             'driverDetail.logisticsCompany',
             'documents.reviewer',
+            'logisticsCompany.address',
+            'logisticsCompany.documents.reviewer',
         ]);
 
         return response()->json([
@@ -95,11 +101,27 @@ class AccountRegistrationController extends Controller
                 'account_status' => 'active',
             ]);
 
-            $profile->documents()->where('status', 'pending')->update([
-                'status' => 'approved',
-                'reviewed_by' => $request->user()->id,
-                'reviewed_at' => now(),
-            ]);
+            // Logistics: the reviewable documents (and the row that gates
+            // portal access) belong to the company, not the owner profile.
+            $company = $profile->role === 'logistics' ? $profile->logisticsCompany : null;
+
+            if ($company) {
+                $company->update([
+                    'status' => 'approved',
+                    'account_status' => 'active',
+                ]);
+                $company->documents()->where('status', 'pending')->update([
+                    'status' => 'approved',
+                    'reviewed_by' => $request->user()->id,
+                    'reviewed_at' => now(),
+                ]);
+            } else {
+                $profile->documents()->where('status', 'pending')->update([
+                    'status' => 'approved',
+                    'reviewed_by' => $request->user()->id,
+                    'reviewed_at' => now(),
+                ]);
+            }
 
             StatusAuditLog::create([
                 'entity_type' => 'profile',
@@ -135,6 +157,15 @@ class AccountRegistrationController extends Controller
                 'status' => 'rejected',
                 'account_status' => 'deactivated',
             ]);
+
+            $company = $profile->role === 'logistics' ? $profile->logisticsCompany : null;
+
+            if ($company) {
+                $company->update([
+                    'status' => 'rejected',
+                    'account_status' => 'deactivated',
+                ]);
+            }
 
             StatusAuditLog::create([
                 'entity_type' => 'profile',
@@ -184,28 +215,45 @@ class AccountRegistrationController extends Controller
      */
     private function applicationData(Profile $profile): array
     {
+        // A logistics registration is reviewed at the company level: its
+        // address, documents and contact details hang off logistics_companies
+        // / the company-scoped address+document rows, not the owner profile.
+        $company = $profile->role === 'logistics' ? $profile->logisticsCompany : null;
+        $address = $company ? $company->address : $profile->address;
+        $documents = $company ? $company->documents : $profile->documents;
+
         return [
             'id' => $profile->id,
             'full_name' => $profile->full_name,
             'first_name' => $profile->first_name,
             'last_name' => $profile->last_name,
             'middle_initial' => $profile->middle_initial,
-            'email' => $profile->email,
-            'contact_no' => $profile->contact_no,
+            'email' => $company?->company_email ?? $profile->email,
+            'contact_no' => $company?->company_contact_no ?? $profile->contact_no,
             'birthday' => $profile->birthday?->toDateString(),
             'sex' => $profile->sex,
             'role' => $profile->role,
             'status' => $profile->status,
             'account_status' => $profile->account_status,
             'created_at' => $profile->created_at?->toIso8601String(),
-            'address' => $profile->address ? [
-                ...$profile->address->toArray(),
-                'full_address' => $profile->address->full_address,
+            'address' => $address ? [
+                ...$address->toArray(),
+                'full_address' => $address->full_address,
             ] : null,
             'seller_detail' => $profile->sellerDetail?->toArray(),
             'courier_detail' => $profile->courierDetail?->toArray(),
             'driver_detail' => $profile->driverDetail?->toArray(),
-            'documents' => $profile->documents->map(fn (Document $document): array => [
+            'company' => $company ? [
+                'id' => $company->id,
+                'company_name' => $company->company_name,
+                'company_email' => $company->company_email,
+                'company_contact_no' => $company->company_contact_no,
+                'tin' => $company->tin,
+                'sec_registration' => $company->sec_registration,
+                'region' => $company->region,
+                'status' => $company->status,
+            ] : null,
+            'documents' => $documents->map(fn (Document $document): array => [
                 'id' => $document->id,
                 'doc_type' => $document->doc_type,
                 'id_type' => $document->id_type,

@@ -58,7 +58,10 @@ class DriverDeliveryController extends Controller
                 $query->where('rider_profile_id', $profile->id)
                     ->orWhere('picked_up_by', $profile->id);
             })
-            ->whereIn('status', [ParcelAssignment::STATUS_ASSIGNED, ParcelAssignment::STATUS_HANDED_OFF])
+            ->whereIn('status', [
+                ParcelAssignment::STATUS_ASSIGNED,
+                ParcelAssignment::STATUS_HANDED_OFF,
+            ])
             ->orderByDesc('assigned_at')
             ->get();
 
@@ -540,6 +543,12 @@ class DriverDeliveryController extends Controller
      * a read-only record on their list now, someone else delivers it).
      * ParcelAssignment itself has no "delivered" status of its own;
      * 'handed_off' is terminal on that side.
+     *
+     * Transfers between logistics companies never appear here at all —
+     * they are a paperwork handover with no courier leg (see
+     * Api\Logistics\ParcelAssignmentController::requestTransfer and
+     * ::acceptTransferRequest), so a transferred row leaves this rider's
+     * list rather than becoming a job of its own.
      */
     private function deliveryStatus(ParcelAssignment $assignment, ?Order $order, ?Profile $viewer = null): string
     {

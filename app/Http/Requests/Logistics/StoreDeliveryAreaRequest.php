@@ -24,8 +24,10 @@ class StoreDeliveryAreaRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:100'],
             'province_name' => ['required', 'string', 'max:150'],
-            'municipality_name' => ['required', 'string', 'max:150'],
-            'barangay' => ['nullable', 'string', 'max:150'],
+            'municipalities' => ['required', 'array', 'min:1'],
+            'municipalities.*.name' => ['required', 'string', 'max:150'],
+            'municipalities.*.code' => ['nullable', 'string', 'max:20'],
+            'municipalities.*.barangay' => ['nullable', 'string', 'max:150'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

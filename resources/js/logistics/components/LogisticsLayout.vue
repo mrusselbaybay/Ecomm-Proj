@@ -137,10 +137,13 @@
             </TransitionGroup>
         </div>
 
-        <!-- One confirm dialog for the whole portal. -->
+        <!-- One confirm dialog for the whole portal. `modal-overlay--top`
+             keeps it above page modals that teleport into .logistics-shell
+             after it in the DOM (e.g. the delivery-area editor) — without
+             it the confirmation renders behind and can't be reached. -->
         <div
             v-if="confirmState"
-            class="modal-overlay"
+            class="modal-overlay modal-overlay--top"
             @click.self="resolveConfirm(false)"
         >
             <div
@@ -179,7 +182,7 @@
 
         <div
             v-if="showLogoutConfirm"
-            class="modal-overlay"
+            class="modal-overlay modal-overlay--top"
             @click.self="showLogoutConfirm = false"
         >
             <div class="modal-panel modal-sm">
@@ -211,27 +214,46 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import {
+    computed,
+    defineAsyncComponent,
+    onMounted,
+    onUnmounted,
+    ref,
+} from 'vue';
 import { useLogistics } from '../composables/useLogistics';
 import { useLogisticsUi } from '../composables/useLogisticsUi';
-import AccountSettings from './AccountSettings.vue';
-import Applications from './Applications.vue';
-import Couriers from './Couriers.vue';
 import Dashboard from './Dashboard.vue';
 import NavIcon from './NavIcon.vue';
-import ParcelOperations from './ParcelOperations.vue';
 import PortalPlaceholder from './PortalPlaceholder.vue';
+
+// The section pages are code-split: each is fetched only when its tab is
+// first opened, so the initial portal load no longer parses and mounts
+// every page (the parcel queue, both rider/area pages, the applications
+// desk, account settings) up front. Dashboard is the landing tab, so it
+// stays a static import.
+const ParcelOperations = defineAsyncComponent(
+    () => import('./ParcelOperations.vue'),
+);
+const DeliveryAreas = defineAsyncComponent(() => import('./DeliveryAreas.vue'));
+const Riders = defineAsyncComponent(() => import('./Riders.vue'));
+const Applications = defineAsyncComponent(() => import('./Applications.vue'));
+const AccountSettings = defineAsyncComponent(
+    () => import('./AccountSettings.vue'),
+);
 
 const {
     companyName,
     pendingCount,
     pendingResignationCount,
+    pendingTransferCount,
     isLoading,
     isAuthenticated,
     logisticsProfile,
     checkAuth,
     logout,
     resolveCompany,
+    loadTransferRequests,
 } = useLogistics();
 const { toasts, dismissToast, confirmState, resolveConfirm } = useLogisticsUi();
 
@@ -246,7 +268,8 @@ const navGroups = [
         tabs: [
             { key: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
             { key: 'parcels', label: 'Parcel Sorting', icon: 'parcels' },
-            { key: 'couriers', label: 'Riders & Areas', icon: 'couriers' },
+            { key: 'areas', label: 'Delivery Areas', icon: 'pin' },
+            { key: 'riders', label: 'Riders', icon: 'couriers' },
             {
                 key: 'applications',
                 label: 'Rider Applications',
@@ -268,10 +291,15 @@ const allTabs = navGroups.flatMap((group) => group.tabs);
 const TAB_COMPONENTS = {
     dashboard: Dashboard,
     parcels: ParcelOperations,
-    couriers: Couriers,
+    areas: DeliveryAreas,
+    riders: Riders,
     applications: Applications,
     account: AccountSettings,
 };
+
+// Old single "Riders & Areas" tab — keep deep links and any saved
+// bookmarks working by landing them on the areas page.
+const LEGACY_TAB_ALIASES = { couriers: 'areas' };
 
 // <KeepAlive> above caches whichever of these is mounted, so switching
 // away and back no longer tears the page down and refetches everything.
@@ -285,13 +313,21 @@ const activeProps = computed(() =>
     TAB_COMPONENTS[activeTab.value] ? {} : { section: activeTab.value },
 );
 
-/** Rider Applications carries both open applications and resignations. */
+/**
+ * Rider Applications carries both open applications and resignations;
+ * Parcel Sorting carries incoming cross-region transfer requests waiting
+ * on this company to accept or reject them.
+ */
 function badgeFor(key) {
-    if (key !== 'applications') {
-        return 0;
+    if (key === 'applications') {
+        return pendingCount.value + pendingResignationCount.value;
     }
 
-    return pendingCount.value + pendingResignationCount.value;
+    if (key === 'parcels') {
+        return pendingTransferCount.value;
+    }
+
+    return 0;
 }
 
 const profileName = computed(
@@ -311,6 +347,8 @@ const profileInitials = computed(
 );
 
 function selectTab(key) {
+    key = LEGACY_TAB_ALIASES[key] || key;
+
     if (!allTabs.some((tab) => tab.key === key)) {
         return;
     }
@@ -346,7 +384,8 @@ onMounted(async () => {
     window.addEventListener('resize', syncIsMobile);
     window.addEventListener('keydown', handleEscape);
 
-    const requestedTab = window.location.pathname.split('/').filter(Boolean)[1];
+    const rawTab = window.location.pathname.split('/').filter(Boolean)[1];
+    const requestedTab = LEGACY_TAB_ALIASES[rawTab] || rawTab;
 
     if (allTabs.some((tab) => tab.key === requestedTab)) {
         activeTab.value = requestedTab;
@@ -359,6 +398,10 @@ onMounted(async () => {
     // checkAuth already resolved the signed-in profile — hand its id
     // straight over so resolveCompany skips a second auth.getUser() call.
     await resolveCompany(logisticsProfile.value?.id);
+
+    // Best-effort — powers the Parcel Sorting sidebar badge before that
+    // tab has been opened. The page itself refetches on mount.
+    loadTransferRequests().catch(() => {});
 });
 
 onUnmounted(() => {

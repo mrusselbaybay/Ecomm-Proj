@@ -37,7 +37,7 @@ class Profile extends Model
     ];
 
     // Roles that go through the registration/approval workflow.
-    public const REGISTRABLE_ROLES = ['buyer', 'seller', 'courier', 'driver'];
+    public const REGISTRABLE_ROLES = ['buyer', 'seller', 'courier', 'driver', 'logistics'];
 
     public const ROLE_ADMIN = 'admin';
 
@@ -81,6 +81,39 @@ class Profile extends Model
     public function driverDetail(): HasOne
     {
         return $this->hasOne(DriverDetail::class, 'profile_id');
+    }
+
+    /**
+     * The detail row carrying this rider's shift availability —
+     * driver_details for a 'driver', courier_details for a 'courier'.
+     * Both roles share the same mobile app and the same "Go online"
+     * toggle, so the flag lives on whichever table backs their role.
+     */
+    public function deliveryDetail(): DriverDetail|CourierDetail|null
+    {
+        return $this->role === 'driver'
+            ? $this->driverDetail
+            : $this->courierDetail;
+    }
+
+    /**
+     * Is this rider on shift right now? Anything other than an explicit
+     * 'available' — including a missing detail row — counts as off, so a
+     * rider is never handed work by default.
+     *
+     * Read by Driver\DriverProfileController (the toggle itself) and by
+     * ParcelAutoAssignService, which refuses to auto-assign to a rider
+     * who isn't on shift.
+     */
+    public function isAvailableForDelivery(): bool
+    {
+        return $this->deliveryDetail()?->delivery_status === 'available';
+    }
+
+    // For role = logistics: the company this profile registered as owner.
+    public function logisticsCompany(): HasOne
+    {
+        return $this->hasOne(LogisticsCompany::class, 'owner_profile_id');
     }
 
     public function documents(): HasMany
@@ -157,7 +190,7 @@ class Profile extends Model
      */
     public function getAvatarUrlAttribute(): ?string
     {
-        if (!$this->avatar_path) {
+        if (! $this->avatar_path) {
             return null;
         }
 

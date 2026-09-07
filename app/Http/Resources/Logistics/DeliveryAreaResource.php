@@ -2,6 +2,8 @@
 
 namespace App\Http\Resources\Logistics;
 
+use App\Models\LogisticsDeliveryAreaMunicipality;
+use App\Models\ParcelAssignment;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -18,8 +20,14 @@ class DeliveryAreaResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'province_name' => $this->province_name,
-            'municipality_name' => $this->municipality_name,
-            'barangay' => $this->barangay,
+            'municipalities' => $this->whenLoaded('municipalities', fn () => $this->municipalities->map(
+                fn (LogisticsDeliveryAreaMunicipality $m) => [
+                    'id' => $m->id,
+                    'code' => $m->municipality_code,
+                    'name' => $m->municipality_name,
+                    'barangay' => $m->barangay,
+                ]
+            )->values()),
             'is_active' => $this->is_active,
             'riders' => $this->whenLoaded('riders', fn () => $this->riders->map(fn ($rider) => [
                 'id' => $rider->id,
@@ -30,6 +38,8 @@ class DeliveryAreaResource extends JsonResource
                 'vehicle' => $rider->courierDetail?->vehicle,
                 'plate_number' => $rider->courierDetail?->plate_number,
                 'address' => $rider->address?->full_address ?: null,
+                'active_parcels' => ParcelAssignment::activeCountFor($rider->id),
+                'parcel_quota' => ParcelAssignment::COURIER_QUOTA,
             ])->values()),
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),

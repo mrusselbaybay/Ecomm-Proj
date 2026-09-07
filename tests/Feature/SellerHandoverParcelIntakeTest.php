@@ -1,8 +1,12 @@
 <?php
 
 use App\Models\LogisticsCompany;
+use App\Models\LogisticsDeliveryArea;
 use App\Models\ParcelAssignment;
+use App\Models\Profile;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
@@ -90,13 +94,13 @@ it('sorts the parcel into a matching delivery area automatically', function () {
 
     $company = makeLogisticsCompany(['company_name' => 'Luzon Logistics']);
 
-    \App\Models\LogisticsDeliveryArea::create([
+    $area = LogisticsDeliveryArea::create([
         'logistics_company_id' => $company->id,
         'name' => 'Area A',
         'province_name' => 'Laguna',
-        'municipality_name' => 'Santa Cruz',
         'is_active' => true,
     ]);
+    $area->municipalities()->create(['municipality_name' => 'Santa Cruz']);
 
     actingAsSeller($seller);
 
@@ -134,7 +138,7 @@ it('lets logistics staff scan in a parcel the seller already handed over without
         'tracking_number' => 'NXM-99001',
     ]);
 
-    $companyOwner = \App\Models\Profile::create([
+    $companyOwner = Profile::create([
         'id' => (string) Str::uuid(),
         'role' => 'logistics',
         'status' => 'approved',
@@ -157,13 +161,13 @@ it('lets logistics staff scan in a parcel the seller already handed over without
     ]);
     $sellerToken = 'test-token-'.$seller->id;
     $logisticsToken = 'test-token-'.$companyOwner->id;
-    \Illuminate\Support\Facades\Http::fake(function (\Illuminate\Http\Client\Request $request) use ($sellerToken, $logisticsToken, $seller, $companyOwner) {
+    Http::fake(function (Request $request) use ($sellerToken, $logisticsToken, $seller, $companyOwner) {
         $auth = $request->header('Authorization')[0] ?? '';
 
         return match ($auth) {
-            "Bearer {$sellerToken}" => \Illuminate\Support\Facades\Http::response(['id' => $seller->id], 200),
-            "Bearer {$logisticsToken}" => \Illuminate\Support\Facades\Http::response(['id' => $companyOwner->id], 200),
-            default => \Illuminate\Support\Facades\Http::response([], 401),
+            "Bearer {$sellerToken}" => Http::response(['id' => $seller->id], 200),
+            "Bearer {$logisticsToken}" => Http::response(['id' => $companyOwner->id], 200),
+            default => Http::response([], 401),
         };
     });
 

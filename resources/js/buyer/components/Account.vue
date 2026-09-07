@@ -168,8 +168,16 @@ function copyStateToDraft() {
     }
 
     if (address.value) {
-        draft.regionCode = address.value.region_code || '';
-        draft.regionName = address.value.region_name || '';
+        // region_code and region_name are always the same literal string
+        // here (Luzon/Visayas/Mindanao — see onRegionChange's comment),
+        // but older addresses (set at signup, before this Account page
+        // existed) only ever had region_name written. Falling back to it
+        // keeps the Region select — and everything the province/
+        // municipality/barangay cascade below depends on it for — from
+        // starting blank and forcing the whole address to be redone just
+        // because the buyer opened Edit Profile.
+        draft.regionCode = address.value.region_code || address.value.region_name || '';
+        draft.regionName = address.value.region_name || address.value.region_code || '';
         draft.provinceCode = address.value.province_code || '';
         draft.provinceName = address.value.province_name || '';
         draft.municipalityCode = address.value.municipality_code || '';
@@ -214,6 +222,12 @@ async function startEditing() {
     copyStateToDraft();
     errors.value = {};
     isEditing.value = true;
+
+    // Show the saved province/municipality/barangay immediately — same
+    // reasoning as onMounted()'s own call — instead of the selects
+    // sitting blank for the moment it takes fetchProvinces() etc. below
+    // to resolve, which otherwise looks like nothing was ever saved.
+    seedAddressOptionsFromDraft();
 
     await fetchProvinces();
 
@@ -456,15 +470,43 @@ function seedAddressOptionsFromDraft() {
     }
 }
 
-function onRegionChange() {
+function onRegionChange(event) {
+    // Read the newly picked region straight off the DOM event rather
+    // than trusting draft.regionCode to already reflect it — v-model's
+    // own update and this @change handler both fire off the same native
+    // 'change' event, and relying on draft.regionCode here would be
+    // reading a stale value if v-model's write hasn't landed yet.
+    const newRegionCode = event.target.value;
+
+    draft.regionCode = newRegionCode;
     // Region and its "name" are the same static string here (Luzon/
     // Visayas/Mindanao) — no separate code/name pair to look up, unlike
     // province/municipality which come from the PSGC API.
-    draft.regionName = draft.regionCode;
+    draft.regionName = newRegionCode;
 
-    // Changing region invalidates whatever province/municipality/barangay
-    // was previously selected — same cascade-reset the province/
-    // municipality handlers already do one level down.
+    // A province genuinely belongs to only one island-group region, so
+    // *correcting* the region really does invalidate a province from a
+    // different one. But a lot of addresses (anything set before this
+    // page collected region at all) have no region on file yet while
+    // their province/municipality/barangay are perfectly valid — picking
+    // a region here for the first time is filling in a gap, not fixing a
+    // mismatch, and Laguna doesn't stop being in Luzon just because the
+    // buyer only now told us their region is Luzon.
+    //
+    // Only clear the downstream fields when the current province is
+    // confirmed to belong to a *different* region. If that can't be
+    // confirmed yet (full province list still loading, or this is a
+    // seeded placeholder entry with no island-group data of its own),
+    // leave everything as-is rather than destroying data that's most
+    // likely still correct.
+    const currentProvince = provinceOptions.value.find((p) => p.code === draft.provinceCode);
+    const stillValid = !currentProvince?.islandGroupCode
+        || currentProvince.islandGroupCode === newRegionCode.toLowerCase();
+
+    if (stillValid) {
+        return;
+    }
+
     draft.provinceCode = '';
     draft.provinceName = '';
     draft.municipalityCode = '';
@@ -473,9 +515,29 @@ function onRegionChange() {
     draft.barangay = '';
 }
 
+// Preserves the buyer's already-saved province in `provinceOptions` even
+// when it's missing from `list` (a PSGC dataset change, a stale cache
+// entry written before this check existed, etc.) — otherwise the
+// <select> has no matching <option> for draft.provinceCode, renders
+// blank, and the buyer looks like they need to pick a province they'd
+// already set. Applied on every path fetchProvinces() can return
+// through (cache hit or network), not just the network one.
+function applyProvinceList(list) {
+    if (draft.provinceCode && !list.some((p) => p.code === draft.provinceCode)) {
+        provinceOptions.value = [
+            { code: draft.provinceCode, name: draft.provinceName || draft.provinceCode },
+            ...list
+        ];
+
+        return;
+    }
+
+    provinceOptions.value = list;
+}
+
 async function fetchProvinces() {
     if (provinceCache.value.length > 0) {
-        provinceOptions.value = provinceCache.value;
+        applyProvinceList(provinceCache.value);
 
         return;
     }
@@ -484,7 +546,7 @@ async function fetchProvinces() {
 
     if (cachedProvinces?.length) {
         provinceCache.value = cachedProvinces;
-        provinceOptions.value = cachedProvinces;
+        applyProvinceList(cachedProvinces);
 
         return;
     }
@@ -540,17 +602,7 @@ async function fetchProvinces() {
 
         provinceCache.value = allProvinces;
         writeAddressCache('buyer-address:provinces', allProvinces);
-        provinceOptions.value = allProvinces;
-
-        // Preserve the saved province if it isn't in the freshly fetched
-        // list yet (e.g. slightly different casing) so the select doesn't
-        // blank out.
-        if (draft.provinceCode && !allProvinces.some((p) => p.code === draft.provinceCode)) {
-            provinceOptions.value = [
-                { code: draft.provinceCode, name: draft.provinceName },
-                ...allProvinces
-            ];
-        }
+        applyProvinceList(allProvinces);
     } catch {
         addressApiError.value =
             'Could not load provinces from the PSGC API. Check your connection and retry.';

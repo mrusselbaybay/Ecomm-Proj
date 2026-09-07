@@ -88,6 +88,40 @@ class DriverProfileController extends Controller
         ]);
     }
 
+    /**
+     * The driver app's "Go online" toggle (Settings screen). Flips the
+     * rider's shift availability between 'available' and 'unavailable' on
+     * their driver_details / courier_details row — dispatch reads this to
+     * decide who can be handed a delivery.
+     */
+    public function updateAvailability(Request $request): JsonResponse
+    {
+        $status = $request->validate([
+            'delivery_status' => ['required', 'string', 'in:available,unavailable'],
+        ])['delivery_status'];
+
+        /** @var Profile $profile */
+        $profile = $request->user();
+        $profile->loadMissing(['driverDetail', 'courierDetail']);
+
+        $detail = $profile->deliveryDetail();
+
+        if (! $detail) {
+            return response()->json([
+                'message' => 'No rider profile on file to update.',
+            ], 422);
+        }
+
+        $detail->update(['delivery_status' => $status]);
+
+        return response()->json([
+            'message' => $status === 'available'
+                ? "You're online — dispatch can now assign you deliveries."
+                : "You're offline — you won't receive new delivery assignments.",
+            'delivery_status' => $status,
+        ]);
+    }
+
     public function deactivate(DeactivateDriverAccountRequest $request): JsonResponse
     {
         /** @var Profile $profile */
@@ -99,7 +133,7 @@ class DriverProfileController extends Controller
             ], 422);
         }
 
-        if (!$this->verifyPassword($profile->email, $request->validated('password'))) {
+        if (! $this->verifyPassword($profile->email, $request->validated('password'))) {
             return response()->json([
                 'message' => 'Current password is incorrect.',
             ], 422);
@@ -206,7 +240,7 @@ class DriverProfileController extends Controller
      */
     private function addressData(?Address $address): ?array
     {
-        if (!$address) {
+        if (! $address) {
             return null;
         }
 
@@ -226,6 +260,8 @@ class DriverProfileController extends Controller
      * Read-only vehicle/document snapshot from driver_details (role
      * 'driver') or courier_details (role 'courier') — courier_details has
      * no license_number column, so that field is simply null for couriers.
+     * `delivery_status` is the "Go online" shift flag (see
+     * updateAvailability) and is the one non-read-only value here.
      *
      * @return array<string, mixed>
      */
@@ -240,6 +276,7 @@ class DriverProfileController extends Controller
                 'plate_number' => $detail?->plate_number,
                 'license_number' => $detail?->license_number,
                 'logistics_company_name' => null,
+                'delivery_status' => $detail?->delivery_status ?? 'unavailable',
             ];
         }
 
@@ -251,6 +288,7 @@ class DriverProfileController extends Controller
             'plate_number' => $detail?->plate_number,
             'license_number' => null,
             'logistics_company_name' => $detail?->logisticsCompany?->company_name,
+            'delivery_status' => $detail?->delivery_status ?? 'unavailable',
         ];
     }
 }

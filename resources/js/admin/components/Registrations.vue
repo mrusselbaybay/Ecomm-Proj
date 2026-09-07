@@ -24,6 +24,7 @@
                 <option value="seller">Seller</option>
                 <option value="courier">Courier</option>
                 <option value="driver">Driver</option>
+                <option value="logistics">Logistics</option>
             </select>
             <select
                 v-model="statusFilter"
@@ -66,6 +67,12 @@
                             {{
                                 user.full_name || user.first_name || user.email
                             }}
+                            <span
+                                v-if="user.company"
+                                class="block text-xs font-normal text-slate-500"
+                            >
+                                {{ user.company.company_name }}
+                            </span>
                         </td>
                         <td>{{ user.role }}</td>
                         <td>{{ user.email }}</td>

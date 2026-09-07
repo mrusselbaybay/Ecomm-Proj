@@ -687,7 +687,11 @@ async function placeOrder(payload) {
             body: JSON.stringify(payload),
         });
 
-        await loadOrders();
+        // Refresh "My Orders" in the background — the order is already
+        // created and the caller has its reference(s); making the buyer
+        // wait on a second full round-trip here just to repopulate a list
+        // they're not looking at yet only lengthens the perceived wait.
+        loadOrders().catch(() => {});
 
         return createdOrders;
     } catch (err) {

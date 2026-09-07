@@ -48,10 +48,16 @@ export { getSupabase };
 const companyId = ref(null);
 const companyName = ref('');
 const applications = ref([]);
+// The accepted-rider roster, in the same LogisticsApplicationResource
+// shape as `applications` — its own list (and cache key) so the Riders
+// page and the Rider Applications page never clobber each other's data.
+const acceptedRiders = ref([]);
 const couriers = ref([]);
 const deliveryAreas = ref([]);
 const areaRiders = ref([]);
 const parcelAssignments = ref([]);
+const transferRequests = ref([]);
+const transferRequestsMeta = ref({ pendingTotal: 0 });
 const resignationRequests = ref([]);
 const resignationRequestsMeta = ref({
     currentPage: 1,
@@ -73,9 +79,11 @@ const CACHE = new Map(); // key -> { at, signature, value, promise }
 
 export const CACHE_KEYS = {
     applications: 'applications',
+    acceptedRiders: 'accepted-riders',
     couriers: 'couriers',
     deliveryAreas: 'delivery-areas',
     parcels: 'parcel-assignments',
+    transferRequests: 'parcel-transfer-requests',
     resignations: 'resignation-requests',
 };
 
@@ -130,10 +138,13 @@ function invalidate(...keys) {
 function resetCache() {
     CACHE.clear();
     applications.value = [];
+    acceptedRiders.value = [];
     couriers.value = [];
     deliveryAreas.value = [];
     areaRiders.value = [];
     parcelAssignments.value = [];
+    transferRequests.value = [];
+    transferRequestsMeta.value = { pendingTotal: 0 };
     resignationRequests.value = [];
     resignationRequestsMeta.value = {
         currentPage: 1,
@@ -418,6 +429,67 @@ async function loadApplications(filters = {}, { force = false } = {}) {
     );
 }
 
+// -------------------------------------------------- accepted rider roster
+
+/**
+ * The accepted riders only — backs the Riders page. Separate list and
+ * cache entry from loadApplications() so the two pages don't overwrite
+ * each other under <KeepAlive>. `search` is the only server-side filter.
+ */
+async function loadAcceptedRiders(filters = {}, { force = false } = {}) {
+    if (!companyId.value) {
+        await resolveCompany();
+    }
+
+    if (!companyId.value) {
+        acceptedRiders.value = [];
+
+        return [];
+    }
+
+    const params = new URLSearchParams({ status: 'accepted' });
+
+    if (filters.search) {
+        params.set('search', filters.search);
+    }
+
+    const query = params.toString();
+
+    return cached(
+        CACHE_KEYS.acceptedRiders,
+        query,
+        async () => {
+            const response = await logisticsFetch(
+                `/api/logistics/applications?${query}`,
+            );
+            const payload = await readJson(
+                response,
+                'Failed to load the rider roster.',
+            );
+
+            acceptedRiders.value = payload.data || [];
+
+            return acceptedRiders.value;
+        },
+        { force },
+    );
+}
+
+/** Drops a rider from the roster locally after they're let go. */
+function removeAcceptedRider(id) {
+    acceptedRiders.value = acceptedRiders.value.filter(
+        (item) => item.id !== id,
+    );
+    // Firing withdraws the application and pulls the rider off every
+    // delivery area — the roster, the accepted-rider pool and the
+    // applications list all now disagree with the server.
+    invalidate(
+        CACHE_KEYS.couriers,
+        CACHE_KEYS.deliveryAreas,
+        CACHE_KEYS.applications,
+    );
+}
+
 /** Patches one application row locally after an accept/reject/interview. */
 function patchApplication(id, changes) {
     applications.value = applications.value.map((item) =>
@@ -427,8 +499,13 @@ function patchApplication(id, changes) {
         (item) => item.status === 'pending',
     ).length;
 
-    // The roster and the accepted-rider pool both derive from this list.
-    invalidate(CACHE_KEYS.couriers, CACHE_KEYS.deliveryAreas);
+    // The roster, the accepted-rider pool and the Riders page all derive
+    // from this list — an accept/reject here changes what they show.
+    invalidate(
+        CACHE_KEYS.couriers,
+        CACHE_KEYS.deliveryAreas,
+        CACHE_KEYS.acceptedRiders,
+    );
 }
 
 async function loadCouriers({ force = false } = {}) {
@@ -516,6 +593,10 @@ async function saveDeliveryArea(area, id = null) {
 }
 
 async function deleteDeliveryArea(id) {
+    if (!id) {
+        throw new Error('No delivery area was selected to delete.');
+    }
+
     const response = await logisticsFetch(
         `/api/logistics/delivery-areas/${id}`,
         { method: 'DELETE' },
@@ -636,6 +717,30 @@ async function assignParcel(id, deliveryAreaId, riderProfileId) {
     return payload.data;
 }
 
+/**
+ * Auto-routes one parcel: the server matches its address to a delivery
+ * area and picks the next available rider in that area's rotation.
+ *
+ * Resolves for every outcome, not just a successful assignment — check
+ * `outcome` ('assigned' | 'no_area' | 'no_rider' | 'skipped'). Only a
+ * genuine request failure rejects. That's what lets the sweep in
+ * ParcelOperations.vue keep going and tally the reasons at the end.
+ */
+async function autoAssignParcel(id) {
+    const response = await logisticsFetch(
+        `/api/logistics/parcel-assignments/${id}/auto-assign`,
+        { method: 'PUT' },
+    );
+    const payload = await readJson(
+        response,
+        'Failed to auto-assign the parcel.',
+    );
+
+    upsertRow(parcelAssignments, payload.data);
+
+    return payload;
+}
+
 async function handoffParcel(id) {
     const response = await logisticsFetch(
         `/api/logistics/parcel-assignments/${id}/handoff`,
@@ -648,29 +753,176 @@ async function handoffParcel(id) {
     return payload.data;
 }
 
+// Logistics companies this parcel can be routed to (every other
+// active/approved company) — backs the target-company picker once a
+// parcel is flagged "To Transfer". Not cached: the eligible set is small
+// and only fetched when the routing modal actually opens for one.
+async function fetchTransferOptions(id) {
+    const response = await logisticsFetch(
+        `/api/logistics/parcel-assignments/${id}/transfer-options`,
+    );
+
+    return readJson(response, 'Failed to load transfer destinations.');
+}
+
+// Asks another logistics company to take a picked-up parcel this company
+// can't deliver. Nothing moves yet — the parcel parks at
+// 'transfer_pending' until the receiving company accepts or rejects the
+// request (see respondToTransferRequest).
+async function requestParcelTransfer(id, transferToCompanyId) {
+    const response = await logisticsFetch(
+        `/api/logistics/parcel-assignments/${id}/transfer`,
+        {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                transfer_to_company_id: transferToCompanyId,
+            }),
+        },
+    );
+    const payload = await readJson(
+        response,
+        'Failed to send the transfer request.',
+    );
+
+    upsertRow(parcelAssignments, payload.data);
+
+    return payload.data;
+}
+
+// Transfer requests addressed to this company (pending first) plus the
+// company-wide pending count for the header badge.
+async function loadTransferRequests({ force = false } = {}) {
+    if (!companyId.value) {
+        await resolveCompany();
+    }
+
+    if (!companyId.value) {
+        transferRequests.value = [];
+
+        return [];
+    }
+
+    return cached(
+        CACHE_KEYS.transferRequests,
+        'incoming',
+        async () => {
+            const response = await logisticsFetch(
+                '/api/logistics/parcel-transfer-requests',
+            );
+            const payload = await readJson(
+                response,
+                'Failed to load transfer requests.',
+            );
+
+            transferRequests.value = payload.data || [];
+            transferRequestsMeta.value = {
+                pendingTotal: payload.meta?.pending_total || 0,
+            };
+
+            return transferRequests.value;
+        },
+        { force },
+    );
+}
+
+// action: 'accept' | 'reject' (receiving company) | 'cancel' (origin
+// company withdrawing its own pending request). A note is only read on
+// reject. Accepting moves custody, so the sorting queue is invalidated —
+// the new "to be delivered" row (accept) or the released origin row
+// (reject/cancel) needs a refetch to show up.
+async function respondToTransferRequest(id, action, note = null) {
+    const wasPending =
+        transferRequests.value.find((item) => item.id === id)?.status ===
+        'pending';
+
+    const response = await logisticsFetch(
+        `/api/logistics/parcel-transfer-requests/${id}/${action}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(note ? { note } : {}),
+        },
+    );
+    const payload = await readJson(
+        response,
+        `Failed to ${action} the transfer request.`,
+    );
+
+    upsertRow(transferRequests, payload.data);
+
+    if (wasPending && payload.data.status !== 'pending') {
+        transferRequestsMeta.value = {
+            ...transferRequestsMeta.value,
+            pendingTotal: Math.max(
+                0,
+                transferRequestsMeta.value.pendingTotal - 1,
+            ),
+        };
+    }
+
+    invalidate(CACHE_KEYS.parcels);
+
+    return payload.data;
+}
+
+const pendingTransferCount = computed(
+    () => transferRequestsMeta.value.pendingTotal,
+);
+
 /**
- * "Still needs someone at this desk to act on it": either not handed off
- * yet (needs a pickup rider), or handed off but back in the pool with no
- * rider (the pickup courier confirmed collection — needs a delivery
- * rider). A handed-off parcel that already has a rider is out for
- * delivery and off this desk.
+ * "Still needs someone at this desk to act on it".
+ *
+ * Not handed off yet (needs a pickup courier), or handed off but back in
+ * the pool with no rider (the pickup courier confirmed collection — now
+ * it needs the deliver-or-transfer call). A handed-off parcel that
+ * already has a rider is out for delivery and off this desk, and one
+ * given to another company ('transferred') is gone for good.
  */
 function isParcelActionable(parcel) {
+    // 'transferred' is gone for good; 'transfer_pending' is parked
+    // waiting on the receiving company and only offers a "cancel
+    // request" affordance, not a routing decision.
+    if (
+        parcel.status === 'transferred' ||
+        parcel.status === 'transfer_pending'
+    ) {
+        return false;
+    }
+
     return parcel.status !== 'handed_off' || !parcel.rider;
 }
 
 const parcelStats = computed(() => {
-    const stats = { toPickUp: 0, toDeliver: 0, outForDelivery: 0, total: 0 };
+    const stats = {
+        toPickUp: 0,
+        toDeliver: 0,
+        outForDelivery: 0,
+        toTransfer: 0,
+        transferPending: 0,
+        transferred: 0,
+        total: 0,
+    };
 
     for (const parcel of parcelAssignments.value) {
         stats.total += 1;
 
-        if (parcel.status !== 'handed_off') {
+        if (parcel.status === 'transferred') {
+            stats.transferred += 1;
+        } else if (parcel.status === 'transfer_pending') {
+            // Offered to another company, waiting on their answer.
+            stats.transferPending += 1;
+        } else if (parcel.status !== 'handed_off') {
             stats.toPickUp += 1;
-        } else if (!parcel.rider) {
-            stats.toDeliver += 1;
-        } else {
+        } else if (parcel.rider) {
             stats.outForDelivery += 1;
+        } else if (parcel.is_transfer) {
+            // Picked up, but this company doesn't cover the buyer's
+            // region — it needs handing to one that does. Mirrors
+            // stageOf() in ParcelOperations.vue.
+            stats.toTransfer += 1;
+        } else {
+            stats.toDeliver += 1;
         }
     }
 
@@ -789,14 +1041,18 @@ export function useLogistics() {
         companyId,
         companyName,
         applications,
+        acceptedRiders,
         couriers,
         deliveryAreas,
         areaRiders,
         parcelAssignments,
+        transferRequests,
+        transferRequestsMeta,
         resignationRequests,
         resignationRequestsMeta,
         pendingCount,
         pendingResignationCount,
+        pendingTransferCount,
         parcelStats,
         areaStats,
         loadingCompany,
@@ -810,6 +1066,8 @@ export function useLogistics() {
         resolveCompany,
         loadApplications,
         patchApplication,
+        loadAcceptedRiders,
+        removeAcceptedRider,
         loadCouriers,
         loadDeliveryAreas,
         saveDeliveryArea,
@@ -820,7 +1078,12 @@ export function useLogistics() {
         loadParcelAssignments,
         receiveParcel,
         assignParcel,
+        autoAssignParcel,
         handoffParcel,
+        fetchTransferOptions,
+        requestParcelTransfer,
+        loadTransferRequests,
+        respondToTransferRequest,
         isParcelActionable,
         loadResignationRequests,
         approveResignation,

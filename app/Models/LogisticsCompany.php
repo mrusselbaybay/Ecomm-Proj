@@ -7,8 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 class LogisticsCompany extends Model
 {
     protected $table = 'logistics_companies';
+
     protected $primaryKey = 'id';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -37,6 +40,18 @@ class LogisticsCompany extends Model
     public function owner()
     {
         return $this->belongsTo(Profile::class, 'owner_profile_id', 'id');
+    }
+
+    public function address()
+    {
+        return $this->hasOne(Address::class, 'logistics_company_id')
+            ->where('owner_kind', 'logistics_company');
+    }
+
+    public function documents()
+    {
+        return $this->hasMany(Document::class, 'logistics_company_id')
+            ->where('owner_kind', 'logistics_company');
     }
 
     public function applications()

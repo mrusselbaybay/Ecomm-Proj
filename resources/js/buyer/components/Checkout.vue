@@ -97,21 +97,18 @@ const isDeliveryDetailsLoading = computed(
     () => isAddressBookLoading.value || isLoadingProfile.value
 );
 
+// Recipient name / contact number / address are read-only on this screen
+// (see the `readonly` inputs below) — they always mirror whichever
+// source applyPrefill() below reads from, so there's nothing for the
+// buyer to type and nothing to track as "touched" any more.
 const touched = reactive({ recipientName: false, contactNumber: false, address: false });
 
-// Delivery contact is a local 11-digit mobile number (09XXXXXXXXX).
-// toLocalMobile() keeps the field digits-only and capped at 11 on every
-// keystroke and paste — see usePhone.js.
-function onContactInput(event) {
-    touched.contactNumber = true;
-    checkoutForm.contactNumber = toLocalMobile(event.target.value);
-}
-function onRecipientNameInput() {
-    touched.recipientName = true;
-}
-function onAddressInput() {
-    touched.address = true;
-}
+// The buyer's own island-group region (Luzon/Visayas/Mindanao), read the
+// same way App\Services\CheckoutService derives shipping_region_name for
+// the order it creates — straight off the profile address (public.
+// addresses), never something entered here. Shown so the buyer can see
+// what's on file; a blank account address means this stays unset.
+const buyerRegion = computed(() => buyerAddress.value?.region_name || '');
 
 function profileAddressText(address) {
     if (!address) {
@@ -528,25 +525,25 @@ async function placeOrder() {
     }
 
     if (!checkoutForm.recipientName.trim()) {
-        warning('Address information is incomplete — add a recipient name.');
+        warning('Add a recipient name to your account or a saved address before checking out.');
 
         return;
     }
 
     if (!checkoutForm.contactNumber.trim()) {
-        warning('Address information is incomplete — add a contact number.');
+        warning('Add a contact number to your account or a saved address before checking out.');
 
         return;
     }
 
     if (!isValidLocalMobile(checkoutForm.contactNumber)) {
-        warning('Enter an 11-digit contact number, e.g. 09171234567.');
+        warning('The contact number on file isn\'t a valid 11-digit mobile number. Please update it in Account or Saved Addresses.');
 
         return;
     }
 
     if (!checkoutForm.address.trim()) {
-        warning('Address information is incomplete — add a delivery address.');
+        warning('Add a delivery address to your account or save one before checking out.');
 
         return;
     }
@@ -639,7 +636,10 @@ async function placeOrder() {
     try {
         const createdOrders = await submitCheckout(orderPayload);
 
-        await persistPaymentDetails();
+        // Saving the card/wallet for next time is best-effort and makes
+        // its own API call(s) — kick it off without blocking, so it never
+        // sits between the buyer and their order confirmation.
+        persistPaymentDetails();
 
         emit('place-order', createdOrders);
 
@@ -761,7 +761,7 @@ async function placeOrder() {
                                         v-model="checkoutForm.recipientName"
                                         type="text"
                                         placeholder="Enter recipient name"
-                                        @input="onRecipientNameInput"
+                                        readonly
                                     >
                                 </div>
 
@@ -774,7 +774,7 @@ async function placeOrder() {
                                         autocomplete="tel-national"
                                         placeholder="09171234567"
                                         aria-describedby="checkout-contact-hint"
-                                        @input="onContactInput"
+                                        readonly
                                     >
                                     <small
                                         id="checkout-contact-hint"
@@ -784,13 +784,23 @@ async function placeOrder() {
                                     </small>
                                 </div>
 
+                                <div class="checkout-field">
+                                    <label>Region</label>
+                                    <input
+                                        :value="buyerRegion"
+                                        type="text"
+                                        placeholder="Not set on your account"
+                                        readonly
+                                    >
+                                </div>
+
                                 <div class="checkout-field checkout-field-full">
                                     <label>Complete Address</label>
                                     <textarea
                                         v-model="checkoutForm.address"
                                         rows="3"
                                         placeholder="House number, street, barangay, municipality, province"
-                                        @input="onAddressInput"
+                                        readonly
                                     ></textarea>
                                 </div>
 

@@ -136,7 +136,7 @@ it('creates a delivery area with no rider assignment required', function () {
         ->postJson('/api/logistics/delivery-areas', [
             'name' => 'Area A',
             'province_name' => 'Laguna',
-            'municipality_name' => 'Santa Cruz',
+            'municipalities' => [['name' => 'Santa Cruz']],
             'is_active' => true,
         ]);
 
@@ -150,14 +150,113 @@ it('creates a delivery area with no rider assignment required', function () {
     ]);
 });
 
+it('rejects a second area with a name the company already uses', function () {
+    DB::table('logistics_delivery_areas')->insert([
+        'id' => '70000000-0000-0000-0000-000000000007',
+        'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
+        'name' => 'Area A',
+        'province_name' => 'Laguna',
+        'is_active' => true,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $response = $this->withToken('valid-token')
+        ->postJson('/api/logistics/delivery-areas', [
+            // Different casing — still the same name to a person.
+            'name' => 'area a',
+            'province_name' => 'Laguna',
+            'municipalities' => [['name' => 'Los Baños']],
+        ]);
+
+    $response->assertUnprocessable()
+        ->assertJsonValidationErrors('name');
+
+    expect($response->json('errors.name.0'))->toContain('already have a delivery area');
+    $this->assertDatabaseCount('logistics_delivery_areas', 1);
+});
+
+it('rejects a municipality already covered by another area of the same company', function () {
+    DB::table('logistics_delivery_areas')->insert([
+        'id' => '70000000-0000-0000-0000-000000000007',
+        'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
+        'name' => 'Area A',
+        'province_name' => 'Laguna',
+        'is_active' => true,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    DB::table('logistics_delivery_area_municipalities')->insert([
+        'id' => '71000000-0000-0000-0000-000000000007',
+        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
+        'municipality_name' => 'Santa Cruz',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $response = $this->withToken('valid-token')
+        ->postJson('/api/logistics/delivery-areas', [
+            'name' => 'Area B',
+            'province_name' => 'Laguna',
+            'municipalities' => [['name' => 'Santa Cruz']],
+        ]);
+
+    $response->assertUnprocessable()
+        ->assertJsonValidationErrors('municipalities');
+
+    expect($response->json('errors.municipalities.0'))
+        ->toContain('already covered by another area')
+        ->toContain('Area A');
+
+    // Nothing partially written.
+    $this->assertDatabaseMissing('logistics_delivery_areas', ['name' => 'Area B']);
+});
+
+it('lets an area keep its own municipalities on update', function () {
+    DB::table('logistics_delivery_areas')->insert([
+        'id' => '70000000-0000-0000-0000-000000000007',
+        'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
+        'name' => 'Area A',
+        'province_name' => 'Laguna',
+        'is_active' => true,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    DB::table('logistics_delivery_area_municipalities')->insert([
+        'id' => '71000000-0000-0000-0000-000000000007',
+        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
+        'municipality_name' => 'Santa Cruz',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $this->withToken('valid-token')
+        ->putJson('/api/logistics/delivery-areas/70000000-0000-0000-0000-000000000007', [
+            'name' => 'Area A',
+            'province_name' => 'Laguna',
+            'municipalities' => [
+                ['name' => 'Santa Cruz'],
+                ['name' => 'Pila'],
+            ],
+        ])
+        ->assertOk()
+        ->assertJsonCount(2, 'data.municipalities');
+});
+
 it('appoints an accepted rider to an area', function () {
     DB::table('logistics_delivery_areas')->insert([
         'id' => '70000000-0000-0000-0000-000000000007',
         'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
         'name' => 'Area C',
         'province_name' => 'Laguna',
-        'municipality_name' => 'Los Baños',
         'is_active' => true,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    DB::table('logistics_delivery_area_municipalities')->insert([
+        'id' => '71000000-0000-0000-0000-000000000007',
+        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
+        'municipality_name' => 'Los Baños',
         'created_at' => now(),
         'updated_at' => now(),
     ]);
@@ -177,14 +276,60 @@ it('appoints an accepted rider to an area', function () {
     ]);
 });
 
+it('rejects a rider already appointed to another area of the same company', function () {
+    DB::table('logistics_delivery_areas')->insert([
+        [
+            'id' => '70000000-0000-0000-0000-000000000007',
+            'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
+            'name' => 'Area C',
+            'province_name' => 'Laguna',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ],
+        [
+            'id' => '70000000-0000-0000-0000-000000000008',
+            'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
+            'name' => 'Area D',
+            'province_name' => 'Laguna',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ],
+    ]);
+    DB::table('logistics_delivery_area_riders')->insert([
+        'delivery_area_id' => '70000000-0000-0000-0000-000000000008',
+        'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
+        'created_at' => now(),
+    ]);
+
+    $this->withToken('valid-token')
+        ->postJson('/api/logistics/delivery-areas/70000000-0000-0000-0000-000000000007/riders', [
+            'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('rider_profile_id');
+
+    $this->assertDatabaseMissing('logistics_delivery_area_riders', [
+        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
+        'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
+    ]);
+});
+
 it('rejects a rider accepted by another logistics company', function () {
     DB::table('logistics_delivery_areas')->insert([
         'id' => '70000000-0000-0000-0000-000000000007',
         'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
         'name' => 'Area C',
         'province_name' => 'Laguna',
-        'municipality_name' => 'Los Baños',
         'is_active' => true,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    DB::table('logistics_delivery_area_municipalities')->insert([
+        'id' => '71000000-0000-0000-0000-000000000007',
+        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
+        'municipality_name' => 'Los Baños',
         'created_at' => now(),
         'updated_at' => now(),
     ]);
@@ -203,8 +348,14 @@ it('removes an appointed rider from an area', function () {
         'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
         'name' => 'Area C',
         'province_name' => 'Laguna',
-        'municipality_name' => 'Los Baños',
         'is_active' => true,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    DB::table('logistics_delivery_area_municipalities')->insert([
+        'id' => '71000000-0000-0000-0000-000000000007',
+        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
+        'municipality_name' => 'Los Baños',
         'created_at' => now(),
         'updated_at' => now(),
     ]);
@@ -231,8 +382,14 @@ it('returns only the owners areas and accepted riders', function () {
         'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
         'name' => 'Area C',
         'province_name' => 'Laguna',
-        'municipality_name' => 'Los Baños',
         'is_active' => true,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    DB::table('logistics_delivery_area_municipalities')->insert([
+        'id' => '71000000-0000-0000-0000-000000000007',
+        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
+        'municipality_name' => 'Los Baños',
         'created_at' => now(),
         'updated_at' => now(),
     ]);
@@ -252,8 +409,14 @@ describe('available riders (Add driver panel)', function () {
             'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
             'name' => 'Area C',
             'province_name' => 'Laguna',
-            'municipality_name' => 'Los Baños',
             'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('logistics_delivery_area_municipalities')->insert([
+            'id' => '71000000-0000-0000-0000-000000000007',
+            'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
+            'municipality_name' => 'Los Baños',
             'created_at' => now(),
             'updated_at' => now(),
         ]);

@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Logistics;
 
+use App\Models\ParcelAssignment;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -52,8 +53,15 @@ class LogisticsApplicationResource extends JsonResource
                 return [
                     'vehicle' => $details->vehicle,
                     'plate_number' => $details->plate_number,
+                    'delivery_status' => $details->delivery_status,
                 ];
             }),
+            // Display-only "how loaded is this rider" counter, shown on
+            // the Rider Applications employee-detail view. Never enforced.
+            'quota' => $this->when($this->status === 'accepted' && $this->courier_profile_id, fn (): array => [
+                'active' => ParcelAssignment::activeCountFor($this->courier_profile_id),
+                'max' => ParcelAssignment::COURIER_QUOTA,
+            ]),
         ];
     }
 }

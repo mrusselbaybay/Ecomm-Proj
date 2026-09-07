@@ -27,7 +27,7 @@ class Order extends Model
     protected $fillable = [
         'order_number', 'seller_id', 'buyer_profile_id',
         'recipient_name', 'recipient_contact_no',
-        'shipping_province_name', 'shipping_municipality_name',
+        'shipping_region_name', 'shipping_province_name', 'shipping_municipality_name',
         'shipping_barangay', 'shipping_street', 'shipping_house_no',
         'status', 'payment_method', 'payment_status',
         'subtotal', 'shipping_fee', 'tax', 'discount', 'total',
@@ -252,16 +252,41 @@ class Order extends Model
     }
 
     // The logistics-side handling of this order's parcel (sorting center
-    // receipt, rider assignment, handoff) — at most one row per order
-    // (parcel_assignments.order_id is unique). Null until the seller's
-    // dispatch handover or a sorting-center scan creates it (see
-    // ParcelIntakeService). Drives the "Parcel in Sorting Center" vs
+    // receipt, rider assignment, handoff). Null until the seller's
+    // dispatch handover or a sorting-center scan creates the first one
+    // (see ParcelIntakeService). Drives the "Parcel in Sorting Center" vs
     // "Parcel is out for delivery" split in SellerOrderController's
     // timeline — Order::status alone can't tell those two apart, only
     // "In Transit" either way.
+    //
+    // A cross-region parcel can pass through more than one logistics
+    // company (see ParcelAssignment::STATUS_TRANSFERRED), so this is no
+    // longer strictly one row per order — ordering by created_at desc
+    // and letting HasOne take the first match resolves to whichever row
+    // is current, so every existing caller keeps seeing "where is my
+    // parcel right now" without any change on their end.
+    //
+    // Deliberately plain orderBy()+HasOne rather than latestOfMany():
+    // Eloquent's ofMany()/latestOfMany() unconditionally adds a
+    // MAX($primaryKey) tie-breaker on top of whatever column you give it
+    // (see CanBeOneOfMany::ofMany — it always merges the model's own key
+    // into the aggregate columns), and parcel_assignments.id is a uuid
+    // column — Postgres has no max(uuid), so that combination throws
+    // "function max(uuid) does not exist" the moment this relation is
+    // eager-loaded. A plain ORDER BY needs no aggregate at all: Eloquent
+    // still correctly takes the first (i.e. latest) row per parent when
+    // eager-loading a HasOne (HasOneOrMany::matchOneOrMany() takes
+    // reset() of each parent's already-ordered result group).
     public function parcelAssignment(): HasOne
     {
-        return $this->hasOne(ParcelAssignment::class, 'order_id');
+        return $this->hasOne(ParcelAssignment::class, 'order_id')->orderByDesc('created_at');
+    }
+
+    // Every leg this order's parcel has been through, oldest first —
+    // normally just one row; more than one once a transfer has happened.
+    public function parcelAssignments(): HasMany
+    {
+        return $this->hasMany(ParcelAssignment::class, 'order_id')->orderBy('created_at');
     }
 
     public function canTransitionTo(string $status): bool

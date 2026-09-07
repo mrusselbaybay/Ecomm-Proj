@@ -10,6 +10,11 @@
      JPEG blob via <canvas>. No cropping library — just pointer events and
      canvas math, so no new dependency to install across three bundles. -->
 <template>
+    <!-- Teleport out of the logistics portal's transformed scroll
+         container so the fixed overlay covers the viewport (and its dim
+         backdrop doesn't scroll away) instead of being contained by it.
+         Falls back to <body> outside the portal. -->
+    <Teleport :to="teleportTarget">
     <div v-if="file" class="cropper-overlay" @click.self="$emit('cancel')">
         <div class="cropper-panel">
             <h3 class="cropper-title">Adjust your photo</h3>
@@ -90,10 +95,20 @@
             </div>
         </div>
     </div>
+    </Teleport>
 </template>
 
 <script setup>
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
+
+// The logistics portal's <main> is a transformed scroll container, which
+// would trap a fixed-position overlay; teleport to the shell (or <body>
+// anywhere else this component is reused) so the backdrop covers the
+// whole viewport.
+const teleportTarget =
+    typeof document !== 'undefined' && document.querySelector('.logistics-shell')
+        ? '.logistics-shell'
+        : 'body';
 
 const props = defineProps({
     // The raw File the user just picked via <input type="file">. The

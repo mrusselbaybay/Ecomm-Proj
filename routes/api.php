@@ -179,8 +179,30 @@ Route::middleware(['supabase.auth', 'logistics'])
             ->name('parcel-assignments.receive');
         Route::put('/parcel-assignments/{parcelAssignment}/assign', [ParcelAssignmentController::class, 'assign'])
             ->name('parcel-assignments.assign');
+        // One parcel per call — the sorting page sweeps its queue by
+        // calling this in sequence so it can report live progress.
+        Route::put('/parcel-assignments/{parcelAssignment}/auto-assign', [ParcelAssignmentController::class, 'autoAssign'])
+            ->name('parcel-assignments.auto-assign');
         Route::put('/parcel-assignments/{parcelAssignment}/handoff', [ParcelAssignmentController::class, 'handoff'])
             ->name('parcel-assignments.handoff');
+        Route::get('/parcel-assignments/{parcelAssignment}/transfer-options', [ParcelAssignmentController::class, 'transferOptions'])
+            ->name('parcel-assignments.transfer-options');
+        // Raises a transfer *request* — custody only moves once the
+        // receiving company accepts it below.
+        Route::put('/parcel-assignments/{parcelAssignment}/transfer', [ParcelAssignmentController::class, 'requestTransfer'])
+            ->name('parcel-assignments.transfer');
+
+        // "Transfer requests" inbox on the Parcel sorting page — incoming
+        // requests the signed-in company must accept or reject, plus the
+        // origin company's own withdraw.
+        Route::get('/parcel-transfer-requests', [ParcelAssignmentController::class, 'transferRequests'])
+            ->name('parcel-transfer-requests.index');
+        Route::post('/parcel-transfer-requests/{parcelTransferRequest}/accept', [ParcelAssignmentController::class, 'acceptTransferRequest'])
+            ->name('parcel-transfer-requests.accept');
+        Route::post('/parcel-transfer-requests/{parcelTransferRequest}/reject', [ParcelAssignmentController::class, 'rejectTransferRequest'])
+            ->name('parcel-transfer-requests.reject');
+        Route::post('/parcel-transfer-requests/{parcelTransferRequest}/cancel', [ParcelAssignmentController::class, 'cancelTransferRequest'])
+            ->name('parcel-transfer-requests.cancel');
     });
 
 // ============================================================

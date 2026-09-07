@@ -24,8 +24,10 @@ class UpdateDeliveryAreaRequest extends FormRequest
         return [
             'name' => ['sometimes', 'required', 'string', 'max:100'],
             'province_name' => ['sometimes', 'required', 'string', 'max:150'],
-            'municipality_name' => ['sometimes', 'required', 'string', 'max:150'],
-            'barangay' => ['nullable', 'string', 'max:150'],
+            'municipalities' => ['sometimes', 'required', 'array', 'min:1'],
+            'municipalities.*.name' => ['required', 'string', 'max:150'],
+            'municipalities.*.code' => ['nullable', 'string', 'max:20'],
+            'municipalities.*.barangay' => ['nullable', 'string', 'max:150'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

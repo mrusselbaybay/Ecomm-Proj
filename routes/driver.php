@@ -26,6 +26,11 @@ Route::middleware(['supabase.auth', 'driver'])->prefix('driver')->name('api.driv
     // pattern as the buyer/admin account settings pages.
     Route::get('/profile', [DriverProfileController::class, 'show'])->name('profile.show');
     Route::put('/profile', [DriverProfileController::class, 'update'])->name('profile.update');
+    // "Go online" toggle on the Settings screen — flips shift availability
+    // (available / unavailable) on the rider's driver_details/courier_details row.
+    Route::put('/availability', [DriverProfileController::class, 'updateAvailability'])
+        ->middleware('throttle:60,1')
+        ->name('availability.update');
     Route::delete('/account/deactivate', [DriverProfileController::class, 'deactivate'])
         ->middleware('throttle:5,1')
         ->name('account.deactivate');

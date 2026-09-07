@@ -104,6 +104,8 @@ const ICONS = {
         'M19.2 10.6c0 5-7.2 10-7.2 10s-7.2-5-7.2-10a7.2 7.2 0 1 1 14.4 0Z',
         'M12 13a2.4 2.4 0 1 0 0-4.8A2.4 2.4 0 0 0 12 13Z',
     ],
+    'chevron-left': ['m14.4 5.6-6.4 6.4 6.4 6.4'],
+    'chevron-right': ['m9.6 5.6 6.4 6.4-6.4 6.4'],
 };
 
 const paths = computed(() => ICONS[props.name] || ICONS.dashboard);

@@ -1,10 +1,13 @@
 <?php
 
+use App\Mail\Logistics\ApplicationTerminated;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     // A real `profiles` table already exists by this point (see the
@@ -18,6 +21,24 @@ beforeEach(function () {
             $table->string('last_name')->nullable();
             $table->string('email')->nullable();
             $table->string('contact_no')->nullable();
+        });
+    }
+
+    // Supabase-managed table with no Laravel migration, same as in the
+    // other Logistics*ApiTest files — LogisticsApplicationController
+    // eager-loads courier.address on every response, so it just has to
+    // exist. No rows required.
+    if (! Schema::hasTable('addresses')) {
+        Schema::create('addresses', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->string('owner_kind');
+            $table->string('profile_id')->nullable();
+            $table->string('house_no')->nullable();
+            $table->string('street')->nullable();
+            $table->string('barangay')->nullable();
+            $table->string('municipality_name')->nullable();
+            $table->string('province_name')->nullable();
+            $table->string('region_name')->nullable();
         });
     }
 
@@ -39,6 +60,7 @@ beforeEach(function () {
         $table->string('vehicle');
         $table->string('plate_number');
         $table->string('logistics_company_id')->nullable();
+        $table->string('delivery_status')->default('unavailable');
     });
 
     Schema::create('courier_applications', function (Blueprint $table) {
@@ -76,6 +98,7 @@ it('returns only applications sent to the signed-in logistics company', function
         'profile_id' => 'courier-a',
         'vehicle' => 'Motorcycle',
         'plate_number' => 'ABC-1234',
+        'delivery_status' => 'available',
     ]);
     DB::table('courier_applications')->insert([
         [
@@ -101,7 +124,8 @@ it('returns only applications sent to the signed-in logistics company', function
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.id', 'application-a')
         ->assertJsonPath('data.0.courier.first_name', 'Ana')
-        ->assertJsonPath('data.0.courier_details.vehicle', 'Motorcycle');
+        ->assertJsonPath('data.0.courier_details.vehicle', 'Motorcycle')
+        ->assertJsonPath('data.0.courier_details.delivery_status', 'available');
 });
 
 it('rejects requests without a Supabase access token', function () {
@@ -252,7 +276,7 @@ it('does not withdraw a reviewed courier application', function () {
 });
 
 it('fires an accepted courier: withdraws the application, clears area appointments and emails them', function () {
-    Illuminate\Support\Facades\Mail::fake();
+    Mail::fake();
 
     $applicationId = 'e3b0c442-98fc-4c14-9afb-000000000101';
     $areaId = 'e3b0c442-98fc-4c14-9afb-000000000201';
@@ -284,8 +308,14 @@ it('fires an accepted courier: withdraws the application, clears area appointmen
         'logistics_company_id' => 'company-a',
         'name' => 'Area A',
         'province_name' => 'Metro Manila',
-        'municipality_name' => 'Quezon City',
         'is_active' => true,
+    ]);
+    DB::table('logistics_delivery_area_municipalities')->insert([
+        'id' => (string) Str::uuid(),
+        'delivery_area_id' => $areaId,
+        'municipality_name' => 'Quezon City',
+        'created_at' => now(),
+        'updated_at' => now(),
     ]);
     DB::table('logistics_delivery_area_riders')->insert([
         'delivery_area_id' => $areaId,
@@ -311,11 +341,11 @@ it('fires an accepted courier: withdraws the application, clears area appointmen
         'delivery_area_id' => $areaId,
         'rider_profile_id' => 'courier-a',
     ]);
-    Illuminate\Support\Facades\Mail::assertSent(App\Mail\Logistics\ApplicationTerminated::class);
+    Mail::assertSent(ApplicationTerminated::class);
 });
 
 it('does not fire a courier whose application is not accepted', function () {
-    Illuminate\Support\Facades\Mail::fake();
+    Mail::fake();
 
     $applicationId = 'e3b0c442-98fc-4c14-9afb-000000000102';
 
@@ -349,5 +379,5 @@ it('does not fire a courier whose application is not accepted', function () {
         'id' => $applicationId,
         'status' => 'pending',
     ]);
-    Illuminate\Support\Facades\Mail::assertNothingSent();
+    Mail::assertNothingSent();
 });

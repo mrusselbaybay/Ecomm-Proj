@@ -1021,6 +1021,13 @@ button:disabled:hover {
     padding: 20px;
     backdrop-filter: blur(2px);
 }
+/* App-level dialogs (confirm, logout) declared in LogisticsLayout must sit
+   above page modals that teleport into .logistics-shell after them in the
+   DOM — otherwise they share z-index 200 and render behind. Stays under
+   the toast stack (300). */
+.modal-overlay--top {
+    z-index: 280;
+}
 .modal-panel {
     background: var(--lg-surface);
     border-radius: var(--lg-radius-lg);
@@ -1362,8 +1369,36 @@ button:disabled:hover {
     color: var(--lg-slate);
     font-size: 11px;
 }
+/* Fixed height, not content height. Switching Location <-> Assigned
+   drivers, adding a municipality chip, or surfacing an error used to
+   re-flow the whole centred panel, so the modal jumped on nearly every
+   interaction. Header + tabs stay pinned at the top, the actions row at
+   the bottom, and only .area-modal-body scrolls. */
 .area-form-modal {
     max-width: 660px;
+    height: min(620px, 85vh);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.area-modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    /* Keeps focus rings and the province dropdown clear of the
+       scrollbar without shifting content when one appears. */
+    padding-right: 4px;
+    margin-right: -4px;
+}
+/* One scroll region per panel — the driver list fills the body it sits
+   in rather than opening a second, nested scrollbar. */
+.area-modal-body .driver-list {
+    max-height: none;
+    overflow-y: visible;
+}
+.area-form-modal .modal-actions {
+    flex-shrink: 0;
+    margin-top: 16px;
 }
 .area-form-grid {
     display: grid;
@@ -1698,6 +1733,20 @@ button:disabled:hover {
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
+    /* Matches the form's height via .area-modal-row's `stretch`; the
+       rider list takes the slack so search, pagination and errors stay
+       put as results come and go. */
+    overflow: hidden;
+}
+.add-driver-panel .driver-list {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+}
+.add-driver-panel .driver-pagination,
+.add-driver-panel .callout-red {
+    flex-shrink: 0;
 }
 @media (max-width: 860px) {
     .area-modal-row {
@@ -1707,6 +1756,13 @@ button:disabled:hover {
     .add-driver-panel {
         width: 100%;
         max-width: 100%;
+    }
+    /* Stacked, two fixed-height panels won't fit — let them share the
+       viewport instead of overflowing it. */
+    .area-form-modal,
+    .add-driver-panel {
+        height: auto;
+        max-height: 60vh;
     }
 }
 
@@ -2350,6 +2406,20 @@ button:disabled:hover {
     color: var(--lg-slate);
     font-size: 12.5px;
 }
+.queue-pagination {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.queue-page-label {
+    color: var(--lg-slate-600);
+    font-size: 12px;
+    font-weight: 700;
+    /* Page counts change width as you move through them ("1 of 9" ->
+       "10 of 12"); a floor keeps the Prev/Next buttons from shuffling. */
+    min-width: 96px;
+    text-align: center;
+}
 
 .parcel-meta {
     display: block;
@@ -2737,6 +2807,44 @@ button:disabled:hover {
     font-size: 0.72rem;
     color: var(--lg-slate);
     line-height: 1.4;
+}
+/* The deliver-vs-transfer choice inside the parcel routing modal, shown
+   once a courier has picked the parcel up. */
+.dispatch-mode-chips {
+    margin-bottom: 0.9rem;
+}
+.municipality-picker-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: stretch;
+}
+.municipality-picker-row .field-input {
+    flex: 1;
+}
+.municipality-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+}
+.municipality-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.municipality-chip-remove {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.95rem;
+    line-height: 1;
+    padding: 0;
+}
+.rider-quota-badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--lg-slate);
 }
 .req {
     color: var(--lg-primary);

@@ -10,6 +10,7 @@ use App\Models\ProductVariant;
 use App\Models\Profile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class CheckoutService
@@ -26,14 +27,13 @@ class CheckoutService
     ];
 
     /**
-     * @param  Profile  $buyer
      * @param  array{items: array<int, array{product_id: string, variant_id?: string, quantity: int, variation?: string}>,
      *                delivery_address: array{recipient_name: string, contact_number?: string, address: string},
      *                shipping_method?: string, payment_method?: string} $payload
      * @return Collection<int, Order> The created orders (one per seller), loaded with items.
      *
      * @throws ValidationException if any item is invalid, out of stock, or
-     *                              the requested quantity exceeds what's available.
+     *                             the requested quantity exceeds what's available.
      */
     public function checkout(Profile $buyer, array $payload): Collection
     {
@@ -65,7 +65,7 @@ class CheckoutService
                 ->map(function (array $line) use ($products, $variants) {
                     $product = $products->get($line['product_id']);
 
-                    if (!$product || $product->status !== 'active') {
+                    if (! $product || $product->status !== 'active') {
                         throw ValidationException::withMessages([
                             'items' => 'One of the items in your cart is no longer available.',
                         ]);
@@ -88,7 +88,7 @@ class CheckoutService
                     // at all if the product has any (mirrors the buyer UI
                     // requirement, enforced again here server-side).
                     if ($product->has_variants) {
-                        if (!$variant || $variant->product_id !== $product->id) {
+                        if (! $variant || $variant->product_id !== $product->id) {
                             throw ValidationException::withMessages([
                                 'items' => "Please select a valid option for \"{$product->name}\".",
                             ]);
@@ -176,6 +176,23 @@ class CheckoutService
             'recipient_name' => $address['recipient_name'],
             'recipient_contact_no' => $address['contact_number'] ?? null,
             'shipping_street' => $address['address'],
+            // The structured destination, read straight off the buyer's
+            // existing profile address (public.addresses,
+            // owner_kind='profile' — the same row the Account page fills
+            // in), because `delivery_address.address` above only ever
+            // arrives as one flattened human-readable line.
+            //
+            // Region flags a cross-region parcel "To Transfer" when it
+            // differs from the holding company's region; province +
+            // municipality (+ barangay) are what
+            // App\Services\ParcelIntakeService::matchingArea() matches a
+            // parcel to a delivery area on, so leaving them null makes
+            // both intake sorting and "Auto assign" fall through to
+            // "no area covers this address" for every order.
+            'shipping_region_name' => $buyer->address?->region_name,
+            'shipping_province_name' => $buyer->address?->province_name,
+            'shipping_municipality_name' => $buyer->address?->municipality_name,
+            'shipping_barangay' => $buyer->address?->barangay,
             'status' => 'New',
             'payment_method' => $paymentMethod,
             'payment_status' => 'Unpaid',
@@ -188,6 +205,14 @@ class CheckoutService
             'placed_at' => now(),
         ]);
 
+        // Build every order_items row up front and insert them in one
+        // statement rather than one INSERT round-trip per line — against a
+        // remote Postgres that latency adds up fast on a multi-item order.
+        $now = now();
+        $itemRows = [];
+        $variantDecrements = [];
+        $productDecrements = [];
+
         foreach ($lines as $line) {
             /** @var Product $product */
             $product = $line['product'];
@@ -196,7 +221,8 @@ class CheckoutService
             $quantity = $line['quantity'];
             $unitPrice = $line['unit_price'];
 
-            OrderItem::create([
+            $itemRows[] = [
+                'id' => (string) Str::uuid(),
                 'order_id' => $order->id,
                 'product_id' => $product->id,
                 'product_name' => $product->name,
@@ -205,19 +231,40 @@ class CheckoutService
                 'variant' => $line['variant_label'],
                 'variant_id' => $variant?->id,
                 'variant_sku' => $variant?->sku,
-                'variant_options' => $line['variant_options'],
+                // insert() bypasses the model's array cast, so encode here.
+                'variant_options' => $line['variant_options'] !== null
+                    ? json_encode($line['variant_options'])
+                    : null,
                 'unit_price' => $unitPrice,
                 'quantity' => $quantity,
                 'subtotal' => $unitPrice * $quantity,
-            ]);
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
 
-            // Safe under the row locks taken in checkout(): no other
-            // request can have read/modified this stock value since.
+            // Collapse duplicate lines for the same product/variant so
+            // stock moves in one UPDATE per distinct row, not per line.
             if ($variant) {
-                $variant->decrement('stock', $quantity);
+                $variantDecrements[$variant->id] = ($variantDecrements[$variant->id] ?? 0) + $quantity;
             } else {
-                $product->decrement('stock', $quantity);
+                $productDecrements[$product->id] = ($productDecrements[$product->id] ?? 0) + $quantity;
             }
+        }
+
+        OrderItem::insert($itemRows);
+
+        // Hand the freshly-built rows straight back as the `items` relation
+        // so the controller's response doesn't trigger a re-SELECT.
+        $itemModels = OrderItem::hydrate($itemRows);
+
+        // Safe under the row locks taken in checkout(): no other request
+        // can have read/modified these stock values since.
+        foreach ($variantDecrements as $variantId => $quantity) {
+            ProductVariant::whereKey($variantId)->decrement('stock', $quantity);
+        }
+
+        foreach ($productDecrements as $productId => $quantity) {
+            Product::whereKey($productId)->decrement('stock', $quantity);
         }
 
         OrderStatusHistory::create([
@@ -227,13 +274,13 @@ class CheckoutService
             'changed_by' => $buyer->id,
         ]);
 
-        return $order->load('items');
+        return $order->setRelation('items', $itemModels);
     }
 
     private function generateOrderNumber(): string
     {
         do {
-            $candidate = 'SN-' . random_int(10000, 99999);
+            $candidate = 'SN-'.random_int(10000, 99999);
         } while (Order::where('order_number', $candidate)->exists());
 
         return $candidate;

@@ -2351,6 +2351,22 @@
     box-shadow: 0 0 0 4px rgba(13, 148, 136, 0.1);
 }
 
+/* Recipient name / contact number / address are fetched from the
+   buyer's account, not typed here — read-only, so this makes that
+   visually clear instead of looking like an empty editable field. */
+.checkout-field input:read-only,
+.checkout-field textarea:read-only {
+    background: #f1f5f9;
+    color: var(--nx-muted);
+    cursor: default;
+}
+.checkout-field input:read-only:focus,
+.checkout-field textarea:read-only:focus {
+    border-color: #e2e8f0;
+    background: #f1f5f9;
+    box-shadow: none;
+}
+
 /* Products in Order */
 
 .checkout-item {

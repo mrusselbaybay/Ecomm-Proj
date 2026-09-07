@@ -15,7 +15,7 @@ class DriverDetail extends Model
 
     protected $keyType = 'string';
 
-    protected $fillable = ['profile_id', 'logistics_company_id', 'vehicle', 'plate_number', 'license_number'];
+    protected $fillable = ['profile_id', 'logistics_company_id', 'vehicle', 'plate_number', 'license_number', 'delivery_status'];
 
     public function logisticsCompany(): BelongsTo
     {
