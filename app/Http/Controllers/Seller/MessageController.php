@@ -3,19 +3,22 @@
 namespace App\Http\Controllers\Seller;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Messaging\UploadMessageAttachmentRequest;
 use App\Http\Requests\Seller\ReportBuyerRequest;
 use App\Http\Requests\Seller\SendSellerMessageRequest;
 use App\Http\Requests\Seller\UpdateConversationStatusRequest;
+use App\Models\Complaint;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageAttachment;
 use App\Policies\ConversationPolicy;
+use App\Services\MessageAttachmentService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Backs resources/js/seller/components/Messages.vue via
@@ -42,11 +45,10 @@ class MessageController extends Controller
 
     private const MESSAGES_PAGE_SIZE = 30;
 
-    private const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
-
-    private const ALLOWED_ATTACHMENT_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
-
-    public function __construct(private ConversationPolicy $conversationPolicy) {}
+    public function __construct(
+        private ConversationPolicy $conversationPolicy,
+        private MessageAttachmentService $messageAttachmentService,
+    ) {}
 
     /**
      * GET /api/seller/messages/conversations
@@ -193,28 +195,28 @@ class MessageController extends Controller
             return response()->json(['message' => 'This conversation is not open for new messages.'], 422);
         }
 
-        $body = trim($request->validated('body'));
-        $attachmentIds = $request->validated('attachment_ids') ?? [];
+        $body = trim((string) $request->validated('body', ''));
+        $attachmentIds = $request->validated('attachment_ids', []);
 
         $message = DB::transaction(function () use ($conversation, $seller, $body, $attachmentIds) {
-            // Only this seller's own still-unlinked uploads count.
-            $staged = MessageAttachment::whereIn('id', $attachmentIds)
-                ->where('seller_id', $seller->id)
-                ->whereNull('message_id')
-                ->get();
+            $staged = $this->messageAttachmentService->findOwnedUnlinked($seller, $attachmentIds);
+
+            if ($staged->count() !== count($attachmentIds)) {
+                throw ValidationException::withMessages([
+                    'attachment_ids' => 'One or more attachments are unavailable.',
+                ]);
+            }
 
             $message = Message::create([
                 'conversation_id' => $conversation->id,
                 'sender_id' => $seller->id,
                 'sender_role' => 'seller',
-                'message_type' => 'text',
+                'message_type' => $body === '' ? 'attachment' : 'text',
                 'body' => $body,
-                'attachments' => $staged->map->toContractArray()->all(),
+                'attachments' => $staged->map->toStoredArray()->all(),
             ]);
 
-            if ($staged->isNotEmpty()) {
-                MessageAttachment::whereKey($staged->pluck('id'))->update(['message_id' => $message->id]);
-            }
+            $this->messageAttachmentService->linkToMessage($staged, $message);
 
             // The seller replying means they've seen everything in the
             // thread — clear their unread and stamp buyer messages read.
@@ -225,7 +227,9 @@ class MessageController extends Controller
 
             $conversation->forceFill([
                 'last_message_at' => $message->created_at,
-                'last_message_preview' => Str::limit($body, 140),
+                'last_message_preview' => $body !== ''
+                    ? Str::limit($body, 140)
+                    : ($staged->count() === 1 ? 'Sent an attachment' : 'Sent attachments'),
                 'last_message_sender_role' => 'seller',
                 'seller_unread_count' => 0,
             ])->save();
@@ -275,7 +279,15 @@ class MessageController extends Controller
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        $conversation->forceFill(['status' => $request->validated('status')])->save();
+        $status = $request->validated('status');
+
+        if (! $conversation->canTransitionTo($status)) {
+            return response()->json([
+                'message' => "A conversation cannot move from {$conversation->status} to {$status}.",
+            ], 422);
+        }
+
+        $conversation->forceFill(['status' => $status])->save();
 
         return response()->json([
             'data' => $this->transformConversationDetail($conversation->fresh(['buyer', 'order', 'product'])),
@@ -300,35 +312,12 @@ class MessageController extends Controller
     /**
      * POST /api/seller/messages/attachments  (multipart, field "file")
      *
-     * Stores the file as a base64 data: URL (the way products.images /
-     * reviews.images hold binary in this schema) and returns its id for
-     * the follow-up send. Swapping to a Storage bucket later only changes
-     * what gets written to message_attachments.url.
+     * Stores the file on the private message-attachment disk and returns
+     * its id for the follow-up send.
      */
-    public function uploadAttachment(Request $request): JsonResponse
+    public function uploadAttachment(UploadMessageAttachmentRequest $request): JsonResponse
     {
-        $seller = $request->user();
-
-        $validated = $request->validate([
-            'file' => [
-                'required',
-                'file',
-                'max:'.(self::MAX_ATTACHMENT_BYTES / 1024),
-                'mimetypes:'.implode(',', self::ALLOWED_ATTACHMENT_MIMES),
-            ],
-        ]);
-
-        $file = $validated['file'];
-        $dataUrl = 'data:'.$file->getMimeType().';base64,'.base64_encode(file_get_contents($file->getRealPath()));
-
-        $attachment = MessageAttachment::create([
-            'seller_id' => $seller->id,
-            'message_id' => null,
-            'name' => $file->getClientOriginalName() ?: 'attachment',
-            'mime' => $file->getMimeType(),
-            'size' => $file->getSize(),
-            'url' => $dataUrl,
-        ]);
+        $attachment = $this->messageAttachmentService->stage($request->user(), $request->file('file'));
 
         return response()->json(['data' => $attachment->toContractArray()], 201);
     }
@@ -336,12 +325,7 @@ class MessageController extends Controller
     /**
      * POST /api/seller/messages/conversations/{id}/report
      *
-     * Deliberately log-only. A `complaints` table exists in the schema but
-     * has no model/owner on this branch — that's the admin moderation
-     * feature's territory (see useMessaging.js's contract note). Writing
-     * into it unilaterally from here would be a cross-role decision this
-     * endpoint shouldn't make, so it acknowledges the report (keeping the
-     * UI's flow intact) and records it for a human to pick up.
+     * Persists the report in the existing admin complaint workflow.
      */
     public function report(ReportBuyerRequest $request, string $id): JsonResponse
     {
@@ -352,15 +336,21 @@ class MessageController extends Controller
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        Log::warning('Seller reported a buyer', [
-            'conversation_id' => $conversation->id,
-            'seller_id' => $seller->id,
-            'buyer_id' => $conversation->buyer_id,
+        $complaint = Complaint::create([
+            'complainant_id' => $seller->id,
+            'respondent_id' => $conversation->buyer_id,
             'order_id' => $conversation->order_id,
-            'reason' => $request->validated('reason'),
+            'type' => 'message_report',
+            'subject' => 'Buyer messaging report',
+            'description' => $request->validated('reason'),
+            'evidence' => [['conversation_id' => $conversation->id]],
+            'status' => 'pending',
+            'priority' => 'normal',
         ]);
 
-        return response()->json(['data' => ['reported' => true]]);
+        return response()->json([
+            'data' => ['reported' => true, 'complaint_id' => $complaint->id],
+        ], 201);
     }
 
     /*
@@ -515,7 +505,7 @@ class MessageController extends Controller
             'attachments' => collect($m->attachments ?? [])->map(fn ($a) => [
                 'id' => $a['id'] ?? null,
                 'name' => $a['name'] ?? 'attachment',
-                'url' => $a['url'] ?? null,
+                'url' => MessageAttachment::contractUrlFor($a),
                 'mime' => $a['mime'] ?? null,
                 'size' => $a['size'] ?? null,
             ])->all(),

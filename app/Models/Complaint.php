@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasUuidPrimaryKey;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -30,6 +31,8 @@ use Illuminate\Support\Carbon;
  */
 class Complaint extends Model
 {
+    use HasUuidPrimaryKey;
+
     public const STATUSES = ['pending', 'under_review', 'awaiting_response', 'resolved', 'dismissed'];
 
     public const PRIORITIES = ['low', 'normal', 'high', 'urgent'];

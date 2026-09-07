@@ -54,6 +54,12 @@ class Conversation extends Model
 
     public const WRITABLE_STATUSES = ['open', 'active'];
 
+    public const DIRECT_MESSAGE_TRANSITIONS = [
+        'open' => ['resolved', 'archived'],
+        'resolved' => ['open', 'archived'],
+        'archived' => ['open'],
+    ];
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(Profile::class, 'created_by');
@@ -107,6 +113,12 @@ class Conversation extends Model
     public function isWritable(): bool
     {
         return in_array($this->status, self::WRITABLE_STATUSES, true);
+    }
+
+    public function canTransitionTo(string $status): bool
+    {
+        return $this->type !== 'support'
+            && in_array($status, self::DIRECT_MESSAGE_TRANSITIONS[$this->status] ?? [], true);
     }
 
     /**

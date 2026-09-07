@@ -31,6 +31,8 @@ import { buyerApi } from './useBuyerApi';
 */
 
 const POLL_MS = 15000;
+const ALLOWED_ATTACHMENT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 const isChatOpen = ref(false);
 
@@ -101,6 +103,15 @@ function mapMessage(message) {
         id: message.id,
         from: message.from === 'seller' ? 'seller' : 'buyer',
         text: message.text,
+        attachments: Array.isArray(message.attachments)
+            ? message.attachments.map(attachment => ({
+                id: attachment.id,
+                name: attachment.name || 'attachment',
+                url: attachment.url || null,
+                mime: attachment.mime || null,
+                size: Number(attachment.size || 0),
+            }))
+            : [],
         at: threadTimeLabel(message.at) || timeOfDay(new Date()),
     };
 }
@@ -331,11 +342,11 @@ async function openConversation(id) {
 |
 */
 
-function sendMessage(text) {
+function sendMessage(text, attachmentIds = [], attachmentPreviews = []) {
     const convo = activeConversation.value;
     const body = (text || '').trim();
 
-    if (!convo || !body) {
+    if (!convo || (!body && attachmentIds.length === 0)) {
         return false;
     }
 
@@ -345,13 +356,17 @@ function sendMessage(text) {
         id: localId,
         from: 'buyer',
         text: body,
+        attachments: attachmentPreviews,
         at: timeOfDay(new Date()),
     });
     convo.updatedAt = timeOfDay(new Date());
 
     buyerApi(`/buyer/messages/conversations/${encodeURIComponent(convo.id)}/messages`, {
         method: 'POST',
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({
+            body: body || null,
+            attachment_ids: attachmentIds,
+        }),
     })
         .then(message => {
             const idx = convo.messages.findIndex(m => m.id === localId);
@@ -366,6 +381,34 @@ function sendMessage(text) {
         });
 
     return true;
+}
+
+function validateAttachment(file) {
+    if (!ALLOWED_ATTACHMENT_TYPES.includes(file.type)) {
+        return 'Only PNG, JPG, WEBP, or PDF files are allowed.';
+    }
+
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+        return 'Files must be 10MB or smaller.';
+    }
+
+    return null;
+}
+
+async function uploadAttachment(file) {
+    const validationError = validateAttachment(file);
+
+    if (validationError) {
+        throw new Error(validationError);
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    return buyerApi('/buyer/messages/attachments', {
+        method: 'POST',
+        body: formData,
+    });
 }
 
 /**
@@ -433,6 +476,9 @@ export function useBuyerChat() {
         toggleChat,
         openConversation,
         sendMessage,
+        validateAttachment,
+        uploadAttachment,
+        MAX_ATTACHMENT_BYTES,
         startConversation,
     };
 }

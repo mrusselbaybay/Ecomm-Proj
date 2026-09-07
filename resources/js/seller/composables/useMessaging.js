@@ -345,7 +345,7 @@ async function markRead(id) {
 // isSending while one is in flight.
 async function sendMessage(conversationId, body, attachmentIds = []) {
     const text = body.trim();
-    if (!text || isSending.value) return null;
+    if ((!text && attachmentIds.length === 0) || isSending.value) return null;
 
     const localId = `local-${Date.now()}`;
     const optimistic = {

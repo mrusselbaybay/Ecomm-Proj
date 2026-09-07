@@ -5,14 +5,18 @@ namespace App\Http\Controllers\Buyer;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Buyer\SendMessageRequest;
 use App\Http\Requests\Buyer\StartConversationRequest;
+use App\Http\Requests\Messaging\UploadMessageAttachmentRequest;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\MessageAttachment;
+use App\Models\Profile;
 use App\Policies\ConversationPolicy;
 use App\Services\DirectConversationService;
+use App\Services\MessageAttachmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Buyer side of buyer <-> seller messaging (conversations / messages).
@@ -31,6 +35,7 @@ class MessageController extends Controller
     public function __construct(
         private DirectConversationService $directConversationService,
         private ConversationPolicy $conversationPolicy,
+        private MessageAttachmentService $messageAttachmentService,
     ) {}
 
     public function conversations(Request $request): JsonResponse
@@ -70,7 +75,7 @@ class MessageController extends Controller
                 $data['subject'] ?? null,
             );
 
-            $this->appendMessage($conversation, $buyer->id, 'buyer', $data['body']);
+            $this->appendMessage($conversation, $buyer, 'buyer', $data['body']);
 
             return $conversation;
         });
@@ -133,11 +138,21 @@ class MessageController extends Controller
             return response()->json(['message' => 'This conversation is not open for new messages.'], 422);
         }
 
-        $message = DB::transaction(function () use ($conversation, $request) {
-            return $this->appendMessage($conversation, $request->user()->id, 'buyer', $request->validated('body'));
+        $body = trim((string) $request->validated('body', ''));
+        $attachmentIds = $request->validated('attachment_ids', []);
+
+        $message = DB::transaction(function () use ($attachmentIds, $body, $conversation, $request) {
+            return $this->appendMessage($conversation, $request->user(), 'buyer', $body, $attachmentIds);
         });
 
         return response()->json(['data' => $this->transformMessage($message)], 201);
+    }
+
+    public function uploadAttachment(UploadMessageAttachmentRequest $request): JsonResponse
+    {
+        $attachment = $this->messageAttachmentService->stage($request->user(), $request->file('file'));
+
+        return response()->json(['data' => $attachment->toContractArray()], 201);
     }
 
     public function markRead(Request $request, string $id): JsonResponse
@@ -151,25 +166,6 @@ class MessageController extends Controller
         $this->markConversationRead($conversation, $request->user()->id);
 
         return response()->json(['data' => ['unread' => 0]]);
-    }
-
-    public function setStatus(Request $request, string $id): JsonResponse
-    {
-        $conversation = $this->findForBuyer($request, $id);
-
-        if (! $conversation) {
-            return response()->json(['message' => 'Conversation not found.'], 404);
-        }
-
-        $data = $request->validate([
-            'status' => ['required', Rule::in(Conversation::STATUSES)],
-        ]);
-
-        $conversation->update(['status' => $data['status']]);
-
-        return response()->json([
-            'data' => $this->transformConversation($conversation->fresh(['seller.sellerDetail', 'product'])),
-        ]);
     }
 
     public function unreadCount(Request $request): JsonResponse
@@ -191,18 +187,41 @@ class MessageController extends Controller
             ->first();
     }
 
-    private function appendMessage(Conversation $conversation, string $senderId, string $role, string $body): Message
-    {
+    /**
+     * @param  list<string>  $attachmentIds
+     */
+    private function appendMessage(
+        Conversation $conversation,
+        Profile $sender,
+        string $role,
+        string $body,
+        array $attachmentIds = [],
+    ): Message {
+        $stagedAttachments = $this->messageAttachmentService->findOwnedUnlinked($sender, $attachmentIds);
+
+        if ($stagedAttachments->count() !== count($attachmentIds)) {
+            throw ValidationException::withMessages([
+                'attachment_ids' => 'One or more attachments are unavailable.',
+            ]);
+        }
+
         $message = $conversation->messages()->create([
-            'sender_id' => $senderId,
+            'sender_id' => $sender->id,
             'sender_role' => $role,
-            'message_type' => 'text',
+            'message_type' => $body === '' ? 'attachment' : 'text',
             'body' => $body,
+            'attachments' => $stagedAttachments->map->toStoredArray()->all(),
         ]);
+
+        $this->messageAttachmentService->linkToMessage($stagedAttachments, $message);
+
+        $preview = $body !== ''
+            ? mb_substr($body, 0, 160)
+            : ($stagedAttachments->count() === 1 ? 'Sent an attachment' : 'Sent attachments');
 
         $conversation->forceFill([
             'last_message_at' => $message->created_at,
-            'last_message_preview' => mb_substr($body, 0, 160),
+            'last_message_preview' => $preview,
             'last_message_sender_role' => $role,
         ]);
 
@@ -279,6 +298,13 @@ class MessageController extends Controller
             'id' => $m->id,
             'from' => $m->sender_role,
             'text' => $m->body,
+            'attachments' => collect($m->attachments ?? [])->map(fn (array $attachment) => [
+                'id' => $attachment['id'] ?? null,
+                'name' => $attachment['name'] ?? 'attachment',
+                'url' => MessageAttachment::contractUrlFor($attachment),
+                'mime' => $attachment['mime'] ?? null,
+                'size' => $attachment['size'] ?? null,
+            ])->all(),
             'at' => optional($m->created_at)->toIso8601String(),
             'readAt' => optional($m->read_at)->toIso8601String(),
         ];

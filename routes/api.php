@@ -20,12 +20,17 @@ use App\Http\Controllers\Api\Logistics\ParcelAssignmentController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CustomerService\SupportTicketController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
+use App\Http\Controllers\Messaging\MessageAttachmentController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\PsgcProxyController;
 use App\Mail\RegistrationApproved;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/message-attachments/{attachment}', [MessageAttachmentController::class, 'show'])
+    ->middleware('signed')
+    ->name('message-attachments.show');
 
 /*
 |--------------------------------------------------------------------------

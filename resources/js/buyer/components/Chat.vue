@@ -12,8 +12,8 @@
 | All state lives in useBuyerChat.js — see that file for what's real
 | (open/close, thread switching, unread, contact search, sending) and
 | what's a seeded placeholder (no backend, no seller replies). The
-| reference's voice/video-call buttons and file attachment are dropped
-| rather than shown as dead controls.
+| reference's voice/video-call buttons are omitted; file attachments use
+| the same validated staging flow as seller messaging.
 |
 | UX added on top of the static reference:
 |   - Fully interactive: switch threads, send, unread clears on open.
@@ -37,18 +37,34 @@ const {
     activeConversation,
     closeChat,
     openConversation,
-    sendMessage
+    sendMessage,
+    validateAttachment,
+    uploadAttachment,
 } = useBuyerChat();
 
 const search = ref('');
 const draft = ref('');
+const stagedAttachments = ref([]);
+const attachmentError = ref('');
 
 // 'list' | 'thread' — only matters below the md breakpoint, where the two
 // panes don't fit side by side.
 const mobileView = ref('thread');
 
 const messageInput = ref(null);
+const fileInput = ref(null);
 const threadBody = ref(null);
+
+const hasUploadingAttachment = computed(() =>
+    stagedAttachments.value.some(attachment => attachment.uploading),
+);
+
+const canSend = computed(() => {
+    const hasText = draft.value.trim().length > 0;
+    const hasAttachment = stagedAttachments.value.some(attachment => attachment.uploaded);
+
+    return !hasUploadingAttachment.value && (hasText || hasAttachment);
+});
 
 const filteredConversations = computed(() => {
     const term = search.value.trim().toLowerCase();
@@ -63,7 +79,13 @@ const filteredConversations = computed(() => {
 });
 
 function lastMessageText(convo) {
-    return convo.messages[convo.messages.length - 1]?.text || 'No messages yet';
+    const lastMessage = convo.messages[convo.messages.length - 1];
+
+    if (lastMessage?.text) {
+        return lastMessage.text;
+    }
+
+    return lastMessage?.attachments?.length ? 'Sent an attachment' : 'No messages yet';
 }
 
 function initials(name) {
@@ -96,10 +118,107 @@ function selectConversation(id) {
 }
 
 function handleSend() {
-    if (sendMessage(draft.value)) {
+    const uploadedAttachments = stagedAttachments.value
+        .filter(attachment => attachment.uploaded)
+        .map(attachment => attachment.uploaded);
+    const attachmentIds = uploadedAttachments.map(attachment => attachment.id);
+
+    if (sendMessage(draft.value, attachmentIds, uploadedAttachments)) {
         draft.value = '';
+        clearStagedAttachments();
         scrollThreadToBottom();
     }
+}
+
+function isImageAttachment(attachment) {
+    return attachment.mime?.startsWith('image/');
+}
+
+function formatFileSize(size) {
+    if (!size) {
+        return '';
+    }
+
+    return size >= 1024 * 1024
+        ? `${(size / (1024 * 1024)).toFixed(1)} MB`
+        : `${Math.max(1, Math.round(size / 1024))} KB`;
+}
+
+function findStagedAttachment(localId) {
+    return stagedAttachments.value.find(attachment => attachment.localId === localId);
+}
+
+function onFilePicked(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    attachmentError.value = '';
+
+    for (const file of files) {
+        if (stagedAttachments.value.length >= 5) {
+            attachmentError.value = 'You can attach up to 5 files per message.';
+            break;
+        }
+
+        const validationError = validateAttachment(file);
+
+        if (validationError) {
+            attachmentError.value = validationError;
+            continue;
+        }
+
+        const localId = `attachment-${Date.now()}-${Math.random()}`;
+        const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+
+        stagedAttachments.value.push({
+            localId,
+            name: file.name,
+            previewUrl,
+            uploading: true,
+            uploaded: null,
+            error: '',
+        });
+
+        uploadAttachment(file)
+            .then(uploaded => {
+                const staged = findStagedAttachment(localId);
+
+                if (staged) {
+                    staged.uploaded = uploaded;
+                    staged.uploading = false;
+                }
+            })
+            .catch(error => {
+                const staged = findStagedAttachment(localId);
+
+                if (staged) {
+                    staged.error = error?.message || 'Upload failed.';
+                    staged.uploading = false;
+                }
+            });
+    }
+}
+
+function removeStagedAttachment(localId) {
+    const staged = findStagedAttachment(localId);
+
+    if (staged?.previewUrl) {
+        URL.revokeObjectURL(staged.previewUrl);
+    }
+
+    stagedAttachments.value = stagedAttachments.value.filter(
+        attachment => attachment.localId !== localId,
+    );
+}
+
+function clearStagedAttachments() {
+    for (const attachment of stagedAttachments.value) {
+        if (attachment.previewUrl) {
+            URL.revokeObjectURL(attachment.previewUrl);
+        }
+    }
+
+    stagedAttachments.value = [];
+    attachmentError.value = '';
 }
 
 function handleKeydown(event) {
@@ -134,6 +253,7 @@ watch(activeConversationId, scrollThreadToBottom);
 
 onBeforeUnmount(() => {
     window.removeEventListener('keydown', handleKeydown);
+    clearStagedAttachments();
 
     if (typeof document !== 'undefined') {
         document.body.style.overflow = '';
@@ -354,7 +474,44 @@ onBeforeUnmount(() => {
                                             ? 'bg-[#0d9488] text-white rounded-2xl rounded-br-sm font-medium'
                                             : 'bg-white border border-slate-100 text-slate-700 rounded-2xl rounded-bl-sm'"
                                     >
-                                        {{ message.text }}
+                                        <p v-if="message.text" class="whitespace-pre-wrap break-words">
+                                            {{ message.text }}
+                                        </p>
+                                        <div
+                                            v-if="message.attachments?.length"
+                                            class="mt-2 grid gap-2"
+                                        >
+                                            <a
+                                                v-for="attachment in message.attachments"
+                                                :key="attachment.id"
+                                                :href="attachment.url"
+                                                :download="isImageAttachment(attachment) ? null : attachment.name"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                class="block max-w-64 overflow-hidden rounded-xl border border-black/10 bg-white/95 text-slate-700"
+                                            >
+                                                <img
+                                                    v-if="isImageAttachment(attachment)"
+                                                    :src="attachment.url"
+                                                    :alt="attachment.name"
+                                                    class="max-h-48 w-full object-contain"
+                                                    loading="lazy"
+                                                >
+                                                <span
+                                                    v-else
+                                                    class="flex items-center gap-2 px-3 py-2 text-xs font-semibold"
+                                                >
+                                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                                                        <path d="M14 2v6h6" />
+                                                    </svg>
+                                                    <span class="min-w-0">
+                                                        <span class="block truncate">{{ attachment.name }}</span>
+                                                        <span class="block text-[10px] font-normal text-slate-400">{{ formatFileSize(attachment.size) }}</span>
+                                                    </span>
+                                                </span>
+                                            </a>
+                                        </div>
                                     </div>
                                     <div
                                         class="flex items-center gap-1 text-[9px] text-slate-400"
@@ -381,9 +538,68 @@ onBeforeUnmount(() => {
 
                         <!-- Input -->
                         <form
-                            class="shrink-0 p-4 border-t border-slate-100 flex items-center gap-3"
+                            class="shrink-0 p-4 border-t border-slate-100 flex flex-col gap-2"
                             @submit.prevent="handleSend"
                         >
+                            <div v-if="stagedAttachments.length" class="flex flex-wrap gap-2">
+                                <div
+                                    v-for="attachment in stagedAttachments"
+                                    :key="attachment.localId"
+                                    class="relative flex max-w-52 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 pr-7 text-xs"
+                                >
+                                    <img
+                                        v-if="attachment.previewUrl"
+                                        :src="attachment.previewUrl"
+                                        :alt="attachment.name"
+                                        class="h-9 w-9 shrink-0 rounded-lg object-cover"
+                                    >
+                                    <span v-else class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500">
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                                            <path d="M14 2v6h6" />
+                                        </svg>
+                                    </span>
+                                    <span class="min-w-0">
+                                        <span class="block truncate font-semibold text-slate-700">{{ attachment.name }}</span>
+                                        <span class="block text-[10px]" :class="attachment.error ? 'text-red-500' : 'text-slate-400'">
+                                            {{ attachment.error || (attachment.uploading ? 'Uploading...' : 'Ready') }}
+                                        </span>
+                                    </span>
+                                    <button
+                                        type="button"
+                                        class="absolute right-1 top-1 text-slate-400 hover:text-red-500"
+                                        :aria-label="`Remove ${attachment.name}`"
+                                        @click="removeStagedAttachment(attachment.localId)"
+                                    >
+                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <p v-if="attachmentError" class="text-xs text-red-600">{{ attachmentError }}</p>
+
+                            <div class="flex w-full items-center gap-2">
+                            <button
+                                type="button"
+                                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition-colors hover:border-[#0d9488] hover:text-[#0d9488] disabled:cursor-not-allowed disabled:opacity-40"
+                                :disabled="stagedAttachments.length >= 5"
+                                aria-label="Attach image or PDF"
+                                @click="fileInput?.click()"
+                            >
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                                </svg>
+                            </button>
+                            <input
+                                ref="fileInput"
+                                type="file"
+                                class="hidden"
+                                accept="image/png,image/jpeg,image/webp,application/pdf"
+                                multiple
+                                @change="onFilePicked"
+                            >
                             <input
                                 ref="messageInput"
                                 v-model="draft"
@@ -394,7 +610,7 @@ onBeforeUnmount(() => {
                             <button
                                 type="submit"
                                 class="w-11 h-11 shrink-0 flex items-center justify-center rounded-2xl bg-[#0d9488] text-white hover:bg-[#0f766e] transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-                                :disabled="draft.trim().length === 0"
+                                :disabled="!canSend"
                                 aria-label="Send message"
                             >
                                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -402,6 +618,7 @@ onBeforeUnmount(() => {
                                     <path d="m21.854 2.147-10.94 10.939" />
                                 </svg>
                             </button>
+                            </div>
                         </form>
                     </template>
 

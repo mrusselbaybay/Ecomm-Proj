@@ -107,7 +107,9 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
         Route::post('/conversations/{id}/messages', [MessageController::class, 'sendMessage'])->name('conversations.messages.store');
         Route::put('/conversations/{id}/read', [MessageController::class, 'markRead'])->name('conversations.read');
         Route::put('/conversations/{id}/status', [MessageController::class, 'setStatus'])->name('conversations.status');
-        Route::post('/conversations/{id}/report', [MessageController::class, 'report'])->name('conversations.report');
+        Route::post('/conversations/{id}/report', [MessageController::class, 'report'])
+            ->middleware('throttle:5,1')
+            ->name('conversations.report');
     });
 
     // Scoped 404 fallback for this group only. Without this, any
