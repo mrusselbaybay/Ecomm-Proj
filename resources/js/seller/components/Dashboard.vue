@@ -1,215 +1,156 @@
 <!-- resources/js/seller/components/Dashboard.vue -->
 <template>
     <div class="seller-dashboard">
-        <!-- Quick Actions Launchpad -->
-        <div class="card launchpad">
-            <div class="launchpad-head">
-                <span class="launchpad-icon">
-                    <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                    >
-                        <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z" />
-                    </svg>
-                </span>
-                <p class="launchpad-label">Quick Actions Launchpad</p>
-            </div>
-            <div class="launchpad-actions">
-                <button class="btn-primary" @click="goTo('inventory')">
-                    <svg
-                        class="icon"
-                        viewBox="0 0 20 20"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                    >
-                        <circle cx="10" cy="10" r="8" />
-                        <path d="M10 6v8M6 10h8" />
-                    </svg>
-                    Add New Product
-                </button>
-                <button class="btn-outline" @click="goTo('orders')">
-                    <svg
-                        class="icon"
-                        viewBox="0 0 20 20"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.6"
-                    >
-                        <rect x="4" y="3" width="12" height="15" rx="1.5" />
-                        <path d="M7.5 1.5h5v3h-5zM7 9h6M7 12h6M7 15h4" />
-                    </svg>
-                    Manage Active Orders
-                </button>
-                <button class="btn-blue-outline" @click="goTo('reports')">
-                    <svg
-                        class="icon"
-                        viewBox="0 0 20 20"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.6"
-                    >
-                        <path
-                            d="M6 2.5h6l3 3v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1z"
-                        />
-                        <path d="M8 10h5M8 13h5M12 2.5V6h3.5" />
-                    </svg>
-                    Generate Sales Report
-                </button>
-            </div>
-        </div>
-
-        <!-- Metric Cards -->
-        <div class="metric-grid grid">
+        <!-- KPI Cards -->
+        <div class="metric-grid kpi-grid grid">
             <div class="metric-card">
                 <div class="metric-card-top">
-                    <span class="metric-icon emerald"
-                        ><svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M3 17l6-6 4 4 8-8" />
-                            <path d="M15 7h6v6" /></svg
-                    ></span>
+                    <p class="metric-label">Total Sales</p>
                     <span class="metric-chip" :class="changeChipClass(salesChangeLabel)">{{
                         salesChangeLabel
                     }}</span>
                 </div>
-                <p class="metric-label">Total Sales</p>
-                <h4 class="metric-value">{{ formatCurrencyValue(totalSales) }}</h4>
+                <div class="kpi-body">
+                    <h4 class="metric-value">{{ formatCurrencyValue(totalSales) }}</h4>
+                    <svg class="kpi-spark" width="72" height="28" viewBox="0 0 72 28">
+                        <polyline
+                            :points="salesSparkline"
+                            fill="none"
+                            style="stroke: var(--sd-accent)"
+                            stroke-width="2.2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        />
+                    </svg>
+                </div>
                 <p class="metric-sub">Gross value of every order</p>
             </div>
 
             <div class="metric-card">
                 <div class="metric-card-top">
-                    <span class="metric-icon sky"
-                        ><svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path
-                                d="M12 2v20M17 5.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 9 12 9s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5"
-                            /></svg
-                    ></span>
+                    <p class="metric-label">Total Revenue</p>
                     <span class="metric-chip" :class="changeChipClass(revenueChangeLabel)">{{
                         revenueChangeLabel
                     }}</span>
                 </div>
-                <p class="metric-label">Total Revenue</p>
-                <h4 class="metric-value">{{ formatCurrencyValue(totalRevenue) }}</h4>
+                <div class="kpi-body">
+                    <h4 class="metric-value">{{ formatCurrencyValue(totalRevenue) }}</h4>
+                    <svg class="kpi-spark" width="72" height="28" viewBox="0 0 72 28">
+                        <polyline
+                            :points="revenueSparkline"
+                            fill="none"
+                            style="stroke: var(--sd-accent-2)"
+                            stroke-width="2.2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        />
+                    </svg>
+                </div>
                 <p class="metric-sub">Collected from paid orders</p>
             </div>
 
             <div class="metric-card">
                 <div class="metric-card-top">
-                    <span class="metric-icon orange"
-                        ><svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path
-                                d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"
-                            />
-                            <path d="M3 6h18M16 10a4 4 0 0 1-8 0" /></svg
-                    ></span>
+                    <p class="metric-label">Orders</p>
                     <span
                         class="metric-chip"
                         :class="thisWeekOrders.length > 0 ? 'up' : 'flat'"
                     >{{ thisWeekOrders.length > 0 ? '+' + thisWeekOrders.length + ' this week' : 'No new' }}</span>
                 </div>
-                <p class="metric-label">Total Orders</p>
-                <h4 class="metric-value">{{ orders.length }} Orders</h4>
+                <div class="kpi-body">
+                    <h4 class="metric-value">{{ orders.length }} Orders</h4>
+                    <svg class="kpi-spark" width="72" height="28" viewBox="0 0 72 28">
+                        <polyline
+                            :points="ordersSparkline"
+                            fill="none"
+                            style="stroke: var(--sd-accent)"
+                            stroke-width="2.2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        />
+                    </svg>
+                </div>
                 <p class="metric-sub">All-time, every status</p>
             </div>
 
             <div class="metric-card">
                 <div class="metric-card-top">
-                    <span class="metric-icon amber"
-                        ><svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <circle cx="12" cy="12" r="9" />
-                            <path d="M12 7v5l3 3" /></svg
-                    ></span>
-                    <span class="metric-chip" :class="pendingOrdersCount > 0 ? 'up' : 'flat'"
-                        >{{ pendingOrdersCount > 0 ? 'Needs Action' : 'All Clear' }}</span
-                    >
-                </div>
-                <p class="metric-label">Pending Orders</p>
-                <h4 class="metric-value">{{ pendingOrdersCount }} Orders</h4>
-                <p class="metric-sub">Placed, awaiting acceptance</p>
-            </div>
-
-            <div class="metric-card">
-                <div class="metric-card-top">
-                    <span class="metric-icon emerald"
-                        ><svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                            <path d="m9 11 3 3L22 4" /></svg
-                    ></span>
+                    <p class="metric-label">Fulfillment Rate</p>
                     <span class="metric-chip flat">{{ fulfillmentRateLabel }}</span>
                 </div>
-                <p class="metric-label">Completed Orders</p>
-                <h4 class="metric-value">{{ completedOrdersCount }} Orders</h4>
+                <div class="kpi-body">
+                    <h4 class="metric-value">{{ completedOrdersCount }} Orders</h4>
+                    <svg class="kpi-spark" width="72" height="28" viewBox="0 0 72 28">
+                        <polyline
+                            :points="deliveredSparkline"
+                            fill="none"
+                            style="stroke: var(--sd-good)"
+                            stroke-width="2.2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        />
+                    </svg>
+                </div>
                 <p class="metric-sub">Delivered to the buyer</p>
             </div>
+        </div>
 
-            <div class="metric-card">
-                <div class="metric-card-top">
-                    <span class="metric-icon blue"
-                        ><svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="m12 2 9 5-9 5-9-5 9-5Z" />
-                            <path d="m3 12 9 5 9-5" />
-                            <path d="m3 17 9 5 9-5" /></svg
-                    ></span>
-                    <span
-                        class="metric-chip"
-                        :class="lowStockProductsCount > 0 ? 'down' : 'flat'"
-                    >{{ lowStockProductsCount > 0 ? lowStockProductsCount + ' low' : 'Healthy' }}</span>
+        <!-- Attention Strip -->
+        <div class="strip">
+            <div class="strip-chip">
+                <span class="strip-ic warn"
+                    ><svg
+                        width="17"
+                        height="17"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M12 7v5l3 3" /></svg
+                ></span>
+                <div class="strip-text">
+                    <div class="t1">Pending orders</div>
+                    <div class="t2">{{ pendingOrdersCount }} need action</div>
                 </div>
-                <p class="metric-label">Inventory</p>
-                <h4 class="metric-value">{{ activeProductsCount }} Listed</h4>
-                <p class="metric-sub">
-                    <template v-if="lowStockProductsCount > 0">
-                        {{ lowStockProductsCount }} product{{ lowStockProductsCount === 1 ? '' : 's' }} need restocking
-                    </template>
-                    <template v-else>All products in stock</template>
-                </p>
+            </div>
+            <div class="strip-chip">
+                <span class="strip-ic bad"
+                    ><svg
+                        width="17"
+                        height="17"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <path d="m12 2 9 5-9 5-9-5 9-5Z" />
+                        <path d="m3 12 9 5 9-5" />
+                        <path d="m3 17 9 5 9-5" /></svg
+                ></span>
+                <div class="strip-text">
+                    <div class="t1">Low / out of stock</div>
+                    <div class="t2">{{ lowStockProductsCount }} products</div>
+                </div>
+            </div>
+            <div class="strip-chip">
+                <span class="strip-ic good"
+                    ><svg
+                        width="17"
+                        height="17"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <circle cx="10" cy="10" r="8" />
+                        <path d="M10 6v8M6 10h8" /></svg
+                ></span>
+                <div class="strip-text">
+                    <div class="t1">Active listings</div>
+                    <div class="t2">{{ activeProductsCount }} live</div>
+                </div>
             </div>
         </div>
 
@@ -241,12 +182,12 @@
                             >
                                 <stop
                                     offset="0%"
-                                    stop-color="#1b9ba8"
+                                    stop-color="#14b8a6"
                                     stop-opacity="0.3"
                                 ></stop>
                                 <stop
                                     offset="100%"
-                                    stop-color="#1b9ba8"
+                                    stop-color="#14b8a6"
                                     stop-opacity="0"
                                 ></stop>
                             </linearGradient>
@@ -254,7 +195,7 @@
                         <path
                             :d="salesTrendLinePath"
                             fill="none"
-                            stroke="#1b9ba8"
+                            stroke="#14b8a6"
                             stroke-width="4"
                             stroke-linecap="round"
                             stroke-linejoin="round"
@@ -268,7 +209,7 @@
                                 :cx="pt.x"
                                 :cy="pt.y"
                                 :r="pt === salesTrendPeak ? 6 : 4"
-                                fill="#1b9ba8"
+                                fill="#14b8a6"
                                 stroke="white"
                                 stroke-width="3"
                             ></circle>
@@ -294,7 +235,7 @@
             <div class="card chart-card">
                 <div class="chart-card-head">
                     <p class="chart-title">Order Breakdown</p>
-                    <span class="chart-live-tag">Live</span>
+                    <span class="sd-live-badge"><span class="live-dot"></span>Live</span>
                 </div>
                 <div
                     class="flex items-center justify-center"
@@ -321,7 +262,7 @@
                                 cy="18"
                                 r="15.9"
                                 fill="transparent"
-                                stroke="#e2e8f0"
+                                style="stroke: var(--sd-hairline)"
                                 stroke-width="4"
                             ></circle>
                             <circle
@@ -402,13 +343,16 @@
                         </thead>
                         <tbody>
                             <tr v-if="recentOrders.length === 0">
-                                <td colspan="6" style="text-align: center; color: #94a3b8; padding: 1.5rem 0">
+                                <td colspan="6" style="text-align: center; color: var(--sd-ink-500); padding: 1.5rem 0">
                                     No orders yet.
                                 </td>
                             </tr>
                             <tr v-for="row in recentOrders" :key="row.id">
                                 <td class="order-id">{{ row.id }}</td>
-                                <td class="customer">{{ row.customer }}</td>
+                                <td class="customer">
+                                    <span class="sd-customer-avatar">{{ customerInitials(row.customer) }}</span>
+                                    {{ row.customer }}
+                                </td>
                                 <td class="item-name">{{ orderItemsSummary(row) }}</td>
                                 <td>{{ row.date }}</td>
                                 <td class="amount">{{ formatCurrency(row.total) }}</td>
@@ -455,18 +399,19 @@
                                 <path d="M14.5 3v3.5H11M5.5 17v-3.5H9" />
                             </svg>
                         </button>
-                        <span class="live-dot"></span>
+                        <span class="sd-live-badge"><span class="live-dot"></span>Live</span>
                     </div>
                 </div>
                 <div class="activity-panel">
                     <div
-                        v-if="activityLog.length === 0"
+                        v-if="mergedActivityLog.length === 0"
                         class="empty-state"
                         style="padding: 1rem 0"
                     >
                         <p>No activity yet.</p>
                         <p class="empty-hint">
-                            Account status changes will show up here.
+                            New orders and account status changes will show
+                            up here.
                         </p>
                     </div>
                     <div
@@ -474,8 +419,24 @@
                         :key="item.id"
                         class="activity-row"
                     >
-                        <div class="activity-icon-badge teal">
+                        <div
+                            class="activity-icon-badge"
+                            :class="item.type === 'order' ? 'blue' : 'teal'"
+                        >
                             <svg
+                                v-if="item.type === 'order'"
+                                width="15"
+                                height="15"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <path d="M4 7h16l-1.5 11a2 2 0 0 1-2 1.8H7.5a2 2 0 0 1-2-1.8L4 7Z" />
+                                <path d="M8 7V5a4 4 0 0 1 8 0v2" />
+                            </svg>
+                            <svg
+                                v-else
                                 width="15"
                                 height="15"
                                 viewBox="0 0 24 24"
@@ -487,17 +448,23 @@
                                 <path d="M12 7v5l3 3" />
                             </svg>
                         </div>
-                        <div class="flex-1">
+                        <div v-if="item.type === 'order'" class="flex-1">
+                            <p class="activity-text">{{ item.text }}</p>
+                            <p class="activity-time">
+                                {{ formatDateTime(item.time) }}
+                            </p>
+                        </div>
+                        <div v-else class="flex-1">
                             <p class="activity-text">
                                 Status changed to
                                 <span style="text-transform: capitalize">{{
-                                    item.new_status
+                                    item.raw.new_status
                                 }}</span>
                             </p>
                             <p class="activity-time">
-                                {{ formatDateTime(item.created_at)
-                                }}<span v-if="item.reason">
-                                    — {{ item.reason }}</span
+                                {{ formatDateTime(item.raw.created_at)
+                                }}<span v-if="item.raw.reason">
+                                    — {{ item.raw.reason }}</span
                                 >
                             </p>
                         </div>
@@ -560,238 +527,68 @@
             </div>
         </div>
 
-        <!-- Account & Compliance (existing onboarding functionality, preserved) -->
-        <div class="sd-compliance-zone">
-        <p class="section-label" style="margin-bottom: 0.85rem">
-            Account &amp; Compliance
-        </p>
-        <div class="grid-2col mb-6 grid">
-            <div class="card" style="padding: 1.4rem 1.5rem">
-                <div
-                    class="flex items-center justify-between"
-                    style="margin-bottom: 1rem"
-                >
-                    <div>
-                        <p class="section-label">Store Readiness</p>
-                        <p class="section-sub">
-                            Complete these steps to keep your store in good
-                            standing.
-                        </p>
-                    </div>
-                </div>
-                <div class="checklist">
-                    <div class="checklist-item">
-                        <span
-                            class="checklist-icon"
-                            :class="hasProfileInfo ? 'done' : 'todo'"
-                        >
-                            <svg
-                                class="icon-xs"
-                                viewBox="0 0 20 20"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                            >
-                                <path d="M4 10l4 4 8-8" />
-                            </svg>
-                        </span>
-                        <div>
-                            <p class="checklist-title">Personal information</p>
-                            <p class="checklist-desc">
-                                Name, sex, birthday, and contact number on file.
-                            </p>
-                        </div>
-                    </div>
-                    <div class="checklist-item">
-                        <span
-                            class="checklist-icon"
-                            :class="hasAddress ? 'done' : 'todo'"
-                        >
-                            <svg
-                                class="icon-xs"
-                                viewBox="0 0 20 20"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                            >
-                                <path d="M4 10l4 4 8-8" />
-                            </svg>
-                        </span>
-                        <div>
-                            <p class="checklist-title">Store address</p>
-                            <p class="checklist-desc">
-                                Province, municipality, barangay, and street
-                                address.
-                            </p>
-                        </div>
-                    </div>
-                    <div class="checklist-item">
-                        <span
-                            class="checklist-icon"
-                            :class="hasBusinessInfo ? 'done' : 'todo'"
-                        >
-                            <svg
-                                class="icon-xs"
-                                viewBox="0 0 20 20"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                            >
-                                <path d="M4 10l4 4 8-8" />
-                            </svg>
-                        </span>
-                        <div>
-                            <p class="checklist-title">Business details</p>
-                            <p class="checklist-desc">
-                                Business name and line of business selected.
-                            </p>
-                        </div>
-                    </div>
-                    <div class="checklist-item">
-                        <span
-                            class="checklist-icon"
-                            :class="
-                                verifiedDocsCount === totalDocsCount &&
-                                totalDocsCount > 0
-                                    ? 'done'
-                                    : 'todo'
-                            "
-                        >
-                            <svg
-                                class="icon-xs"
-                                viewBox="0 0 20 20"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                            >
-                                <path d="M4 10l4 4 8-8" />
-                            </svg>
-                        </span>
-                        <div>
-                            <p class="checklist-title">Compliance documents</p>
-                            <p class="checklist-desc">
-                                Valid ID and business permit verified by admin.
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card" style="padding: 1.4rem 1.5rem">
-                <p class="section-label">Document Compliance</p>
-                <p class="section-sub" style="margin-bottom: 1rem">Today</p>
-
-                <div v-if="totalDocsCount === 0" class="empty-state">
-                    <svg
-                        class="icon-lg"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                    >
-                        <path
-                            d="M6 2.5h8l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-17a1 1 0 0 1 1-1z"
-                        />
-                    </svg>
-                    <p>No documents submitted yet.</p>
-                </div>
-                <div v-else class="donut-wrap">
-                    <svg width="130" height="130" viewBox="0 0 130 130">
-                        <circle
-                            v-for="(seg, idx) in donutSegments"
-                            :key="idx"
-                            cx="65"
-                            cy="65"
-                            r="54"
-                            fill="none"
-                            :stroke="seg.color"
-                            stroke-width="16"
-                            :stroke-dasharray="`${seg.dash} ${circumference - seg.dash}`"
-                            :stroke-dashoffset="seg.offset"
-                            transform="rotate(-90 65 65)"
-                        />
-                    </svg>
-                    <div class="donut-legend">
-                        <div class="donut-legend-item">
-                            <span
-                                class="donut-legend-dot"
-                                style="background: var(--teal-500)"
-                            ></span
-                            >Verified ({{ verifiedDocsCount }})
-                        </div>
-                        <div class="donut-legend-item">
-                            <span
-                                class="donut-legend-dot"
-                                style="background: #f59e0b"
-                            ></span
-                            >Pending ({{ pendingDocsCount }})
-                        </div>
-                        <div class="donut-legend-item">
-                            <span
-                                class="donut-legend-dot"
-                                style="background: #ef4444"
-                            ></span
-                            >Rejected ({{ rejectedDocsCount }})
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Documents -->
-        <div class="card" style="padding: 1.4rem 1.5rem">
-            <p class="section-label" style="margin-bottom: 1rem">
-                My Documents
-            </p>
-            <div v-if="documents.length === 0" class="empty-state">
-                <svg
-                    class="icon-lg"
-                    viewBox="0 0 24 24"
+        <!-- Store Health — compact summary of the same readiness/compliance
+             signal the old two-card section showed; per-document detail
+             (type, date, status) lives on Account → Compliance instead of
+             being duplicated here. -->
+        <div class="sd-store-health">
+            <svg class="sd-health-ring" width="72" height="72" viewBox="0 0 72 72">
+                <circle cx="36" cy="36" r="30" fill="none" style="stroke: var(--sd-hairline)" stroke-width="8" />
+                <circle
+                    cx="36"
+                    cy="36"
+                    r="30"
                     fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                >
-                    <path
-                        d="M6 2.5h8l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-17a1 1 0 0 1 1-1z"
-                    />
-                </svg>
-                <p>No documents on file.</p>
-                <p class="empty-hint">
-                    Documents you submitted during registration will appear
-                    here.
+                    style="stroke: var(--sd-accent)"
+                    stroke-width="8"
+                    stroke-linecap="round"
+                    :stroke-dasharray="`${(storeHealthPct / 100) * 188.5} 188.5`"
+                    transform="rotate(-90 36 36)"
+                />
+                <text x="36" y="41" text-anchor="middle" class="sd-health-pct">{{ storeHealthPct }}%</text>
+            </svg>
+            <div class="sd-health-copy">
+                <p class="sd-health-label">Store Health</p>
+                <p class="sd-health-title">
+                    {{
+                        storeHealthPct === 100
+                            ? 'All set — your store is in good standing.'
+                            : 'Almost there — finish these steps to keep your store in good standing.'
+                    }}
                 </p>
-            </div>
-            <div v-else class="doc-list">
-                <div v-for="doc in documents" :key="doc.id" class="doc-row">
-                    <div class="doc-info">
-                        <div class="avatar">
-                            {{
-                                docTypeLabel(doc.doc_type)
-                                    .slice(0, 2)
-                                    .toUpperCase()
-                            }}
-                        </div>
-                        <div>
-                            <p class="doc-type">
-                                {{ docTypeLabel(doc.doc_type) }}
-                            </p>
-                            <p class="doc-date">
-                                Submitted {{ formatDate(doc.created_at) }}
-                            </p>
-                        </div>
-                    </div>
-                    <span class="badge" :class="statusBadgeClass(doc.status)">{{
-                        doc.status
-                    }}</span>
+                <div class="sd-health-checks">
+                    <span class="sd-health-check" :class="hasProfileInfo ? 'done' : 'todo'">
+                        <svg class="icon-xs" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 10l4 4 8-8" /></svg>
+                        Personal information
+                    </span>
+                    <span class="sd-health-check" :class="hasAddress ? 'done' : 'todo'">
+                        <svg class="icon-xs" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 10l4 4 8-8" /></svg>
+                        Store address
+                    </span>
+                    <span class="sd-health-check" :class="hasBusinessInfo ? 'done' : 'todo'">
+                        <svg class="icon-xs" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 10l4 4 8-8" /></svg>
+                        Business details
+                    </span>
+                    <span
+                        class="sd-health-check"
+                        :class="verifiedDocsCount === totalDocsCount && totalDocsCount > 0 ? 'done' : 'todo'"
+                    >
+                        <svg class="icon-xs" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 10l4 4 8-8" /></svg>
+                        Compliance documents
+                    </span>
                 </div>
             </div>
-        </div>
+            <div class="sd-health-docs">
+                <span><strong>{{ verifiedDocsCount }}</strong> verified</span>
+                <span><strong>{{ pendingDocsCount }}</strong> pending</span>
+                <span><strong>{{ rejectedDocsCount }}</strong> rejected</span>
+            </div>
         </div>
     </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useOrders } from '../composables/useOrders';
 import { useSeller } from '../composables/useSeller';
 import { useSellerProducts } from '../composables/useSellerProducts';
@@ -806,10 +603,7 @@ const {
     pendingDocsCount,
     totalDocsCount,
     refreshAll,
-    formatDate,
     formatDateTime,
-    docTypeLabel,
-    statusBadgeClass,
 } = useSeller();
 
 const {
@@ -825,9 +619,33 @@ const {
     stockStatusOf,
 } = useSellerProducts();
 
+// Sequenced, not Promise.all — the local dev server (php artisan serve)
+// handles one request at a time, so firing these together doesn't load
+// them any faster, it just means whichever one the server gets to last
+// has to sit waiting. Awaiting them one at a time keeps each request's
+// own execution short once it actually starts.
+onMounted(async () => {
+    await loadOrders();
+    await loadProducts();
+});
+
+// Orders are created buyer-side straight in Supabase (not through this
+// Laravel API — see useOrders.js's own header comment), so a brand new
+// order placed while a seller is just sitting on the dashboard would
+// otherwise never show up until they navigate away and back. Poll on
+// the same cadence as the orders cache's own TTL (ORDERS_CACHE_TTL_MS
+// in useOrders.js) so each tick lands right as the cache goes stale —
+// a real fetch, not a wasted one — same 30s rhythm the notification
+// bell and message threads already poll at.
+const ORDERS_POLL_MS = 30 * 1000;
+let ordersPollTimer = null;
+
 onMounted(() => {
-    loadOrders();
-    loadProducts();
+    ordersPollTimer = setInterval(() => loadOrders(), ORDERS_POLL_MS);
+});
+
+onBeforeUnmount(() => {
+    clearInterval(ordersPollTimer);
 });
 
 const isRefreshing = ref(false);
@@ -836,7 +654,9 @@ async function refresh() {
     isRefreshing.value = true;
 
     try {
-        await Promise.all([refreshAll(), loadOrders(), loadProducts()]);
+        await refreshAll();
+        await loadOrders();
+        await loadProducts();
     } finally {
         isRefreshing.value = false;
     }
@@ -959,13 +779,15 @@ const fulfillmentRateLabel = computed(() => {
     return settled === 0 ? '—' : `${Math.round((delivered / settled) * 100)}% fulfilled`;
 });
 
-// ---- Best-Selling Products (units sold across every non-cancelled
-// order, from the same order data the Orders page loads) ----
+// ---- Best-Selling Products (units sold across every order that
+// actually resulted in a sale, from the same order data the Orders
+// page loads) — Cancelled AND Rejected both excluded: a rejected order
+// was never fulfilled either, so its items were never actually sold. ----
 const bestSellers = computed(() => {
     const tally = new Map();
 
     for (const order of orders.value) {
-        if (order.status === 'Cancelled' || !order.items?.length) {
+        if (order.status === 'Cancelled' || order.status === 'Rejected' || !order.items?.length) {
             continue;
         }
 
@@ -1066,6 +888,71 @@ return null;
     return pts.reduce((max, p) => (p.total > max.total ? p : max), pts[0]);
 });
 
+// ---- KPI sparklines (last 7 days, real per-day data — same window as
+// the sales trend chart above, just three more angles on it) ----
+function lastNDays(n) {
+    const days = [];
+    const now = new Date();
+
+    for (let i = n - 1; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        d.setHours(0, 0, 0, 0);
+        days.push(d);
+    }
+
+    return days;
+}
+
+function ordersOnDay(day) {
+    return orders.value.filter((o) => {
+        if (!o.placedAt) {
+            return false;
+        }
+
+        const placed = new Date(o.placedAt);
+
+        return (
+            placed.getFullYear() === day.getFullYear() &&
+            placed.getMonth() === day.getMonth() &&
+            placed.getDate() === day.getDate()
+        );
+    });
+}
+
+// SVG `points` string for a 72×28 sparkline — normalized to the series'
+// own min/max so a flat week still shows a visible (if flat) line.
+function sparklinePoints(values) {
+    const width = 72;
+    const height = 28;
+    const max = Math.max(...values, 0);
+    const min = Math.min(...values, 0);
+    const range = max - min || 1;
+    const n = values.length;
+
+    return values
+        .map((v, i) => {
+            const x = n > 1 ? (i / (n - 1)) * width : 0;
+            const y = height - ((v - min) / range) * height;
+
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(' ');
+}
+
+const revenueTrendValues = computed(() =>
+    lastNDays(7).map((d) => sumTotals(ordersOnDay(d).filter((o) => o.paymentStatus === 'Paid'))),
+);
+const orderCountTrendValues = computed(() => lastNDays(7).map((d) => ordersOnDay(d).length));
+const deliveredTrendValues = computed(() =>
+    lastNDays(7).map((d) => ordersOnDay(d).filter((o) => o.status === 'Delivered').length),
+);
+
+const salesSparkline = computed(() => sparklinePoints(salesTrendDays.value.map((d) => d.total)));
+const revenueSparkline = computed(() => sparklinePoints(revenueTrendValues.value));
+const ordersSparkline = computed(() => sparklinePoints(orderCountTrendValues.value));
+const deliveredSparkline = computed(() => sparklinePoints(deliveredTrendValues.value));
+
 // ---- Order Breakdown donut (real order status counts) ----
 // The r=15.9 circle trick: circumference = 2π×15.9 ≈ 99.9 ≈ 100, so a
 // percentage value can be used directly as the stroke-dasharray length
@@ -1099,9 +986,9 @@ const orderDonutSegments = computed(() => {
     const total = orderBreakdownTotal.value || 1;
     const counts = orderStatusCounts.value;
     const segments = [
-        { key: 'delivered', label: 'Delivered', color: '#1b9ba8', count: counts.delivered },
-        { key: 'inTransit', label: 'In Transit', color: '#2c5aa0', count: counts.inTransit },
-        { key: 'processing', label: 'Processing', color: '#f87171', count: counts.processing },
+        { key: 'delivered', label: 'Delivered', color: '#14b8a6', count: counts.delivered },
+        { key: 'inTransit', label: 'In Transit', color: '#6fa3e0', count: counts.inTransit },
+        { key: 'processing', label: 'Processing', color: '#fbbf7d', count: counts.processing },
     ];
 
     let offsetAcc = 0;
@@ -1135,12 +1022,58 @@ return order.items[0].name;
     return `${order.items[0].name} +${order.items.length - 1} more`;
 }
 
-// Local, non-destructive view of the real activity log so "Clear Activity
-// Log" only clears what's on screen — it never mutates the underlying
+function customerInitials(name) {
+    if (!name) {
+        return '?';
+    }
+
+    const parts = name.trim().split(/\s+/);
+
+    return parts.length === 1
+        ? parts[0].slice(0, 2).toUpperCase()
+        : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// Real order-creation events (orders.*.placedAt, see the comment near
+// ordersPlacedBetween above) merged into the same timeline as the
+// account/compliance activity log — both are genuine timestamped events,
+// just from two different sources. No status-change timestamp exists for
+// orders server-side, so this only ever claims "received", never a
+// fabricated "marked Delivered at such-and-such time".
+const orderActivityEvents = computed(() =>
+    [...orders.value]
+        .filter((o) => o.placedAt)
+        .sort((a, b) => new Date(b.placedAt) - new Date(a.placedAt))
+        .slice(0, 5)
+        .map((o) => ({
+            id: `order-${o.id}`,
+            type: 'order',
+            text: `New order received — ${o.id}`,
+            time: o.placedAt,
+        })),
+);
+
+const accountActivityEvents = computed(() =>
+    activityLog.value.map((item) => ({
+        id: `account-${item.id}`,
+        type: 'account',
+        raw: item,
+        time: item.created_at,
+    })),
+);
+
+const mergedActivityLog = computed(() =>
+    [...orderActivityEvents.value, ...accountActivityEvents.value]
+        .sort((a, b) => new Date(b.time) - new Date(a.time))
+        .slice(0, 4),
+);
+
+// Local, non-destructive view of the merged feed so "Clear Activity Log"
+// only clears what's on screen — it never mutates the underlying
 // composable state or deletes anything server-side.
 const visibleActivityLog = ref([]);
 watch(
-    activityLog,
+    mergedActivityLog,
     (val) => {
         visibleActivityLog.value = [...val];
     },
@@ -1173,26 +1106,19 @@ const rejectedDocsCount = computed(
     () => documents.value.filter((d) => d.status === 'rejected').length,
 );
 
-const circumference = 2 * Math.PI * 54;
-
-const donutSegments = computed(() => {
-    const total = totalDocsCount.value || 1;
-    const parts = [
-        { value: verifiedDocsCount.value, color: 'var(--teal-500, #14b8a6)' },
-        { value: pendingDocsCount.value, color: '#f59e0b' },
-        { value: rejectedDocsCount.value, color: '#ef4444' },
-    ].filter((p) => p.value > 0);
-
-    let offsetAcc = 0;
-
-    return parts.map((p) => {
-        const dash = (p.value / total) * circumference;
-        const seg = { color: p.color, dash, offset: -offsetAcc };
-        offsetAcc += dash;
-
-        return seg;
-    });
-});
+// ---- Store Health (compact readiness summary for the dashboard band —
+// same four checks the old Store Readiness checklist showed) ----
+const storeHealthChecks = computed(() => [
+    hasProfileInfo.value,
+    hasAddress.value,
+    hasBusinessInfo.value,
+    verifiedDocsCount.value === totalDocsCount.value && totalDocsCount.value > 0,
+]);
+const storeHealthPct = computed(() =>
+    Math.round(
+        (storeHealthChecks.value.filter(Boolean).length / storeHealthChecks.value.length) * 100,
+    ),
+);
 </script>
 
 <style scoped>
@@ -1228,14 +1154,120 @@ const donutSegments = computed(() => {
     --sd-radius: 0.6rem;
     --sd-radius-lg: 0.85rem;
 
-    /* existing palette neutrals, named for reuse */
-    --sd-hairline: #e2e8f0;
-    --sd-divider: #f1f5f9;
+    /* Dark surfaces + neutrals — the whole page (not just the sidebar)
+       now sits on a near-black shell (see SellerLayout.vue's
+       .theme-dark), so every card here needs its own dark surface
+       instead of the plain-white .card default. */
+    --sd-surface: #161b17;
+    --sd-surface-2: #1d231e;
+    --sd-hairline: rgba(255, 255, 255, 0.08);
+    --sd-divider: rgba(255, 255, 255, 0.05);
 
-    --sd-shadow-rest: 0 1px 2px rgba(15, 23, 42, 0.04);
-    --sd-shadow-hover: 0 10px 24px -10px rgba(15, 23, 42, 0.12);
+    --sd-shadow-rest: 0 1px 2px rgba(0, 0, 0, 0.25);
+    --sd-shadow-hover: 0 10px 24px -10px rgba(0, 0, 0, 0.5);
 
     --sd-ease: cubic-bezier(0, 0, 0.2, 1);
+
+    /* BuyTheWay near-black / teal system (matches the redesigned
+       sidebar in SellerLayout.vue) — scoped to this page only.
+       Brighter than the light-mode originals since these now sit on
+       dark surfaces, not white ones. */
+    --sd-accent: #14b8a6;
+    --sd-accent-strong: #5eead4;
+    --sd-accent-soft: rgba(15, 118, 110, 0.22);
+    --sd-accent-2: #6fa3e0;
+    --sd-good: #5eead4;
+    --sd-good-soft: rgba(20, 184, 166, 0.22);
+    --sd-warn: #fbbf7d;
+    --sd-warn-soft: rgba(181, 121, 27, 0.22);
+    --sd-bad: #f7a49f;
+    --sd-bad-soft: rgba(200, 67, 61, 0.22);
+    --sd-ink-900: #f2f4f1;
+    --sd-ink-500: #97a099;
+    --sd-ink-400: #6d766e;
+
+    /* Base text color for everything in this page. .seller-app itself
+       sets a dark, light-mode default (color: #1e293b) that every
+       unstyled span/strong here would otherwise silently inherit —
+       invisible against the new dark cards. */
+    color: var(--sd-ink-900);
+}
+
+.seller-dashboard .card,
+.seller-dashboard .metric-card {
+    background: var(--sd-surface);
+    border-color: var(--sd-hairline);
+}
+.seller-dashboard .chart-title,
+.seller-dashboard .donut-center-value,
+.seller-dashboard .panel-head h3,
+.seller-dashboard .activity-text {
+    color: var(--sd-ink-900);
+}
+.seller-dashboard .chart-sub,
+.seller-dashboard .sales-table thead th,
+.seller-dashboard .activity-time {
+    color: var(--sd-ink-500);
+}
+.seller-dashboard .sales-table thead th {
+    background: var(--sd-surface-2);
+}
+.seller-dashboard .sales-table .customer {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    color: var(--sd-ink-900);
+}
+.seller-dashboard .sales-table .amount {
+    color: var(--sd-ink-900);
+}
+.seller-dashboard .sales-table .item-name {
+    color: var(--sd-ink-500);
+}
+.seller-dashboard .sales-table tbody td {
+    border-top-color: var(--sd-hairline);
+}
+.seller-dashboard .sales-table tbody tr:hover {
+    background: var(--sd-surface-2);
+}
+.seller-dashboard .sd-customer-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 50%;
+    background: var(--sd-surface-2);
+    color: var(--sd-accent-strong);
+    font-size: 0.62rem;
+    font-weight: 800;
+    flex-shrink: 0;
+}
+.seller-dashboard .sd-live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid rgba(15, 118, 110, 0.35);
+    background: rgba(15, 118, 110, 0.14);
+    color: var(--sd-accent-strong);
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+.seller-dashboard .panel-link {
+    color: var(--sd-accent-strong);
+}
+.seller-dashboard .chart-toggle {
+    background: var(--sd-surface-2);
+}
+.seller-dashboard .chart-toggle button {
+    color: var(--sd-ink-500);
+}
+.seller-dashboard .chart-toggle button.active {
+    background: #f2f4f1;
+    color: #10140f;
+    box-shadow: none;
 }
 
 /* Tabular figures wherever a number is shown as data, so columns
@@ -1258,103 +1290,139 @@ const donutSegments = computed(() => {
 }
 
 /* ============================================================
-   1 · Quick Actions Launchpad — slim command bar
+   1 · KPI cards — label + delta ▸ value ▸ context hierarchy
    ============================================================ */
-.seller-dashboard .launchpad {
-    padding: var(--sd-space-3) var(--sd-space-5);
-    margin-bottom: var(--sd-space-5);
-    border-radius: var(--sd-radius);
-}
-.seller-dashboard .launchpad-label {
-    font-size: 0.7rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-}
-.seller-dashboard .launchpad-icon {
-    padding: 0.4rem;
-}
-.seller-dashboard .launchpad-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--sd-space-2);
-}
-.seller-dashboard .launchpad-actions > button {
-    transition:
-        transform 0.15s var(--sd-ease),
-        box-shadow 0.15s var(--sd-ease),
-        background 0.15s var(--sd-ease);
-}
-
-/* ============================================================
-   2 · Metric cards — label ▸ value ▸ context hierarchy
-   ============================================================ */
-.seller-dashboard .metric-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+.seller-dashboard .kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--sd-space-3);
-    margin-bottom: var(--sd-space-5);
+    margin-bottom: var(--sd-space-3);
 }
 .seller-dashboard .metric-card {
     padding: var(--sd-space-4);
-    border-radius: var(--sd-radius);
+    border-radius: var(--sd-radius-lg);
     box-shadow: var(--sd-shadow-rest);
     transition:
         transform 0.16s var(--sd-ease),
         box-shadow 0.16s var(--sd-ease);
 }
 .seller-dashboard .metric-card:hover {
-    transform: translateY(-1px);
+    transform: translateY(-2px);
     box-shadow: var(--sd-shadow-hover);
 }
 .seller-dashboard .metric-card-top {
     align-items: center;
+    justify-content: space-between;
     margin-bottom: var(--sd-space-2);
 }
-.seller-dashboard .metric-icon {
-    padding: 0.4rem;
-    border-radius: 0.5rem;
-}
-.seller-dashboard .metric-icon svg {
-    width: 16px;
-    height: 16px;
-}
 .seller-dashboard .metric-chip {
-    font-size: 0.58rem;
+    font-size: 0.62rem;
     letter-spacing: 0.03em;
-    padding: 0.12rem 0.42rem;
+    padding: 0.14rem 0.5rem;
     border-radius: 999px;
+}
+.seller-dashboard .metric-chip.up {
+    color: var(--sd-good);
+    background: var(--sd-good-soft);
+}
+.seller-dashboard .metric-chip.down {
+    color: var(--sd-bad);
+    background: var(--sd-bad-soft);
+}
+.seller-dashboard .metric-chip.flat {
+    color: var(--sd-accent-2);
+    background: rgba(111, 163, 224, 0.18);
 }
 .seller-dashboard .metric-label {
     font-size: 0.68rem;
     letter-spacing: 0.06em;
-    margin-bottom: 0.15rem;
+    text-transform: uppercase;
+    color: var(--sd-ink-500);
+    font-weight: 700;
+    margin: 0;
 }
 .seller-dashboard .metric-value {
-    font-size: 1.45rem;
+    font-size: 1.55rem;
     font-weight: 800;
     line-height: 1.15;
     letter-spacing: -0.01em;
+    color: var(--sd-ink-900);
+    font-variant-numeric: tabular-nums;
+}
+.seller-dashboard .kpi-body {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--sd-space-3);
+}
+.seller-dashboard .kpi-spark {
+    flex-shrink: 0;
 }
 .seller-dashboard .metric-sub {
-    margin-top: 0.25rem;
-    font-size: 0.72rem;
+    margin-top: 0.35rem;
+    font-size: 0.74rem;
     line-height: 1.4;
-    color: #94a3b8;
+    color: var(--sd-ink-400);
 }
 
 @media (max-width: 1280px) {
-    .seller-dashboard .metric-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-}
-@media (max-width: 720px) {
-    .seller-dashboard .metric-grid {
+    .seller-dashboard .kpi-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 @media (max-width: 460px) {
-    .seller-dashboard .metric-grid {
+    .seller-dashboard .kpi-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* ---- attention strip (pending / low stock / active listings) ---- */
+.seller-dashboard .strip {
+    display: flex;
+    gap: var(--sd-space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--sd-space-5);
+}
+.seller-dashboard .strip-chip {
+    flex: 1;
+    min-width: 13rem;
+    display: flex;
+    align-items: center;
+    gap: var(--sd-space-3);
+    padding: 0.8rem 1rem;
+    background: var(--sd-surface);
+    border: 1px solid var(--sd-divider);
+    border-radius: var(--sd-radius);
+}
+.seller-dashboard .strip-ic {
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 0.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.seller-dashboard .strip-ic.warn {
+    background: var(--sd-warn-soft);
+    color: var(--sd-warn);
+}
+.seller-dashboard .strip-ic.bad {
+    background: var(--sd-bad-soft);
+    color: var(--sd-bad);
+}
+.seller-dashboard .strip-ic.good {
+    background: var(--sd-good-soft);
+    color: var(--sd-good);
+}
+.seller-dashboard .strip-text .t1 {
+    font-size: 0.68rem;
+    color: var(--sd-ink-500);
+    font-weight: 600;
+}
+.seller-dashboard .strip-text .t2 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--sd-ink-900);
 }
 
 /* ============================================================
@@ -1500,8 +1568,8 @@ const donutSegments = computed(() => {
     align-items: center;
     justify-content: center;
     border-radius: 0.45rem;
-    background: #f1f5f9;
-    color: #475569;
+    background: var(--sd-surface-2);
+    color: var(--sd-ink-500);
     font-size: 0.72rem;
     font-weight: 800;
 }
@@ -1518,7 +1586,7 @@ const donutSegments = computed(() => {
 .seller-dashboard .rank-name {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--sd-ink-900);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1527,25 +1595,25 @@ const donutSegments = computed(() => {
     flex-shrink: 0;
     font-size: 0.76rem;
     font-weight: 700;
-    color: #1b9ba8;
+    color: var(--sd-accent-strong);
 }
 .seller-dashboard .rank-bar {
     margin: 0.4rem 0 0.3rem;
     height: 6px;
     border-radius: 999px;
-    background: #eef2f6;
+    background: var(--sd-surface-2);
     overflow: hidden;
 }
 .seller-dashboard .rank-bar > span {
     display: block;
     height: 100%;
     border-radius: 999px;
-    background: #1b9ba8;
+    background: linear-gradient(90deg, var(--sd-accent), var(--sd-accent-2));
     transition: width 0.4s var(--sd-ease);
 }
 .seller-dashboard .rank-sub {
     font-size: 0.72rem;
-    color: #94a3b8;
+    color: var(--sd-ink-500);
 }
 
 /* Low-Stock Products */
@@ -1562,14 +1630,14 @@ const donutSegments = computed(() => {
     justify-content: space-between;
     gap: var(--sd-space-3);
     padding: 0.7rem 0;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--sd-hairline);
 }
 .seller-dashboard .stock-item:last-child {
     border-bottom: 0;
 }
 .seller-dashboard .stock-name {
     font-size: 0.85rem;
-    color: #1e293b;
+    color: var(--sd-ink-900);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1584,36 +1652,116 @@ const donutSegments = computed(() => {
     border-radius: 999px;
 }
 .seller-dashboard .stock-qty.is-low {
-    background: #fef3c7;
-    color: #b45309;
+    background: var(--sd-warn-soft);
+    color: var(--sd-warn);
 }
 .seller-dashboard .stock-qty.is-out {
-    background: #fee2e2;
-    color: #b91c1c;
+    background: var(--sd-bad-soft);
+    color: var(--sd-bad);
+}
+
+/* Recent Sales Records — order id + Live Store Activity icon badge */
+.seller-dashboard .sales-table .order-id {
+    color: var(--sd-accent-2);
+}
+.seller-dashboard .activity-icon-badge.teal {
+    background: var(--sd-accent-soft);
+    color: var(--sd-accent-strong);
+}
+.seller-dashboard .activity-icon-badge.blue {
+    background: rgba(111, 163, 224, 0.18);
+    color: var(--sd-accent-2);
 }
 
 /* ============================================================
-   6 · Account & Compliance — demoted below the operational view
-   (via whitespace + a divider + flattened elevation; no recolour)
+   6 · Store Health — one quiet band, not a whole section, so
+   compliance status is visible without competing with today's
+   operational data above it.
    ============================================================ */
-.seller-dashboard .sd-compliance-zone {
+.seller-dashboard .sd-store-health {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: var(--sd-space-5);
+    align-items: center;
     margin-top: var(--sd-space-6);
-    padding-top: var(--sd-space-5);
-    border-top: 1px solid var(--sd-hairline);
+    padding: var(--sd-space-4) var(--sd-space-5);
+    background: var(--sd-divider);
+    border: 1px solid var(--sd-hairline);
+    border-radius: var(--sd-radius-lg);
 }
-.seller-dashboard .sd-compliance-zone .section-label {
-    font-size: 0.78rem;
-    letter-spacing: 0.06em;
+.seller-dashboard .sd-health-pct {
+    font-size: 0.95rem;
+    font-weight: 800;
+    fill: var(--sd-ink-900);
+}
+.seller-dashboard .sd-health-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--sd-ink-500);
     text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0;
 }
-.seller-dashboard .sd-compliance-zone .card {
-    box-shadow: none;
+.seller-dashboard .sd-health-title {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--sd-ink-900);
+    margin: 0.2rem 0 0;
 }
-.seller-dashboard .sd-compliance-zone .checklist-item {
-    padding: 0.55rem 0.7rem;
+.seller-dashboard .sd-health-checks {
+    display: flex;
+    gap: var(--sd-space-4);
+    flex-wrap: wrap;
+    margin-top: 0.55rem;
 }
-.seller-dashboard .sd-compliance-zone .checklist-title {
-    font-size: 0.82rem;
+.seller-dashboard .sd-health-check {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.76rem;
+    color: var(--sd-ink-500);
+}
+.seller-dashboard .sd-health-check .icon-xs {
+    width: 1.05rem;
+    height: 1.05rem;
+    border-radius: 50%;
+    padding: 0.15rem;
+    flex-shrink: 0;
+}
+.seller-dashboard .sd-health-check.done {
+    color: var(--sd-ink-900);
+}
+.seller-dashboard .sd-health-check.done .icon-xs {
+    background: var(--sd-accent-soft);
+    color: var(--sd-accent-strong);
+}
+.seller-dashboard .sd-health-check.todo .icon-xs {
+    background: var(--sd-warn-soft);
+    color: var(--sd-warn);
+}
+.seller-dashboard .sd-health-docs {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.76rem;
+    color: var(--sd-ink-500);
+    white-space: nowrap;
+}
+.seller-dashboard .sd-health-docs strong {
+    color: var(--sd-ink-900);
+    font-weight: 800;
+}
+
+@media (max-width: 720px) {
+    .seller-dashboard .sd-store-health {
+        grid-template-columns: 1fr;
+        text-align: center;
+    }
+    .seller-dashboard .sd-health-docs {
+        flex-direction: row;
+        justify-content: center;
+        gap: 1rem;
+    }
 }
 
 /* ---- reduced motion ---- */

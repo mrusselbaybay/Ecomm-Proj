@@ -1,26 +1,32 @@
 // resources/js/seller/composables/useMessaging.js
 //
 // ---------------------------------------------------------------
-// STATUS: UI-only. No backend exists for this yet — no `conversations`
-// or `messages` table, no Laravel routes/controllers. Per the seller's
-// explicit choice, this composable is written against the DOCUMENTED
-// API CONTRACT below and calls it for real, exactly the way
-// useOrders.js/useFeedback.js call their (real, already-built)
-// endpoints. Every call below will currently 404, and every function
-// here treats a 404 on one of these specific routes as "not deployed
-// yet" (see `backendMissing`) rather than a generic error — see
-// apiFetch(). The moment a Laravel implementation matching this
-// contract exists, this file and Messages.vue need zero changes.
+// STATUS: backed by a real Laravel implementation —
+// App\Http\Controllers\Seller\MessageController + the shared
+// conversations/messages tables (see routes/seller.php's `messages`
+// group). This composable was originally written UI-only, against just
+// the documented contract below, back when no backend existed yet; the
+// controller was built later to match this contract exactly, so this
+// file and Messages.vue needed zero changes when it landed. The 404
+// -> `backendMissing` handling in apiFetch() is now purely a defensive
+// fallback (e.g. a misconfigured deploy), not the expected path.
 //
 // Auth: same pattern as every other seller composable — the current
 // Supabase access token is forwarded as `Authorization: Bearer <token>`
-// (see useSeller.js's getSupabase()). The backend is expected to scope
-// every query to the authenticated seller's own conversations (a
-// seller must never reach another seller's conversation by id).
+// (see useSeller.js's getSupabase()). Every query is scoped server-side
+// to the authenticated seller's own conversations (see
+// MessageController::findForSeller()) — another seller's conversation
+// resolves as a plain 404, never a 403 that would leak its existence.
 //
 // ---------------------------------------------------------------
-// API CONTRACT (documentation only — not implemented)
+// API CONTRACT (implemented — see MessageController)
 // ---------------------------------------------------------------
+//
+// GET /api/seller/messages/export
+//   Same search/status filters as /conversations, no pagination.
+//   -> CSV file, one row per conversation (buyer, order #, status,
+//      unread count, last message + sender, last activity) — a
+//      conversation-list export, not a full per-message transcript.
 //
 // GET /api/seller/messages/conversations
 //   Query: search?, status? (all|unread|needs_response|resolved|archived),
@@ -42,7 +48,10 @@
 // GET /api/seller/messages/conversations/{id}
 //   -> { data: ConversationDetail }
 //   ConversationDetail = Conversation & {
-//     order: { id, orderNumber, status, total, deliveryStatus } | null,
+//     order: { id, orderNumber, status, total, deliveryStatus, timeline } | null,
+//     // timeline: real order_status_history rows, oldest -> newest:
+//     //   [{ status, note, at }] — same source Deliveries/Courier Handover
+//     //   already read from, not a fabricated "live tracking" feed.
 //     product: { id, name, variant, image, quantity } | null,
 //   }
 //
@@ -138,6 +147,9 @@ const messagesError = ref('');
 const isSending = ref(false);
 const sendError = ref('');
 
+const isExporting = ref(false);
+const exportError = ref('');
+
 const newIncomingCount = ref(0);
 let newestKnownMessageId = null;
 
@@ -175,6 +187,7 @@ async function apiFetch(path, options = {}) {
     if (!response.ok) {
         const err = new Error(body.message || 'Request failed.');
         err.status = response.status;
+
         throw err;
     }
 
@@ -184,43 +197,121 @@ async function apiFetch(path, options = {}) {
 function buildQuery() {
     const params = new URLSearchParams();
     const f = filters.value;
-    if (f.search) params.set('search', f.search);
-    if (f.status && f.status !== 'all') params.set('status', f.status);
-    if (f.page) params.set('page', f.page);
+
+    if (f.search) {
+params.set('search', f.search);
+}
+
+    if (f.status && f.status !== 'all') {
+params.set('status', f.status);
+}
+
+    if (f.page) {
+params.set('page', f.page);
+}
+
     return params.toString();
 }
 
+// Same staleness problem as openConversation() above: switching filter
+// tabs (or typing a search term) fires a new request before the previous
+// one necessarily finished, and without a guard the slower response could
+// win the race and overwrite the list with results for a filter the
+// seller isn't even looking at anymore. Aborting the previous request
+// cancels it outright instead of racing it.
+let loadConversationsController = null;
+
 async function loadConversations() {
+    loadConversationsController?.abort();
+    const controller = new AbortController();
+    loadConversationsController = controller;
+
     isLoadingConversations.value = true;
     conversationsError.value = '';
 
     try {
-        const body = await apiFetch(`/messages/conversations?${buildQuery()}`);
+        const body = await apiFetch(`/messages/conversations?${buildQuery()}`, { signal: controller.signal });
         conversations.value = body.data;
         conversationsMeta.value = body.meta;
         backendMissing.value = false;
     } catch (err) {
+        if (err.name === 'AbortError') {
+            return; // superseded by a newer loadConversations() call — not a real error
+        }
+
         console.error('Error loading conversations:', err);
+
         if (err.status === 404) {
             backendMissing.value = true;
         } else {
             conversationsError.value = err?.message || 'Something went wrong while loading your conversations.';
         }
+
         conversations.value = [];
     } finally {
-        isLoadingConversations.value = false;
+        if (loadConversationsController === controller) {
+            isLoadingConversations.value = false;
+        }
+    }
+}
+
+// One row per conversation (buyer, order #, status, last message) —
+// not a full per-message transcript. Same search/status filters
+// currently applied to the list, same blob-download pattern
+// useFeedback.js's exportCsv() already uses.
+async function exportCsv() {
+    isExporting.value = true;
+    exportError.value = '';
+
+    try {
+        const headers = await authHeaders();
+        const response = await fetch(`/api/seller/messages/export?${buildQuery()}`, { headers });
+
+        if (!response.ok) {
+            throw new Error('Export failed.');
+        }
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `messages-export-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        console.error('Error exporting conversations:', err);
+        exportError.value = err?.message || 'Could not export your conversations.';
+    } finally {
+        isExporting.value = false;
     }
 }
 
 function setFilter(patch) {
     Object.assign(filters.value, patch);
+
     if (!('page' in patch)) {
         filters.value.page = 1;
     }
+
     loadConversations();
 }
 
+// Tracks the in-flight open request so a slow one can't clobber a
+// faster one that started later — without this, clicking conversation A
+// then quickly clicking B would leave both fetches racing, and if A's
+// happened to resolve after B's, its stale data would silently overwrite
+// the B conversation the seller is actually looking at. Aborting the
+// previous request (rather than just ignoring its result) also cancels
+// the underlying network call instead of leaving it to complete pointlessly.
+let openRequestController = null;
+
 async function openConversation(id) {
+    openRequestController?.abort();
+    const controller = new AbortController();
+    openRequestController = controller;
+
     activeConversationId.value = id;
     activeConversation.value = null;
     messages.value = [];
@@ -232,8 +323,8 @@ async function openConversation(id) {
 
     try {
         const [detailBody, messagesBody] = await Promise.all([
-            apiFetch(`/messages/conversations/${encodeURIComponent(id)}`),
-            apiFetch(`/messages/conversations/${encodeURIComponent(id)}/messages?limit=${MESSAGES_PAGE_SIZE}`),
+            apiFetch(`/messages/conversations/${encodeURIComponent(id)}`, { signal: controller.signal }),
+            apiFetch(`/messages/conversations/${encodeURIComponent(id)}/messages?limit=${MESSAGES_PAGE_SIZE}`, { signal: controller.signal }),
         ]);
         activeConversation.value = detailBody.data;
         messages.value = messagesBody.data;
@@ -243,19 +334,30 @@ async function openConversation(id) {
         backendMissing.value = false;
         markRead(id);
     } catch (err) {
+        if (err.name === 'AbortError') {
+            return; // superseded by a newer openConversation() call — not a real error
+        }
+
         console.error('Error opening conversation:', err);
+
         if (err.status === 404) {
             backendMissing.value = true;
         } else {
             activeConversationError.value = err?.message || "Couldn't load this conversation.";
         }
     } finally {
-        isLoadingActiveConversation.value = false;
-        isLoadingMessages.value = false;
+        // Only the still-current request gets to clear the loading state —
+        // an aborted/superseded one's finally must not stomp on the newer
+        // request that's still in flight.
+        if (openRequestController === controller) {
+            isLoadingActiveConversation.value = false;
+            isLoadingMessages.value = false;
+        }
     }
 }
 
 function closeActiveConversation() {
+    openRequestController?.abort();
     activeConversationId.value = null;
     activeConversation.value = null;
     messages.value = [];
@@ -274,13 +376,18 @@ function closeActiveConversation() {
 // appended-and-scrolled-to, so the UI can show a "New messages" button
 // rather than yanking their scroll position.
 async function pollNewMessages(isAtBottom) {
-    if (!activeConversationId.value || !newestKnownMessageId) return;
+    if (!activeConversationId.value || !newestKnownMessageId) {
+return;
+}
 
     try {
         const body = await apiFetch(
             `/messages/conversations/${encodeURIComponent(activeConversationId.value)}/messages?after=${encodeURIComponent(newestKnownMessageId)}&limit=${MESSAGES_PAGE_SIZE}`,
         );
-        if (!body.data.length) return;
+
+        if (!body.data.length) {
+return;
+}
 
         messages.value = [...messages.value, ...body.data];
         newestKnownMessageId = body.data.at(-1).id;
@@ -330,7 +437,11 @@ async function markRead(id) {
     try {
         await apiFetch(`/messages/conversations/${encodeURIComponent(id)}/read`, { method: 'PUT' });
         const convo = conversations.value.find((c) => c.id === id);
-        if (convo) convo.unreadCount = 0;
+
+        if (convo) {
+convo.unreadCount = 0;
+}
+
         refreshUnreadCount();
     } catch {
         // Non-critical — a failed read receipt shouldn't block reading
@@ -343,9 +454,18 @@ async function markRead(id) {
 // copy on success, or flipped to 'failed' (with a Retry action) on
 // failure. Prevents duplicate sends by disabling the composer via
 // isSending while one is in flight.
-async function sendMessage(conversationId, body, attachmentIds = []) {
+// A message needs text OR at least one (already-uploaded) attachment,
+// not necessarily both — a photo sent with no caption is a normal chat
+// message. `attachmentPreviews` is optional local display data (name,
+// object-URL, mime) for the staged files, purely so the optimistic
+// bubble can show the real image immediately instead of appearing
+// empty until the server round-trip replaces it.
+async function sendMessage(conversationId, body, attachmentIds = [], attachmentPreviews = []) {
     const text = body.trim();
-    if (!text || isSending.value) return null;
+
+    if ((!text && attachmentIds.length === 0) || isSending.value) {
+return null;
+}
 
     const localId = `local-${Date.now()}`;
     const optimistic = {
@@ -353,7 +473,7 @@ async function sendMessage(conversationId, body, attachmentIds = []) {
         conversationId,
         senderRole: 'seller',
         body: text,
-        attachments: [],
+        attachments: attachmentPreviews,
         status: 'sending',
         createdAt: new Date().toISOString(),
         readAt: null,
@@ -366,17 +486,29 @@ async function sendMessage(conversationId, body, attachmentIds = []) {
     try {
         const res = await apiFetch(`/messages/conversations/${encodeURIComponent(conversationId)}/messages`, {
             method: 'POST',
-            body: JSON.stringify({ body: text, attachment_ids: attachmentIds }),
+            body: JSON.stringify({ body: text || null, attachment_ids: attachmentIds }),
         });
         const idx = messages.value.findIndex((m) => m.id === localId);
-        if (idx !== -1) messages.value[idx] = res.data;
+
+        if (idx !== -1) {
+messages.value[idx] = res.data;
+}
+
         return res.data;
     } catch (err) {
         console.error('Error sending message:', err);
-        if (err.status === 404) backendMissing.value = true;
+
+        if (err.status === 404) {
+backendMissing.value = true;
+}
+
         sendError.value = err?.message || 'Message failed to send.';
         const idx = messages.value.findIndex((m) => m.id === localId);
-        if (idx !== -1) messages.value[idx] = { ...messages.value[idx], status: 'failed' };
+
+        if (idx !== -1) {
+messages.value[idx] = { ...messages.value[idx], status: 'failed' };
+}
+
         return null;
     } finally {
         isSending.value = false;
@@ -385,7 +517,11 @@ async function sendMessage(conversationId, body, attachmentIds = []) {
 
 async function retryMessage(localId) {
     const msg = messages.value.find((m) => m.id === localId);
-    if (!msg) return;
+
+    if (!msg) {
+return;
+}
+
     messages.value = messages.value.filter((m) => m.id !== localId);
     await sendMessage(msg.conversationId, msg.body);
 }
@@ -396,13 +532,17 @@ async function setConversationStatus(id, status) {
             method: 'PUT',
             body: JSON.stringify({ status }),
         });
+
         if (activeConversation.value?.id === id) {
             activeConversation.value = res.data;
         }
+
         loadConversations();
+
         return res.data;
     } catch (err) {
         console.error('Error updating conversation status:', err);
+
         return null;
     }
 }
@@ -413,10 +553,15 @@ async function reportBuyer(id, reason) {
             method: 'POST',
             body: JSON.stringify({ reason }),
         });
+
         return true;
     } catch (err) {
         console.error('Error reporting buyer:', err);
-        if (err.status === 404) backendMissing.value = true;
+
+        if (err.status === 404) {
+backendMissing.value = true;
+}
+
         return false;
     }
 }
@@ -425,15 +570,20 @@ function validateAttachment(file) {
     if (!ALLOWED_ATTACHMENT_TYPES.includes(file.type)) {
         return 'Only PNG, JPG, WEBP, or PDF files are allowed.';
     }
+
     if (file.size > MAX_ATTACHMENT_BYTES) {
         return 'Files must be 10MB or smaller.';
     }
+
     return null;
 }
 
 async function uploadAttachment(file, onProgress) {
     const error = validateAttachment(file);
-    if (error) throw new Error(error);
+
+    if (error) {
+throw new Error(error);
+}
 
     const headers = await authHeaders();
     delete headers['Content-Type']; // browser sets the multipart boundary
@@ -444,15 +594,19 @@ async function uploadAttachment(file, onProgress) {
         Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
 
         xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+            if (e.lengthComputable && onProgress) {
+onProgress(Math.round((e.loaded / e.total) * 100));
+}
         };
         xhr.onload = () => {
             let body = {};
+
             try {
                 body = JSON.parse(xhr.responseText);
             } catch {
                 // non-JSON response (e.g. a plain 404 page) — body stays {}
             }
+
             if (xhr.status >= 200 && xhr.status < 300) {
                 resolve(body.data);
             } else {
@@ -481,7 +635,10 @@ async function refreshUnreadCount() {
 }
 
 function startUnreadPolling() {
-    if (unreadPollTimer) return;
+    if (unreadPollTimer) {
+return;
+}
+
     refreshUnreadCount();
     unreadPollTimer = setInterval(refreshUnreadCount, UNREAD_POLL_MS);
 }
@@ -503,8 +660,11 @@ function getDraft(id) {
 }
 function saveDraft(id, text) {
     try {
-        if (text.trim()) localStorage.setItem(draftKey(id), text);
-        else localStorage.removeItem(draftKey(id));
+        if (text.trim()) {
+localStorage.setItem(draftKey(id), text);
+} else {
+localStorage.removeItem(draftKey(id));
+}
     } catch {
         // best-effort only
     }
@@ -530,6 +690,10 @@ export function useMessaging() {
         filters,
         setFilter,
         loadConversations,
+
+        isExporting,
+        exportError,
+        exportCsv,
 
         activeConversationId,
         activeConversation,

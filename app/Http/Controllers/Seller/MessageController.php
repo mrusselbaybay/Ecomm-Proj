@@ -12,6 +12,8 @@ use App\Models\MessageAttachment;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -54,6 +56,15 @@ class MessageController extends Controller
      * `statusCounts` is computed off the same search-filtered base (minus
      * the status filter) so the tab counts and the list never disagree —
      * the pattern SellerFeedbackController::index() uses.
+     *
+     * All five counts come out of ONE aggregate query (conditional COUNTs)
+     * instead of five separate round-trips, and that same result supplies
+     * the pagination `total` so Eloquent's paginate() doesn't run its own
+     * extra COUNT query re-executing the (possibly ilike-searched) base
+     * query a sixth time. Switching status tabs or typing a search term
+     * both hit this endpoint on every change, so trimming ~6 sequential
+     * DB round-trips down to 2 is what makes that feel instant instead of
+     * sluggish.
      */
     public function conversations(Request $request): JsonResponse
     {
@@ -61,30 +72,51 @@ class MessageController extends Controller
 
         $base = $this->searchScopedQuery($seller->id, $request);
 
+        $counts = (clone $base)->selectRaw(
+            'count(*) as all_count, '.
+            'count(*) filter (where seller_unread_count > 0) as unread_count, '.
+            "count(*) filter (where status = 'open' and last_message_sender_role = 'buyer') as needs_response_count, ".
+            "count(*) filter (where status = 'resolved') as resolved_count, ".
+            "count(*) filter (where status = 'archived') as archived_count",
+        )->first();
+
         $statusCounts = [
-            'all' => (clone $base)->count(),
-            'unread' => (clone $base)->where('seller_unread_count', '>', 0)->count(),
-            'needsResponse' => (clone $base)->where('status', 'open')
-                ->where('last_message_sender_role', 'buyer')->count(),
-            'resolved' => (clone $base)->where('status', 'resolved')->count(),
-            'archived' => (clone $base)->where('status', 'archived')->count(),
+            'all' => (int) $counts->all_count,
+            'unread' => (int) $counts->unread_count,
+            'needsResponse' => (int) $counts->needs_response_count,
+            'resolved' => (int) $counts->resolved_count,
+            'archived' => (int) $counts->archived_count,
         ];
 
-        $query = $this->applyStatusFilter(clone $base, $request->string('status')->toString())
-            ->with(['buyer', 'order', 'product'])
-            ->orderByRaw('last_message_at desc nulls last')
-            ->orderByDesc('created_at');
+        $status = $request->string('status')->toString();
+        $total = match ($status) {
+            'unread' => $statusCounts['unread'],
+            'needs_response' => $statusCounts['needsResponse'],
+            'resolved' => $statusCounts['resolved'],
+            'archived' => $statusCounts['archived'],
+            default => $statusCounts['all'],
+        };
 
         $perPage = min(
             (int) ($request->integer('per_page') ?: self::DEFAULT_PER_PAGE),
             self::MAX_PER_PAGE,
         );
-        $paginated = $query->paginate($perPage)->withQueryString();
+        $page = max((int) ($request->integer('page') ?: 1), 1);
+
+        $rows = $this->applyStatusFilter(clone $base, $status)
+            ->with(['buyer', 'order', 'product'])
+            ->orderByRaw('last_message_at desc nulls last')
+            ->orderByDesc('created_at')
+            ->forPage($page, $perPage)
+            ->get();
+
+        $paginated = new LengthAwarePaginator($rows, $total, $perPage, $page, [
+            'path' => $request->url(),
+            'query' => $request->query(),
+        ]);
 
         return response()->json([
-            'data' => $paginated->getCollection()
-                ->map(fn (Conversation $c) => $this->transformConversation($c))
-                ->all(),
+            'data' => $rows->map(fn (Conversation $c) => $this->transformConversation($c))->all(),
             'meta' => [
                 'currentPage' => $paginated->currentPage(),
                 'lastPage' => $paginated->lastPage(),
@@ -96,11 +128,60 @@ class MessageController extends Controller
     }
 
     /**
+     * GET /api/seller/messages/export
+     *
+     * Same search/status filters as conversations() (minus pagination) —
+     * one row per conversation, not per message, matching the "Export
+     * Messages" label on the button that calls this (a full transcript
+     * export would be a different, heavier feature this doesn't claim
+     * to be). Same CSV pattern as SellerFeedbackController::export().
+     */
+    public function export(Request $request): Response
+    {
+        $seller = $request->user();
+
+        $conversations = $this->applyStatusFilter(
+            $this->searchScopedQuery($seller->id, $request),
+            $request->string('status')->toString(),
+        )
+            ->with(['buyer', 'order'])
+            ->orderByRaw('last_message_at desc nulls last')
+            ->orderByDesc('created_at')
+            ->get();
+
+        $handle = fopen('php://temp', 'w+');
+        fputcsv($handle, ['Buyer', 'Order #', 'Status', 'Unread', 'Last Message', 'Last Message From', 'Last Activity'], ',', '"', '\\');
+
+        foreach ($conversations as $c) {
+            fputcsv($handle, [
+                $c->buyer?->full_name ?: 'Buyer',
+                $c->order?->order_number,
+                ucfirst($c->status),
+                $c->seller_unread_count,
+                $c->last_message_preview,
+                $c->last_message_sender_role ? ucfirst($c->last_message_sender_role) : '',
+                optional($c->last_message_at ?? $c->updated_at)->format('Y-m-d H:i'),
+            ], ',', '"', '\\');
+        }
+
+        rewind($handle);
+        $csv = stream_get_contents($handle);
+        fclose($handle);
+
+        $filename = 'messages-export-'.now()->format('Y-m-d').'.csv';
+
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ]);
+    }
+
+    /**
      * GET /api/seller/messages/conversations/{id}
      */
     public function showConversation(Request $request, string $id): JsonResponse
     {
-        $conversation = $this->findForSeller($request, $id, ['buyer', 'order', 'product']);
+        $conversation = $this->findForSeller($request, $id, ['buyer', 'order.statusHistory', 'product']);
 
         if (! $conversation) {
             return response()->json(['message' => 'Conversation not found.'], 404);
@@ -190,7 +271,7 @@ class MessageController extends Controller
             return response()->json(['message' => 'This conversation is archived.'], 422);
         }
 
-        $body = trim($request->validated('body'));
+        $body = trim($request->validated('body') ?? '');
         $attachmentIds = $request->validated('attachment_ids') ?? [];
 
         $message = DB::transaction(function () use ($conversation, $seller, $body, $attachmentIds) {
@@ -472,6 +553,13 @@ class MessageController extends Controller
             'deliveryStatus' => in_array($c->order->status, ['In Transit', 'Delivered'], true)
                 ? $c->order->status
                 : null,
+            // Real order_status_history rows (same source Deliveries/Courier
+            // Handover already use) — not a fabricated "Live Tracking" feed.
+            'timeline' => $c->order->statusHistory->map(fn ($h) => [
+                'status' => $h->status,
+                'note' => $h->note,
+                'at' => optional($h->created_at)->toIso8601String(),
+            ])->all(),
         ] : null;
 
         $base['product'] = $c->product ? [

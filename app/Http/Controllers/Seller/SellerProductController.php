@@ -135,6 +135,7 @@ class SellerProductController extends Controller
             'name' => $product->name,
             'description' => $product->description,
             'category' => $product->category,
+            'subcategory' => $product->subcategory,
             'brand' => $product->brand,
             'condition' => $product->condition,
             'dimensions' => $product->dimensions,
@@ -169,6 +170,12 @@ class SellerProductController extends Controller
                 'id' => $v->id,
                 'sku' => $v->sku,
                 'price' => $v->price !== null ? (float) $v->price : null,
+                // Seller-facing promo labeling only — not read by
+                // CheckoutService/buyer pricing (see the discount columns'
+                // migration docblock).
+                'discount_percent' => $v->discount_percent !== null ? (float) $v->discount_percent : null,
+                'discount_type' => $v->discount_type,
+                'discounted_price' => $v->setRelation('product', $product)->discountedPrice(),
                 'stock' => (int) $v->stock,
                 'low_stock_threshold' => $v->low_stock_threshold,
                 'effective_low_stock_threshold' => $v->low_stock_threshold ?? $product->lowStockThreshold(),

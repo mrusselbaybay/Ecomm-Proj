@@ -1,12 +1,64 @@
 <!-- resources/js/seller/components/Messages.vue -->
 <template>
     <div class="msg-page" :class="{ 'has-active': !!activeConversationId }">
+        <header class="msg-page-header">
+            <div>
+                <h2 class="msg-page-title">Messages</h2>
+                <p class="msg-page-subtitle">Chat with buyers about their orders.</p>
+            </div>
+            <div class="msg-page-header-actions">
+                <button type="button" class="btn-outline btn-sm" :disabled="isExporting" @click="exportCsv">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /><path d="M12 15V3" />
+                    </svg>
+                    {{ isExporting ? 'Exporting…' : 'Export Messages' }}
+                </button>
+
+                <div class="msg-header-qr" ref="headerQrEl">
+                    <button type="button" class="btn-primary btn-sm" :aria-expanded="showHeaderQuickReplies" @click="showHeaderQuickReplies = !showHeaderQuickReplies">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 3 14h7l-1 8 10-12h-7l1-8Z" /></svg>
+                        Quick Replies
+                    </button>
+                    <Transition name="pop">
+                    <div v-if="showHeaderQuickReplies" class="msg-header-qr-dropdown">
+                        <p v-if="!activeConversationId" class="msg-header-qr-hint">Select a conversation to insert one.</p>
+                        <button
+                            v-for="qr in quickReplies"
+                            :key="qr.label"
+                            type="button"
+                            class="msg-header-qr-item"
+                            :disabled="!activeConversationId"
+                            @click="applyQuickReply(qr); showHeaderQuickReplies = false"
+                        >
+                            <span class="msg-header-qr-item-label">{{ qr.label }}</span>
+                            <span class="msg-header-qr-item-preview">{{ qr.text }}</span>
+                        </button>
+                    </div>
+                    </Transition>
+                </div>
+            </div>
+        </header>
+        <p v-if="exportError" class="save-msg error" style="margin: -0.5rem 0 0.75rem">{{ exportError }}</p>
+
+        <div class="msg-filter-tabs" role="tablist" aria-label="Filter conversations">
+            <button
+                v-for="tab in statusTabs"
+                :key="tab.value"
+                type="button"
+                role="tab"
+                class="msg-filter-tab"
+                :class="{ active: filters.status === tab.value }"
+                :aria-selected="filters.status === tab.value"
+                @click="setFilter({ status: tab.value })"
+            >
+                {{ tab.label }}
+                <span class="msg-filter-tab-count">{{ tabCount(tab.value) }}</span>
+            </button>
+        </div>
+
+        <div class="msg-panels">
         <!-- ============ CONVERSATION LIST ============ -->
         <aside class="msg-list-panel">
-            <div class="msg-list-header">
-                <h2 class="msg-list-title">Messages</h2>
-            </div>
-
             <div class="header-search msg-search">
                 <span class="search-icon">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.35-4.35" /></svg>
@@ -18,22 +70,6 @@
                     aria-label="Search conversations"
                     @input="onSearchInput($event.target.value)"
                 />
-            </div>
-
-            <div class="msg-filter-tabs" role="tablist" aria-label="Filter conversations">
-                <button
-                    v-for="tab in statusTabs"
-                    :key="tab.value"
-                    type="button"
-                    role="tab"
-                    class="msg-filter-tab"
-                    :class="{ active: filters.status === tab.value }"
-                    :aria-selected="filters.status === tab.value"
-                    @click="setFilter({ status: tab.value })"
-                >
-                    {{ tab.label }}
-                    <span class="msg-filter-tab-count">{{ tabCount(tab.value) }}</span>
-                </button>
             </div>
 
             <div class="msg-list-scroll custom-scrollbar">
@@ -204,12 +240,14 @@
                             <button type="button" class="msg-icon-btn" title="More actions" aria-label="More actions" @click="showMoreMenu = !showMoreMenu" :aria-expanded="showMoreMenu">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="12" cy="19" r="1.2" /></svg>
                             </button>
+                            <Transition name="pop">
                             <div v-if="showMoreMenu" class="msg-more-dropdown">
                                 <button type="button" class="msg-more-item danger" @click="openReportModal">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01" /><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /></svg>
                                     Report Buyer
                                 </button>
                             </div>
+                            </Transition>
                         </div>
                     </div>
                 </header>
@@ -239,23 +277,23 @@
                                     <span v-if="item.showMeta" class="msg-convo-avatar sm">{{ activeConversation?.buyer?.initials }}</span>
                                 </span>
                                 <div class="msg-bubble-col">
-                                    <div class="msg-bubble" :class="item.message.senderRole === 'seller' ? 'sent' : 'received'">
-                                        <p v-if="item.message.body">{{ item.message.body }}</p>
-                                        <div v-if="item.message.attachments?.length" class="msg-attachments">
-                                            <button
-                                                v-for="att in item.message.attachments"
-                                                :key="att.id"
-                                                type="button"
-                                                class="msg-attachment-chip"
-                                                @click="openAttachment(att)"
-                                            >
-                                                <img v-if="isImageMime(att.mime)" :src="att.url" :alt="att.name" loading="lazy" />
-                                                <span v-else class="msg-attachment-file">
-                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6" /></svg>
-                                                    {{ att.name }}
-                                                </span>
-                                            </button>
-                                        </div>
+                                    <div v-if="item.message.body" class="msg-bubble" :class="item.message.senderRole === 'seller' ? 'sent' : 'received'">
+                                        <p>{{ item.message.body }}</p>
+                                    </div>
+                                    <div v-if="item.message.attachments?.length" class="msg-attachments">
+                                        <button
+                                            v-for="att in item.message.attachments"
+                                            :key="att.id"
+                                            type="button"
+                                            class="msg-attachment-chip"
+                                            @click="openAttachment(att)"
+                                        >
+                                            <img v-if="isImageMime(att.mime)" :src="att.url" :alt="att.name" loading="lazy" />
+                                            <span v-else class="msg-attachment-file">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6" /></svg>
+                                                {{ att.name }}
+                                            </span>
+                                        </button>
                                     </div>
                                     <div v-if="item.showMeta || item.message.status === 'failed'" class="msg-meta" :class="item.message.senderRole">
                                         <span>{{ formatTime(item.message.createdAt) }}</span>
@@ -345,7 +383,7 @@
         </section>
 
         <!-- ============ CONTEXT PANEL (buyer / order / product) ============ -->
-        <aside class="msg-context-panel" :class="{ open: showContextPanel }" aria-label="Buyer and order details">
+        <aside class="msg-context-panel custom-scrollbar" :class="{ open: showContextPanel }" aria-label="Buyer and order details">
             <div class="msg-context-header">
                 <h3>Details</h3>
                 <button type="button" class="modal-close" aria-label="Close details" @click="showContextPanel = false">
@@ -359,52 +397,102 @@
                     <h4>{{ activeConversation.buyer.name }}</h4>
                 </div>
 
-                <div v-if="activeConversation.order" class="msg-context-section">
-                    <p class="msg-context-label">Order</p>
-                    <button type="button" class="msg-order-card" @click="goToOrder(activeConversation.order.id)">
-                        <img v-if="activeConversation.product?.image" :src="activeConversation.product.image" :alt="activeConversation.product.name" />
-                        <div v-else class="feedback-product-thumb-placeholder" aria-hidden="true">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
-                        </div>
-                        <div class="msg-order-card-info">
-                            <p class="msg-order-card-product">{{ activeConversation.product?.name || 'Order' }}</p>
-                            <p v-if="activeConversation.product?.variant" class="msg-order-card-variant">{{ activeConversation.product.variant }}</p>
-                            <p class="msg-order-card-number">{{ activeConversation.order.orderNumber }}</p>
-                        </div>
+                <div class="msg-ctx-tabs" role="tablist" aria-label="Buyer details view">
+                    <button
+                        type="button"
+                        role="tab"
+                        :class="{ active: contextTab === 'overview' }"
+                        :aria-selected="contextTab === 'overview'"
+                        @click="contextTab = 'overview'"
+                    >
+                        Overview
                     </button>
-                    <div class="msg-context-facts">
-                        <div><span>Status</span><strong>{{ activeConversation.order.status }}</strong></div>
-                        <div v-if="activeConversation.order.deliveryStatus"><span>Delivery</span><strong>{{ activeConversation.order.deliveryStatus }}</strong></div>
-                        <div v-if="activeConversation.product?.quantity"><span>Qty</span><strong>{{ activeConversation.product.quantity }}</strong></div>
-                        <div v-if="activeConversation.order.total != null"><span>Total</span><strong>{{ formatCurrency(activeConversation.order.total) }}</strong></div>
-                    </div>
+                    <button
+                        type="button"
+                        role="tab"
+                        :class="{ active: contextTab === 'order' }"
+                        :aria-selected="contextTab === 'order'"
+                        @click="contextTab = 'order'"
+                    >
+                        Order
+                    </button>
                 </div>
-                <p v-else class="msg-context-empty">No order linked to this conversation.</p>
 
-                <div class="msg-context-section">
-                    <div class="msg-context-label-row">
-                        <p class="msg-context-label">Shared Files</p>
-                        <span v-if="sharedMedia.length" class="msg-context-count">{{ sharedMedia.length }}</span>
+                <template v-if="contextTab === 'overview'">
+                    <div class="msg-context-section">
+                        <div class="msg-context-label-row">
+                            <p class="msg-context-label">Shared Files</p>
+                            <span v-if="sharedMedia.length" class="msg-context-count">{{ sharedMedia.length }}</span>
+                        </div>
+                        <div v-if="sharedMedia.length" class="msg-media-grid">
+                            <button
+                                v-for="(att, i) in sharedMedia"
+                                :key="att.id ?? i"
+                                type="button"
+                                class="msg-media-thumb"
+                                @click="openAttachment(att)"
+                            >
+                                <img v-if="isImageMime(att.mime)" :src="att.url" :alt="att.name" loading="lazy" />
+                                <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6" /></svg>
+                            </button>
+                        </div>
+                        <p v-else class="msg-context-empty">No files shared in this conversation yet.</p>
                     </div>
-                    <div v-if="sharedMedia.length" class="msg-media-grid">
-                        <button
-                            v-for="(att, i) in sharedMedia"
-                            :key="att.id ?? i"
-                            type="button"
-                            class="msg-media-thumb"
-                            @click="openAttachment(att)"
-                        >
-                            <img v-if="isImageMime(att.mime)" :src="att.url" :alt="att.name" loading="lazy" />
-                            <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6" /></svg>
+                </template>
+
+                <template v-else>
+                    <div v-if="activeConversation.order" class="msg-context-section">
+                        <button type="button" class="msg-order-card" @click="goToOrder(activeConversation.order.id)">
+                            <img v-if="activeConversation.product?.image" :src="activeConversation.product.image" :alt="activeConversation.product.name" />
+                            <div v-else class="feedback-product-thumb-placeholder" aria-hidden="true">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
+                            </div>
+                            <div class="msg-order-card-info">
+                                <p class="msg-order-card-product">{{ activeConversation.product?.name || 'Order' }}</p>
+                                <p v-if="activeConversation.product?.variant" class="msg-order-card-variant">{{ activeConversation.product.variant }}</p>
+                                <p class="msg-order-card-number">{{ activeConversation.order.orderNumber }}</p>
+                            </div>
                         </button>
+                        <div class="msg-context-facts">
+                            <div><span>Status</span><strong>{{ activeConversation.order.status }}</strong></div>
+                            <div v-if="activeConversation.order.deliveryStatus"><span>Delivery</span><strong>{{ activeConversation.order.deliveryStatus }}</strong></div>
+                            <div v-if="activeConversation.product?.quantity"><span>Qty</span><strong>{{ activeConversation.product.quantity }}</strong></div>
+                            <div v-if="activeConversation.order.total != null"><span>Total</span><strong>{{ formatCurrency(activeConversation.order.total) }}</strong></div>
+                        </div>
+
+                        <!-- Real order_status_history rows — same source Deliveries
+                             and Courier Handover already read from. -->
+                        <template v-if="activeConversation.order.timeline?.length">
+                            <p class="msg-context-label" style="margin-top: 1.1rem">Order Timeline</p>
+                            <div class="msg-track-list">
+                                <div
+                                    v-for="(step, i) in activeConversation.order.timeline"
+                                    :key="i"
+                                    class="msg-track-item"
+                                >
+                                    <div class="msg-track-dot-wrap">
+                                        <span class="msg-track-dot done">
+                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M4 10l4 4 8-8" /></svg>
+                                        </span>
+                                        <span v-if="i < activeConversation.order.timeline.length - 1" class="msg-track-line"></span>
+                                    </div>
+                                    <div>
+                                        <p class="msg-track-title">{{ step.status }}</p>
+                                        <p class="msg-track-meta">{{ formatTrackTime(step.at) }}<template v-if="step.note"> · {{ step.note }}</template></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
                     </div>
-                    <p v-else class="msg-context-empty">No files shared in this conversation yet.</p>
-                </div>
+                    <p v-else class="msg-context-empty">No order linked to this conversation.</p>
+                </template>
             </div>
         </aside>
         <div v-if="showContextPanel" class="msg-context-backdrop" @click="showContextPanel = false"></div>
+        </div>
 
         <!-- Image preview modal -->
+        <Transition name="modal-fade">
         <div v-if="previewImageUrl" class="modal-overlay" role="dialog" aria-modal="true" aria-label="Attachment preview" @click.self="previewImageUrl = null">
             <div class="feedback-image-modal">
                 <button type="button" class="modal-close feedback-image-close" aria-label="Close preview" @click="previewImageUrl = null">
@@ -413,8 +501,10 @@
                 <img :src="previewImageUrl" alt="Attachment preview" />
             </div>
         </div>
+        </Transition>
 
         <!-- Archive confirm modal -->
+        <Transition name="modal-fade">
         <div v-if="pendingArchive" class="modal-overlay" @click.self="pendingArchive = false">
             <div class="modal-panel">
                 <div class="modal-header">
@@ -430,8 +520,10 @@
                 </div>
             </div>
         </div>
+        </Transition>
 
         <!-- Report buyer modal -->
+        <Transition name="modal-fade">
         <div v-if="showReportModal" class="modal-overlay" @click.self="showReportModal = false">
             <div class="modal-panel">
                 <div class="modal-header">
@@ -451,6 +543,7 @@
                 </div>
             </div>
         </div>
+        </Transition>
     </div>
 </template>
 
@@ -468,6 +561,10 @@ const {
     filters,
     setFilter,
     loadConversations,
+
+    isExporting,
+    exportError,
+    exportCsv,
 
     activeConversationId,
     activeConversation,
@@ -502,7 +599,7 @@ const {
 } = useMessaging();
 
 const statusTabs = [
-    { value: 'all', label: 'All' },
+    { value: 'all', label: 'Inbox' },
     { value: 'unread', label: 'Unread' },
     { value: 'needs_response', label: 'Needs Response' },
     { value: 'resolved', label: 'Resolved' },
@@ -521,8 +618,11 @@ const quickReplies = [
 
 const searchInput = ref('');
 const showContextPanel = ref(false);
+const contextTab = ref('overview');
 const showMoreMenu = ref(false);
 const moreMenuEl = ref(null);
+const showHeaderQuickReplies = ref(false);
+const headerQrEl = ref(null);
 const draftText = ref('');
 const stagedAttachments = ref([]);
 const viewportEl = ref(null);
@@ -542,6 +642,7 @@ const hasActiveListFilters = computed(
 function tabCount(value) {
     const counts = conversationsMeta.value.statusCounts || {};
     const map = { all: 'all', unread: 'unread', needs_response: 'needsResponse', resolved: 'resolved', archived: 'archived' };
+
     return counts[map[value]] ?? 0;
 }
 
@@ -556,15 +657,34 @@ function clearListFilters() {
     setFilter({ search: '', status: 'all', page: 1 });
 }
 
+function formatTrackTime(iso) {
+    if (!iso) {
+return '';
+}
+
+    return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 function formatListTime(iso) {
-    if (!iso) return '';
+    if (!iso) {
+return '';
+}
+
     const d = new Date(iso);
     const now = new Date();
     const sameDay = d.toDateString() === now.toDateString();
-    if (sameDay) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+    if (sameDay) {
+return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
     const yest = new Date(now);
     yest.setDate(now.getDate() - 1);
-    if (d.toDateString() === yest.toDateString()) return 'Yesterday';
+
+    if (d.toDateString() === yest.toDateString()) {
+return 'Yesterday';
+}
+
     return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 function formatTime(iso) {
@@ -575,8 +695,15 @@ function formatDateSeparator(d) {
     const yest = new Date(today);
     yest.setDate(today.getDate() - 1);
     const sameDay = (a, b) => a.toDateString() === b.toDateString();
-    if (sameDay(d, today)) return 'Today';
-    if (sameDay(d, yest)) return 'Yesterday';
+
+    if (sameDay(d, today)) {
+return 'Today';
+}
+
+    if (sameDay(d, yest)) {
+return 'Yesterday';
+}
+
     return d.toLocaleDateString([], { month: 'long', day: 'numeric', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
 }
 function formatCurrency(value) {
@@ -605,27 +732,40 @@ const groupedMessages = computed(() => {
     for (const m of messages.value) {
         const d = new Date(m.createdAt);
         const dateLabel = formatDateSeparator(d);
+
         if (dateLabel !== lastDateLabel) {
             out.push({ type: 'date', label: dateLabel, key: `date-${m.id}` });
             lastDateLabel = dateLabel;
             lastSender = null;
         }
+
         const grouped = m.senderRole === lastSender && lastTime && d - lastTime < GROUP_WINDOW_MS;
         out.push({ type: 'msg', message: m, showMeta: !grouped, key: m.id });
         lastSender = m.senderRole;
         lastTime = d;
     }
+
     return out;
 });
 
 const sharedMedia = computed(() => messages.value.flatMap((m) => m.attachments || []));
 
 const canSend = computed(() => {
-    if (isSending.value) return false;
-    if (activeConversation.value && activeConversation.value.status !== 'open') return false;
-    if (stagedAttachments.value.some((a) => a.uploading)) return false;
+    if (isSending.value) {
+return false;
+}
+
+    if (activeConversation.value && activeConversation.value.status !== 'open') {
+return false;
+}
+
+    if (stagedAttachments.value.some((a) => a.uploading)) {
+return false;
+}
+
     const hasText = draftText.value.trim().length > 0;
     const hasAttachment = stagedAttachments.value.some((a) => a.uploadedId);
+
     return hasText || hasAttachment;
 });
 
@@ -634,30 +774,46 @@ function prefersReducedMotion() {
 }
 function scrollToBottom(smooth = false) {
     const el = viewportEl.value;
-    if (!el) return;
+
+    if (!el) {
+return;
+}
+
     el.scrollTo({ top: el.scrollHeight, behavior: smooth && !prefersReducedMotion() ? 'smooth' : 'auto' });
 }
 function autosizeTextarea() {
     const el = textareaEl.value;
-    if (!el) return;
+
+    if (!el) {
+return;
+}
+
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
 }
 
 function onDraftInput() {
     autosizeTextarea();
-    if (activeConversationId.value) saveDraft(activeConversationId.value, draftText.value);
+
+    if (activeConversationId.value) {
+saveDraft(activeConversationId.value, draftText.value);
+}
 }
 
 async function selectConversation(id) {
-    if (id === activeConversationId.value) return;
+    if (id === activeConversationId.value) {
+return;
+}
+
     await openConversation(id);
     draftText.value = getDraft(id);
     stagedAttachments.value = [];
     isAtBottom.value = true;
+    contextTab.value = 'overview';
     await nextTick();
     autosizeTextarea();
     scrollToBottom(false);
+
     // Let the seller start typing right away — but not into a disabled
     // composer (conversation resolved/archived), where focus would be
     // a no-op at best and confusing at worst.
@@ -676,10 +832,16 @@ function goToOrder(orderId) {
 
 function onViewportScroll() {
     const el = viewportEl.value;
-    if (!el) return;
+
+    if (!el) {
+return;
+}
 
     isAtBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    if (isAtBottom.value) clearNewIncoming();
+
+    if (isAtBottom.value) {
+clearNewIncoming();
+}
 
     if (el.scrollTop < 60 && messagesMeta.value.hasMore && !isLoadingOlderMessages.value) {
         const prevHeight = el.scrollHeight;
@@ -697,10 +859,14 @@ function jumpToNewMessages() {
 }
 
 async function onSend() {
-    if (!canSend.value || !activeConversationId.value) return;
+    if (!canSend.value || !activeConversationId.value) {
+return;
+}
 
-    const attachmentIds = stagedAttachments.value.filter((a) => a.uploadedId).map((a) => a.uploadedId);
-    const result = await sendMessage(activeConversationId.value, draftText.value, attachmentIds);
+    const uploaded = stagedAttachments.value.filter((a) => a.uploadedId);
+    const attachmentIds = uploaded.map((a) => a.uploadedId);
+    const attachmentPreviews = uploaded.map((a) => ({ id: a.uploadedId, name: a.name, mime: a.mime, url: a.previewUrl }));
+    const result = await sendMessage(activeConversationId.value, draftText.value, attachmentIds, attachmentPreviews);
 
     if (result) {
         draftText.value = '';
@@ -714,7 +880,11 @@ async function onSend() {
 
 function applyQuickReply(template) {
     draftText.value = draftText.value ? `${draftText.value}\n${template.text}` : template.text;
-    if (activeConversationId.value) saveDraft(activeConversationId.value, draftText.value);
+
+    if (activeConversationId.value) {
+saveDraft(activeConversationId.value, draftText.value);
+}
+
     nextTick(autosizeTextarea);
 }
 
@@ -752,28 +922,46 @@ function addAttachment(file) {
             error: error || '',
         },
     ];
-    if (error) return;
+
+    if (error) {
+return;
+}
 
     uploadAttachment(file, (pct) => {
         const staged = findStaged(localId);
-        if (staged) staged.progress = pct;
+
+        if (staged) {
+staged.progress = pct;
+}
     })
         .then((data) => {
             const staged = findStaged(localId);
-            if (!staged) return; // removed before the upload finished
+
+            if (!staged) {
+return;
+} // removed before the upload finished
+
             staged.uploading = false;
             staged.uploadedId = data.id;
         })
         .catch((err) => {
             const staged = findStaged(localId);
-            if (!staged) return;
+
+            if (!staged) {
+return;
+}
+
             staged.uploading = false;
             staged.error = err?.message || 'Upload failed.';
         });
 }
 function removeAttachment(localId) {
     const item = stagedAttachments.value.find((a) => a.localId === localId);
-    if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+
+    if (item?.previewUrl) {
+URL.revokeObjectURL(item.previewUrl);
+}
+
     stagedAttachments.value = stagedAttachments.value.filter((a) => a.localId !== localId);
 }
 function openAttachment(att) {
@@ -793,6 +981,7 @@ async function runArchive() {
     if (activeConversationId.value) {
         await setConversationStatus(activeConversationId.value, 'archived');
     }
+
     pendingArchive.value = false;
 }
 function openReportModal() {
@@ -801,7 +990,10 @@ function openReportModal() {
     showReportModal.value = true;
 }
 async function confirmReport() {
-    if (!reportReason.value.trim() || !activeConversationId.value) return;
+    if (!reportReason.value.trim() || !activeConversationId.value) {
+return;
+}
+
     isReporting.value = true;
     await reportBuyer(activeConversationId.value, reportReason.value.trim());
     isReporting.value = false;
@@ -812,6 +1004,10 @@ function onDocClick(e) {
     if (showMoreMenu.value && moreMenuEl.value && !moreMenuEl.value.contains(e.target)) {
         showMoreMenu.value = false;
     }
+
+    if (showHeaderQuickReplies.value && headerQrEl.value && !headerQrEl.value.contains(e.target)) {
+        showHeaderQuickReplies.value = false;
+    }
 }
 
 // Escape closes whatever's on top — modals first, then the more-actions
@@ -819,7 +1015,10 @@ function onDocClick(e) {
 // behavior above but for keyboard users, who currently have no way to
 // dismiss any of these without a mouse.
 function onGlobalKeydown(e) {
-    if (e.key !== 'Escape') return;
+    if (e.key !== 'Escape') {
+return;
+}
+
     if (showReportModal.value) {
         showReportModal.value = false;
     } else if (pendingArchive.value) {
@@ -828,6 +1027,8 @@ function onGlobalKeydown(e) {
         previewImageUrl.value = null;
     } else if (showMoreMenu.value) {
         showMoreMenu.value = false;
+    } else if (showHeaderQuickReplies.value) {
+        showHeaderQuickReplies.value = false;
     } else if (showContextPanel.value) {
         showContextPanel.value = false;
     }
@@ -839,10 +1040,15 @@ function onGlobalKeydown(e) {
 let messagePollTimer = null;
 watch(activeConversationId, (id) => {
     clearInterval(messagePollTimer);
-    if (!id) return;
+
+    if (!id) {
+return;
+}
+
     messagePollTimer = setInterval(async () => {
         const before = messages.value.length;
         await pollNewMessages(isAtBottom.value);
+
         if (messages.value.length > before && isAtBottom.value) {
             await nextTick();
             scrollToBottom(true);
@@ -855,11 +1061,648 @@ onMounted(() => {
     document.addEventListener('click', onDocClick);
     document.addEventListener('keydown', onGlobalKeydown);
 });
+
+// The open conversation's messages already poll (see above); the
+// sidebar list itself only ever loaded once on mount, so a brand-new
+// thread from a buyer never appeared until the seller reloaded. Same
+// 30s rhythm as the unread badge's own poll (useMessaging's
+// UNREAD_POLL_MS, not exported so mirrored here as a literal).
+const CONVERSATIONS_POLL_MS = 30 * 1000;
+let conversationsPollTimer = null;
+
+onMounted(() => {
+    conversationsPollTimer = setInterval(() => loadConversations(), CONVERSATIONS_POLL_MS);
+});
+
 onBeforeUnmount(() => {
     clearTimeout(searchDebounce);
     clearInterval(messagePollTimer);
+    clearInterval(conversationsPollTimer);
     document.removeEventListener('click', onDocClick);
     document.removeEventListener('keydown', onGlobalKeydown);
     stagedAttachments.value.forEach((a) => a.previewUrl && URL.revokeObjectURL(a.previewUrl));
 });
 </script>
+
+<style scoped>
+/* ============================================================
+   MESSAGES — dark reskin (matches Dashboard / Orders / Inventory /
+   Order Preparation / Order Details / Courier Handover / Delivery /
+   Reports / Reviews). Scoped to this component, so targeting shared
+   class names here (.badge-*, .btn-outline, .field-input, .pagination,
+   .page-btn, .icon-lg, .empty-state, .feedback-quick-reply-btn,
+   .feedback-product-thumb-placeholder, ...) only ever affects what
+   this page renders. Modals (image preview, archive/report confirm)
+   are left as-is, same convention every other reskinned page follows.
+   ============================================================ */
+.msg-page {
+    --msg-surface: #161b17;
+    --msg-surface-2: #1d231e;
+    --msg-border: rgba(255, 255, 255, 0.08);
+    --msg-border-soft: rgba(255, 255, 255, 0.06);
+    --msg-ink-900: #f2f4f1;
+    --msg-ink-700: #c6cbc5;
+    --msg-ink-500: #97a099;
+    --msg-ink-400: #6d766e;
+    color: var(--msg-ink-900);
+    /* The page used to just be the 3-panel row (height:100%, filling
+       whatever fixed-height ancestor the internal chat scrolling relies
+       on). A real title/subtitle header and a page-level tab bar sit
+       above it now, so the row moved to .msg-panels and this became a
+       column. SellerLayout.vue pins its own wrapper (.chat-shell) to a
+       fixed viewport height for this page specifically — flex:1 +
+       min-height:0 here is what lets this column fill exactly the
+       space that leaves, so switching conversations (a short thread vs.
+       a long one, an order with a 2-step timeline vs. none) never grows
+       or shrinks the page — only each panel's own overflow scrolls. */
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 1;
+    min-height: 0;
+}
+
+/* ---- page header + tab bar ---- */
+.msg-page-header {
+    flex-shrink: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+.msg-page-title {
+    font-size: 1.4rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--msg-ink-900);
+    margin: 0;
+}
+.msg-page-subtitle {
+    font-size: 0.8rem;
+    color: var(--msg-ink-500);
+    margin: 0.25rem 0 0;
+}
+.msg-page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-shrink: 0;
+}
+.msg-header-qr {
+    position: relative;
+}
+.msg-header-qr-dropdown {
+    position: absolute;
+    top: calc(100% + 0.4rem);
+    right: 0;
+    width: 18rem;
+    max-height: 20rem;
+    overflow-y: auto;
+    background: var(--msg-surface);
+    border: 1px solid var(--msg-border);
+    border-radius: 0.7rem;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+    z-index: 20;
+    padding: 0.4rem;
+}
+.msg-header-qr-hint {
+    font-size: 0.72rem;
+    color: var(--msg-ink-500);
+    padding: 0.4rem 0.5rem;
+    margin: 0;
+}
+.msg-header-qr-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    width: 100%;
+    padding: 0.5rem 0.6rem;
+    background: none;
+    border: none;
+    border-radius: 0.5rem;
+    text-align: left;
+    cursor: pointer;
+}
+.msg-header-qr-item:hover:not(:disabled) {
+    background: var(--msg-surface-2);
+}
+.msg-header-qr-item:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.msg-header-qr-item-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--msg-ink-900);
+}
+.msg-header-qr-item-preview {
+    font-size: 0.71rem;
+    color: var(--msg-ink-500);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+.msg-page > .msg-filter-tabs {
+    flex-shrink: 0;
+    padding: 0 0 0.85rem;
+    border-bottom: 1px solid var(--msg-border-soft);
+    overflow-x: auto;
+}
+
+/* ---- the 3-panel row itself ---- */
+.msg-panels {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    gap: 0.75rem;
+    position: relative;
+}
+
+/* ---- panels (list / chat / context) ---- */
+.msg-list-panel,
+.msg-chat-panel,
+.msg-context-panel {
+    background: var(--msg-surface);
+    border-color: var(--msg-border);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Whenever 2+ panels sit side by side (tablet: list+chat, context as a
+   drawer; desktop: all three) they read as one seamless frame with thin
+   dividers between sections — not three separate cards with gaps — same
+   as the reference's .msg-shell. Below 861px only one panel is ever
+   visible at a time (see the existing .has-active rules further down),
+   so each one keeps its own standalone rounded card there instead. */
+@media (min-width: 861px) {
+    .msg-panels {
+        gap: 0;
+        background: var(--msg-surface);
+        border: 1px solid var(--msg-border);
+        border-radius: 0.85rem;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        overflow: hidden;
+    }
+    .msg-list-panel,
+    .msg-chat-panel,
+    .msg-context-panel {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+    }
+    .msg-list-panel {
+        border-right: 1px solid var(--msg-border-soft);
+    }
+    .msg-context-panel {
+        border-left: 1px solid var(--msg-border-soft);
+    }
+}
+/* Below 1181px the context panel stops being an inline pane and becomes
+   a floating drawer (see the global responsive rules further down) — it
+   needs its own solid background/shadow again there, overriding the
+   "transparent, divider-only" treatment the seamless-container rule
+   above gives it for the ≥861px inline case. */
+@media (max-width: 1180px) {
+    .msg-context-panel {
+        background: var(--msg-surface);
+        border-left: none;
+        border-radius: 0;
+        box-shadow: -10px 0 30px rgba(0, 0, 0, 0.45);
+    }
+}
+.msg-list-scroll {
+    border-top-color: var(--msg-border-soft);
+}
+.msg-list-pagination {
+    border-top-color: var(--msg-border-soft);
+}
+
+/* ---- shared primitives ----
+   The visual "pill" (background/border/radius) belongs on the <input>
+   itself, never the .header-search wrapper — the wrapper has no
+   padding of its own, so a block-level div defaults to full width
+   (unlike the input's fixed 15rem), and painting a second border on it
+   stretched the dark box past the input's real edges — exactly the
+   "icon floating outside the bar" bug this fixes. */
+.msg-page .header-search input {
+    background: var(--msg-surface-2);
+    border: 1px solid var(--msg-border);
+    color: var(--msg-ink-900);
+}
+.msg-page .header-search input::placeholder {
+    color: var(--msg-ink-400);
+}
+.msg-page .header-search .search-icon {
+    color: var(--msg-ink-500);
+}
+.msg-page .btn-outline {
+    background: var(--msg-surface-2);
+    border-color: var(--msg-border);
+    color: var(--msg-ink-900);
+}
+.msg-page .btn-outline:hover:not(:disabled) {
+    background: var(--msg-surface);
+}
+.msg-page .field-input {
+    background: var(--msg-surface-2);
+    border-color: var(--msg-border);
+    color: var(--msg-ink-900);
+}
+.msg-page .field-label {
+    color: var(--msg-ink-500);
+}
+.msg-page .save-msg.error {
+    color: #f7a49f;
+}
+.msg-page .icon-lg {
+    color: var(--msg-ink-400);
+}
+.msg-page .empty-state p,
+.msg-page .empty-hint {
+    color: var(--msg-ink-500);
+}
+.msg-page .empty-state p[style*='#1e293b'] {
+    color: var(--msg-ink-900) !important;
+}
+.msg-page .pagination {
+    color: var(--msg-ink-500);
+}
+.msg-page .page-btn {
+    background: var(--msg-surface-2);
+    border-color: var(--msg-border);
+    color: var(--msg-ink-700);
+}
+.msg-page .page-btn:disabled {
+    opacity: 0.4;
+}
+.msg-page .badge-amber {
+    background: rgba(251, 191, 125, 0.16);
+    color: #fbbf7d;
+    border: 1px solid rgba(251, 191, 125, 0.3);
+}
+.msg-page .badge-emerald {
+    background: rgba(15, 118, 110, 0.2);
+    color: #5eead4;
+    border-color: rgba(15, 118, 110, 0.35);
+}
+.msg-page .badge-slate {
+    background: var(--msg-surface-2);
+    color: var(--msg-ink-500);
+    border: 1px solid var(--msg-border);
+}
+.msg-page .badge-sky {
+    background: rgba(18, 63, 143, 0.28);
+    color: #9dc2ef;
+    border-color: rgba(18, 63, 143, 0.4);
+}
+.msg-page .feedback-quick-reply-btn {
+    color: #5eead4;
+    background: rgba(20, 184, 166, 0.1);
+    border-color: rgba(20, 184, 166, 0.28);
+}
+.msg-page .feedback-quick-reply-btn:hover {
+    background: rgba(20, 184, 166, 0.18);
+}
+.msg-page .feedback-product-thumb-placeholder {
+    color: var(--msg-ink-400);
+    background: var(--msg-surface-2);
+}
+
+/* ---- filter tabs (underline style, matches the reference's page-level
+   tab bar rather than the pill tabs this used to be) ---- */
+.msg-filter-tab {
+    padding: 0.5rem 0.15rem;
+    margin-right: 1.2rem;
+    border-radius: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--msg-ink-500);
+}
+.msg-filter-tab:hover {
+    background: transparent;
+    color: var(--msg-ink-900);
+}
+.msg-filter-tab.active {
+    background: transparent;
+    color: #5eead4;
+    border-bottom-color: #5eead4;
+}
+.msg-filter-tab-count {
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    background: var(--msg-surface-2);
+    color: var(--msg-ink-500);
+}
+.msg-filter-tab.active .msg-filter-tab-count {
+    background: rgba(20, 184, 166, 0.18);
+    color: #5eead4;
+}
+
+/* ---- conversation list ---- */
+.msg-skeleton-avatar {
+    background: var(--msg-surface-2);
+}
+.msg-convo-card:hover {
+    background: var(--msg-surface-2);
+}
+.msg-convo-card.active {
+    background: rgba(20, 184, 166, 0.12);
+    border-left-color: #5eead4;
+}
+.msg-convo-card.unread .msg-convo-name {
+    color: var(--msg-ink-900);
+}
+.msg-convo-card.unread .msg-convo-snippet {
+    color: var(--msg-ink-700);
+}
+.msg-convo-avatar {
+    background: rgba(20, 184, 166, 0.18);
+    color: #5eead4;
+}
+.msg-convo-avatar.lg {
+    box-shadow: 0 0 0 4px var(--msg-surface-2), 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.msg-convo-name {
+    color: var(--msg-ink-700);
+}
+.msg-convo-time,
+.msg-convo-snippet,
+.msg-convo-order {
+    color: var(--msg-ink-500);
+}
+.msg-unread-badge {
+    background: #5eead4;
+    color: var(--msg-surface);
+}
+
+/* ---- chat header ---- */
+.msg-chat-header {
+    border-bottom-color: var(--msg-border-soft);
+}
+.msg-back-btn {
+    color: var(--msg-ink-500);
+}
+.msg-back-btn:hover {
+    background: var(--msg-surface-2);
+}
+.msg-chat-buyer-name {
+    color: var(--msg-ink-900);
+}
+.msg-order-link {
+    color: #9dc2ef;
+}
+.msg-icon-btn {
+    color: var(--msg-ink-500);
+}
+.msg-icon-btn:hover {
+    background: var(--msg-surface-2);
+    color: #5eead4;
+}
+.msg-more-dropdown {
+    background: var(--msg-surface);
+    border-color: var(--msg-border);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+.msg-more-item {
+    color: var(--msg-ink-700);
+}
+.msg-more-item:hover {
+    background: var(--msg-surface-2);
+}
+.msg-more-item.danger {
+    color: #f7a49f;
+}
+.msg-more-item.danger:hover {
+    background: rgba(200, 67, 61, 0.16);
+}
+
+/* ---- messages viewport ---- */
+.msg-viewport {
+    background: var(--msg-surface);
+}
+.msg-skeleton-bubble {
+    background: linear-gradient(90deg, var(--msg-surface-2) 25%, var(--msg-border) 37%, var(--msg-surface-2) 63%);
+    background-size: 400% 100%;
+}
+.msg-inline-error {
+    color: #f7a49f;
+}
+.msg-retry-link {
+    color: #5eead4;
+}
+.msg-date-sep span {
+    color: var(--msg-ink-500);
+    background: var(--msg-surface-2);
+}
+.msg-bubble.received {
+    background: var(--msg-surface-2);
+    border-color: var(--msg-border);
+    color: var(--msg-ink-900);
+    box-shadow: none;
+}
+.msg-bubble.sent {
+    background: #0f766e;
+    color: #f2f4f1;
+    box-shadow: 0 4px 12px rgba(15, 118, 110, 0.25);
+}
+.msg-meta {
+    color: var(--msg-ink-500);
+}
+.msg-failed {
+    color: #f7a49f;
+}
+.msg-attachment-chip {
+    background: rgba(255, 255, 255, 0.08);
+}
+.msg-new-messages-btn {
+    background: #0f766e;
+    color: #f2f4f1;
+    box-shadow: 0 8px 20px rgba(15, 118, 110, 0.35);
+}
+
+/* ---- composer ---- */
+.msg-composer {
+    border-top-color: var(--msg-border-soft);
+}
+.msg-composer-notice {
+    color: var(--msg-ink-500);
+}
+.msg-staged-item {
+    background: var(--msg-surface-2);
+    border-color: var(--msg-border);
+}
+.msg-staged-name {
+    color: var(--msg-ink-700);
+}
+.msg-staged-progress {
+    color: #5eead4;
+}
+.msg-staged-error {
+    color: #f7a49f;
+}
+.msg-staged-remove {
+    color: var(--msg-ink-500);
+}
+.msg-staged-remove:hover {
+    color: #f7a49f;
+}
+.msg-composer-box {
+    background: var(--msg-surface-2);
+    border-color: var(--msg-border);
+}
+.msg-composer-box:focus-within {
+    border-color: #5eead4;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.18);
+}
+.msg-textarea {
+    color: var(--msg-ink-900);
+}
+.msg-textarea::placeholder {
+    color: var(--msg-ink-400);
+}
+.msg-textarea:disabled {
+    color: var(--msg-ink-400);
+}
+.msg-send-btn {
+    background: #0f766e;
+    color: #f2f4f1;
+    box-shadow: 0 4px 12px rgba(15, 118, 110, 0.25);
+}
+.msg-send-btn:hover:not(:disabled) {
+    background: #115e59;
+}
+.msg-send-btn:disabled {
+    background: var(--msg-surface-2);
+    color: var(--msg-ink-400);
+}
+
+/* ---- context panel ---- */
+.msg-context-header {
+    border-bottom-color: var(--msg-border-soft);
+}
+.msg-context-header h3,
+.msg-context-buyer h4 {
+    color: var(--msg-ink-900);
+}
+.msg-context-label,
+.msg-context-count,
+.msg-context-empty {
+    color: var(--msg-ink-500);
+}
+.msg-order-card {
+    background: var(--msg-surface-2);
+    border-color: var(--msg-border-soft);
+}
+.msg-order-card:hover {
+    border-color: #5eead4;
+}
+.msg-order-card-product {
+    color: var(--msg-ink-900);
+}
+.msg-order-card-variant {
+    color: var(--msg-ink-500);
+}
+.msg-order-card-number {
+    color: #5eead4;
+}
+.msg-context-facts span {
+    color: var(--msg-ink-500);
+}
+.msg-context-facts strong {
+    color: var(--msg-ink-900);
+}
+.msg-media-thumb {
+    border-color: var(--msg-border-soft);
+    background: var(--msg-surface-2);
+    color: var(--msg-ink-400);
+}
+
+/* ---- context panel: Overview/Order tabs + real order timeline (new —
+   these classes don't exist in the shared stylesheet at all, so this is
+   a full definition, not just a color override) ---- */
+.msg-ctx-tabs {
+    display: flex;
+    margin: 0 0 1.1rem;
+    background: var(--msg-surface-2);
+    padding: 0.2rem;
+    border-radius: 0.6rem;
+}
+.msg-ctx-tabs button {
+    flex: 1;
+    padding: 0.4rem;
+    border-radius: 0.45rem;
+    border: none;
+    background: none;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--msg-ink-500);
+    cursor: pointer;
+}
+.msg-ctx-tabs button.active {
+    background: var(--msg-surface);
+    color: var(--msg-ink-900);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.msg-track-list {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0.6rem;
+}
+.msg-track-item {
+    display: flex;
+    gap: 0.7rem;
+    position: relative;
+    padding-bottom: 1.1rem;
+}
+.msg-track-item:last-child {
+    padding-bottom: 0;
+}
+.msg-track-dot-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+}
+.msg-track-dot {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.msg-track-dot.done {
+    background: rgba(20, 184, 166, 0.18);
+    color: #5eead4;
+}
+.msg-track-line {
+    flex: 1;
+    width: 2px;
+    background: var(--msg-border);
+    margin-top: 0.2rem;
+}
+.msg-track-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--msg-ink-900);
+}
+.msg-track-meta {
+    font-size: 0.71rem;
+    color: var(--msg-ink-500);
+    margin-top: 0.1rem;
+}
+
+/* .msg-page's row (list/chat/context side by side) is now .msg-panels —
+   carry forward the same mobile "collapse the gap" behavior the global
+   stylesheet still applies to the old .msg-page selector. */
+@media (max-width: 860px) {
+    .msg-panels {
+        gap: 0;
+    }
+}
+</style>

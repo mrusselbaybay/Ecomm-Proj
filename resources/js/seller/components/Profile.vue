@@ -665,7 +665,7 @@
                             <p class="acct-danger-action-title">Deactivate or close this store</p>
                             <p class="acct-section-sub">
                                 Closing a seller account affects live orders and payouts, so it's
-                                handled by NEXMART support — reach out from the Messages page or
+                                handled by BuyTheWay support — reach out from the Messages page or
                                 your registered email.
                             </p>
                         </div>

@@ -2,12 +2,45 @@
 <template>
     <div class="inventory-page">
         <!-- ============================================================
+         STAT BAR — real catalog health, unfiltered by the search/status
+         filters below (so it always reflects the whole store, not just
+         whatever's currently visible in the grid).
+         ============================================================ -->
+        <div class="inv-stat-bar">
+            <div class="inv-stat-seg">
+                <span class="inv-stat-ic neutral">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5" /><path d="m3 17 9 5 9-5" /></svg>
+                </span>
+                <div><div class="inv-stat-v">{{ totalProductsCount }}</div><div class="inv-stat-l">Total Products</div></div>
+            </div>
+            <div class="inv-stat-seg">
+                <span class="inv-stat-ic good">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 3H5a2 2 0 0 0-2 2v6l8.6 8.6a2 2 0 0 0 2.8 0l4.2-4.2a2 2 0 0 0 0-2.8L11 3Z" /><circle cx="7.5" cy="7.5" r="1" /></svg>
+                </span>
+                <div><div class="inv-stat-v">{{ formatPrice(inventoryValue) }}</div><div class="inv-stat-l">Inventory Value</div></div>
+            </div>
+            <div class="inv-stat-seg">
+                <span class="inv-stat-ic warn">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01" /><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /></svg>
+                </span>
+                <div><div class="inv-stat-v">{{ lowStockCount }}</div><div class="inv-stat-l">Low Stock</div></div>
+            </div>
+            <div class="inv-stat-seg">
+                <span class="inv-stat-ic bad">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" /><path d="M15 9l-6 6M9 9l6 6" /></svg>
+                </span>
+                <div><div class="inv-stat-v">{{ outOfStockCount }}</div><div class="inv-stat-l">Out of Stock</div></div>
+            </div>
+        </div>
+
+        <!-- ============================================================
          TOOLBAR
          Confirmed via SellerLayout.vue: it already renders the shared
          content-header (title/breadcrumb/notifications/profile) around
-         every section, so Inventory.vue doesn't render its own. Its
-         header search box is generic/unwired though (no v-model), so
-         the working "Search SKU, model..." field lives here instead.
+         every section. The header's search box is now wired directly to
+         this page's real searchQuery (see SellerLayout.vue), so there's
+         only ever one working search field — not a decorative shared one
+         plus a duplicate real one here.
          ============================================================ -->
         <div class="card inventory-toolbar">
             <div class="toolbar-left">
@@ -61,25 +94,152 @@
                 </div>
             </div>
             <div class="toolbar-right">
-                <div class="header-search inventory-search">
-                    <span class="search-icon">
-                        <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 20 20"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.8"
-                        >
-                            <circle cx="9" cy="9" r="6.5" />
-                            <path d="M18 18l-3.8-3.8" />
+                <div class="filter-btn-wrap">
+                    <button
+                        ref="filterBtnEl"
+                        type="button"
+                        class="chip-btn"
+                        :class="{ active: showFilterPanel }"
+                        @click="showFilterPanel = !showFilterPanel"
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 6h16M7 12h10M10 18h4" />
                         </svg>
-                    </span>
-                    <input
-                        type="text"
-                        v-model="searchQuery"
-                        placeholder="Search SKU, model..."
-                    />
+                        Filter
+                        <span v-if="hasActiveInventoryFilters" class="filter-active-dot"></span>
+                    </button>
+
+                    <aside v-if="showFilterPanel" ref="filterPanelEl" class="inventory-filters filter-popover">
+                        <div class="filter-popover-head">
+                            <h4 class="filter-heading" style="margin: 0">Filters</h4>
+                            <button
+                                v-if="hasActiveInventoryFilters"
+                                type="button"
+                                class="filter-clear-link"
+                                @click="clearFilters"
+                            >
+                                Clear all
+                            </button>
+                        </div>
+                        <div class="filter-group">
+                            <h4 class="filter-heading">Stock Status</h4>
+                            <label
+                                v-for="opt in stockStatusOptions"
+                                :key="opt.value"
+                                class="filter-check"
+                            >
+                                <span
+                                    class="check-box"
+                                    :class="{
+                                        checked: selectedStockStatuses.includes(
+                                            opt.value,
+                                        ),
+                                    }"
+                                >
+                                    <svg
+                                        width="11"
+                                        height="11"
+                                        viewBox="0 0 20 20"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="3"
+                                    >
+                                        <path d="M4 10l4 4 8-8" />
+                                    </svg>
+                                </span>
+                                <input
+                                    type="checkbox"
+                                    :value="opt.value"
+                                    v-model="selectedStockStatuses"
+                                    style="display: none"
+                                />
+                                {{ opt.label }}
+                            </label>
+                        </div>
+
+                        <div class="filter-group">
+                            <h4 class="filter-heading">Price Range</h4>
+                            <div class="price-range">
+                                <div
+                                    class="price-track"
+                                    ref="priceTrackEl"
+                                    @pointerdown="onTrackPointerDown"
+                                >
+                                    <div
+                                        class="price-track-fill"
+                                        :style="{
+                                            left: priceMinPct + '%',
+                                            right: 100 - priceMaxPct + '%',
+                                        }"
+                                    ></div>
+                                    <div
+                                        class="price-thumb"
+                                        :class="{ dragging: draggingHandle === 'min' }"
+                                        :style="{ left: priceMinPct + '%' }"
+                                        role="slider"
+                                        tabindex="0"
+                                        aria-label="Minimum price"
+                                        aria-valuemin="0"
+                                        :aria-valuemax="priceCeiling"
+                                        :aria-valuenow="priceMin"
+                                        @pointerdown.stop="startDrag('min', $event)"
+                                        @keydown="onThumbKeydown('min', $event)"
+                                    ></div>
+                                    <div
+                                        class="price-thumb"
+                                        :class="{ dragging: draggingHandle === 'max' }"
+                                        :style="{ left: priceMaxPct + '%' }"
+                                        role="slider"
+                                        tabindex="0"
+                                        aria-label="Maximum price"
+                                        aria-valuemin="0"
+                                        :aria-valuemax="priceCeiling"
+                                        :aria-valuenow="priceMax"
+                                        @pointerdown.stop="startDrag('max', $event)"
+                                        @keydown="onThumbKeydown('max', $event)"
+                                    ></div>
+                                </div>
+                                <div class="price-inputs">
+                                    <div class="price-input-box">
+                                        <span>₱</span>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            :max="priceCeiling"
+                                            step="10"
+                                            :value="priceMin"
+                                            @change="onMinInputChange"
+                                        />
+                                    </div>
+                                    <span class="price-input-sep">–</span>
+                                    <div class="price-input-box">
+                                        <span>₱</span>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            :max="priceCeiling"
+                                            step="10"
+                                            :value="priceMax"
+                                            @change="onMaxInputChange"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+                <div class="inv-sort-wrap">
+                    <label class="inv-sort-label" for="inv-sort-select">Sort:</label>
+                    <select
+                        id="inv-sort-select"
+                        class="inv-sort-select"
+                        v-model="sortOption"
+                    >
+                        <option value="newest">Newest</option>
+                        <option value="price_asc">Price: Low to High</option>
+                        <option value="price_desc">Price: High to Low</option>
+                        <option value="stock_asc">Stock: Low to High</option>
+                    </select>
                 </div>
                 <button class="btn-primary" @click="openNewProductSheet">
                     <svg
@@ -101,116 +261,19 @@
         <!-- ============================================================
          FILTERS + GRID
          ============================================================ -->
-        <div class="inventory-layout">
-            <aside class="inventory-filters">
-                <div class="filter-group">
-                    <h4 class="filter-heading">Stock Status</h4>
-                    <label
-                        v-for="opt in stockStatusOptions"
-                        :key="opt.value"
-                        class="filter-check"
-                    >
-                        <span
-                            class="check-box"
-                            :class="{
-                                checked: selectedStockStatuses.includes(
-                                    opt.value,
-                                ),
-                            }"
-                        >
-                            <svg
-                                width="11"
-                                height="11"
-                                viewBox="0 0 20 20"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="3"
-                            >
-                                <path d="M4 10l4 4 8-8" />
-                            </svg>
-                        </span>
-                        <input
-                            type="checkbox"
-                            :value="opt.value"
-                            v-model="selectedStockStatuses"
-                            style="display: none"
-                        />
-                        {{ opt.label }}
-                    </label>
-                </div>
-
-                <div class="filter-group">
-                    <h4 class="filter-heading">Price Range</h4>
-                    <div class="price-range">
-                        <div
-                            class="price-track"
-                            ref="priceTrackEl"
-                            @pointerdown="onTrackPointerDown"
-                        >
-                            <div
-                                class="price-track-fill"
-                                :style="{
-                                    left: priceMinPct + '%',
-                                    right: 100 - priceMaxPct + '%',
-                                }"
-                            ></div>
-                            <div
-                                class="price-thumb"
-                                :class="{ dragging: draggingHandle === 'min' }"
-                                :style="{ left: priceMinPct + '%' }"
-                                role="slider"
-                                tabindex="0"
-                                aria-label="Minimum price"
-                                aria-valuemin="0"
-                                :aria-valuemax="priceCeiling"
-                                :aria-valuenow="priceMin"
-                                @pointerdown.stop="startDrag('min', $event)"
-                                @keydown="onThumbKeydown('min', $event)"
-                            ></div>
-                            <div
-                                class="price-thumb"
-                                :class="{ dragging: draggingHandle === 'max' }"
-                                :style="{ left: priceMaxPct + '%' }"
-                                role="slider"
-                                tabindex="0"
-                                aria-label="Maximum price"
-                                aria-valuemin="0"
-                                :aria-valuemax="priceCeiling"
-                                :aria-valuenow="priceMax"
-                                @pointerdown.stop="startDrag('max', $event)"
-                                @keydown="onThumbKeydown('max', $event)"
-                            ></div>
-                        </div>
-                        <div class="price-inputs">
-                            <div class="price-input-box">
-                                <span>₱</span>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    :max="priceCeiling"
-                                    step="10"
-                                    :value="priceMin"
-                                    @change="onMinInputChange"
-                                />
-                            </div>
-                            <span class="price-input-sep">–</span>
-                            <div class="price-input-box">
-                                <span>₱</span>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    :max="priceCeiling"
-                                    step="10"
-                                    :value="priceMax"
-                                    @change="onMaxInputChange"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </aside>
-
+        <div v-if="!sheetOpen" class="inventory-layout">
             <div class="inventory-grid-wrap">
+                <!-- Confirms a filter actually did something — without this,
+                     toggling Stock Status/Price (whether from "Review
+                     Stock" or the Filter popover) gave no feedback beyond
+                     the grid quietly re-filtering and a small dot
+                     appearing on the (closed) Filter button. -->
+                <div v-if="hasActiveInventoryFilters" id="inv-stock-filter-bar" class="inv-stock-filter-bar">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><path d="M12 9v4M12 17h.01" /></svg>
+                    Showing <b>{{ filteredProducts.length }}</b> product{{ filteredProducts.length === 1 ? '' : 's' }}<template v-if="inventoryFilterSummary"> · {{ inventoryFilterSummary }}</template>
+                    <button type="button" class="inv-stock-filter-clear" @click="clearStockAndPriceFilters">Clear all</button>
+                </div>
+
                 <!-- Loading -->
                 <div
                     v-if="isLoadingProducts"
@@ -238,7 +301,7 @@
                         <path d="m3 12 9 5 9-5" />
                         <path d="m3 17 9 5 9-5" />
                     </svg>
-                    <p style="font-weight: 700; color: #1e293b">
+                    <p style="font-weight: 700; color: var(--inv-ink-900)">
                         Inventory isn't set up yet
                     </p>
                     <p class="empty-hint">
@@ -255,7 +318,7 @@
                     class="card empty-state"
                     style="padding: 3rem 1.5rem"
                 >
-                    <p style="font-weight: 700; color: #b91c1c">
+                    <p style="font-weight: 700; color: #f7a49f">
                         Couldn't load your products
                     </p>
                     <p class="empty-hint">{{ loadError }}</p>
@@ -285,7 +348,7 @@
                         <path d="m3 12 9 5 9-5" />
                         <path d="m3 17 9 5 9-5" />
                     </svg>
-                    <p style="font-weight: 700; color: #1e293b">
+                    <p style="font-weight: 700; color: var(--inv-ink-900)">
                         No products yet
                     </p>
                     <p class="empty-hint">
@@ -306,7 +369,7 @@
                     class="card empty-state"
                     style="padding: 3rem 1.5rem"
                 >
-                    <p style="font-weight: 700; color: #1e293b">
+                    <p style="font-weight: 700; color: var(--inv-ink-900)">
                         No products match these filters
                     </p>
                     <p class="empty-hint">
@@ -451,7 +514,7 @@
                                 </p>
                                 <h5 class="product-name">{{ product.name }}</h5>
                                 <p class="product-sku">
-                                    SKU: {{ product.sku || '—' }}
+                                    SKU: {{ productSkuLabel(product) }}
                                 </p>
 
                                 <div class="product-price-row">
@@ -535,59 +598,152 @@
             </div>
 
             <!-- ============================================================
-           PRODUCT PROFILE SHEET
-           Centered modal (reuses .modal-overlay, the same backdrop the
-           Archive-confirm dialog uses) rather than the old sidebar-docked
-           panel. Sections are grouped into icon-badged cards for a
-           cleaner scan-path; the body scrolls internally
-           (product-modal-body, scrollbar hidden but fully scrollable) so
-           the header/footer stay put. No fake multi-step wizard: this
-           form isn't actually paginated, so a step indicator would just
-           be decorative and misleading.
+           INVENTORY INSIGHTS — stock health at a glance, and a
+           shortlist of the products that most need restocking. "Review
+           Stock" reuses the real Stock Status filter rather than
+           duplicating its logic.
            ============================================================ -->
-            <div
-                v-if="sheetOpen"
-                class="modal-overlay"
-                @click.self="handleCancelClick"
-            >
-                <div class="product-modal">
-                    <div class="product-modal-gradient"></div>
+            <aside class="inv-insights">
+                <h3 class="inv-insights-title">Inventory Insights</h3>
 
-                    <div class="product-modal-header">
-                        <div>
-                            <h2>Product Profile Sheet</h2>
-                            <div class="product-modal-status">
-                                <span
-                                    class="status-dot"
-                                    :class="isNewProduct ? 'status-dot-new' : 'status-dot-edit'"
-                                ></span>
-                                <p>
-                                    <template v-if="sheetLoading">Loading full product…</template>
-                                    <template v-else>{{
-                                        isNewProduct
-                                            ? 'New listing draft'
-                                            : 'Editing — saving will resend this listing for review'
-                                    }}</template>
-                                </p>
-                            </div>
-                        </div>
-                        <button class="modal-close" @click="handleCancelClick">
-                            <svg
-                                width="18"
-                                height="18"
-                                viewBox="0 0 20 20"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                            >
-                                <path d="M5 5l10 10M15 5 5 15" />
-                            </svg>
-                        </button>
+                <div>
+                    <p class="inv-trend-label">Stock Trend</p>
+                    <div class="inv-trend-value-row">
+                        <span class="inv-trend-value">{{ healthyPct }}% Healthy</span>
+                        <span v-if="stockTrendDelta != null" class="inv-trend-badge" :class="stockTrendBadge.cls">{{ stockTrendBadge.arrow }}{{ stockTrendBadge.label }}</span>
+                        <span v-else class="inv-trend-badge warn">{{ stockTrendBadge.label }}</span>
                     </div>
 
-                    <div class="product-modal-body custom-scrollbar">
+                    <div v-if="totalProductsCount === 0" class="inv-donut-empty">
+                        No products yet.
+                    </div>
+                    <div v-else-if="isLoadingStockTrend && !stockTrend.length" class="inv-trend-chart-skeleton" aria-hidden="true"></div>
+                    <div v-else-if="stockTrendError" class="inv-donut-empty">
+                        {{ stockTrendError }}
+                        <button type="button" class="inv-trend-retry" @click="loadStockTrend()">Try again</button>
+                    </div>
+                    <div v-else class="inv-trend-chart-wrap">
+                        <canvas ref="stockTrendCanvasEl" role="img" aria-label="In stock, low stock, and out of stock product counts over the last 7 days"></canvas>
+                    </div>
+
+                    <div class="inv-trend-legend">
+                        <div class="inv-tl-row">
+                            <span class="inv-tl-key"><span class="inv-tl-dot good"></span>In Stock</span>
+                            <span class="inv-tl-val">{{ totalProductsCount - lowStockCount - outOfStockCount }}</span>
+                        </div>
+                        <div class="inv-tl-row">
+                            <span class="inv-tl-key"><span class="inv-tl-dot warn"></span>Low Stock</span>
+                            <span class="inv-tl-val">{{ lowStockCount }}</span>
+                        </div>
+                        <div class="inv-tl-row">
+                            <span class="inv-tl-key"><span class="inv-tl-dot bad"></span>Out of Stock</span>
+                            <span class="inv-tl-val">{{ outOfStockCount }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <p class="inv-attn-label">Needs attention</p>
+                    <div v-if="needsAttentionItems.length" class="inv-attn-list">
+                        <button
+                            v-for="p in needsAttentionItems"
+                            :key="p.id"
+                            type="button"
+                            class="inv-attn-item"
+                            @click="openEditProductSheet(p)"
+                        >
+                            <span class="inv-attn-thumb">
+                                <img v-if="p.images?.[0]?.url" :src="p.images[0].url" :alt="p.name" />
+                                <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
+                            </span>
+                            <span class="inv-attn-info">
+                                <span class="inv-attn-name">{{ p.name }}</span>
+                                <span class="inv-attn-meta" :class="effectiveStock(p) === 0 ? 'bad' : 'warn'">{{
+                                    effectiveStock(p) === 0 ? 'Out of Stock' : 'Low Stock'
+                                }}</span>
+                            </span>
+                            <span class="inv-attn-units">{{ effectiveStock(p) }} units</span>
+                        </button>
+                    </div>
+                    <p v-else class="inv-attn-empty">Every product is well stocked.</p>
+                </div>
+
+                <button type="button" class="inv-review-btn" @click="reviewStock">
+                    Review stock
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+                </button>
+            </aside>
+        </div>
+
+        <!-- ============================================================
+         ADD / EDIT PRODUCT — a full page takeover (not a modal),
+         replacing the toolbar/grid/insights above while open. Same
+         activeProductId/form state as before; only the container
+         changed, so Cancel/Save/discard-confirm behavior is untouched.
+         Sections are grouped into icon-badged cards for a clean
+         scan-path. No fake multi-step wizard: this form isn't actually
+         paginated, so a step indicator would just be decorative.
+         ============================================================ -->
+        <div v-else class="product-page">
+            <div class="product-page-header">
+                <div>
+                    <button
+                        type="button"
+                        class="product-page-back"
+                        @click="handleCancelClick"
+                    >
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12.5 4 6 10l6.5 6" />
+                        </svg>
+                        Back to Products &amp; Inventory
+                    </button>
+                    <h1 class="product-page-title">
+                        {{ isNewProduct ? 'Add New Product' : 'Edit Product' }}
+                    </h1>
+                    <p class="product-page-sub">
+                        <template v-if="sheetLoading">Loading full product…</template>
+                        <template v-else-if="isNewProduct"
+                            >List a new item in your
+                            {{ form.category || 'store' }} catalog.</template
+                        >
+                        <template v-else
+                            >Editing — saving will resend this listing for
+                            review.</template
+                        >
+                    </p>
+                </div>
+                <div class="product-page-actions">
+                    <button
+                        class="btn-outline"
+                        @click="handleCancelClick"
+                        :disabled="isSaving"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        class="btn-primary"
+                        @click="handleSaveClick"
+                        :disabled="isSaving || !formIsValid"
+                        :title="saveDisabledReason"
+                    >
+                        <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <path d="M4 10.5l4 4 8-9" />
+                        </svg>
+                        {{
+                            isSaving
+                                ? 'Saving…'
+                                : isNewProduct
+                                    ? 'Add Product'
+                                    : 'Save Changes'
+                        }}
+                    </button>
+                </div>
+            </div>
+
+            <div class="product-page-grid">
+                <div class="product-page-main custom-scrollbar">
                         <!-- ============================================
-                         BASIC INFORMATION
+                         GENERAL INFORMATION
                          ============================================ -->
                         <section class="ps-section">
                             <div class="ps-section-header">
@@ -608,7 +764,7 @@
                                     </svg>
                                 </div>
                                 <div>
-                                    <h3>Basic Information</h3>
+                                    <h3>General Information</h3>
                                     <p>The core details buyers see first.</p>
                                 </div>
                             </div>
@@ -631,23 +787,6 @@
 
                                 <div>
                                     <label class="field-label"
-                                        >Category
-                                        <span style="color: #dc2626"
-                                            >*</span
-                                        ></label
-                                    >
-                                    <div class="ps-category-chip">
-                                        <span>{{ form.category || 'Not set' }}</span>
-                                    </div>
-                                    <p class="field-hint">
-                                        Automatically taken from your seller
-                                        registration (Line of Business) —
-                                        this can't be changed here.
-                                    </p>
-                                </div>
-
-                                <div>
-                                    <label class="field-label"
                                         >Description</label
                                     >
                                     <textarea
@@ -661,202 +800,9 @@
                         </section>
 
                         <!-- ============================================
-                         PRICING & INVENTORY
+                         CATEGORY (read-only)
                          ============================================ -->
                         <section class="ps-section">
-                            <div class="ps-section-header">
-                                <div class="ps-icon-badge ps-icon-emerald">
-                                    <svg
-                                        width="18"
-                                        height="18"
-                                        viewBox="0 0 20 20"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.7"
-                                    >
-                                        <path
-                                            d="M11 3H5a2 2 0 0 0-2 2v6l8.6 8.6a2 2 0 0 0 2.8 0l4.2-4.2a2 2 0 0 0 0-2.8L11 3Z"
-                                        />
-                                        <circle cx="7.5" cy="7.5" r="1" />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <h3>Pricing &amp; Inventory</h3>
-                                    <p>
-                                        Set your selling price and track
-                                        stock.
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div class="ps-section-card">
-                                <div class="sheet-field-row">
-                                    <div>
-                                        <label class="field-label"
-                                            >Price
-                                            <span style="color: #dc2626"
-                                                >*</span
-                                            ></label
-                                        >
-                                        <div class="currency-input">
-                                            <span>₱</span>
-                                            <input
-                                                type="number"
-                                                step="0.01"
-                                                min="0"
-                                                class="field-input"
-                                                v-model.number="form.price"
-                                            />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label class="field-label"
-                                            >Compare Price</label
-                                        >
-                                        <div class="currency-input">
-                                            <span>₱</span>
-                                            <input
-                                                type="number"
-                                                step="0.01"
-                                                min="0"
-                                                class="field-input"
-                                                v-model.number="form.compare_price"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="sheet-field-row">
-                                    <div>
-                                        <label class="field-label"
-                                            >Stock
-                                            <span style="color: #dc2626"
-                                                >*</span
-                                            ></label
-                                        >
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            step="1"
-                                            class="field-input"
-                                            v-model.number="form.stock"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label class="field-label"
-                                            >Low-Stock Threshold</label
-                                        >
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            step="1"
-                                            class="field-input"
-                                            v-model.number="form.low_stock_threshold"
-                                            placeholder="10"
-                                        />
-                                        <p class="field-hint">
-                                            You'll see a Low Stock warning
-                                            once stock falls at or below
-                                            this number.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </section>
-
-                        <!-- ============================================
-                         PRODUCT DETAILS
-                         ============================================ -->
-                        <section class="ps-section">
-                            <div class="ps-section-header">
-                                <div class="ps-icon-badge ps-icon-sky">
-                                    <svg
-                                        width="18"
-                                        height="18"
-                                        viewBox="0 0 20 20"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.7"
-                                    >
-                                        <rect
-                                            x="3"
-                                            y="4"
-                                            width="14"
-                                            height="12"
-                                            rx="2"
-                                        />
-                                        <path d="M3 8h14" />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <h3>Product Details</h3>
-                                    <p>Brand, condition, and promo code.</p>
-                                </div>
-                            </div>
-
-                            <div class="ps-section-card">
-                                <div class="sheet-field-row">
-                                    <div>
-                                        <label class="field-label"
-                                            >Brand</label
-                                        >
-                                        <input
-                                            type="text"
-                                            class="field-input"
-                                            v-model="form.brand"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label class="field-label"
-                                            >Condition</label
-                                        >
-                                        <select
-                                            class="field-input"
-                                            v-model="form.condition"
-                                        >
-                                            <option value="">
-                                                Not specified
-                                            </option>
-                                            <option value="new">New</option>
-                                            <option value="used">Used</option>
-                                            <option value="refurbished">
-                                                Refurbished
-                                            </option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label class="field-label"
-                                        >Promo Code</label
-                                    >
-                                    <input
-                                        type="text"
-                                        class="field-input"
-                                        v-model="form.promo_code"
-                                        style="
-                                            text-transform: uppercase;
-                                            max-width: 220px;
-                                        "
-                                        placeholder="Optional"
-                                    />
-                                </div>
-                            </div>
-                        </section>
-
-                        <!-- ============================================
-                         SPECIFICATIONS
-                         Fields are driven entirely by the seller's own
-                         category (categoryConfig, from GET /api/seller/
-                         category-config) — only fields relevant to that
-                         category ever render here, and the backend
-                         re-checks every key/value against the same
-                         template regardless of what's submitted.
-                         ============================================ -->
-                        <section
-                            v-if="categoryConfig?.specifications?.length"
-                            class="ps-section"
-                        >
                             <div class="ps-section-header">
                                 <div class="ps-icon-badge ps-icon-indigo">
                                     <svg
@@ -871,283 +817,56 @@
                                     </svg>
                                 </div>
                                 <div>
-                                    <h3>Specifications</h3>
-                                    <p>
-                                        Shown to buyers on the product page
-                                        — {{ categoryConfig.category }}.
-                                        Everything here is optional.
-                                    </p>
+                                    <h3>Category</h3>
                                 </div>
                             </div>
 
                             <div class="ps-section-card">
-                                <div class="spec-fields-grid scrollbar-hidden">
-                                    <div
-                                        v-for="field in categoryConfig.specifications"
-                                        :key="field.key"
+                                <div class="ps-category-chip">
+                                    <span>{{ form.category || 'Not set' }}</span>
+                                </div>
+                                <p class="field-hint">
+                                    Automatically set from your seller
+                                    registration (Line of Business) — this
+                                    can't be changed here.
+                                </p>
+
+                                <!-- Some categories cover different enough
+                                     products (e.g. Pet Supplies: food vs
+                                     toys vs accessories) that specs/variant
+                                     options depend on this, per product —
+                                     see CategoryFieldConfig's docblock. -->
+                                <div v-if="availableSubcategories.length" style="margin-top: 0.9rem">
+                                    <label class="field-label"
+                                        >What kind of {{ form.category }} product is this?
+                                        <span style="color: #dc2626">*</span></label
                                     >
-                                        <label class="field-label">{{
-                                            field.label
-                                        }}</label>
-
-                                        <select
-                                            v-if="field.type === 'select'"
-                                            class="field-input"
-                                            v-model="form.specifications[field.key]"
-                                        >
-                                            <option value="">
-                                                Not specified
-                                            </option>
-                                            <option
-                                                v-for="opt in field.options"
-                                                :key="opt"
-                                                :value="opt"
-                                            >
-                                                {{ opt }}
-                                            </option>
-                                        </select>
-
-                                        <textarea
-                                            v-else-if="field.type === 'textarea'"
-                                            class="field-input"
-                                            rows="2"
-                                            style="resize: vertical"
-                                            v-model="form.specifications[field.key]"
-                                        ></textarea>
-
-                                        <input
-                                            v-else-if="field.type === 'date'"
-                                            type="date"
-                                            class="field-input"
-                                            v-model="form.specifications[field.key]"
-                                        />
-
-                                        <input
-                                            v-else
-                                            type="text"
-                                            class="field-input"
-                                            v-model="form.specifications[field.key]"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </section>
-
-                        <!-- ============================================
-                         VARIANTS
-                         Optional: leave with no options to keep this a
-                         simple product using the Price/Stock above.
-                         Option types/values are constrained to what's
-                         relevant for the seller's own category
-                         (categoryConfig) — never free-typed, except the
-                         rare field marked free-text in the template
-                         (e.g. Model).
-                         ============================================ -->
-                        <section class="ps-section">
-                            <div class="ps-section-header">
-                                <div class="ps-icon-badge ps-icon-amber">
-                                    <svg
-                                        width="18"
-                                        height="18"
-                                        viewBox="0 0 20 20"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.7"
-                                    >
-                                        <path
-                                            d="M3 7 10 3l7 4-7 4-7-4Z"
-                                        />
-                                        <path d="M3 7v6l7 4 7-4V7" />
-                                    </svg>
-                                </div>
-                                <div style="flex: 1">
-                                    <h3>Product Variants</h3>
-                                    <p>
-                                        <template v-if="isLoadingCategoryConfig">
-                                            Loading the option types
-                                            available for your category…
-                                        </template>
-                                        <template
-                                            v-else-if="!availableOptionNames.length && !form.options.length"
-                                        >
-                                            No variant options are
-                                            available for
-                                            {{
-                                                categoryConfig?.category ||
-                                                'your category'
-                                            }}
-                                            — this will sell as a single
-                                            item.
-                                        </template>
-                                        <template v-else>
-                                            Add options like
-                                            {{ variantOptionNamesHint }} to
-                                            sell multiple variants, or
-                                            leave empty for a single item.
-                                        </template>
-                                    </p>
-                                </div>
-                                <button
-                                    type="button"
-                                    class="btn-outline"
-                                    style="padding: 6px 14px; font-size: 12px"
-                                    :disabled="isLoadingCategoryConfig || !availableOptionNames.length"
-                                    :title="
-                                        isLoadingCategoryConfig
-                                            ? 'Loading available option types…'
-                                            : !availableOptionNames.length && form.options.length
-                                                ? 'All available option types for your category have been added'
-                                                : ''
-                                    "
-                                    @click="addOption"
-                                >
-                                    {{
-                                        isLoadingCategoryConfig
-                                            ? 'Loading…'
-                                            : '+ Add Option'
-                                    }}
-                                </button>
-                            </div>
-
-                            <div class="ps-section-card">
-                                <div
-                                    v-for="(option, oi) in form.options"
-                                    :key="oi"
-                                    class="variant-option-row"
-                                >
                                     <select
                                         class="field-input"
-                                        style="max-width: 160px"
-                                        v-model="option.name"
-                                        @change="option.values = []"
+                                        v-model="form.subcategory"
+                                        @change="onSubcategoryChange"
                                     >
-                                        <option value="" disabled>
-                                            Choose option type
-                                        </option>
-                                        <option
-                                            v-for="name in availableOptionNamesFor(option.name)"
-                                            :key="name"
-                                            :value="name"
-                                        >
-                                            {{ name }}
+                                        <option value="" disabled>Choose one</option>
+                                        <option v-for="s in availableSubcategories" :key="s" :value="s">
+                                            {{ s }}
                                         </option>
                                     </select>
-                                    <div
-                                        class="variant-option-values scrollbar-hidden"
-                                    >
-                                        <span
-                                            v-for="(val, vi) in option.values"
-                                            :key="vi"
-                                            class="variant-value-chip"
-                                        >
-                                            {{ val }}
-                                            <button
-                                                type="button"
-                                                @click="removeOptionValue(oi, vi)"
-                                            >
-                                                ×
-                                            </button>
-                                        </span>
-
-                                        <input
-                                            v-if="isOptionFreeText(option.name)"
-                                            type="text"
-                                            class="variant-value-input"
-                                            placeholder="Add value, press Enter"
-                                            @keydown.enter.prevent="addOptionValue(oi, $event)"
-                                        />
-                                        <select
-                                            v-else-if="option.name"
-                                            class="variant-value-input"
-                                            style="border: none; outline: none"
-                                            @change="addOptionValueFromSelect(oi, $event)"
-                                        >
-                                            <option value="">
-                                                {{
-                                                    remainingValuesFor(option).length
-                                                        ? '+ Add value'
-                                                        : 'All values added'
-                                                }}
-                                            </option>
-                                            <option
-                                                v-for="val in remainingValuesFor(option)"
-                                                :key="val"
-                                                :value="val"
-                                            >
-                                                {{ val }}
-                                            </option>
-                                        </select>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        class="chip-btn danger"
-                                        @click="removeOption(oi)"
-                                    >
-                                        Remove
-                                    </button>
-                                </div>
-
-                                <div
-                                    v-if="form.variants.length"
-                                    class="variant-table-wrap scrollbar-hidden"
-                                >
-                                    <table class="variant-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Combination</th>
-                                                <th>Price</th>
-                                                <th>Stock</th>
-                                                <th>Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr
-                                                v-for="(variant, vi) in form.variants"
-                                                :key="vi"
-                                            >
-                                                <td>
-                                                    {{ variantLabel(variant) }}
-                                                </td>
-                                                <td>
-                                                    <input
-                                                        type="text"
-                                                        class="field-input"
-                                                        :value="`₱${form.price || 0}`"
-                                                        disabled
-                                                        title="Set in Pricing & Inventory above."
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        step="1"
-                                                        class="field-input"
-                                                        v-model.number="variant.stock"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <select
-                                                        class="field-input"
-                                                        v-model="variant.status"
-                                                    >
-                                                        <option value="active">
-                                                            Active
-                                                        </option>
-                                                        <option value="unavailable">
-                                                            Unavailable
-                                                        </option>
-                                                    </select>
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
+                                    <p class="field-hint">
+                                        Changes which specification fields
+                                        and variant options apply below.
+                                    </p>
                                 </div>
                             </div>
                         </section>
 
+                        <p v-if="saveError" class="save-msg error">
+                            {{ saveError }}
+                        </p>
+                </div>
+
+                <div class="product-page-side">
                         <!-- ============================================
-                         PRODUCT MEDIA
+                         UPLOAD IMAGE
                          ============================================ -->
                         <section class="ps-section">
                             <div class="ps-section-header">
@@ -1174,7 +893,7 @@
                                     </svg>
                                 </div>
                                 <div>
-                                    <h3>Product Media</h3>
+                                    <h3>Upload Image</h3>
                                     <p>
                                         Visuals sell — add clear, well-lit
                                         photos.
@@ -1275,44 +994,446 @@
                             </div>
                         </section>
 
-                        <p v-if="saveError" class="save-msg error">
-                            {{ saveError }}
-                        </p>
-                    </div>
-
-                    <div class="product-modal-footer">
-                        <p
-                            v-if="!isSaving && saveDisabledReason"
-                            class="product-modal-footer-hint"
-                        >
-                            {{ saveDisabledReason }}
-                        </p>
-                        <div class="product-modal-footer-actions">
-                            <button
-                                class="btn-outline"
-                                style="border: none; background: none"
-                                @click="handleCancelClick"
-                                :disabled="isSaving"
-                            >
-                                Cancel Changes
-                            </button>
-                            <button
-                                class="btn-primary"
-                                @click="handleSaveClick"
-                                :disabled="isSaving || !formIsValid"
-                                :title="saveDisabledReason"
-                            >
-                                {{ isSaving ? 'Saving…' : 'Save Changes' }}
-                            </button>
-                        </div>
-                    </div>
                 </div>
             </div>
+
+            <div class="product-page-full">
+                        <!-- ============================================
+                         VARIANTS
+                         Every product needs at least one variant now —
+                         price/stock/low-stock threshold all live per
+                         variant (see the removed Pricing & Inventory
+                         section this replaced). Selling just one option,
+                         or none at all, still means adding exactly one
+                         variant below: pick values if relevant, then
+                         click Add Variant — a "solo" product is just a
+                         product with one variant row. Option types/values
+                         are constrained to what's relevant for the
+                         seller's own category (categoryConfig) — never
+                         free-typed, except the rare field marked
+                         free-text in the template (e.g. Model).
+                         ============================================ -->
+                        <section class="ps-section">
+                            <div class="ps-section-header">
+                                <div class="ps-icon-badge ps-icon-amber">
+                                    <svg
+                                        width="18"
+                                        height="18"
+                                        viewBox="0 0 20 20"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.7"
+                                    >
+                                        <path
+                                            d="M3 7 10 3l7 4-7 4-7-4Z"
+                                        />
+                                        <path d="M3 7v6l7 4 7-4V7" />
+                                    </svg>
+                                </div>
+                                <div style="flex: 1">
+                                    <h3>Product Variants</h3>
+                                    <p>
+                                        <template v-if="isLoadingCategoryConfig">
+                                            Loading the option types
+                                            available for your category…
+                                        </template>
+                                        <template v-else>
+                                            Every product needs at least
+                                            one variant, even if it only
+                                            comes one way. Pick a value
+                                            per option below (or none, for
+                                            a product with no real
+                                            options), set its price, and
+                                            click Add Variant. Repeat to
+                                            add more.
+                                        </template>
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="ps-section-card">
+                                <div
+                                    v-for="option in form.options"
+                                    :key="option.name"
+                                    class="variant-group"
+                                >
+                                    <div class="variant-group-header">
+                                        <span class="variant-group-name">{{ option.name }}</span>
+                                        <span class="variant-group-hint">{{ optionHint(option.name) }}</span>
+                                        <button
+                                            v-if="!categoryOptionDef(option.name)"
+                                            type="button"
+                                            class="variant-group-remove"
+                                            @click="removeCustomOption(option.name)"
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+
+                                    <!-- One value at a time — this is what's about to be added
+                                         as ONE variant (see the staging bar below), not a
+                                         multi-select. Values already used by a variant added
+                                         earlier (or, when editing, already saved) show up here
+                                         as quick-pick choices alongside the category's own
+                                         presets, via displayValuesFor(). -->
+                                    <div class="variant-radio-row">
+                                        <label
+                                            v-for="val in displayValuesFor(option)"
+                                            :key="val"
+                                            class="variant-radio"
+                                            :class="{ selected: stagingValues[option.name] === val }"
+                                        >
+                                            <input
+                                                type="radio"
+                                                :name="`variant-${option.name}`"
+                                                :checked="stagingValues[option.name] === val"
+                                                @change="setSingleValue(option, val)"
+                                            />
+                                            <span>{{ val }}</span>
+                                            <button
+                                                v-if="isCustomValue(option, val)"
+                                                type="button"
+                                                class="variant-pill-remove"
+                                                @click.stop.prevent="removeCustomValue(option, val)"
+                                            >
+                                                ×
+                                            </button>
+                                        </label>
+
+                                        <label class="variant-radio variant-radio-other" :class="{ selected: isOtherActiveFor(option) }">
+                                            <input
+                                                type="radio"
+                                                :name="`variant-${option.name}`"
+                                                :checked="isOtherActiveFor(option)"
+                                                @change="openOther(option.name)"
+                                            />
+                                            <span>Other</span>
+                                        </label>
+                                        <span v-if="otherOpen[option.name]" class="variant-other-input">
+                                            <input
+                                                type="text"
+                                                v-model="otherDraft[option.name]"
+                                                placeholder="Type a value…"
+                                                autofocus
+                                                @keydown.enter.prevent="commitOther(option)"
+                                                @blur="commitOther(option)"
+                                            />
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="variant-add-option">
+                                    <button
+                                        v-if="!showAddCustomOption"
+                                        type="button"
+                                        class="btn-outline"
+                                        style="padding: 6px 14px; font-size: 12px"
+                                        @click="openAddCustomOption"
+                                    >
+                                        + Add Custom Option
+                                    </button>
+                                    <div v-else class="variant-add-option-form">
+                                        <input
+                                            type="text"
+                                            class="field-input"
+                                            v-model="newCustomOptionName"
+                                            placeholder="e.g. Packaging"
+                                            autofocus
+                                            @keydown.enter.prevent="confirmAddCustomOption"
+                                        />
+                                        <button type="button" class="btn-primary" style="padding: 6px 14px; font-size: 12px" @click="confirmAddCustomOption">
+                                            Add
+                                        </button>
+                                        <button type="button" class="btn-outline" style="padding: 6px 14px; font-size: 12px" @click="cancelAddCustomOption">
+                                            Cancel
+                                        </button>
+                                    </div>
+                                    <p v-if="customOptionError" class="save-msg error">{{ customOptionError }}</p>
+                                </div>
+
+                                <datalist id="variant-discount-types">
+                                    <option v-for="t in DISCOUNT_TYPES" :key="t" :value="t" />
+                                </datalist>
+
+                                <div v-if="form.options.length" class="variant-staging-bar">
+                                    <div class="variant-staging-summary">
+                                        <span v-if="stagingSummaryText">Adding: {{ stagingSummaryText }}</span>
+                                        <span v-else class="variant-staging-empty">Adding: a single variant with no specific options.</span>
+                                        <button
+                                            v-if="stagingSummaryText"
+                                            type="button"
+                                            class="variant-staging-clear"
+                                            @click="clearStaging"
+                                        >
+                                            Clear
+                                        </button>
+                                    </div>
+
+                                    <div class="variant-staging-fields">
+                                        <div class="variant-image-slot">
+                                            <label class="variant-image-upload">
+                                                <input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    style="display: none"
+                                                    @change="handleVariantImageUpload($event, stagingVariant)"
+                                                />
+                                                <img v-if="stagingVariant.image?.url" :src="stagingVariant.image.url" alt="" />
+                                                <svg
+                                                    v-else
+                                                    width="18"
+                                                    height="18"
+                                                    viewBox="0 0 20 20"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="1.6"
+                                                >
+                                                    <path d="M10 13V5M6.5 8.5 10 5l3.5 3.5" />
+                                                    <path d="M4 13v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2" />
+                                                </svg>
+                                            </label>
+                                            <button
+                                                v-if="stagingVariant.image?.url"
+                                                type="button"
+                                                class="variant-image-remove"
+                                                aria-label="Remove variant image"
+                                                @click="stagingVariant.image = null"
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+                                        <div class="currency-input">
+                                            <span>₱</span>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                class="field-input"
+                                                v-model.number="stagingVariant.price"
+                                                placeholder="Price"
+                                                required
+                                            />
+                                        </div>
+                                        <div class="percent-input">
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="100"
+                                                step="1"
+                                                class="field-input"
+                                                v-model.number="stagingVariant.discount_percent"
+                                                placeholder="0"
+                                            />
+                                            <span>%</span>
+                                        </div>
+                                        <p v-if="variantDiscountedPrice(stagingVariant) !== null" class="variant-discount-preview">
+                                            → ₱{{ variantDiscountedPrice(stagingVariant) }}
+                                        </p>
+                                        <input
+                                            type="text"
+                                            class="field-input"
+                                            list="variant-discount-types"
+                                            v-model="stagingVariant.discount_type"
+                                            placeholder="Discount type"
+                                        />
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            class="field-input"
+                                            v-model.number="stagingVariant.stock"
+                                            placeholder="Stock"
+                                        />
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            class="field-input"
+                                            v-model.number="stagingVariant.low_stock_threshold"
+                                            placeholder="Low-stock at"
+                                            title="Low-stock warning threshold for this variant — leave blank to use the app default (10)"
+                                        />
+                                        <select class="field-input" v-model="stagingVariant.status">
+                                            <option value="active">Active</option>
+                                            <option value="unavailable">Unavailable</option>
+                                        </select>
+                                        <button
+                                            type="button"
+                                            class="btn-primary"
+                                            :disabled="!canAddVariant"
+                                            :title="canAddVariant ? '' : 'Enter a price for this variant'"
+                                            @click="addVariant"
+                                        >
+                                            + Add Variant
+                                        </button>
+                                    </div>
+                                    <p v-if="addVariantError" class="save-msg error">{{ addVariantError }}</p>
+                                </div>
+
+                                <p v-if="form.variants.length" class="variant-group-name" style="margin-top: 0.4rem">
+                                    Added Variants ({{ form.variants.length }})
+                                </p>
+                                <!-- Cards, not a table: with this many fields per
+                                     variant (price, discount, discount type,
+                                     stock, low-stock, status, image) a table
+                                     just forces horizontal scrolling to see the
+                                     last few columns. Fields wrap naturally
+                                     instead — nothing is ever clipped. -->
+                                <div v-if="form.variants.length" class="variant-list">
+                                    <div
+                                        v-for="(variant, vi) in form.variants"
+                                        :key="vi"
+                                        class="variant-card"
+                                    >
+                                        <div class="variant-card-header">
+                                            <span class="variant-card-title">{{ variantLabel(variant) }}</span>
+                                            <button
+                                                type="button"
+                                                class="variant-row-remove"
+                                                :aria-label="`Remove ${variantLabel(variant)}`"
+                                                title="Remove this combination"
+                                                @click="removeVariantRow(vi)"
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+
+                                        <div class="variant-card-body">
+                                            <div class="variant-image-slot">
+                                                <label class="variant-image-upload">
+                                                    <input
+                                                        type="file"
+                                                        accept="image/*"
+                                                        style="display: none"
+                                                        @change="handleVariantImageUpload($event, variant)"
+                                                    />
+                                                    <img v-if="variant.image?.url" :src="variant.image.url" alt="" />
+                                                    <svg
+                                                        v-else
+                                                        width="18"
+                                                        height="18"
+                                                        viewBox="0 0 20 20"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        stroke-width="1.6"
+                                                    >
+                                                        <path d="M10 13V5M6.5 8.5 10 5l3.5 3.5" />
+                                                        <path d="M4 13v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2" />
+                                                    </svg>
+                                                </label>
+                                                <button
+                                                    v-if="variant.image?.url"
+                                                    type="button"
+                                                    class="variant-image-remove"
+                                                    aria-label="Remove variant image"
+                                                    @click="variant.image = null"
+                                                >
+                                                    ×
+                                                </button>
+                                            </div>
+
+                                            <label class="variant-field">
+                                                <span class="variant-field-label">SKU</span>
+                                                <span class="variant-sku-display" :title="variant.sku ? '' : 'Assigned automatically once this product is saved'">{{ variant.sku || 'Assigned on save' }}</span>
+                                            </label>
+
+                                            <label class="variant-field">
+                                                <span class="variant-field-label">Price <span style="color: #dc2626">*</span></span>
+                                                <div class="currency-input">
+                                                    <span>₱</span>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0"
+                                                        class="field-input"
+                                                        v-model.number="variant.price"
+                                                        placeholder="Price"
+                                                        required
+                                                    />
+                                                </div>
+                                            </label>
+
+                                            <label class="variant-field">
+                                                <span class="variant-field-label">Discount</span>
+                                                <div class="percent-input">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="100"
+                                                        step="1"
+                                                        class="field-input"
+                                                        v-model.number="variant.discount_percent"
+                                                        placeholder="0"
+                                                    />
+                                                    <span>%</span>
+                                                </div>
+                                                <p v-if="variantDiscountedPrice(variant) !== null" class="variant-discount-preview">
+                                                    → ₱{{ variantDiscountedPrice(variant) }}
+                                                </p>
+                                            </label>
+
+                                            <label class="variant-field">
+                                                <span class="variant-field-label">Discount Type</span>
+                                                <input
+                                                    type="text"
+                                                    class="field-input"
+                                                    list="variant-discount-types"
+                                                    v-model="variant.discount_type"
+                                                    placeholder="None"
+                                                />
+                                            </label>
+
+                                            <label class="variant-field">
+                                                <span class="variant-field-label">Stock</span>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    class="field-input"
+                                                    v-model.number="variant.stock"
+                                                />
+                                            </label>
+
+                                            <label class="variant-field">
+                                                <span class="variant-field-label">Low-Stock At</span>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    class="field-input"
+                                                    v-model.number="variant.low_stock_threshold"
+                                                    placeholder="10"
+                                                />
+                                            </label>
+
+                                            <label class="variant-field">
+                                                <span class="variant-field-label">Status</span>
+                                                <select
+                                                    class="field-input"
+                                                    v-model="variant.status"
+                                                >
+                                                    <option value="active">
+                                                        Active
+                                                    </option>
+                                                    <option value="unavailable">
+                                                        Unavailable
+                                                    </option>
+                                                </select>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+            </div>
+        </div>
 
             <!-- ============================================================
              DISCARD CHANGES CONFIRM (reuses .modal-* classes; renders on
              top of the product modal's own overlay)
              ============================================================ -->
+            <Transition name="modal-fade">
             <div
                 v-if="showDiscardConfirm"
                 class="modal-overlay"
@@ -1360,10 +1481,12 @@
                     </div>
                 </div>
             </div>
+            </Transition>
 
             <!-- ============================================================
              SAVE CHANGES CONFIRM (reuses .modal-* classes)
              ============================================================ -->
+            <Transition name="modal-fade">
             <div
                 v-if="showSaveConfirm"
                 class="modal-overlay"
@@ -1424,11 +1547,12 @@
                     </div>
                 </div>
             </div>
-        </div>
+            </Transition>
 
         <!-- ============================================================
          DELETE CONFIRM MODAL (reuses existing .modal-* classes)
          ============================================================ -->
+        <Transition name="modal-fade">
         <div
             v-if="showDeleteModal"
             class="modal-overlay"
@@ -1485,10 +1609,12 @@
                 </div>
             </div>
         </div>
+        </Transition>
 
         <!-- ============================================================
          STOCK ADJUSTMENT + MOVEMENT HISTORY MODAL
          ============================================================ -->
+        <Transition name="modal-fade">
         <div
             v-if="stockModalOpen && stockModalProduct"
             class="modal-overlay"
@@ -1640,14 +1766,28 @@
                 </div>
             </div>
         </div>
+        </Transition>
 
     </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import {
+    Chart,
+    LineController,
+    LineElement,
+    PointElement,
+    LinearScale,
+    CategoryScale,
+    Tooltip,
+    Legend,
+    Filler,
+} from 'chart.js';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import { useSeller } from '../composables/useSeller';
 import { useSellerProducts } from '../composables/useSellerProducts';
+
+Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
 const {
     products,
@@ -1661,6 +1801,7 @@ const {
     selectedStockStatuses,
     priceMin,
     priceMax,
+    sortOption,
 
     currentPage,
     totalPages,
@@ -1686,6 +1827,11 @@ const {
     isLoadingCategoryConfig,
     loadCategoryConfig,
 
+    stockTrend,
+    isLoadingStockTrend,
+    stockTrendError,
+    loadStockTrend,
+
     effectiveStock,
     stockStatusOf,
     formatPrice,
@@ -1697,6 +1843,166 @@ const {
 
 const { sellerDetails } = useSeller();
 
+// ---- Inventory stat bar + Insights panel — derived from the seller's
+// whole catalog (`products`), not `filteredProducts`, so these numbers
+// stay stable while the seller searches/filters the grid below them.
+const totalProductsCount = computed(() => products.value.length);
+const lowStockCount = computed(
+    () => products.value.filter((p) => stockStatusOf(p) === 'low_stock').length,
+);
+const outOfStockCount = computed(
+    () => products.value.filter((p) => stockStatusOf(p) === 'out_of_stock').length,
+);
+const inventoryValue = computed(() =>
+    products.value.reduce((sum, p) => sum + (Number(p.price) || 0) * effectiveStock(p), 0),
+);
+const healthyPct = computed(() => {
+    const total = totalProductsCount.value;
+
+    if (total === 0) {
+        return 100;
+    }
+
+    const unhealthy = lowStockCount.value + outOfStockCount.value;
+
+    return Math.round(((total - unhealthy) / total) * 100);
+});
+
+// A real week-over-week delta, not a fabricated one: reconstructed from
+// inventory_movements (see SellerInventoryController::stockTrend), which
+// logs a real quantity_after for every stock change including the
+// initial_stock row a product gets on creation — so "how many products
+// were in/low/out of stock N days ago" is genuinely computable, just not
+// from a dedicated snapshot table. Compares the oldest vs newest day the
+// fetched window actually has a known reading for (a brand-new catalog
+// may not have 7 full days yet).
+const stockTrendDelta = computed(() => {
+    const known = stockTrend.value.filter((d) => d.healthyPct != null);
+
+    if (known.length < 2) {
+        return null;
+    }
+
+    return Math.round((known[known.length - 1].healthyPct - known[0].healthyPct) * 10) / 10;
+});
+
+const stockTrendBadge = computed(() => {
+    const delta = stockTrendDelta.value;
+
+    if (delta == null) {
+        return { label: 'Not enough history yet', cls: 'warn', arrow: '' };
+    }
+
+    if (delta > 0) {
+        return { label: `${delta}%`, cls: 'good', arrow: '↑' };
+    }
+
+    if (delta < 0) {
+        return { label: `${Math.abs(delta)}%`, cls: 'bad', arrow: '↓' };
+    }
+
+    return { label: '0%', cls: 'warn', arrow: '→' };
+});
+
+// ---- Stock Trend line chart (In Stock / Low Stock / Out of Stock) ----
+const stockTrendCanvasEl = ref(null);
+let stockTrendChart = null;
+
+function prefersReducedMotion() {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+}
+
+function renderStockTrendChart() {
+    if (!stockTrendCanvasEl.value || !stockTrend.value.length) {
+        return;
+    }
+
+    const labels = stockTrend.value.map((d) => d.label);
+
+    stockTrendChart?.destroy();
+    stockTrendChart = new Chart(stockTrendCanvasEl.value, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'In Stock',
+                    data: stockTrend.value.map((d) => d.inStock),
+                    borderColor: '#14b8a6',
+                    backgroundColor: 'rgba(20, 184, 166, 0.12)',
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    borderWidth: 2.5,
+                },
+                {
+                    label: 'Low Stock',
+                    data: stockTrend.value.map((d) => d.lowStock),
+                    borderColor: '#fbbf7d',
+                    backgroundColor: 'transparent',
+                    tension: 0.35,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    borderWidth: 2,
+                },
+                {
+                    label: 'Out of Stock',
+                    data: stockTrend.value.map((d) => d.outOfStock),
+                    borderColor: '#f7a49f',
+                    backgroundColor: 'transparent',
+                    tension: 0.35,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    borderWidth: 2,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: prefersReducedMotion() ? false : { duration: 350 },
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { display: false }, ticks: { color: '#6d766e', font: { size: 10 } } },
+                y: { display: false, beginAtZero: true },
+            },
+        },
+    });
+}
+
+// Watches the canvas ref too, not just the data — the canvas only exists
+// once loading/error/empty states clear, so either becoming ready must
+// still be able to trigger the first real draw (same fix Reports.vue's
+// Weekly Fulfillment chart needed).
+watch([stockTrend, stockTrendCanvasEl], () => nextTick(renderStockTrendChart));
+
+// Worst-stocked first, so the seller sees what needs restocking soonest.
+const needsAttentionItems = computed(() =>
+    products.value
+        .filter((p) => ['low_stock', 'out_of_stock'].includes(stockStatusOf(p)))
+        .slice()
+        .sort((a, b) => effectiveStock(a) - effectiveStock(b))
+        .slice(0, 4),
+);
+
+// Reuses the real Stock Status filter (the same checkboxes in the
+// sidebar) instead of maintaining a second, parallel filtering path.
+function reviewStock() {
+    selectedStockStatuses.value = ['low_stock', 'out_of_stock'];
+}
+
+// Clears exactly what the active-filter bar above the grid describes
+// (Stock Status + Price) — not clearFilters(), which also resets search
+// the seller may have typed separately and wouldn't expect this button
+// to touch.
+function clearStockAndPriceFilters() {
+    selectedStockStatuses.value = [];
+    priceMin.value = PRICE_MIN_BOUND;
+    priceMax.value = priceCeiling.value;
+}
+
 onMounted(async () => {
     // loadProducts() is deduplicated and also watches for a late-arriving
     // seller session, so this is safe even if the composable already started
@@ -1704,7 +2010,54 @@ onMounted(async () => {
     // priority; the form-only category config loads immediately afterward.
     await loadProducts();
     void loadCategoryConfig();
+    void loadStockTrend();
+
+    document.addEventListener('click', onFilterPanelDocClick);
+    document.addEventListener('keydown', onFilterPanelEscKey);
 });
+
+// Same 30s poll rhythm as Orders.vue/Dashboard.vue — a restock or a
+// buyer purchase draining stock elsewhere shouldn't need a page reload
+// to show up here. The Add/Edit sheet works off its own copy of a
+// product (see openEditProductSheet()), so a background refresh of the
+// list can't clobber an in-progress edit.
+const INVENTORY_POLL_MS = 30 * 1000;
+let inventoryPollTimer = null;
+
+onMounted(() => {
+    inventoryPollTimer = setInterval(() => loadProducts(), INVENTORY_POLL_MS);
+});
+
+onBeforeUnmount(() => {
+    clearInterval(inventoryPollTimer);
+});
+
+// ---- Filter popover (Stock Status + Price Range, shown on demand
+// instead of a permanent sidebar — closes on outside click or Escape) ----
+const showFilterPanel = ref(false);
+const filterBtnEl = ref(null);
+const filterPanelEl = ref(null);
+
+function onFilterPanelDocClick(event) {
+    if (!showFilterPanel.value) {
+        return;
+    }
+
+    if (
+        filterPanelEl.value &&
+        !filterPanelEl.value.contains(event.target) &&
+        filterBtnEl.value &&
+        !filterBtnEl.value.contains(event.target)
+    ) {
+        showFilterPanel.value = false;
+    }
+}
+
+function onFilterPanelEscKey(event) {
+    if (event.key === 'Escape') {
+        showFilterPanel.value = false;
+    }
+}
 
 const stockStatusOptions = [
     { value: 'in_stock', label: 'In Stock' },
@@ -1888,6 +2241,9 @@ function onThumbKeydown(handle, event) {
 
 onBeforeUnmount(() => {
     window.removeEventListener('pointermove', onDragMove);
+    document.removeEventListener('click', onFilterPanelDocClick);
+    document.removeEventListener('keydown', onFilterPanelEscKey);
+    stockTrendChart?.destroy();
 });
 
 function clearFilters() {
@@ -1896,6 +2252,37 @@ function clearFilters() {
     priceMin.value = PRICE_MIN_BOUND;
     priceMax.value = priceCeiling.value;
 }
+
+// Drives the small dot on the Filter button — only Stock Status/Price
+// count as "active filters" here, not the separate search box.
+const hasActiveInventoryFilters = computed(
+    () =>
+        selectedStockStatuses.value.length > 0 ||
+        priceMin.value > PRICE_MIN_BOUND ||
+        priceMax.value < priceCeiling.value,
+);
+
+// Human-readable "what's actually filtered" for the active-filter bar,
+// e.g. "Low Stock, Out of Stock · ₱100–₱500" — built from the same state
+// hasActiveInventoryFilters checks, so the two can never disagree.
+const inventoryFilterSummary = computed(() => {
+    const parts = [];
+
+    if (selectedStockStatuses.value.length) {
+        parts.push(
+            stockStatusOptions
+                .filter((o) => selectedStockStatuses.value.includes(o.value))
+                .map((o) => o.label)
+                .join(', '),
+        );
+    }
+
+    if (priceMin.value > PRICE_MIN_BOUND || priceMax.value < priceCeiling.value) {
+        parts.push(`₱${priceMin.value}–₱${priceMax.value}`);
+    }
+
+    return parts.join(' · ');
+});
 
 // Reset to page 1 whenever the result set changes underneath the user.
 watch(filteredProducts, () => {
@@ -2093,6 +2480,26 @@ function movementWhen(iso) {
     });
 }
 
+// A product's own top-level `sku` field is never set anymore (every
+// product has real per-variant SKUs instead — see
+// SellerProductService::generateVariantSku()), so the list card reads
+// straight from `product.variants`: a single-variant ("solo") product
+// shows that one real SKU, a multi-variant one shows a count (there's
+// no single correct answer for "the" SKU of several different SKUs).
+function productSkuLabel(product) {
+    const variants = product.variants || [];
+
+    if (variants.length === 1) {
+        return variants[0].sku || '—';
+    }
+
+    if (variants.length > 1) {
+        return `${variants.length} SKUs`;
+    }
+
+    return '—';
+}
+
 async function confirmDelete() {
     try {
         if (deleteTarget.value === 'bulk') {
@@ -2117,6 +2524,7 @@ const blankForm = () => ({
     name: '',
     description: '',
     category: '',
+    subcategory: '', // required only when categoryConfig.subcategories is non-empty
     brand: '',
     condition: '',
     specifications: {}, // { [field.key]: value } — keys from categoryConfig.specifications
@@ -2127,19 +2535,39 @@ const blankForm = () => ({
     stock: null,
     images: [],
     options: [], // [{ name, values: [] }] — draft editor state
+    // sku is READ-ONLY display data, never submitted — the server
+    // auto-generates it (see SellerProductService::generateVariantSku()).
     variants: [], // [{ option_values: {Name: value}, sku, price, stock, image, status }]
 });
 const form = reactive(blankForm());
 
-const formIsValid = computed(
-    () =>
-        form.name.trim() &&
-        form.category.trim() &&
-        form.price !== null &&
-        form.price !== '' &&
-        form.stock !== null &&
-        form.stock !== '',
-);
+// Categories with no subcategory concept (CategoryFieldConfig::hasSubcategories()
+// false server-side) return [] here — the field simply never renders, and
+// nothing extra is required to save.
+const availableSubcategories = computed(() => categoryConfig.value?.subcategories || []);
+
+// A variant product prices/stocks itself per variant (see the Product
+// Variants section) — the top-level Price/Stock fields only exist, and
+// only need filling in, for a simple product with no variants at all.
+// Every product needs at least one variant now — there's no more
+// product-level Pricing & Inventory section for a "simple" product to
+// fall back on. A single-option (or no-option) product just has one
+// variant row instead.
+const formIsValid = computed(() => {
+    if (!form.name.trim() || !form.category.trim()) {
+        return false;
+    }
+
+    if (availableSubcategories.value.length && !form.subcategory) {
+        return false;
+    }
+
+    if (!form.variants.length) {
+        return false;
+    }
+
+    return form.variants.every((v) => v.price !== null && v.price !== '');
+});
 
 // Explains *why* Save is disabled instead of leaving sellers to guess at
 // a grayed-out button — checked in priority order, most important first.
@@ -2148,46 +2576,38 @@ const saveDisabledReason = computed(() => {
         return 'Enter a product name to continue.';
     }
 
-    if (form.price === null || form.price === '') {
-        return 'Enter a price to continue.';
+    if (availableSubcategories.value.length && !form.subcategory) {
+        return `Choose what kind of ${form.category} product this is.`;
     }
 
-    if (form.stock === null || form.stock === '') {
-        return 'Enter a stock quantity to continue.';
+    if (!form.variants.length) {
+        return 'Add at least one variant to continue.';
+    }
+
+    if (form.variants.some((v) => v.price === null || v.price === '')) {
+        return 'Every variant needs a price.';
     }
 
     return '';
 });
 
-// ---- variants: option/value editing ----
-
-function addOption() {
-    form.options.push({ name: '', values: [] });
-}
-
-function removeOption(index) {
-    form.options.splice(index, 1);
-}
-
-function addOptionValue(optionIndex, event) {
-    const input = event.target;
-    const value = input.value.trim();
-
-    if (value && !form.options[optionIndex].values.includes(value)) {
-        form.options[optionIndex].values.push(value);
-    }
-
-    input.value = '';
-}
-
-function removeOptionValue(optionIndex, valueIndex) {
-    form.options[optionIndex].values.splice(valueIndex, 1);
-}
-
 // ---- category-constrained option types/values ----
 // All sourced from categoryConfig (GET /api/seller/category-config),
 // never hardcoded here — a different seller category simply gets a
 // different config payload and this same code renders accordingly.
+// Every option type the category defines is always shown (Weight, Pet
+// Type, Flavor, ...) — there's no "+ Add Option" step for these; a
+// seller just leaves one untouched to skip that axis entirely.
+//
+// Variants are built ONE AT A TIME: a seller picks a single value per
+// option below (see stagingValues), optionally sets that variant's own
+// price/discount/stock/status, then clicks "Add Variant" (addVariant())
+// to commit it as a row in form.variants — then repeats for the next
+// combination. This replaced an earlier "pick every value you'll stock,
+// then every combination is generated for you" design: with several
+// option types that multiplies fast into combinations a seller never
+// intended to sell, and there's no clean way to select "one weight AND
+// one flavor for this specific listing" from independent multi-selects.
 
 function categoryOptionDef(name) {
     return (categoryConfig.value?.variant_options || []).find(
@@ -2195,62 +2615,270 @@ function categoryOptionDef(name) {
     );
 }
 
-const variantOptionNamesHint = computed(() => {
-    const names = (categoryConfig.value?.variant_options || []).map((o) => o.name);
-
-    return names.length ? names.slice(0, 3).join(', ') : 'Color or Size';
-});
-
-// Option types not yet used by any other row (a seller can't add the
-// same type — e.g. two "Color" rows — twice).
-const availableOptionNames = computed(() => {
-    const used = new Set(form.options.map((o) => o.name).filter(Boolean));
-
-    return (categoryConfig.value?.variant_options || [])
-        .map((o) => o.name)
-        .filter((name) => !used.has(name));
-});
-
-// Same as above but keeps `currentName` selectable in its own row's
-// dropdown even though it's "used" (by that row itself).
-function availableOptionNamesFor(currentName) {
-    const names = availableOptionNames.value;
-
-    return currentName && !names.includes(currentName)
-        ? [currentName, ...names]
-        : names;
+function optionHint(name) {
+    return categoryOptionDef(name)?.hint || `Choose a ${name.toLowerCase()} for this variant`;
 }
 
-function isOptionFreeText(name) {
-    const def = categoryOptionDef(name);
+// Keeps form.options in exact 1:1 sync with the category's own option
+// list (by name), preserving whatever value HISTORY is already on an
+// option that still exists (see displayValuesFor), dropping any that no
+// longer do (defensive — the category itself doesn't change under a
+// seller's account), and adding a blank entry for one that's newly
+// available. Runs whenever the sheet opens and whenever categoryConfig
+// finishes loading, so the widgets render correctly regardless of which
+// happens first.
+//
+// Anything in form.options whose name ISN'T one of the category's own
+// (a seller-added "+ Add Custom Option" axis, or one loaded from an
+// existing product) is left exactly where it is, appended after the
+// category-driven ones — reconciliation only manages the fixed set,
+// never touches custom entries.
+function reconcileFormOptions() {
+    const defs = categoryConfig.value?.variant_options || [];
+    const defNames = new Set(defs.map((d) => d.name));
+    const byName = new Map(form.options.map((o) => [o.name, o]));
 
-    return !!def?.free_text;
+    const categoryDriven = defs.map((def) => byName.get(def.name) || { name: def.name, values: [] });
+    const custom = form.options.filter((o) => !defNames.has(o.name));
+
+    form.options = [...categoryDriven, ...custom];
 }
 
-function remainingValuesFor(option) {
-    const def = categoryOptionDef(option.name);
+// The category's own suggested values for an option, in their defined
+// order — never includes whatever a seller has typed in via "Other".
+function presetValuesFor(name) {
+    return categoryOptionDef(name)?.values || [];
+}
 
-    if (!def || def.free_text) {
-        return [];
+// Presets first (category order), then any value HISTORY on the option
+// that isn't part of the preset list — i.e. values a seller has typed in
+// via "Other" and used in at least one variant so far this session, or
+// (when editing an existing listing) already saved that way. This is
+// what makes the radio group grow quick-pick choices as more variants
+// get added, instead of re-typing "Rabbit" every time.
+function displayValuesFor(option) {
+    const presets = presetValuesFor(option.name);
+    const extras = option.values.filter((v) => !presets.includes(v));
+
+    return [...presets, ...extras];
+}
+
+function isCustomValue(option, value) {
+    return !presetValuesFor(option.name).includes(value);
+}
+
+// Picking a value always replaces whatever was staged before for this
+// option, and closes its "Other" input if it was open.
+function setSingleValue(option, value) {
+    stagingValues[option.name] = value;
+    otherOpen[option.name] = false;
+}
+
+// Removes a value from an option's quick-pick history (the × on a
+// non-preset radio choice) — e.g. a typo typed via "Other" that was
+// never actually used. Clears it from the current staging pick too if
+// that's the one being removed.
+function removeCustomValue(option, value) {
+    option.values = option.values.filter((v) => v !== value);
+
+    if (stagingValues[option.name] === value) {
+        stagingValues[option.name] = '';
+    }
+}
+
+// ---- "Other" — type a value that isn't in the category's preset list ----
+// Keyed by option name so more than one group's input can be open at once.
+const otherOpen = reactive({});
+const otherDraft = reactive({});
+
+function openOther(name) {
+    otherOpen[name] = true;
+    otherDraft[name] = '';
+}
+
+function closeOther(name) {
+    otherOpen[name] = false;
+}
+
+// True when the current staged pick for this option is one the seller
+// typed in themselves — so the "Other" radio still reads as selected
+// after the input is committed and closed again.
+function isOtherActiveFor(option) {
+    return !!otherOpen[option.name] || (!!stagingValues[option.name] && isCustomValue(option, stagingValues[option.name]));
+}
+
+function commitOther(option) {
+    const value = (otherDraft[option.name] || '').trim();
+
+    if (value) {
+        stagingValues[option.name] = value;
+
+        if (!option.values.includes(value)) {
+            option.values.push(value);
+        }
     }
 
-    return (def.values || []).filter((v) => !option.values.includes(v));
+    closeOther(option.name);
 }
 
-function addOptionValueFromSelect(optionIndex, event) {
-    const value = event.target.value;
+// ---- staging: the single variant currently being configured ----
+// stagingValues holds at most one picked value per option name; nothing
+// here is "the product's variants" until addVariant() commits it as a
+// row in form.variants.
+const stagingValues = reactive({});
+const stagingVariant = reactive({ price: null, discount_percent: null, discount_type: '', stock: 0, low_stock_threshold: null, status: 'active', image: null });
+const addVariantError = ref('');
 
-    if (value && !form.options[optionIndex].values.includes(value)) {
-        form.options[optionIndex].values.push(value);
+// e.g. "100g · Chicken · Senior" — what's about to be added if the
+// seller clicks "Add Variant" right now. Empty is valid too — a product
+// with no real option axes still gets exactly one "solo" variant with no
+// option_values, which is where its price/stock actually live now that
+// there's no more product-level Pricing & Inventory section.
+const stagingSummaryText = computed(() =>
+    form.options
+        .map((o) => stagingValues[o.name])
+        .filter(Boolean)
+        .join(' · '),
+);
+
+// Only a price is actually required to add a variant — picking option
+// values is optional (a "solo" product just adds one variant with no
+// option_values at all).
+const canAddVariant = computed(() => stagingVariant.price !== null && stagingVariant.price !== '');
+
+function clearStaging() {
+    for (const key of Object.keys(stagingValues)) {
+        delete stagingValues[key];
     }
 
-    event.target.value = '';
+    for (const key of Object.keys(otherOpen)) {
+        delete otherOpen[key];
+    }
+
+    addVariantError.value = '';
+}
+
+function addVariant() {
+    addVariantError.value = '';
+
+    if (stagingVariant.price === null || stagingVariant.price === '') {
+        addVariantError.value = 'Enter a price for this variant.';
+
+        return;
+    }
+
+    const optionValues = {};
+
+    for (const opt of form.options) {
+        if (stagingValues[opt.name]) {
+            optionValues[opt.name] = stagingValues[opt.name];
+        }
+    }
+
+    const key = comboKey(optionValues);
+
+    if (form.variants.some((v) => comboKey(v.option_values) === key)) {
+        addVariantError.value = 'This exact combination has already been added.';
+
+        return;
+    }
+
+    // Remember every value just used so it becomes a quick-pick radio
+    // choice for the next variant (see displayValuesFor) — matters for
+    // values picked via "Other", which commitOther already added, but
+    // this covers every path consistently.
+    for (const [name, value] of Object.entries(optionValues)) {
+        const opt = form.options.find((o) => o.name === name);
+
+        if (opt && !opt.values.includes(value)) {
+            opt.values.push(value);
+        }
+    }
+
+    form.variants.push({
+        // No sku: the server assigns one once this variant is actually
+        // saved — see SellerProductService::generateVariantSku().
+        option_values: optionValues,
+        price: stagingVariant.price,
+        discount_percent: stagingVariant.discount_percent,
+        discount_type: stagingVariant.discount_type,
+        stock: stagingVariant.stock ?? 0,
+        low_stock_threshold: stagingVariant.low_stock_threshold,
+        status: stagingVariant.status || 'active',
+        image: stagingVariant.image,
+    });
+
+    // Price/discount/stock/status are left as-is — a seller adding
+    // several variants in a row usually wants the same price and
+    // discount on each, and can just change stock before the next Add if
+    // it differs. Only the image resets — a photo almost never applies
+    // to the NEXT (differently-optioned) variant the way price/discount
+    // often do.
+    stagingVariant.image = null;
+    clearStaging();
+}
+
+// Deletes one already-added variant outright (not the same as setting
+// its Status to Unavailable — that keeps the row but marks it not
+// currently for sale; this removes the row entirely). Safe to just
+// splice: unlike the old auto-generated-combination design, nothing
+// regenerates form.variants behind the scenes anymore.
+function removeVariantRow(index) {
+    form.variants.splice(index, 1);
+}
+
+// ---- custom variant options ----
+// A seller can add a whole axis beyond what the category template
+// anticipates (e.g. "Packaging") — it renders through the same radio
+// group as any other option (categoryOptionDef() simply returns
+// undefined for it, so presetValuesFor()/optionHint() already fall back
+// correctly with no preset list, just "+ Other").
+const showAddCustomOption = ref(false);
+const newCustomOptionName = ref('');
+const customOptionError = ref('');
+
+function openAddCustomOption() {
+    showAddCustomOption.value = true;
+    newCustomOptionName.value = '';
+    customOptionError.value = '';
+}
+
+function cancelAddCustomOption() {
+    showAddCustomOption.value = false;
+}
+
+function confirmAddCustomOption() {
+    const name = newCustomOptionName.value.trim();
+
+    if (!name) {
+        customOptionError.value = 'Enter a name for the option.';
+
+        return;
+    }
+
+    if (form.options.some((o) => o.name.toLowerCase() === name.toLowerCase())) {
+        customOptionError.value = `"${name}" already exists.`;
+
+        return;
+    }
+
+    form.options.push({ name, values: [] });
+    showAddCustomOption.value = false;
+}
+
+function removeCustomOption(name) {
+    form.options = form.options.filter((o) => o.name !== name);
+    delete stagingValues[name];
 }
 
 function variantLabel(variant) {
-    return Object.entries(variant.option_values || {})
-        .map(([name, value]) => `${name}: ${value}`)
-        .join(', ');
+    const entries = Object.entries(variant.option_values || {});
+
+    if (!entries.length) {
+        return 'Default (no options)';
+    }
+
+    return entries.map(([name, value]) => `${name}: ${value}`).join(', ');
 }
 
 function comboKey(optionValues) {
@@ -2260,61 +2888,30 @@ function comboKey(optionValues) {
         .join('|');
 }
 
-// Cartesian product of every option's values, e.g. Color:[Black,White] x
-// Size:[S,M] -> 4 combinations. Options with no name or no values yet are
-// skipped so a half-filled option row doesn't blow up the table.
-function cartesianCombos(options) {
-    const usable = options.filter((o) => o.name.trim() && o.values.length > 0);
+// Suggested discount labels for a variant's "Discount Type" field — shown
+// via a <datalist> so the field stays a plain text input a seller can
+// also type past (same "suggestions, not a whitelist" pattern as variant
+// option values), rather than a closed dropdown.
+const DISCOUNT_TYPES = ['Flash Sale', 'Clearance', 'Seasonal', 'New Customer', 'Bundle'];
 
-    if (!usable.length) {
-        return [];
+// Read-only preview of what a variant would sell for after its discount —
+// seller-facing only, purely so they can see the effect of the % they
+// just typed. Mirrors ProductVariant::discountedPrice() but computed
+// client-side against the not-yet-saved form values. Also used against
+// stagingVariant for the "Add Variant" bar's own preview.
+function variantDiscountedPrice(variant) {
+    if (!variant.discount_percent) {
+        return null;
     }
 
-    return usable.reduce(
-        (combos, option) => {
-            const next = [];
+    // variant.price is required now (no more product-level base price to
+    // fall back to) — the ?? 0 is just defensive against the moment
+    // between clearing the field and the Add button's own validation
+    // catching it.
+    const base = variant.price ?? 0;
 
-            for (const combo of combos) {
-                for (const value of option.values) {
-                    next.push({ ...combo, [option.name.trim()]: value });
-                }
-            }
-
-            return next;
-        },
-        [{}],
-    );
+    return (base * (1 - variant.discount_percent / 100)).toFixed(2);
 }
-
-// Regenerates form.variants from form.options whenever an option/value is
-// added, renamed, or removed — preserving already-entered SKU/price/
-// stock/image/status for combinations that still exist (matched by combo
-// key), so editing one option doesn't wipe out work already done on the
-// others.
-watch(
-    () => form.options,
-    (options) => {
-        const combos = cartesianCombos(options);
-        const existingByKey = new Map(
-            form.variants.map((v) => [comboKey(v.option_values), v]),
-        );
-
-        form.variants = combos.map((optionValues) => {
-            const existing = existingByKey.get(comboKey(optionValues));
-
-            if (existing) {
-                return { ...existing, option_values: optionValues };
-            }
-
-            return {
-                option_values: optionValues,
-                stock: 0,
-                status: 'active',
-            };
-        });
-    },
-    { deep: true },
-);
 
 // Pre-seeds form.specifications with every key from the current
 // category's template (blank by default), so each <select>/<input> has
@@ -2326,12 +2923,43 @@ function blankSpecifications() {
     return Object.fromEntries(fields.map((f) => [f.key, '']));
 }
 
-function openNewProductSheet() {
+async function openNewProductSheet() {
     Object.assign(form, blankForm());
     form.category = sellerDetails.value?.line_of_business || '';
+    clearStaging();
+    Object.assign(stagingVariant, { price: null, discount_percent: null, discount_type: '', stock: 0, low_stock_threshold: null, status: 'active', image: null });
+    showAddCustomOption.value = false;
+
+    // A seller could have just finished editing a DIFFERENT product that
+    // uses a different subcategory (e.g. Toys) — categoryConfig would
+    // still be scoped to that one otherwise, leaking its specifications/
+    // variant_options into this brand-new, not-yet-categorised product.
+    if (availableSubcategories.value.length) {
+        await loadCategoryConfig(null);
+    }
+
+    // Seeded AFTER the reload above so a category with subcategories
+    // starts with zero fields (none apply until one is chosen) rather
+    // than briefly showing whatever the previous product's were.
     form.specifications = blankSpecifications();
+    reconcileFormOptions();
     activeProductId.value = 'new';
     formSnapshot.value = JSON.stringify(form);
+}
+
+// A different subcategory means a different specifications/variant-option
+// vocabulary entirely (Toys' Size/Color and Toy Type have nothing to do
+// with Food & Treats' Pack Weight/Flavor and Ingredients) — carrying old
+// picks forward as if they were "custom" options, or leaving stale spec
+// fields around, would just be confusing. This clears both and re-fetches
+// the right ones for the newly-chosen subcategory.
+async function onSubcategoryChange() {
+    form.options = [];
+    form.variants = [];
+    clearStaging();
+    await loadCategoryConfig(form.subcategory || null);
+    form.specifications = blankSpecifications();
+    reconcileFormOptions();
 }
 
 // If seller details finish loading after the Add Product sheet was opened,
@@ -2345,6 +2973,16 @@ watch(
     },
 );
 
+// categoryConfig loads once on mount (see onMounted below) independently
+// of the sheet — this covers the edge case of a seller opening Add/Edit
+// Product before that request resolves, so the variant groups still
+// appear as soon as it does instead of staying stuck on the empty state.
+watch(categoryConfig, () => {
+    if (activeProductId.value !== null) {
+        reconcileFormOptions();
+    }
+});
+
 async function openEditProductSheet(listProduct) {
     // The list omits full images (base64, heavy) — pull the complete
     // product so the sheet has every image. Fall back to the list copy
@@ -2354,8 +2992,23 @@ async function openEditProductSheet(listProduct) {
 
     let product = listProduct;
 
+    // getProduct() (full images) and loadCategoryConfig() (this
+    // product's variant/spec field list — what actually drives the
+    // Variants section) are independent: the config reload only needs
+    // the subcategory the trimmed LIST payload already carries, nothing
+    // from the fresh product fetch. They used to run one after the
+    // other, so the Variants section sat empty for the SUM of both
+    // round trips; running them together cuts that wait roughly in
+    // half. (Category itself never needs reloading here — it's fixed
+    // per seller account, not per product.)
+    const needsCategoryConfig = availableSubcategories.value.length > 0;
+
     try {
-        product = await getProduct(listProduct.id);
+        const [fetchedProduct] = await Promise.all([
+            getProduct(listProduct.id),
+            needsCategoryConfig ? loadCategoryConfig(listProduct.subcategory || null) : null,
+        ]);
+        product = fetchedProduct;
     } catch {
         product = listProduct;
     } finally {
@@ -2366,12 +3019,13 @@ async function openEditProductSheet(listProduct) {
         name: product.name || '',
         description: product.description || '',
         category: product.category || '',
+        subcategory: product.subcategory || '',
         brand: product.brand || '',
         condition: product.condition || '',
-        specifications: {
-            ...blankSpecifications(),
-            ...(product.specifications || {}),
-        },
+        // Re-seeded with the right field list below, once categoryConfig
+        // is reloaded for THIS product's own subcategory — for now just
+        // carry over whatever was actually saved so nothing is lost.
+        specifications: { ...(product.specifications || {}) },
         low_stock_threshold: product.low_stock_threshold ?? null,
         price: product.price ?? null,
         compare_price: product.compare_price ?? null,
@@ -2384,14 +3038,49 @@ async function openEditProductSheet(listProduct) {
                   values: o.values.map((v) => v.value),
               }))
             : [],
-        variants: Array.isArray(product.variants)
+        // A legacy "simple product" (created before every product required
+        // a variant) has no rows here — synthesize one default variant
+        // from its existing price/stock/low-stock threshold so nothing it
+        // already had gets lost, and the seller doesn't have to
+        // reconstruct it from memory just to save an unrelated edit.
+        variants: Array.isArray(product.variants) && product.variants.length
             ? product.variants.map((v) => ({
+                  sku: v.sku || '',
                   option_values: { ...v.option_values },
+                  price: v.price ?? null,
+                  discount_percent: v.discount_percent ?? null,
+                  discount_type: v.discount_type || '',
                   stock: v.stock ?? 0,
+                  low_stock_threshold: v.low_stock_threshold ?? null,
                   status: v.status || 'active',
+                  image: v.image || null,
               }))
-            : [],
+            : [
+                  {
+                      sku: product.sku || '',
+                      option_values: {},
+                      price: product.price ?? null,
+                      discount_percent: null,
+                      discount_type: '',
+                      stock: product.stock ?? 0,
+                      low_stock_threshold: product.low_stock_threshold ?? null,
+                      status: 'active',
+                      image: null,
+                  },
+              ],
     });
+    clearStaging();
+    Object.assign(stagingVariant, { price: null, discount_percent: null, discount_type: '', stock: 0, low_stock_threshold: null, status: 'active', image: null });
+    showAddCustomOption.value = false;
+
+    // categoryConfig was already reloaded for THIS product's own
+    // subcategory above, in parallel with the product fetch.
+
+    // Fills in blanks for any field this product hasn't set yet, using
+    // THIS product's own (just-reloaded) subcategory field list — real
+    // saved values from the spread above always win.
+    form.specifications = { ...blankSpecifications(), ...form.specifications };
+    reconcileFormOptions();
     activeProductId.value = product.id;
     formSnapshot.value = JSON.stringify(form);
 }
@@ -2454,29 +3143,66 @@ function handleImageUpload(e) {
     e.target.value = '';
 }
 
+// One image per variant (product_variants.image is a single {url}, not a
+// gallery like products.images) — `target` is either stagingVariant (the
+// variant being configured) or an already-added row in form.variants,
+// both plain reactive objects this can set .image on directly.
+function handleVariantImageUpload(e, target) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+
+    if (!file) {
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        target.image = { url: reader.result, isNew: true };
+    };
+    reader.readAsDataURL(file);
+}
+
 async function handleSave() {
     if (!formIsValid.value) {
         return;
     }
 
-    // options/status/category are trimmed/cleaned client-side for a tidy
-    // payload, but nothing here is trusted as-is — SellerProductService
-    // re-derives category from the seller's line_of_business, forces
-    // status to pending_review, and re-validates every option/variant
-    // value server-side regardless of what's sent.
+    // `options` is derived from what's actually used across form.variants
+    // (not form.options[].values, which also holds "Other" values typed
+    // in but never actually added as a variant) — this way the submitted
+    // option/value list can never drift from the variants that reference
+    // it. Everything here is re-validated server-side regardless
+    // (SellerProductService re-derives category from the seller's own
+    // line_of_business, forces status to pending_review, etc.).
+    const usedValuesByOption = new Map();
+
+    for (const v of form.variants) {
+        for (const [name, value] of Object.entries(v.option_values)) {
+            if (!usedValuesByOption.has(name)) {
+                usedValuesByOption.set(name, new Set());
+            }
+
+            usedValuesByOption.get(name).add(value);
+        }
+    }
+
     const payload = {
         ...form,
-        options: form.options
-            .filter((o) => o.name.trim() && o.values.length > 0)
-            .map((o) => ({ name: o.name.trim(), values: o.values })),
+        options: Array.from(usedValuesByOption, ([name, values]) => ({ name, values: Array.from(values) })),
+        // No sku here: it's server-generated for a new variant and
+        // untouched for an existing one either way — see
+        // SellerProductService::generateVariantSku().
         variants: form.variants.map((v) => ({
             option_values: v.option_values,
-            // Price isn't editable per-variant here — a variant's
-            // selling price always mirrors the product's own price,
-            // which is set in the Pricing & Inventory section above.
-            price: form.price,
+            price: v.price === '' ? null : v.price,
+            discount_percent: v.discount_percent === '' ? null : v.discount_percent,
+            discount_type: (v.discount_type || '').trim() || null,
             stock: v.stock ?? 0,
+            // null means "use the app default" — see
+            // ProductVariant::effectiveLowStockThreshold().
+            low_stock_threshold: v.low_stock_threshold === '' ? null : v.low_stock_threshold,
             status: v.status || 'active',
+            image: v.image || null,
         })),
     };
 
@@ -2692,5 +3418,834 @@ async function handleSave() {
     font-size: 0.78rem;
     color: #475569;
     font-style: italic;
+}
+
+/* ============================================================
+   Inventory stat bar + Insights panel (near-black / green system —
+   matches the redesigned Dashboard). Confined to this component by
+   Vue's scoped attribute, same as the rest of this style block.
+   ============================================================ */
+.inv-stat-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    background: var(--inv-surface);
+    border: 1px solid var(--inv-border);
+    border-radius: 1rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+}
+.inv-stat-seg {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 1.05rem 1.3rem;
+    border-right: 1px solid var(--inv-border-soft);
+}
+.inv-stat-seg:last-child {
+    border-right: none;
+}
+.inv-stat-ic {
+    width: 2.3rem;
+    height: 2.3rem;
+    border-radius: 0.65rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.inv-stat-ic.neutral {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--inv-ink-500);
+}
+.inv-stat-ic.good {
+    background: rgba(15, 118, 110, 0.2);
+    color: #5eead4;
+}
+.inv-stat-ic.warn {
+    background: rgba(180, 83, 9, 0.2);
+    color: #fbbf7d;
+}
+.inv-stat-ic.bad {
+    background: rgba(200, 67, 61, 0.2);
+    color: #f7a49f;
+}
+.inv-stat-v {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: var(--inv-ink-900);
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+.inv-stat-l {
+    font-size: 0.72rem;
+    color: var(--inv-ink-500);
+    font-weight: 600;
+    margin-top: 0.15rem;
+}
+
+@media (max-width: 1180px) {
+    .inv-stat-bar {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .inv-stat-seg:nth-child(2) {
+        border-right: none;
+    }
+}
+
+/* ---- Insights panel ---- */
+.inv-insights {
+    width: 18rem;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+    background: var(--inv-surface);
+    border: 1px solid var(--inv-border);
+    border-radius: 1rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    padding: 1.25rem 1.3rem 1.4rem;
+}
+.inv-insights-title {
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: var(--inv-ink-900);
+    margin: 0;
+}
+.inv-trend-label,
+.inv-attn-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--inv-ink-500);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0 0 0.35rem;
+}
+.inv-trend-value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+}
+.inv-trend-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--inv-ink-900);
+}
+.inv-trend-badge {
+    font-size: 0.68rem;
+    font-weight: 800;
+    padding: 0.12rem 0.5rem;
+    border-radius: 999px;
+}
+.inv-trend-badge.good {
+    background: rgba(15, 118, 110, 0.2);
+    color: #5eead4;
+}
+.inv-trend-badge.warn {
+    background: rgba(180, 83, 9, 0.2);
+    color: #fbbf7d;
+}
+.inv-trend-badge.bad {
+    background: rgba(200, 67, 61, 0.2);
+    color: #f7a49f;
+}
+.inv-trend-chart-wrap {
+    height: 6.5rem;
+    margin: 0.9rem 0 0.2rem;
+}
+.inv-trend-chart-skeleton {
+    height: 6.5rem;
+    margin: 0.9rem 0 0.2rem;
+    border-radius: 0.6rem;
+    background: var(--inv-surface-2, rgba(255, 255, 255, 0.04));
+    animation: inv-skeleton-pulse 1.4s ease-in-out infinite;
+}
+@keyframes inv-skeleton-pulse {
+    0%,
+    100% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+.inv-donut-empty {
+    font-size: 0.8rem;
+    color: var(--inv-ink-400);
+    text-align: center;
+    padding: 1.2rem 0 0.6rem;
+}
+.inv-trend-retry {
+    display: block;
+    margin: 0.4rem auto 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #5eead4;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+.inv-trend-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.9rem;
+}
+.inv-tl-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.79rem;
+    color: var(--inv-ink-700);
+}
+.inv-tl-key {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.inv-tl-dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.inv-tl-dot.good {
+    background: #14b8a6;
+}
+.inv-tl-dot.warn {
+    background: #fbbf7d;
+}
+.inv-tl-dot.bad {
+    background: #f7a49f;
+}
+.inv-tl-val {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.inv-attn-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-top: 0.65rem;
+}
+.inv-attn-item {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    width: 100%;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+}
+.inv-attn-thumb {
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 0.6rem;
+    background: var(--inv-surface-2);
+    color: var(--inv-ink-400);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+.inv-attn-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.inv-attn-info {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+.inv-attn-name {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--inv-ink-900);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.inv-attn-meta {
+    font-size: 0.72rem;
+    font-weight: 700;
+    margin-top: 0.1rem;
+}
+.inv-attn-meta.warn {
+    color: #fbbf7d;
+}
+.inv-attn-meta.bad {
+    color: #f7a49f;
+}
+.inv-attn-units {
+    margin-left: auto;
+    font-size: 0.72rem;
+    color: var(--inv-ink-400);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.inv-attn-empty {
+    font-size: 0.8rem;
+    color: var(--inv-ink-400);
+    margin: 0.65rem 0 0;
+}
+
+.inv-review-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    width: 100%;
+    padding: 0.7rem;
+    border-radius: 0.75rem;
+    border: none;
+    background: var(--teal-500);
+    color: #fff;
+    font-size: 0.83rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.inv-review-btn:hover {
+    background: var(--teal-600);
+}
+
+.inv-stock-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    padding: 0.7rem 1rem;
+    margin-bottom: 1.1rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--inv-border);
+    background: var(--inv-surface);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--inv-ink-700);
+}
+.inv-stock-filter-bar svg {
+    color: #fbbf7d;
+    flex-shrink: 0;
+}
+.inv-stock-filter-bar b {
+    color: var(--inv-ink-900);
+}
+.inv-stock-filter-clear {
+    margin-left: auto;
+    border: none;
+    background: none;
+    color: #5eead4;
+    font-weight: 700;
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+.inv-stock-filter-clear:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 1180px) {
+    .inventory-layout {
+        flex-wrap: wrap;
+    }
+    .inv-insights {
+        width: 100%;
+    }
+}
+
+/* ---- Filter popover (Stock Status + Price Range, on demand) ---- */
+.chip-btn.active {
+    background: rgba(15, 118, 110, 0.22);
+    color: #5eead4;
+    border-color: rgba(15, 118, 110, 0.45);
+}
+.filter-active-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--teal-500);
+    display: inline-block;
+    margin-left: 0.15rem;
+}
+.filter-btn-wrap {
+    position: relative;
+}
+.filter-popover {
+    position: absolute;
+    top: calc(100% + 0.6rem);
+    right: 0;
+    z-index: 30;
+    width: 17rem;
+    background: var(--inv-surface-2);
+    box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--inv-border);
+    border-radius: 0.85rem;
+    padding: 1.1rem 1.2rem 1.3rem;
+}
+.filter-popover-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--inv-border-soft);
+}
+.filter-clear-link {
+    border: none;
+    background: none;
+    color: var(--inv-ink-500);
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.filter-clear-link:hover {
+    color: #5eead4;
+}
+
+@media (max-width: 640px) {
+    .filter-popover {
+        right: auto;
+        left: 0;
+        width: calc(100vw - 3rem);
+        max-width: 20rem;
+    }
+}
+
+/* ============================================================
+   DARK THEME — the reference puts the whole Inventory page (not
+   just the sidebar/header) on a near-black surface. Scoped to this
+   component only, so no other seller page is affected.
+   ============================================================ */
+.inventory-page {
+    --inv-surface: #161b17;
+    --inv-surface-2: #1d231e;
+    --inv-border: rgba(255, 255, 255, 0.08);
+    --inv-border-soft: rgba(255, 255, 255, 0.06);
+    --inv-ink-900: #f2f4f1;
+    --inv-ink-700: #ced4cd;
+    --inv-ink-500: #97a099;
+    --inv-ink-400: #6d766e;
+
+    /* Base text color — .seller-app sets a dark, light-mode default
+       (color: #1e293b) that any unstyled span here would otherwise
+       silently inherit, invisible against these dark cards. */
+    color: var(--inv-ink-900);
+}
+
+.inventory-page .card,
+.inventory-page .inventory-toolbar {
+    background: var(--inv-surface);
+    border-color: var(--inv-border);
+}
+.inventory-page .toolbar-label {
+    color: var(--inv-ink-500);
+}
+.inventory-page .chip-btn {
+    background: var(--inv-surface-2);
+    border-color: var(--inv-border);
+    color: var(--inv-ink-700);
+}
+.inventory-page .chip-btn:hover:not(:disabled) {
+    border-color: var(--teal-500);
+    color: #5eead4;
+}
+.inventory-page .chip-btn:disabled {
+    opacity: 0.45;
+}
+.inventory-page .chip-btn.danger {
+    background: rgba(220, 38, 38, 0.14);
+    border-color: rgba(220, 38, 38, 0.3);
+    color: #f7a49f;
+}
+.inventory-page .chip-btn.danger:hover:not(:disabled) {
+    background: rgba(220, 38, 38, 0.22);
+    color: #f7a49f;
+}
+.inventory-page .notif-btn {
+    color: var(--inv-ink-500);
+}
+.inventory-page .notif-btn.active {
+    background: rgba(15, 118, 110, 0.22);
+    color: #5eead4;
+}
+
+/* sort dropdown */
+.inv-sort-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.inv-sort-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--inv-ink-500);
+}
+.inv-sort-select {
+    padding: 0.42rem 0.6rem;
+    border-radius: 0.6rem;
+    border: 1px solid var(--inv-border);
+    background: var(--inv-surface-2);
+    color: var(--inv-ink-900);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* filter popover internals */
+.inventory-page .filter-heading {
+    color: var(--inv-ink-500);
+}
+.inventory-page .filter-check {
+    color: var(--inv-ink-700);
+}
+.inventory-page .check-box {
+    border-color: var(--inv-border);
+    background: transparent;
+}
+.inventory-page .check-box.checked {
+    background: var(--teal-500);
+    border-color: var(--teal-500);
+    color: #fff;
+}
+.inventory-page .price-track {
+    background: var(--inv-border);
+}
+.inventory-page .price-thumb {
+    background: var(--inv-ink-900);
+    border: 2px solid var(--teal-500);
+}
+.inventory-page .price-input-box {
+    background: var(--inv-surface);
+    border-color: var(--inv-border);
+    color: var(--inv-ink-900);
+}
+.inventory-page .price-input-box input {
+    background: none;
+    color: var(--inv-ink-900);
+}
+.inventory-page .price-input-sep {
+    color: var(--inv-ink-400);
+}
+
+/* product grid / cards */
+.inventory-page .product-card {
+    background: var(--inv-surface);
+    border-color: var(--inv-border);
+}
+.inventory-page .product-card-image {
+    background: var(--inv-surface-2);
+}
+.inventory-page .product-card-image-placeholder {
+    color: var(--inv-ink-400);
+}
+.inventory-page .product-name,
+.inventory-page .product-price,
+.inventory-page .product-stock-qty {
+    color: var(--inv-ink-900);
+}
+.inventory-page .product-sku,
+.inventory-page .product-compare-price,
+.inventory-page .product-stock-label {
+    color: var(--inv-ink-500);
+}
+.inventory-page .product-stock-bar {
+    background: var(--inv-border);
+}
+.inventory-page .product-hover-actions button {
+    background: var(--inv-surface-2);
+    color: var(--inv-ink-700);
+}
+.inventory-page .product-hover-actions button:hover {
+    color: #5eead4;
+}
+
+/* pagination */
+.inventory-page .pagination {
+    border-top-color: var(--inv-border-soft);
+}
+.inventory-page .pagination-label {
+    color: var(--inv-ink-500);
+}
+.inventory-page .page-btn {
+    background: var(--inv-surface-2);
+    border-color: var(--inv-border);
+    color: var(--inv-ink-700);
+}
+.inventory-page .page-btn:disabled {
+    color: var(--inv-ink-400);
+}
+
+/* ============================================================
+   ADD / EDIT PRODUCT -- full-page layout (replaces the old centered
+   modal). Inherits --inv-* tokens from .inventory-page, so it is
+   dark by default; the overrides below only touch the shared
+   .field-input / .ps-* / .image-* classes, which are also used by
+   other (still-light) seller pages -- safe here because Vue scoped
+   CSS confines these rules to this component only.
+   ============================================================ */
+.product-page {
+    display: flex;
+    flex-direction: column;
+}
+.product-page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+}
+.product-page-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border: none;
+    background: none;
+    padding: 0;
+    margin-bottom: 0.7rem;
+    color: var(--inv-ink-500);
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.product-page-back:hover {
+    color: var(--inv-ink-900);
+}
+.product-page-title {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--inv-ink-900);
+    margin: 0;
+}
+.product-page-sub {
+    font-size: 0.85rem;
+    color: var(--inv-ink-500);
+    margin: 0.3rem 0 0;
+}
+.product-page-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-shrink: 0;
+}
+.product-page-actions .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.product-page-grid {
+    display: flex;
+    /* stretch, not flex-start: .product-page-side only holds Upload Image
+       now (Category moved into .product-page-main), so on its own it's
+       much shorter than the main column — stretch lets it grow to match,
+       and the rules below grow Upload Image's own card/dropzone to fill
+       that height instead of leaving blank space under a short card. */
+    align-items: stretch;
+    gap: 1.5rem;
+}
+.product-page-main {
+    flex: 1 1 60%;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+.product-page-side {
+    flex: 1 1 30%;
+    min-width: 18rem;
+    max-width: 22rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+.product-page-side .ps-section {
+    flex: 1;
+}
+.product-page-side .ps-section-card {
+    flex: 1;
+}
+.product-page-side .image-dropzone {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Product Variants lives here, below the two-column grid, spanning the
+   FULL page width instead of being squeezed into .product-page-main's
+   ~60% — with price/discount/discount type/stock/low-stock/status/image
+   per variant, the extra width (previously empty space to the right of
+   the narrower main column) lets more fields sit on one line before
+   wrapping, instead of always wrapping onto several. */
+.product-page-full {
+    margin-top: 1.5rem;
+}
+
+@media (max-width: 960px) {
+    .product-page-grid {
+        flex-direction: column;
+    }
+    .product-page-side {
+        max-width: none;
+        width: 100%;
+    }
+}
+
+/* ---- form cards/fields, dark variants ---- */
+.inventory-page .ps-section-header h3 {
+    color: var(--inv-ink-900);
+}
+.inventory-page .ps-section-card {
+    background: var(--inv-surface);
+    border-color: var(--inv-border);
+}
+.inventory-page .field-input {
+    background: var(--inv-surface-2);
+    border-color: var(--inv-border);
+    color: var(--inv-ink-900);
+}
+.inventory-page .field-hint {
+    color: var(--inv-ink-500);
+}
+.inventory-page .ps-category-chip {
+    background: rgba(15, 118, 110, 0.18);
+    border: 1px solid rgba(15, 118, 110, 0.4);
+    color: #5eead4;
+}
+.inventory-page .ps-icon-teal {
+    background: rgba(15, 118, 110, 0.18);
+    color: #5eead4;
+}
+.inventory-page .ps-icon-emerald {
+    background: rgba(20, 184, 166, 0.18);
+    color: #5eead4;
+}
+.inventory-page .ps-icon-sky {
+    background: rgba(111, 163, 224, 0.18);
+    color: #9dc2ef;
+}
+.inventory-page .ps-icon-indigo {
+    background: rgba(129, 140, 248, 0.18);
+    color: #b4bcfa;
+}
+.inventory-page .ps-icon-amber {
+    background: rgba(251, 191, 125, 0.18);
+    color: #fbbf7d;
+}
+.inventory-page .ps-icon-pink {
+    background: rgba(236, 72, 153, 0.18);
+    color: #f4a7d0;
+}
+.inventory-page .image-dropzone {
+    background: var(--inv-surface-2);
+    border-color: var(--inv-border);
+    color: var(--inv-ink-500);
+}
+.inventory-page .image-dropzone .dz-title {
+    color: var(--inv-ink-700);
+}
+.inventory-page .image-dropzone .dz-sub {
+    color: var(--inv-ink-400);
+}
+.inventory-page .image-thumb,
+.inventory-page .image-thumb-add {
+    border-color: var(--inv-border);
+}
+.inventory-page .image-thumb-add {
+    color: var(--inv-ink-500);
+}
+.inventory-page .variant-card {
+    border-color: var(--inv-border);
+    background: var(--inv-surface-2);
+}
+.inventory-page .variant-card-title {
+    color: var(--inv-ink-900);
+}
+.inventory-page .variant-field-label {
+    color: var(--inv-ink-500);
+}
+.inventory-page .variant-sku-display {
+    background: var(--inv-surface);
+    border-color: var(--inv-border);
+    color: var(--inv-ink-500);
+}
+.inventory-page .variant-image-upload {
+    background: var(--inv-surface);
+    border-color: var(--inv-border);
+    color: var(--inv-ink-500);
+}
+.inventory-page .variant-value-input {
+    color: var(--inv-ink-900);
+}
+.inventory-page .variant-option-values {
+    background: var(--inv-surface-2);
+    border-color: var(--inv-border);
+}
+.inventory-page .variant-value-chip {
+    background: rgba(15, 118, 110, 0.18);
+    border-color: rgba(15, 118, 110, 0.4);
+    color: #5eead4;
+}
+.inventory-page .variant-value-chip button {
+    color: #5eead4;
+}
+.inventory-page .variant-group {
+    border-bottom-color: var(--inv-border-soft);
+}
+.inventory-page .variant-group-name {
+    color: var(--inv-ink-900);
+}
+.inventory-page .variant-group-hint {
+    color: var(--inv-ink-500);
+}
+.inventory-page .variant-pill {
+    background: var(--inv-surface-2);
+    border-color: var(--inv-border);
+    color: var(--inv-ink-700);
+}
+.inventory-page .variant-pill-other {
+    color: var(--inv-ink-500);
+}
+.inventory-page .variant-radio {
+    color: var(--inv-ink-700);
+}
+.inventory-page .variant-radio.selected,
+.inventory-page .variant-radio-other.selected {
+    color: #5eead4;
+}
+.inventory-page .variant-radio-other {
+    color: var(--inv-ink-500);
+}
+.inventory-page .variant-other-input input {
+    background: var(--inv-surface-2);
+    color: var(--inv-ink-900);
+}
+.inventory-page .variant-staging-bar {
+    background: rgba(15, 118, 110, 0.18);
+}
+.inventory-page .variant-staging-summary {
+    color: #5eead4;
+}
+.inventory-page .variant-staging-empty {
+    color: var(--inv-ink-500);
+}
+.inventory-page .variant-staging-clear {
+    color: #5eead4;
+}
+.inventory-page .variant-row-remove {
+    color: var(--inv-ink-500);
+}
+.inventory-page .variant-row-remove:hover {
+    background: rgba(220, 38, 38, 0.18);
+    color: #f7a49f;
 }
 </style>

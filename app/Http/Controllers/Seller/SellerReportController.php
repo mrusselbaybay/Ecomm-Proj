@@ -16,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -107,6 +108,8 @@ class SellerReportController extends Controller
                     'netRevenue' => $this->metricWithTrend($current['netRevenue'], $prior['netRevenue'] ?? null),
                     'grossRevenue' => $this->metricWithTrend($current['grossRevenue'], $prior['grossRevenue'] ?? null),
                     'deliveredOrders' => $this->metricWithTrend($current['deliveredOrders'], $prior['deliveredOrders'] ?? null),
+                    'ordersPlaced' => $this->metricWithTrend($current['ordersPlaced'], $prior['ordersPlaced'] ?? null),
+                    'pendingReturns' => $this->metricWithTrend($current['pendingReturns'], $prior['pendingReturns'] ?? null),
                     'averageOrderValue' => $this->metricWithTrend($current['averageOrderValue'], $prior['averageOrderValue'] ?? null),
                     'fulfillmentRate' => $this->metricWithTrend($current['fulfillmentRate'], $prior['fulfillmentRate'] ?? null),
                     'cancellationRate' => $this->metricWithTrend($current['cancellationRate'], $prior['cancellationRate'] ?? null),
@@ -121,6 +124,14 @@ class SellerReportController extends Controller
                 // per page load would be wasteful. The frontend derives
                 // both from those responses instead.
                 'ratingCount' => $current['ratingCount'],
+                // Current-state snapshot, not period-scoped like the
+                // metrics above — there's no historical snapshot of a
+                // product's status over time in this schema, so unlike
+                // every other KPI here this one deliberately has no
+                // trend to compare against (see Reports.vue, which
+                // shows it without a delta rather than fabricating one).
+                'activeListings' => Product::where('seller_id', $seller->id)->where('status', 'active')->count(),
+                'totalListings' => Product::where('seller_id', $seller->id)->count(),
             ],
         ]);
     }
@@ -210,6 +221,197 @@ class SellerReportController extends Controller
             'data' => [
                 'total' => $total,
                 'segments' => $segments,
+            ],
+        ]);
+    }
+
+    /**
+     * GET /api/seller/reports/weekly-fulfillment
+     *
+     * Real weekly Pending-vs-Shipped order counts for the last 8 ISO
+     * weeks (a fixed rolling window, independent of the page's own
+     * date-range picker — same idea as a "last 8 weeks" trend widget
+     * always showing the same span regardless of an unrelated filter).
+     *
+     * "Pending" = still New/Confirmed/Processing/Packed/Ready for
+     * Pickup (hasn't left the seller's hands yet); "Shipped" = In
+     * Transit or Delivered. Cancelled/Rejected orders are excluded
+     * from both — they never shipped and aren't "pending" shipment
+     * either, so folding them into one bucket or the other would
+     * misrepresent both.
+     */
+    public function weeklyFulfillment(Request $request): JsonResponse
+    {
+        $seller = $request->user();
+        $tz = config('app.timezone');
+        $weeks = max(1, min(26, (int) ($request->integer('weeks') ?: 8)));
+
+        $end = CarbonImmutable::now($tz)->endOfWeek(\Carbon\CarbonInterface::SUNDAY);
+        $start = $end->copy()->subWeeks($weeks - 1)->startOfWeek(\Carbon\CarbonInterface::MONDAY);
+
+        $orders = Order::where('seller_id', $seller->id)
+            ->whereBetween('placed_at', [$start, $end])
+            ->whereNotIn('status', ['Cancelled', 'Rejected'])
+            ->get(['status', 'placed_at']);
+
+        $pendingStatuses = ['New', 'Confirmed', 'Processing', 'Packed', 'Ready for Pickup'];
+        $shippedStatuses = ['In Transit', 'Delivered'];
+
+        $data = [];
+
+        for ($i = 0; $i < $weeks; $i++) {
+            $weekStart = $start->copy()->addWeeks($i);
+            $weekEnd = $weekStart->copy()->endOfWeek(\Carbon\CarbonInterface::SUNDAY);
+
+            $inWeek = $orders->filter(
+                fn ($o) => $o->placed_at >= $weekStart && $o->placed_at <= $weekEnd,
+            );
+
+            $pending = $inWeek->filter(fn ($o) => in_array($o->status, $pendingStatuses, true))->count();
+            $shipped = $inWeek->filter(fn ($o) => in_array($o->status, $shippedStatuses, true))->count();
+
+            $data[] = [
+                'label' => 'Week '.($i + 1),
+                'weekStart' => $weekStart->toDateString(),
+                'weekEnd' => $weekEnd->toDateString(),
+                'pending' => $pending,
+                'shipped' => $shipped,
+            ];
+        }
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
+     * GET /api/seller/reports/hourly-volume
+     *
+     * Real order count by weekday x time-of-day block, over the
+     * requested date range (from/to — same params as the rest of this
+     * page). Three 4-hour blocks covering the hours orders actually
+     * come in (8am–8pm) — a seller-facing heatmap of *when* orders
+     * land, not a fabricated "traffic" figure.
+     *
+     * "on"/"mid"/"off" intensity is a disclosed relative-to-this-row
+     * rule (>= 2/3 of that row's own max = on, >= 1/3 = mid), the same
+     * kind of applied-threshold-on-real-data pattern
+     * SellerDeliveryController's ON_TIME_THRESHOLD_DAYS already uses —
+     * not a claim about any absolute "busy" volume.
+     */
+    public function hourlyVolume(Request $request): JsonResponse
+    {
+        $seller = $request->user();
+        $range = $this->resolveRange($request);
+
+        if ($range instanceof JsonResponse) {
+            return $range;
+        }
+
+        [$from, $to] = $range;
+
+        $blocks = [
+            ['label' => '8 AM – 12 PM', 'start' => 8, 'end' => 12],
+            ['label' => '12 PM – 4 PM', 'start' => 12, 'end' => 16],
+            ['label' => '4 PM – 8 PM', 'start' => 16, 'end' => 20],
+        ];
+        $days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+        $orders = Order::where('seller_id', $seller->id)
+            ->whereBetween('placed_at', [$from, $to])
+            ->get(['placed_at']);
+
+        $rows = collect($blocks)->map(function ($block) use ($orders, $days) {
+            $counts = collect($days)->mapWithKeys(fn ($d) => [$d => 0])->all();
+
+            foreach ($orders as $order) {
+                $hour = (int) $order->placed_at->format('G');
+
+                if ($hour < $block['start'] || $hour >= $block['end']) {
+                    continue;
+                }
+
+                $day = $days[$order->placed_at->dayOfWeekIso - 1];
+                $counts[$day]++;
+            }
+
+            $max = max($counts) ?: 1;
+
+            $cells = collect($days)->map(function ($d) use ($counts, $max) {
+                $count = $counts[$d];
+                $intensity = $count >= $max * (2 / 3) ? 'on' : ($count >= $max * (1 / 3) ? 'mid' : 'off');
+
+                return ['day' => $d, 'count' => $count, 'intensity' => $intensity];
+            })->values();
+
+            return ['label' => $block['label'], 'cells' => $cells];
+        })->values();
+
+        return response()->json([
+            'data' => [
+                'days' => $days,
+                'rows' => $rows,
+                'totalOrders' => $orders->count(),
+            ],
+        ]);
+    }
+
+    /**
+     * GET /api/seller/reports/customer-mix
+     *
+     * Real new-vs-returning buyer split for orders placed in range. A
+     * buyer counts as "Returning" if they had placed_at LEAST one order
+     * with this seller before the current order's own placed_at
+     * (regardless of that earlier order's status) — "New" otherwise.
+     * Substitutes for a storefront-traffic/visits metric this schema
+     * has no analytics table to support (no page-view or session
+     * tracking anywhere in this project) with a real, honest
+     * measure of the same underlying question ("who is buying here")
+     * instead of fabricating visitor counts.
+     */
+    public function customerMix(Request $request): JsonResponse
+    {
+        $seller = $request->user();
+        $range = $this->resolveRange($request);
+
+        if ($range instanceof JsonResponse) {
+            return $range;
+        }
+
+        [$from, $to] = $range;
+
+        $orders = Order::where('seller_id', $seller->id)
+            ->whereBetween('placed_at', [$from, $to])
+            ->get(['buyer_profile_id', 'placed_at']);
+
+        $buyerIds = $orders->pluck('buyer_profile_id')->unique()->values();
+
+        $firstOrderAt = Order::where('seller_id', $seller->id)
+            ->whereIn('buyer_profile_id', $buyerIds)
+            ->select('buyer_profile_id', DB::raw('min(placed_at) as first_at'))
+            ->groupBy('buyer_profile_id')
+            ->pluck('first_at', 'buyer_profile_id');
+
+        $returning = 0;
+        $new = 0;
+
+        foreach ($orders as $order) {
+            $firstAt = $firstOrderAt[$order->buyer_profile_id] ?? null;
+
+            if ($firstAt && $firstAt < $order->placed_at) {
+                $returning++;
+            } else {
+                $new++;
+            }
+        }
+
+        $total = $returning + $new;
+
+        return response()->json([
+            'data' => [
+                'total' => $total,
+                'new' => $new,
+                'returning' => $returning,
+                'newPercent' => $total > 0 ? round(($new / $total) * 100, 1) : null,
+                'returningPercent' => $total > 0 ? round(($returning / $total) * 100, 1) : null,
             ],
         ]);
     }
@@ -331,7 +533,7 @@ class SellerReportController extends Controller
         $csv = stream_get_contents($handle);
         fclose($handle);
 
-        $filename = sprintf('nexmart-seller-report-%s-to-%s.csv', $from->toDateString(), $to->toDateString());
+        $filename = sprintf('buytheway-seller-report-%s-to-%s.csv', $from->toDateString(), $to->toDateString());
 
         return response($csv, 200, [
             'Content-Type' => 'text/csv',
@@ -821,10 +1023,25 @@ class SellerReportController extends Controller
         $ratingQuery = Review::where('seller_id', $sellerId)->whereBetween('created_at', [$from, $to]);
         $ratingCount = (clone $ratingQuery)->count();
 
+        // Real order_return_requests row count, same table/column the
+        // Returns & Refunds report already uses (SellerReportService::
+        // returnsReport) — scoped to when the REQUEST was made
+        // (created_at), not when the underlying order was placed, since
+        // a return can be requested well after the order itself.
+        $pendingReturns = Schema::hasTable('order_return_requests')
+            ? (int) DB::table('order_return_requests')
+                ->where('seller_id', $sellerId)
+                ->whereBetween('created_at', [$from, $to])
+                ->where('status', 'pending')
+                ->count()
+            : 0;
+
         return [
             'grossRevenue' => round($grossRevenue, 2),
             'netRevenue' => round($grossRevenue - $refundedRevenue, 2),
             'deliveredOrders' => $delivered,
+            'ordersPlaced' => (int) $statusCounts->sum(),
+            'pendingReturns' => $pendingReturns,
             'averageOrderValue' => $delivered > 0 ? round($grossRevenue / $delivered, 2) : null,
             'fulfillmentRate' => $outcomeDenominator > 0 ? round(($delivered / $outcomeDenominator) * 100, 1) : null,
             'cancellationRate' => $outcomeDenominator > 0 ? round(($cancelled / $outcomeDenominator) * 100, 1) : null,

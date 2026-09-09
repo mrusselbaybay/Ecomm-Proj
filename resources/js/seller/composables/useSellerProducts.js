@@ -22,10 +22,18 @@ const loadError = ref('');
 const isSaving = ref(false);
 const saveError = ref('');
 
+// Real day-by-day stock-status history (see loadStockTrend / the backend
+// docblock on SellerInventoryController::stockTrend for exactly how this
+// is reconstructed from inventory_movements).
+const stockTrend = ref([]);
+const isLoadingStockTrend = ref(false);
+const stockTrendError = ref('');
+
 const searchQuery = ref('');
 const selectedStockStatuses = ref([]); // [] = all -> 'in_stock' | 'low_stock' | 'out_of_stock'
 const priceMin = ref(0);
 const priceMax = ref(1500);
+const sortOption = ref('newest'); // 'newest' | 'price_asc' | 'price_desc' | 'stock_asc'
 
 const currentPage = ref(1);
 const perPage = 9; // 3-column grid x 3 rows, matches the reference's card grid
@@ -130,7 +138,7 @@ function stockStatusOf(product) {
 const filteredProducts = computed(() => {
     const q = searchQuery.value.trim().toLowerCase();
 
-    return products.value.filter((p) => {
+    const list = products.value.filter((p) => {
         if (q) {
             const haystack =
                 `${p.name || ''} ${p.sku || ''} ${p.model || ''}`.toLowerCase();
@@ -155,6 +163,18 @@ const filteredProducts = computed(() => {
 
         return true;
     });
+
+    // 'newest' needs no client sort — the API already returns products
+    // ordered by created_at desc (see SellerProductController::index).
+    if (sortOption.value === 'price_asc') {
+        list.sort((a, b) => Number(a.price ?? 0) - Number(b.price ?? 0));
+    } else if (sortOption.value === 'price_desc') {
+        list.sort((a, b) => Number(b.price ?? 0) - Number(a.price ?? 0));
+    } else if (sortOption.value === 'stock_asc') {
+        list.sort((a, b) => effectiveStock(a) - effectiveStock(b));
+    }
+
+    return list;
 });
 
 const totalCount = computed(() => filteredProducts.value.length);
@@ -181,15 +201,23 @@ const paginationLabel = computed(() => {
 
 // ---- category config (specifications + variant option types) ----
 // Single source of truth lives server-side (App\Support\CategoryFieldConfig)
-// keyed by the seller's own line_of_business; fetched once and cached here
-// so the product form can render itself without a second, hand-kept copy
-// of the same rules in JS.
-const categoryConfig = ref(null); // { category, specifications, variant_options }
+// keyed by the seller's own line_of_business; fetched here so the product
+// form can render itself without a second, hand-kept copy of the same
+// rules in JS.
+//
+// Some categories are further split into subcategories (e.g. Pet
+// Supplies: Food & Treats vs Toys vs ...) since one flat template can't
+// fit products as different as dog food and dog toys — see
+// CategoryFieldConfig's class docblock. `subcategory` is chosen PER
+// PRODUCT, not cached once like the category itself, so this now
+// re-fetches on every call (passing the currently-relevant subcategory)
+// rather than permanently caching the first response.
+const categoryConfig = ref(null); // { category, subcategories, subcategory, specifications, variant_options }
 const isLoadingCategoryConfig = ref(false);
 const categoryConfigError = ref('');
 
-async function loadCategoryConfig() {
-    if (categoryConfig.value || isLoadingCategoryConfig.value) {
+async function loadCategoryConfig(subcategory = null) {
+    if (isLoadingCategoryConfig.value) {
         return;
     }
 
@@ -197,7 +225,8 @@ async function loadCategoryConfig() {
     categoryConfigError.value = '';
 
     try {
-        categoryConfig.value = await apiFetch('/category-config');
+        const query = subcategory ? `?subcategory=${encodeURIComponent(subcategory)}` : '';
+        categoryConfig.value = await apiFetch(`/category-config${query}`);
     } catch (err) {
         console.error('Error loading category config:', err);
         categoryConfigError.value =
@@ -493,6 +522,24 @@ async function loadMovements(productId, { variantId = null, page = 1 } = {}) {
     return { data: body.data ?? [], meta: body.meta ?? {} };
 }
 
+// Always the current Sun–Sat calendar week (see the backend docblock) —
+// no days/range param, so there's nothing to pass here.
+async function loadStockTrend() {
+    isLoadingStockTrend.value = true;
+    stockTrendError.value = '';
+
+    try {
+        const data = await apiFetch('/products/stock-trend');
+
+        stockTrend.value = data.days ?? [];
+    } catch (err) {
+        console.error('Error loading stock trend:', err);
+        stockTrendError.value = err?.message || 'Could not load the stock trend.';
+    } finally {
+        isLoadingStockTrend.value = false;
+    }
+}
+
 async function deleteSelected() {
     const ids = Array.from(selectedIds.value);
 
@@ -633,6 +680,7 @@ export function useSellerProducts() {
         selectedStockStatuses,
         priceMin,
         priceMax,
+        sortOption,
 
         currentPage,
         perPage,
@@ -655,6 +703,11 @@ export function useSellerProducts() {
         adjustStock,
         loadMovements,
         ADJUST_REASONS,
+
+        stockTrend,
+        isLoadingStockTrend,
+        stockTrendError,
+        loadStockTrend,
 
         categoryConfig,
         isLoadingCategoryConfig,

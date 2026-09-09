@@ -45,18 +45,18 @@ body {
 }
 
 .seller-app {
-    /* Brand palette aligned to the ShopNova reference (teal / blue) */
-    --brand-teal: #1b9ba8;
-    --brand-blue: #2c5aa0;
-    --teal-50: #f0fbfc;
-    --teal-100: #d3eef1;
-    --teal-200: #a6dde3;
-    --teal-300: #6cc6cf;
-    --teal-500: #1b9ba8;
-    --teal-600: #168894;
-    --teal-700: #126e78;
-    --teal-800: #0f5860;
-    --teal-900: #0a3d43;
+    /* Brand palette — near-black sidebar + BuyTheWay teal/navy accent */
+    --brand-teal: #0f766e;
+    --brand-blue: #123f8f;
+    --teal-50: #f0fdfa;
+    --teal-100: #ccfbf1;
+    --teal-200: #99f6e4;
+    --teal-300: #5eead4;
+    --teal-500: #14b8a6;
+    --teal-600: #0d9488;
+    --teal-700: #0f766e;
+    --teal-800: #115e59;
+    --teal-900: #134e4a;
     --slate: #64748b;
     font-family:
         'Plus Jakarta Sans', 'Inter', ui-sans-serif, system-ui, sans-serif;
@@ -78,11 +78,11 @@ body {
     overflow-y: auto;
     scrollbar-width: none;
     -ms-overflow-style: none;
-    background-color: #12161f;
+    background-color: #0f1210;
     background-image:
         radial-gradient(
             circle at 15% 25%,
-            rgba(27, 155, 168, 0.14) 0,
+            rgba(15, 118, 110, 0.16) 0,
             transparent 45%
         ),
         radial-gradient(
@@ -95,9 +95,74 @@ body {
         auto,
         auto,
         22px 22px;
+    transition: width 0.22s ease;
 }
 .seller-sidebar::-webkit-scrollbar {
     display: none;
+}
+
+/* ---- collapsible ---- */
+.seller-sidebar.collapsed {
+    width: 4.75rem;
+}
+.sidebar-toggle-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.75rem;
+    padding: 0 0.5rem;
+}
+.seller-sidebar.collapsed .sidebar-toggle-row {
+    justify-content: center;
+    padding: 0;
+}
+.sidebar-toggle-btn {
+    width: 1.7rem;
+    height: 1.7rem;
+    border-radius: 0.5rem;
+    flex-shrink: 0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        color 0.15s ease;
+}
+.sidebar-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+.sidebar-toggle-btn svg {
+    transition: transform 0.22s ease;
+}
+.seller-sidebar.collapsed .sidebar-toggle-btn svg {
+    transform: rotate(180deg);
+}
+.seller-sidebar.collapsed .sidebar-logo {
+    justify-content: center;
+}
+.seller-sidebar.collapsed .logo-text,
+.seller-sidebar.collapsed .logo-sub,
+.seller-sidebar.collapsed .sidebar-section-label,
+.seller-sidebar.collapsed .nav-label,
+.seller-sidebar.collapsed .nav-badge,
+.seller-sidebar.collapsed .sidebar-divider,
+.seller-sidebar.collapsed .profile-info {
+    display: none;
+}
+.seller-sidebar.collapsed .sidebar-link {
+    justify-content: center;
+    padding: 0.6rem;
+    border-right-width: 0;
+}
+.seller-sidebar.collapsed .sidebar-link.active {
+    border-right-width: 3px;
+}
+.seller-sidebar.collapsed .seller-profile-mini {
+    justify-content: center;
 }
 
 .sidebar-top {
@@ -116,7 +181,7 @@ body {
     width: 2.25rem;
     height: 2.25rem;
     border-radius: 0.6rem;
-    background: linear-gradient(135deg, #0d9488, #14b8a6);
+    background: linear-gradient(135deg, #0b5f58, #0f766e);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -171,13 +236,13 @@ body {
     color: #e2e8f0;
 }
 .sidebar-link.active {
-    background: rgba(27, 155, 168, 0.15);
+    background: rgba(15, 118, 110, 0.18);
     border-color: transparent;
-    border-right-color: var(--brand-teal, #1b9ba8);
+    border-right-color: var(--brand-teal, #0d9488);
     color: #ffffff;
 }
 .sidebar-link.active .icon-wrap {
-    color: var(--brand-teal, #1b9ba8);
+    color: var(--brand-teal, #0d9488);
 }
 .sidebar-link .icon-wrap {
     width: 1.25rem;
@@ -223,8 +288,8 @@ body {
     width: 2rem;
     height: 2rem;
     border-radius: 50%;
-    background: rgba(20, 184, 166, 0.2);
-    color: #5eead4;
+    background: rgba(15, 118, 110, 0.22);
+    color: #86e0ae;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -398,7 +463,7 @@ body {
     background: linear-gradient(
         135deg,
         var(--teal-500),
-        var(--brand-blue, #2c5aa0)
+        var(--brand-blue, #123f8f)
     );
     color: white;
     display: flex;
@@ -540,8 +605,8 @@ body {
     gap: 0.4rem;
 }
 .btn-blue-outline:hover {
-    border-color: var(--brand-blue, #2c5aa0);
-    color: var(--brand-blue, #2c5aa0);
+    border-color: var(--brand-blue, #123f8f);
+    color: var(--brand-blue, #123f8f);
 }
 
 /* ============================================================
@@ -558,7 +623,7 @@ body {
     border-radius: 0.6rem;
     font-weight: 600;
     font-size: 0.85rem;
-    box-shadow: 0 2px 6px rgba(13, 148, 136, 0.25);
+    box-shadow: 0 2px 6px rgba(20, 105, 67, 0.28);
     transition: filter 0.15s ease;
     border: none;
     cursor: pointer;
@@ -897,7 +962,7 @@ body {
     text-decoration: none;
 }
 .panel-link:hover {
-    color: var(--brand-blue, #2c5aa0);
+    color: var(--brand-blue, #123f8f);
 }
 .live-dot {
     width: 8px;
@@ -942,7 +1007,7 @@ body {
 }
 .sales-table .order-id {
     font-weight: 700;
-    color: var(--brand-blue, #2c5aa0);
+    color: var(--brand-blue, #123f8f);
 }
 .sales-table .customer {
     font-weight: 600;
@@ -1401,6 +1466,63 @@ body {
     max-width: 100%;
     box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
 }
+
+/* ---- modal enter/leave (backdrop fades, panel fades + settles in) ---- */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+    transition: opacity 0.2s ease;
+}
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+    opacity: 0;
+}
+.modal-fade-enter-active .modal-panel,
+.modal-fade-enter-active .feedback-image-modal,
+.modal-fade-leave-active .modal-panel,
+.modal-fade-leave-active .feedback-image-modal {
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.modal-fade-enter-from .modal-panel,
+.modal-fade-enter-from .feedback-image-modal,
+.modal-fade-leave-to .modal-panel,
+.modal-fade-leave-to .feedback-image-modal {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+}
+
+/* ---- shared popover enter/leave (notif bell, kebab menus) ---- */
+.pop-enter-active,
+.pop-leave-active {
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.pop-enter-from,
+.pop-leave-to {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+    transform-origin: top right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .modal-fade-enter-active,
+    .modal-fade-leave-active,
+    .modal-fade-enter-active .modal-panel,
+    .modal-fade-enter-active .feedback-image-modal,
+    .modal-fade-leave-active .modal-panel,
+    .modal-fade-leave-active .feedback-image-modal,
+    .pop-enter-active,
+    .pop-leave-active {
+        transition: opacity 0.15s ease;
+    }
+    .modal-fade-enter-from .modal-panel,
+    .modal-fade-enter-from .feedback-image-modal,
+    .modal-fade-leave-to .modal-panel,
+    .modal-fade-leave-to .feedback-image-modal,
+    .pop-enter-from,
+    .pop-leave-to {
+        transform: none;
+    }
+}
+
 .modal-header {
     display: flex;
     align-items: center;
@@ -2308,8 +2430,34 @@ body {
     font-weight: 700;
     color: #94a3b8;
 }
+/* !important is deliberate: this padding reserves the exact space the
+   absolutely-positioned ₱ symbol above sits in, and a plain `padding`
+   shorthand on a more specific container rule (e.g. `.variant-field
+   .field-input`) has repeatedly won the cascade and clobbered it back
+   down — the digits render underneath the symbol instead of after it.
+   This is a structural requirement of the component, not a per-context
+   style choice, so it shouldn't be overridable by whatever wraps it. */
 .currency-input input {
-    padding-left: 1.65rem;
+    padding-left: 1.65rem !important;
+}
+
+.percent-input {
+    position: relative;
+}
+.percent-input span {
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #94a3b8;
+}
+/* Same reasoning as .currency-input input above — reserves space for the
+   absolutely-positioned "%" symbol against being clobbered by a more
+   specific container rule's own `padding` shorthand. */
+.percent-input input {
+    padding-right: 1.75rem !important;
 }
 
 .image-dropzone {
@@ -2625,7 +2773,7 @@ body {
 }
 .order-table .order-id {
     font-weight: 700;
-    color: var(--brand-blue, #2c5aa0);
+    color: var(--brand-blue, #123f8f);
 }
 .order-table .customer {
     font-weight: 600;
@@ -3114,7 +3262,7 @@ body {
 .order-tracking-link {
     font-size: 0.72rem;
     font-weight: 700;
-    color: var(--brand-blue, #2c5aa0);
+    color: var(--brand-blue, #123f8f);
     text-decoration: underline;
     margin-top: 0.5rem;
     display: block;
@@ -3248,6 +3396,284 @@ body {
 }
 
 /* ============================================================
+   ORDER DETAILS PAGE — reference-matched layout (base/light rules;
+   the dark reskin lives further down next to .order-page, scoped
+   under .order-detail-page so nothing here leaks elsewhere).
+   ============================================================ */
+
+.od-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.75rem;
+}
+.od-header-left {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+}
+.od-back-btn {
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 50%;
+    border: 1px solid #e2e8f0;
+    background: white;
+    color: #334155;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+    transition: background 0.15s ease;
+}
+.od-back-btn:hover {
+    background: #f8fafc;
+}
+
+.od-progress-card {
+    padding: 1.2rem 1.4rem;
+}
+.od-progress-top {
+    font-size: 0.78rem;
+    color: #64748b;
+    margin: 0 0 1.1rem 0;
+}
+.od-steps {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+    margin-bottom: 0.7rem;
+}
+.od-step {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #94a3b8;
+}
+.od-step-ic {
+    width: 1.3rem;
+    height: 1.3rem;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 0.68rem;
+}
+.od-step.done {
+    color: #0f172a;
+}
+.od-step.done .od-step-ic {
+    background: #dcfce7;
+    color: #16a34a;
+}
+.od-step.active {
+    color: var(--teal-600);
+}
+.od-step.active .od-step-ic {
+    background: var(--teal-100);
+    color: var(--teal-600);
+}
+.od-progress-bar {
+    height: 6px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    overflow: hidden;
+}
+.od-progress-bar > span {
+    display: block;
+    height: 100%;
+    background: var(--teal-500);
+    border-radius: 999px;
+    transition: width 0.25s ease;
+}
+
+.od-cancel-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1.1rem 1.3rem;
+    color: #b91c1c;
+    background: #fef2f2;
+    border-color: #fecaca;
+}
+.od-cancel-title {
+    font-size: 0.88rem;
+    font-weight: 800;
+    margin: 0;
+}
+.od-cancel-reason {
+    font-size: 0.78rem;
+    color: #b91c1c;
+    opacity: 0.85;
+    margin: 0.3rem 0 0 0;
+    line-height: 1.5;
+}
+
+.od-actions-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+.od-actions-row-left {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+.od-text-danger {
+    padding: 0.6rem 0.9rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #ef4444;
+    background: transparent;
+    border: none;
+    border-radius: 0.6rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.od-text-danger:hover:not(:disabled) {
+    background: #fef2f2;
+}
+.od-text-danger:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.od-card {
+    padding: 1.5rem;
+}
+.od-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.9rem;
+}
+
+.od-product-row {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.85rem 0;
+    border-top: 1px solid #f1f5f9;
+}
+.od-product-row:first-of-type {
+    border-top: none;
+    padding-top: 0;
+}
+.od-p-thumb {
+    width: 3rem;
+    height: 3rem;
+    border-radius: 0.7rem;
+    background: #f8fafc;
+    border: 1px solid #f1f5f9;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.od-p-info {
+    flex: 1;
+    min-width: 0;
+}
+.od-p-name {
+    font-size: 0.87rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0;
+}
+.od-p-meta {
+    font-size: 0.74rem;
+    color: #94a3b8;
+    margin: 0.2rem 0 0 0;
+}
+.od-p-price {
+    font-size: 0.87rem;
+    font-weight: 800;
+    color: #0f172a;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.od-cust-avatar-lg {
+    width: 2.6rem;
+    height: 2.6rem;
+    border-radius: 50%;
+    font-size: 0.8rem;
+}
+.od-chat-btn {
+    margin-left: auto;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 0.6rem;
+    border: 1px solid #e2e8f0;
+    background: white;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s ease;
+}
+.od-chat-btn:hover {
+    background: #f8fafc;
+}
+.od-contact-chips {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+.od-contact-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.6rem;
+    font-size: 0.78rem;
+    color: #475569;
+    overflow-wrap: anywhere;
+}
+.od-divider {
+    border-top: 1px solid #f1f5f9;
+    margin: 1.1rem 0 0 0;
+}
+
+.order-journey-card {
+    background: #ffffff !important;
+    border-color: #e2e8f0 !important;
+}
+
+@media (max-width: 640px) {
+    .od-header-left {
+        width: 100%;
+    }
+    .od-steps {
+        grid-template-columns: repeat(2, 1fr);
+        row-gap: 0.5rem;
+    }
+    .od-actions-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .od-actions-row-left {
+        justify-content: flex-end;
+    }
+}
+
+/* ============================================================
    PRODUCT VARIANTS (Inventory product sheet)
    Reuses existing tokens (--teal-*, --slate) and existing
    component classes (.field-input, .field-label, .chip-btn,
@@ -3259,19 +3685,220 @@ body {
     padding-top: 1rem;
 }
 
-.variant-option-row {
+.variant-group {
     display: flex;
-    align-items: flex-start;
-    gap: 0.6rem;
-    margin-bottom: 0.6rem;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #f1f5f9;
+}
+.variant-group:last-of-type {
+    padding-bottom: 0;
+    border-bottom: none;
+}
+.variant-group-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.variant-group-name {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+.variant-group-hint {
+    font-size: 0.75rem;
+    color: var(--slate);
 }
 
-.spec-fields-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 0.9rem;
-    max-height: 20rem;
-    overflow-y: auto;
+/* Multi-select: Weight, Flavor, etc. — every picked value multiplies
+   into its own variant. */
+.variant-pill-row,
+.variant-radio-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+.variant-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.45rem 0.9rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #334155;
+    background: white;
+    border: 1px solid #d1d5db;
+    border-radius: 0.6rem;
+    cursor: pointer;
+    transition:
+        background 0.12s ease,
+        border-color 0.12s ease,
+        color 0.12s ease;
+}
+.variant-pill:hover {
+    border-color: var(--teal-300);
+}
+.variant-pill.selected {
+    background: var(--teal-600);
+    border-color: var(--teal-600);
+    color: white;
+}
+.variant-pill-other {
+    background: transparent;
+    border-style: dashed;
+    color: var(--slate);
+}
+.variant-pill-remove {
+    display: inline-flex;
+    line-height: 1;
+    opacity: 0.75;
+}
+.variant-pill-remove:hover {
+    opacity: 1;
+}
+
+/* Single-select: e.g. Pet Type — describes the whole listing, so it's a
+   radio group instead of independently-toggleable pills. */
+.variant-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.75rem 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #334155;
+    border: 1px solid transparent;
+    border-radius: 0.6rem;
+    cursor: pointer;
+}
+.variant-radio input[type='radio'] {
+    accent-color: var(--teal-600);
+    margin: 0;
+    cursor: pointer;
+}
+.variant-radio.selected {
+    color: var(--teal-700);
+}
+.variant-radio-other {
+    color: var(--slate);
+}
+.variant-radio-other.selected {
+    color: var(--teal-700);
+}
+
+.variant-other-input {
+    display: inline-flex;
+}
+.variant-other-input input {
+    padding: 0.45rem 0.7rem;
+    font-size: 0.8rem;
+    border: 1px solid var(--teal-300);
+    border-radius: 0.6rem;
+    min-width: 9rem;
+    outline: none;
+}
+
+.variant-staging-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.85rem 1rem;
+    background: var(--teal-50);
+    border-radius: 0.75rem;
+}
+.variant-staging-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--teal-700);
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+.variant-staging-empty {
+    color: var(--slate);
+    font-weight: 600;
+}
+.variant-staging-clear {
+    margin-left: auto;
+    border: none;
+    background: none;
+    color: var(--teal-700);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 0;
+}
+.variant-staging-fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+.variant-staging-fields .field-input,
+.variant-staging-fields .currency-input,
+.variant-staging-fields .percent-input {
+    max-width: 9rem;
+}
+.variant-staging-fields .btn-primary {
+    margin-left: auto;
+}
+
+.variant-discount-preview {
+    margin: 0.25rem 0 0;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--teal-600);
+    white-space: nowrap;
+}
+
+.variant-group-remove {
+    margin-left: auto;
+    border: none;
+    background: none;
+    color: #dc2626;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+}
+.variant-group-remove:hover {
+    text-decoration: underline;
+}
+
+.variant-add-option {
+    padding-top: 0.25rem;
+}
+.variant-add-option-form {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.variant-add-option-form .field-input {
+    max-width: 14rem;
+}
+
+.variant-row-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border: none;
+    border-radius: 0.4rem;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+}
+.variant-row-remove:hover {
+    background: #fef2f2;
+    color: #dc2626;
 }
 
 .variant-option-values {
@@ -3322,47 +3949,81 @@ body {
     background: transparent;
 }
 
-.variant-table-wrap {
-    overflow-x: auto;
+/* Cards, not a table — with price/discount/discount type/stock/low-stock/
+   status/image all per variant, a table forces horizontal scrolling to
+   see the last columns. Each field wraps onto a new line instead once
+   the row runs out of width, so nothing is ever clipped or hidden. */
+.variant-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+.variant-card {
     border: 1px solid #e2e8f0;
     border-radius: 0.65rem;
+    padding: 0.75rem 0.85rem;
 }
-
-.variant-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.78rem;
+.variant-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
 }
-.variant-table th,
-.variant-table td {
-    padding: 0.5rem 0.6rem;
-    text-align: left;
-    white-space: nowrap;
-    border-bottom: 1px solid #f1f5f9;
+.variant-card-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #1e293b;
 }
-.variant-table th {
-    color: var(--slate);
+.variant-card-body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+.variant-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 6.5rem;
+}
+.variant-field-label {
+    font-size: 0.65rem;
     font-weight: 700;
     text-transform: uppercase;
-    font-size: 0.65rem;
     letter-spacing: 0.02em;
-    background: #f8fafc;
+    color: var(--slate);
 }
-.variant-table td .field-input {
+.variant-field .field-input {
     min-width: 5.5rem;
     padding: 0.4rem 0.55rem;
     font-size: 0.78rem;
 }
-.variant-table tr:last-child td {
-    border-bottom: none;
+/* Auto-generated, never seller-editable — see
+   SellerProductService::generateVariantSku(). Same box as .field-input
+   so it lines up with the other variant-field controls, styled like its
+   :disabled state since it really is read-only. */
+.variant-sku-display {
+    display: block;
+    min-width: 5.5rem;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.78rem;
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    background: #f8fafc;
+    color: #64748b;
 }
 
-.variant-image-cell {
+.variant-image-slot {
+    position: relative;
+    flex-shrink: 0;
+}
+.variant-image-upload {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2.4rem;
-    height: 2.4rem;
+    width: 3.2rem;
+    height: 3.2rem;
     border: 1px dashed #cbd5e1;
     border-radius: 0.5rem;
     background: #f8fafc;
@@ -3370,10 +4031,27 @@ body {
     cursor: pointer;
     overflow: hidden;
 }
-.variant-image-cell img {
+.variant-image-upload img {
     width: 100%;
     height: 100%;
     object-fit: cover;
+}
+.variant-image-remove {
+    position: absolute;
+    top: -0.4rem;
+    right: -0.4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    border: none;
+    border-radius: 999px;
+    background: #dc2626;
+    color: white;
+    font-size: 0.7rem;
+    line-height: 1;
+    cursor: pointer;
 }
 
 /* ============================================================
@@ -3431,18 +4109,6 @@ body {
 .prep-breadcrumb a:hover {
     color: var(--teal-600);
     text-decoration: underline;
-}
-
-.prep-grid {
-    display: grid;
-    grid-template-columns: 7fr 5fr;
-    gap: 1.5rem;
-    align-items: start;
-}
-.prep-col {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
 }
 
 .prep-card-head {
@@ -3620,15 +4286,6 @@ body {
     flex-direction: column;
     gap: 1.1rem;
 }
-.prep-dims-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 0.5rem;
-}
-.prep-dims-row input {
-    text-align: center;
-}
-
 .prep-dispatch-note {
     padding: 0 1.4rem;
     font-size: 0.78rem;
@@ -3644,12 +4301,6 @@ body {
     font-size: 0.75rem;
     color: #92400e;
 }
-.prep-dispatch-btn {
-    display: block;
-    margin: 1.25rem 1.4rem 1.4rem;
-    width: calc(100% - 2.8rem);
-}
-
 .prep-picker-list {
     padding: 0.5rem 1rem 1.4rem;
     display: flex;
@@ -3686,10 +4337,319 @@ body {
     margin: 0.15rem 0 0;
 }
 
-@media (max-width: 1024px) {
-    .prep-grid {
-        grid-template-columns: 1fr;
+/* ---- Prepare Shipment action modal (PrepareOrders.vue) ----
+   Adapted from the reference's .psm-overlay/.psm-modal 3-step flow
+   (Shipping Details -> Pack Items -> Confirm & Dispatch) with a live
+   summary panel. Built on the app's existing .modal-overlay/.modal-panel
+   primitives (same ones ConfirmActionDialog/Inventory/Feedback/Messages
+   already use) rather than a one-off dialog design — see
+   .order-confirm-overlay/.order-confirm-panel above for the same
+   pattern at a smaller size. */
+.psm-panel {
+    width: 58rem;
+    max-width: 100%;
+}
+.psm-panel:not(.psm-panel-simple) {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 4rem);
+}
+.psm-panel.psm-panel-simple {
+    width: 27rem;
+}
+
+.psm-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+    padding: 1.4rem 1.5rem 1.1rem;
+    border-bottom: 1px solid #f1f5f9;
+    flex-shrink: 0;
+}
+.psm-head-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.75rem;
+    background: var(--teal-50);
+    color: var(--teal-600);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.psm-head-text {
+    flex: 1;
+    min-width: 0;
+}
+.psm-head-text h3 {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0;
+}
+.psm-head-text p {
+    font-size: 0.78rem;
+    color: var(--slate);
+    margin: 0.15rem 0 0;
+}
+.psm-head .badge {
+    margin-top: 0.2rem;
+    flex-shrink: 0;
+}
+.psm-head .modal-close {
+    margin-top: -0.1rem;
+    flex-shrink: 0;
+}
+
+.psm-steps-wrap {
+    display: flex;
+    align-items: center;
+    padding: 0.9rem 1.5rem;
+    background: #f8fafc;
+    border-bottom: 1px solid #f1f5f9;
+    flex-shrink: 0;
+    overflow-x: auto;
+}
+.psm-step {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: none;
+    background: none;
+    padding: 0.25rem 0;
+    cursor: pointer;
+    font: inherit;
+    white-space: nowrap;
+}
+.psm-step:disabled {
+    cursor: default;
+}
+.psm-step:not(:last-child)::after {
+    content: '';
+    display: inline-block;
+    width: 1.75rem;
+    height: 1px;
+    background: #e2e8f0;
+    margin: 0 0.75rem;
+}
+.psm-step-dot {
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    background: white;
+    border: 1.5px solid #cbd5e1;
+    color: #94a3b8;
+    font-size: 0.7rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.psm-step-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #94a3b8;
+}
+.psm-step.active .psm-step-dot {
+    background: var(--teal-600);
+    border-color: var(--teal-600);
+    color: white;
+}
+.psm-step.active .psm-step-label {
+    color: #0f172a;
+}
+.psm-step.done .psm-step-dot {
+    background: var(--teal-50);
+    border-color: var(--teal-500);
+    color: var(--teal-600);
+}
+.psm-step.done .psm-step-label {
+    color: var(--teal-600);
+}
+
+.psm-body {
+    display: grid;
+    grid-template-columns: 1.7fr 1fr;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+.psm-form-col {
+    padding: 1.4rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    border-right: 1px solid #f1f5f9;
+    min-width: 0;
+}
+.psm-summary-col {
+    padding: 1.4rem 1.5rem;
+    background: #f8fafc;
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+    min-width: 0;
+}
+@media (max-width: 900px) {
+    .psm-panel:not(.psm-panel-simple) {
+        width: 96vw;
     }
+    .psm-body {
+        grid-template-columns: 1fr;
+        overflow-y: visible;
+    }
+    .psm-form-col {
+        border-right: none;
+        border-bottom: 1px solid #f1f5f9;
+    }
+}
+
+.psm-summary-head {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+}
+.psm-summary-avatar {
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--teal-100), #dbeafe);
+    color: var(--teal-600);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+.psm-summary-head h4 {
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0;
+}
+.psm-summary-head p {
+    font-size: 0.72rem;
+    color: var(--slate);
+    margin: 0.1rem 0 0;
+}
+.psm-summary-title {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #94a3b8;
+    margin: 0 0 0.5rem;
+}
+.psm-summary-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.78rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px dashed #e2e8f0;
+}
+.psm-summary-row:last-child {
+    border-bottom: none;
+}
+.psm-summary-row .lbl {
+    color: var(--slate);
+    flex-shrink: 0;
+}
+.psm-summary-row .val {
+    color: #0f172a;
+    font-weight: 700;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+.psm-summary-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.psm-summary-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--slate);
+}
+.psm-summary-item .chk {
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 50%;
+    border: 1.5px solid #cbd5e1;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    color: transparent;
+}
+.psm-summary-item.packed .chk {
+    background: var(--teal-500);
+    border-color: var(--teal-500);
+    color: white;
+}
+.psm-summary-item .nm {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.psm-summary-item.packed .nm {
+    color: #0f172a;
+    text-decoration: line-through;
+    text-decoration-color: #cbd5e1;
+}
+.psm-summary-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-top: 0.75rem;
+    border-top: 1px solid #e2e8f0;
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.psm-summary-total .amt {
+    font-size: 1rem;
+    color: #0f172a;
+    text-transform: none;
+}
+
+.psm-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid #f1f5f9;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+.psm-foot-left,
+.psm-foot-right {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+.psm-save-draft {
+    border: none;
+    background: none;
+    color: var(--slate);
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0.5rem 0.25rem;
+}
+.psm-save-draft:hover {
+    color: var(--teal-600);
 }
 
 /* ============================================================
@@ -5144,8 +6104,12 @@ body {
     color: #0f172a;
     margin: 0;
 }
+/* margin, not padding: .msg-search IS the .header-search positioning
+   context for the icon (left:0.7rem is measured from this element's
+   padding edge), so padding here would shift the icon out of the
+   padding gutter and away from the input's real left edge. */
 .msg-search {
-    padding: 0 1.1rem 0.75rem;
+    margin: 0 1.1rem 0.75rem;
 }
 .msg-search input {
     width: 100%;
@@ -5617,6 +6581,8 @@ body {
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
+}
+.msg-bubble + .msg-attachments {
     margin-top: 0.4rem;
 }
 .msg-attachment-chip {
@@ -6481,7 +7447,7 @@ body {
     background: #d97706;
 }
 .dot-intransit {
-    background: #2c5aa0;
+    background: #123f8f;
 }
 .dot-delivered {
     background: #059669;
@@ -7323,7 +8289,7 @@ body {
 }
 .order-table--full .order-id-link {
     font-weight: 700;
-    color: var(--brand-blue, #2c5aa0);
+    color: var(--brand-blue, #123f8f);
     background: none;
     border: none;
     padding: 0;
@@ -7407,12 +8373,28 @@ body {
 .order-card-top {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
+    gap: 0.6rem;
+}
+.order-card-thumb {
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 0.5rem;
+    background: #f1f5f9;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+.order-card-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 .order-card-number {
     font-weight: 800;
-    color: var(--brand-blue, #2c5aa0);
+    color: var(--brand-blue, #123f8f);
     background: none;
     border: none;
     padding: 0;
@@ -7426,23 +8408,25 @@ body {
     font-size: 0.85rem;
 }
 .order-card-products {
-    font-size: 0.75rem;
-    color: #64748b;
-    margin: 0;
-}
-.order-card-meta {
-    display: flex;
-    gap: 0.4rem;
-    font-size: 0.7rem;
-    color: #94a3b8;
-    font-weight: 600;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0.5rem 0 0;
 }
 .order-card-bottom {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.6rem;
-    margin-top: 0.35rem;
+    margin-top: 0.6rem;
+}
+.order-card-date {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #94a3b8;
 }
 .order-card-money {
     display: flex;
@@ -8159,5 +9143,781 @@ body {
     }
     .acct-save-bar-actions {
         justify-content: flex-end;
+    }
+}
+
+/* ============================================================
+   ORDERS PAGE — kanban redesign (dark theme, matches Dashboard /
+   Inventory). Selectors are prefixed .order-page so nothing here
+   leaks onto other pages that also use .card/.field-input/.badge-*
+   (Profile, Reports, Feedback, etc. stay on the original light
+   rules above). OrderCard.vue and OrderStatusBadge.vue render
+   inside this page but have no <style> of their own, so their
+   classes are themed here rather than in a component-scoped block.
+   ============================================================ */
+.order-page {
+    --ord-surface: #161b17;
+    --ord-surface-2: #1d231e;
+    --ord-border: rgba(255, 255, 255, 0.08);
+    --ord-border-soft: rgba(255, 255, 255, 0.06);
+    --ord-ink-900: #f2f4f1;
+    --ord-ink-500: #97a099;
+    --ord-ink-400: #6d766e;
+    color: var(--ord-ink-900);
+}
+
+.order-page .card {
+    background: var(--ord-surface);
+    border-color: var(--ord-border);
+}
+.order-page .order-alert {
+    background: rgba(111, 163, 224, 0.14);
+    border-color: rgba(111, 163, 224, 0.35);
+}
+.order-page .order-alert-left p {
+    color: #9dc2ef;
+}
+.order-page .order-results-head {
+    padding: 0 0 1rem;
+    border-bottom: none;
+}
+.order-page .order-results-head h3,
+.order-page .board-title h3 {
+    color: var(--ord-ink-900);
+}
+.order-page .board-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+.order-filter-active-pill {
+    font-size: 0.66rem;
+    font-weight: 700;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(111, 163, 224, 0.2);
+    color: #9dc2ef;
+}
+.order-page .order-results-count {
+    color: var(--ord-ink-500);
+}
+.order-page .field-input {
+    background: var(--ord-surface-2);
+    border-color: var(--ord-border);
+    color: var(--ord-ink-900);
+}
+.order-page .field-label {
+    color: var(--ord-ink-500);
+}
+.order-page .order-filter-chip {
+    background: var(--ord-surface-2);
+    border-color: var(--ord-border);
+    color: var(--ord-ink-700, var(--ord-ink-500));
+}
+.order-page .order-filter-reset {
+    border-color: var(--ord-border);
+    color: var(--ord-ink-500);
+}
+.order-page .order-state-text {
+    color: var(--ord-ink-500);
+}
+.order-page .order-skel-row {
+    border-top-color: var(--ord-border-soft);
+}
+.order-page .order-skel-bar {
+    background: var(--ord-surface-2);
+    background-image: linear-gradient(90deg, var(--ord-surface-2) 0, #262d26 40px, var(--ord-surface-2) 80px);
+}
+
+/* ---- kanban board ---- */
+.kanban {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(13rem, 1fr));
+    gap: 1.1rem;
+    overflow-x: auto;
+    align-items: start;
+}
+.kanban-col {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--ord-surface, #161b17);
+    border: 1px solid var(--ord-border, rgba(255, 255, 255, 0.08));
+    border-radius: 1rem;
+    padding: 1rem;
+}
+.kanban-col-head {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0 0 0.9rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--ord-ink-500);
+}
+.kanban-col-head .dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.kanban-col-head .label {
+    color: var(--ord-ink-900);
+}
+.kanban-count {
+    margin-left: auto;
+    font-weight: 800;
+    color: var(--ord-ink-500, #97a099);
+    background: var(--ord-surface-2, #1d231e);
+    border: 1px solid var(--ord-border, rgba(255, 255, 255, 0.08));
+    border-radius: 999px;
+    padding: 0.1rem 0.55rem;
+    font-size: 0.78rem;
+}
+.kanban-col-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+}
+.kanban-empty {
+    font-size: 0.76rem;
+    color: var(--ord-ink-400);
+    text-align: center;
+    padding: 1rem 0;
+    margin: 0;
+}
+.kanban-more {
+    margin-top: 0.6rem;
+    padding: 0.4rem 0;
+    background: none;
+    border: none;
+    color: var(--ord-ink-500);
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+}
+.kanban-more:hover {
+    color: #5eead4;
+}
+
+@media (max-width: 1180px) {
+    .kanban {
+        grid-template-columns: repeat(4, 15rem);
+    }
+}
+
+/* ============================================================
+   ORDERS LIST — the drill-down a kanban column's "View N more"
+   opens (real click-through, matching the reference's kanban-more
+   -> orders-list). Reuses .order-table--full/.order-row/
+   .order-id-link/.customer/.order-date/.order-products/.amount,
+   an unused-elsewhere table treatment left over from before the
+   kanban redesign — dark-reskinned here since Orders is always
+   dark. Everything new (.ol-*) is dark-styled directly, same as
+   .order-filter-panel above, since this view only ever renders on
+   this already-dark page. ---- */
+.ol-topbar {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+    margin-bottom: 1.1rem;
+}
+.ol-back-btn {
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 50%;
+    border: 1px solid var(--ord-border);
+    background: var(--ord-surface-2);
+    color: var(--ord-ink-900);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+    transition: background 0.15s ease;
+}
+.ol-back-btn:hover {
+    background: var(--ord-surface);
+}
+.ol-breadcrumb {
+    font-size: 0.78rem;
+    color: var(--ord-ink-500);
+    margin: 0 0 0.3rem 0;
+}
+.ol-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--ord-ink-900);
+    margin: 0;
+}
+.ol-count-badge {
+    display: inline-block;
+    padding: 0.05rem 0.55rem;
+    border-radius: 999px;
+    background: var(--ord-surface-2);
+    border: 1px solid var(--ord-border);
+    color: var(--ord-ink-500);
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.ol-tabs {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.1rem;
+}
+.ol-tab {
+    padding: 0.42rem 0.95rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    border: none;
+    background: transparent;
+    color: var(--ord-ink-500);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.ol-tab:hover {
+    color: var(--ord-ink-900);
+}
+.ol-tab.active {
+    background: var(--ord-ink-900);
+    color: var(--ord-surface);
+}
+
+.order-page .order-table--full thead th {
+    color: var(--ord-ink-400);
+    border-bottom-color: var(--ord-border);
+    background: var(--ord-surface-2);
+}
+.order-page .order-table--full tbody td {
+    border-top-color: var(--ord-border-soft);
+}
+.order-page .order-table--full .customer,
+.order-page .order-table--full .amount {
+    color: var(--ord-ink-900);
+}
+.order-page .order-table--full .order-date,
+.order-page .order-table--full .order-products {
+    color: var(--ord-ink-500);
+}
+.order-page .order-table--full .order-id-link {
+    color: #9dc2ef;
+}
+.order-page .order-row:hover {
+    background: var(--ord-surface-2);
+}
+.order-page .order-row:focus-visible {
+    outline-color: #14b8a6;
+}
+
+.ol-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 1rem 1.35rem 0;
+    font-size: 0.78rem;
+    color: var(--ord-ink-500);
+}
+.ol-page-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+.ol-page-current {
+    font-weight: 700;
+    color: var(--ord-ink-900);
+}
+.ol-page-btn {
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--ord-border);
+    background: var(--ord-surface-2);
+    color: var(--ord-ink-900);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.ol-page-btn:hover:not(:disabled) {
+    background: var(--ord-surface);
+}
+.ol-page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+    .ol-pagination {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+    }
+}
+
+/* ---- kanban card (reuses OrderCard.vue's own markup/classes) ---- */
+.order-page .order-card {
+    background: var(--ord-surface-2);
+    border-color: var(--ord-border);
+}
+.order-page .order-card.active {
+    border-color: #14b8a6;
+    box-shadow: 0 0 0 1px #14b8a6;
+}
+.order-page .order-card-number {
+    color: #9dc2ef;
+}
+.order-page .order-card-thumb {
+    background: var(--ord-surface);
+    color: var(--ord-ink-500);
+}
+.order-page .order-card-products {
+    color: var(--ord-ink-900);
+}
+.order-page .order-card-date {
+    color: var(--ord-ink-500);
+}
+.order-page .order-card-total {
+    color: var(--ord-ink-900);
+}
+
+/* ---- overview / revenue stat cards ---- */
+.ord-stats {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 1.15rem;
+}
+.ord-stat-card {
+    padding: 1.25rem 1.4rem;
+}
+.ord-stat-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.9rem;
+}
+.ord-stat-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--ord-ink-500);
+}
+.ord-stat-ic {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 0.55rem;
+    background: rgba(15, 118, 110, 0.2);
+    color: #5eead4;
+}
+.ord-stat-ic.blue {
+    background: rgba(111, 163, 224, 0.2);
+    color: #9dc2ef;
+}
+.ord-big-num {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 1.9rem;
+    font-weight: 800;
+    color: var(--ord-ink-900);
+}
+.ord-big-num .unit {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ord-ink-500);
+}
+.ord-compare {
+    font-size: 0.78rem;
+    color: var(--ord-ink-500);
+    margin: 0.35rem 0 0;
+}
+.ord-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.1rem;
+    margin-top: 0.9rem;
+}
+.ord-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.76rem;
+    color: var(--ord-ink-500);
+}
+.ord-legend-item .dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.ord-legend-item .num {
+    color: var(--ord-ink-900);
+    font-weight: 800;
+}
+.ord-bar {
+    display: flex;
+    gap: 3px;
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 0.75rem;
+}
+.ord-bar span {
+    display: block;
+    height: 100%;
+}
+.ord-revenue-empty {
+    font-size: 0.82rem;
+    color: var(--ord-ink-400);
+    padding: 0.75rem 0 1rem;
+}
+.ord-gauge-row {
+    display: flex;
+    align-items: center;
+    gap: 1.1rem;
+    flex-wrap: wrap;
+}
+.ord-donut-wrap {
+    position: relative;
+    width: 5.5rem;
+    height: 5.5rem;
+    flex-shrink: 0;
+}
+.ord-donut {
+    width: 100%;
+    height: 100%;
+}
+.ord-gauge-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+.ord-gauge-total {
+    margin-left: auto;
+    text-align: right;
+}
+.ord-gauge-total .g-num {
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: var(--ord-ink-900);
+}
+.ord-gauge-caption {
+    font-size: 0.74rem;
+    color: var(--ord-ink-400);
+    margin: 0.9rem 0 0;
+}
+
+@media (max-width: 900px) {
+    .ord-stats {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ---- preview drawer (rendered inline in Orders.vue) ---- */
+.order-page .order-preview-head {
+    border-bottom-color: var(--ord-border-soft);
+}
+.order-page .order-preview-title-row h3 {
+    color: var(--ord-ink-900);
+}
+.order-page .order-preview-sub,
+.order-page .order-section-label,
+.order-page .order-item-meta,
+.order-page .order-address-text,
+.order-page .order-payment-row {
+    color: var(--ord-ink-500);
+}
+.order-page .order-address-name,
+.order-page .order-item-name,
+.order-page .order-item-price,
+.order-page .order-payment-row strong {
+    color: var(--ord-ink-900);
+}
+.order-page .order-payment-total {
+    border-top-color: var(--ord-border-soft);
+}
+.order-page .order-item-thumb {
+    background: var(--ord-surface-2);
+}
+.order-page .order-preview-item + .order-preview-item {
+    border-top-color: var(--ord-border-soft);
+}
+.order-page .order-preview-empty p {
+    color: var(--ord-ink-500);
+}
+.order-page .order-preview-timeline li {
+    color: var(--ord-ink-500);
+}
+.order-page .order-preview-timeline strong {
+    color: var(--ord-ink-900);
+}
+.order-page .order-preview-actions {
+    border-top-color: var(--ord-border-soft);
+}
+
+/* ============================================================
+   ORDER DETAILS PAGE — dark reskin (matches Orders / Dashboard /
+   Inventory / Order Preparation). Selectors are prefixed
+   .order-detail-page so nothing here leaks onto the old order-list
+   drawer classes it shares names with (.order-section-label,
+   .order-payment-row, etc. — those keep their original light rules
+   above for any other caller). OrderStatusBadge.vue and
+   OrderJourneyMap.vue render inside this page: the badge is
+   reskinned here (no <style> of its own); the map is deliberately
+   left as a light "island" card (see .order-journey-card above)
+   since it renders real map tiles/markers built for a light base.
+   ============================================================ */
+.order-detail-page {
+    --od-surface: #161b17;
+    --od-surface-2: #1d231e;
+    --od-border: rgba(255, 255, 255, 0.08);
+    --od-border-soft: rgba(255, 255, 255, 0.06);
+    --od-ink-900: #f2f4f1;
+    --od-ink-500: #97a099;
+    --od-ink-400: #6d766e;
+    color: var(--od-ink-900);
+}
+
+.order-detail-page .card {
+    background: var(--od-surface);
+    border-color: var(--od-border);
+}
+
+.order-detail-page .order-detail-page-title {
+    color: var(--od-ink-900);
+}
+.order-detail-page .order-detail-page-sub {
+    color: var(--od-ink-500);
+}
+.order-detail-page .order-return-flag {
+    color: #fbbf7d;
+}
+.order-detail-page .od-back-btn {
+    background: var(--od-surface-2);
+    border-color: var(--od-border);
+    color: var(--od-ink-900);
+}
+.order-detail-page .od-back-btn:hover {
+    background: var(--od-surface);
+}
+
+.order-detail-page .btn-outline {
+    background: var(--od-surface-2);
+    border-color: var(--od-border);
+    color: var(--od-ink-900);
+}
+.order-detail-page .btn-outline:hover:not(:disabled) {
+    background: var(--od-surface);
+}
+.order-detail-page .btn-danger-soft {
+    background: rgba(247, 164, 159, 0.14);
+    border-color: rgba(247, 164, 159, 0.35);
+    color: #f7a49f;
+}
+.order-detail-page .btn-danger-soft:hover {
+    background: rgba(247, 164, 159, 0.22);
+}
+.order-detail-page .od-text-danger {
+    color: #f7a49f;
+}
+.order-detail-page .od-text-danger:hover:not(:disabled) {
+    background: rgba(247, 164, 159, 0.12);
+}
+
+.order-detail-page .od-progress-top,
+.order-detail-page .order-section-label,
+.order-detail-page .order-item-meta-row span,
+.order-detail-page .order-item-category,
+.order-detail-page .od-p-meta,
+.order-detail-page .order-address-text,
+.order-detail-page .order-payment-row,
+.order-detail-page .order-customer-email,
+.order-detail-page .order-info-sub,
+.order-detail-page .order-address-phone {
+    color: var(--od-ink-500);
+}
+.order-detail-page .order-address-name,
+.order-detail-page .order-customer-name,
+.order-detail-page .od-p-name,
+.order-detail-page .od-p-price,
+.order-detail-page .order-item-meta-row strong,
+.order-detail-page .order-payment-row strong,
+.order-detail-page .order-info-value,
+.order-detail-page .od-cancel-title {
+    color: var(--od-ink-900);
+}
+
+.order-detail-page .od-step {
+    color: var(--od-ink-400);
+}
+.order-detail-page .od-step-ic {
+    background: var(--od-surface-2);
+    color: var(--od-ink-400);
+}
+.order-detail-page .od-step.done {
+    color: var(--od-ink-900);
+}
+.order-detail-page .od-step.done .od-step-ic {
+    background: rgba(20, 184, 166, 0.18);
+    color: #5eead4;
+}
+.order-detail-page .od-step.active {
+    color: #5eead4;
+}
+.order-detail-page .od-step.active .od-step-ic {
+    background: rgba(20, 184, 166, 0.18);
+    color: #5eead4;
+}
+.order-detail-page .od-progress-bar {
+    background: var(--od-surface-2);
+}
+.order-detail-page .od-progress-bar > span {
+    background: #14b8a6;
+}
+
+.order-detail-page .od-cancel-banner {
+    background: rgba(247, 164, 159, 0.12);
+    border-color: rgba(247, 164, 159, 0.3);
+    color: #f7a49f;
+}
+.order-detail-page .od-cancel-reason {
+    color: #f7a49f;
+}
+
+.order-detail-page .od-product-row {
+    border-top-color: var(--od-border-soft);
+}
+.order-detail-page .od-p-thumb {
+    background: var(--od-surface-2);
+    border-color: var(--od-border);
+    color: var(--od-ink-400);
+}
+
+.order-detail-page .order-payment-total {
+    border-top-color: var(--od-border-soft);
+}
+.order-detail-page .order-shipping-free {
+    color: #5eead4 !important;
+}
+.order-detail-page .order-discount-value {
+    color: #5eead4 !important;
+}
+
+.order-detail-page .order-customer-avatar {
+    background: rgba(20, 184, 166, 0.16);
+    color: #5eead4;
+}
+.order-detail-page .od-chat-btn {
+    background: var(--od-surface-2);
+    border-color: var(--od-border);
+    color: var(--od-ink-500);
+}
+.order-detail-page .od-chat-btn:hover {
+    background: var(--od-surface);
+}
+.order-detail-page .od-contact-chip {
+    border-color: var(--od-border);
+    color: var(--od-ink-500);
+}
+.order-detail-page .od-divider {
+    border-top-color: var(--od-border-soft);
+}
+.order-detail-page .order-info-icon.sky {
+    background: rgba(111, 163, 224, 0.16);
+    color: #9dc2ef;
+}
+.order-detail-page .order-info-icon.emerald {
+    background: rgba(20, 184, 166, 0.16);
+    color: #5eead4;
+}
+.order-detail-page .order-tracking-link {
+    color: #9dc2ef;
+}
+.order-detail-page .order-address-sub {
+    color: var(--od-ink-400);
+}
+
+.order-detail-page .timeline-line {
+    background: var(--od-border);
+}
+.order-detail-page .timeline-dot {
+    background: #14b8a6;
+}
+.order-detail-page .timeline-dot.pending {
+    background: var(--od-border);
+}
+.order-detail-page .timeline-text {
+    color: var(--od-ink-900);
+}
+.order-detail-page .timeline-text.muted {
+    color: var(--od-ink-500);
+}
+.order-detail-page .timeline-time {
+    color: var(--od-ink-400);
+}
+.order-detail-page .timeline-time.italic {
+    color: var(--od-ink-400);
+}
+.order-detail-page .timeline-detail {
+    color: var(--od-ink-500);
+}
+
+.order-detail-page .order-detail-page-footer {
+    border-top-color: var(--od-border-soft);
+}
+.order-detail-page .order-back-link {
+    color: var(--od-ink-500);
+}
+.order-detail-page .order-back-link:hover {
+    color: var(--od-ink-900);
+}
+
+/* OrderStatusBadge + payment-status badge, reskinned as translucent
+   chips so they read as accents on the dark surface instead of solid
+   pastel rectangles. */
+.order-detail-page .badge-emerald {
+    background: rgba(20, 184, 166, 0.16);
+    color: #5eead4;
+    border-color: rgba(20, 184, 166, 0.3);
+}
+.order-detail-page .badge-sky {
+    background: rgba(111, 163, 224, 0.16);
+    color: #9dc2ef;
+    border-color: rgba(111, 163, 224, 0.3);
+}
+.order-detail-page .badge-amber {
+    background: rgba(251, 191, 125, 0.16);
+    color: #fbbf7d;
+    border: 1px solid rgba(251, 191, 125, 0.3);
+}
+.order-detail-page .badge-red {
+    background: rgba(247, 164, 159, 0.16);
+    color: #f7a49f;
+    border: 1px solid rgba(247, 164, 159, 0.3);
+}
+.order-detail-page .badge-slate {
+    background: var(--od-surface-2);
+    color: var(--od-ink-500);
+    border: 1px solid var(--od-border);
+}
+
+@media (max-width: 900px) {
+    .order-detail-page .od-header {
+        flex-direction: column;
     }
 }

@@ -7,6 +7,7 @@ use App\Http\Requests\Seller\AdjustStockRequest;
 use App\Models\InventoryMovement;
 use App\Models\Product;
 use App\Services\InventoryService;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -111,6 +112,114 @@ class SellerInventoryController extends Controller
                 'total' => $paginated->total(),
             ],
         ]);
+    }
+
+    /**
+     * GET /api/seller/products/stock-trend
+     *
+     * Real day-by-day In Stock / Low Stock / Out of Stock counts across
+     * the seller's current catalog, reconstructed from inventory_movements
+     * — the append-only audit log InventoryService writes for every stock
+     * change (including a real `initial_stock` row when a product is
+     * first created), rather than a snapshot table this project doesn't
+     * have. For a given product and day, its stock as of that day is the
+     * `quantity_after` of its most recent movement at or before that
+     * day's end (summed across active-at-creation variants for a variant
+     * product); a product with no movement yet by that day didn't exist
+     * yet and is left out of that day's totals rather than counted as 0.
+     *
+     * Fixed to the CURRENT Sun–Sat calendar week (matching the reference
+     * mock's S M T W T F S order) rather than a rolling "last 7 days"
+     * window — a rolling window ends on whatever weekday "today" happens
+     * to be, so the same two letters (e.g. both Tuesdays and Saturdays)
+     * could appear at both ends and read as confusing. A day later than
+     * today naturally reflects today's real totals carried forward
+     * (nothing has happened there yet to change them) rather than a
+     * fabricated projection.
+     *
+     * Two disclosed simplifications, both consistent with how the rest of
+     * this page already reads "stock status": (1) each product's CURRENT
+     * low_stock_threshold is applied to every past day too, since
+     * threshold history isn't tracked; (2) a variant's active/inactive
+     * flag is only known as of now, not retroactively, so a variant with
+     * any movement counts on every day it had one.
+     */
+    public function stockTrend(Request $request): JsonResponse
+    {
+        $seller = $request->user();
+        $tz = config('app.timezone');
+        $days = 7;
+
+        $now = CarbonImmutable::now($tz);
+        $start = $now->startOfWeek(\Carbon\CarbonInterface::SUNDAY);
+        $end = $start->copy()->addDays($days - 1)->endOfDay();
+
+        $products = Product::where('seller_id', $seller->id)
+            ->get(['id', 'has_variants', 'low_stock_threshold']);
+
+        if ($products->isEmpty()) {
+            return response()->json(['data' => ['days' => []]]);
+        }
+
+        $movements = InventoryMovement::whereIn('product_id', $products->pluck('id'))
+            ->where('created_at', '<=', $end)
+            ->orderBy('created_at')
+            ->get(['product_id', 'variant_id', 'quantity_after', 'created_at']);
+
+        $movementsByProduct = $movements->groupBy('product_id');
+
+        $days_ = [];
+
+        for ($i = 0; $i < $days; $i++) {
+            $dayEnd = $start->copy()->addDays($i)->endOfDay();
+
+            $inStock = 0;
+            $lowStock = 0;
+            $outOfStock = 0;
+
+            foreach ($products as $product) {
+                $upToDay = $movementsByProduct
+                    ->get($product->id, collect())
+                    ->filter(fn ($m) => $m->created_at <= $dayEnd);
+
+                if ($upToDay->isEmpty()) {
+                    continue; // no stock event yet — product didn't exist as of this day
+                }
+
+                if ($product->has_variants) {
+                    $qty = $upToDay
+                        ->whereNotNull('variant_id')
+                        ->groupBy('variant_id')
+                        ->map(fn ($g) => $g->last()->quantity_after)
+                        ->sum();
+                } else {
+                    $qty = $upToDay->last()->quantity_after;
+                }
+
+                $threshold = (int) ($product->low_stock_threshold ?? Product::DEFAULT_LOW_STOCK_THRESHOLD);
+
+                if ($qty <= 0) {
+                    $outOfStock++;
+                } elseif ($qty <= $threshold) {
+                    $lowStock++;
+                } else {
+                    $inStock++;
+                }
+            }
+
+            $known = $inStock + $lowStock + $outOfStock;
+
+            $days_[] = [
+                'date' => $dayEnd->toDateString(),
+                'label' => strtoupper(substr($dayEnd->format('D'), 0, 1)),
+                'inStock' => $inStock,
+                'lowStock' => $lowStock,
+                'outOfStock' => $outOfStock,
+                'healthyPct' => $known > 0 ? round(($inStock / $known) * 100, 1) : null,
+            ];
+        }
+
+        return response()->json(['data' => ['days' => $days_]]);
     }
 
     private function transformMovement(InventoryMovement $m): array

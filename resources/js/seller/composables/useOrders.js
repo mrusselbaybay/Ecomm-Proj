@@ -20,6 +20,25 @@ const loadError = ref('');
 const isUpdatingStatus = ref(false);
 const updateError = ref('');
 
+// Shared with SellerLayout.vue, which renders the search box and the
+// Filter popover (Order status/Payment/Date range/Sort) in the page
+// header for the orders section — same reasoning as useSellerProducts'
+// searchQuery: one real control, not a page-local one plus a decorative
+// duplicate in the shared header.
+const DEFAULT_ORDER_FILTERS = {
+    search: '',
+    status: '',
+    payment_status: '',
+    date_from: '',
+    date_to: '',
+    sort: 'newest',
+};
+const orderFilters = ref({ ...DEFAULT_ORDER_FILTERS });
+
+function resetOrderFilters() {
+    orderFilters.value = { ...DEFAULT_ORDER_FILTERS };
+}
+
 // Stored status value -> seller-facing label (mirrors Order::STATUS_LABELS).
 // 'New' shows as "Pending", 'In Transit' as "Shipped".
 const STATUS_LABELS = {
@@ -68,33 +87,73 @@ async function apiFetch(path, options = {}) {
     return body.data;
 }
 
-async function loadOrders(params = {}) {
-    isLoadingOrders.value = true;
-    loadError.value = '';
+// Dashboard, Orders, and PrepareOrders all call loadOrders() on mount —
+// without this, navigating between them re-fetched the seller's entire
+// order history (this endpoint is unpaginated by default) every single
+// time. ORDERS_CACHE_TTL_MS is short (orders change often — new orders,
+// status updates) rather than useSellerProducts' longer TTL.
+const ORDERS_CACHE_TTL_MS = 30 * 1000;
+let ordersRequest = null;
+let ordersRequestKey = null;
+let ordersLoadedAt = 0;
+let ordersLoadedKey = null;
 
+async function loadOrders(params = {}, { force = false } = {}) {
     const qs = new URLSearchParams(
         Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''),
     ).toString();
 
-    try {
-        const headers = await authHeaders();
-        const response = await fetch(`/api/seller/orders${qs ? `?${qs}` : ''}`, { headers });
-        const body = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            throw new Error(body.message || 'Request failed.');
-        }
-
-        orders.value = Array.isArray(body.data) ? body.data : [];
-        ordersMeta.value = body.meta || { statusCounts: {} };
-    } catch (err) {
-        console.error('Error loading seller orders:', err);
-        loadError.value =
-            err?.message || 'Something went wrong while loading your orders.';
-        orders.value = [];
-    } finally {
-        isLoadingOrders.value = false;
+    // Same request (same filters/params) already in flight — join it
+    // instead of firing a second, identical fetch.
+    if (ordersRequest && ordersRequestKey === qs) {
+        return ordersRequest;
     }
+
+    const cacheIsFresh =
+        ordersLoadedKey === qs && Date.now() - ordersLoadedAt < ORDERS_CACHE_TTL_MS;
+
+    if (!force && cacheIsFresh) {
+        isLoadingOrders.value = false;
+
+        return;
+    }
+
+    isLoadingOrders.value = true;
+    loadError.value = '';
+    ordersRequestKey = qs;
+
+    const request = (async () => {
+        try {
+            const headers = await authHeaders();
+            const response = await fetch(`/api/seller/orders${qs ? `?${qs}` : ''}`, { headers });
+            const body = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(body.message || 'Request failed.');
+            }
+
+            orders.value = Array.isArray(body.data) ? body.data : [];
+            ordersMeta.value = body.meta || { statusCounts: {} };
+            ordersLoadedAt = Date.now();
+            ordersLoadedKey = qs;
+        } catch (err) {
+            console.error('Error loading seller orders:', err);
+            loadError.value =
+                err?.message || 'Something went wrong while loading your orders.';
+            orders.value = [];
+        } finally {
+            isLoadingOrders.value = false;
+
+            if (ordersRequest === request) {
+                ordersRequest = null;
+                ordersRequestKey = null;
+            }
+        }
+    })();
+
+    ordersRequest = request;
+
+    return request;
 }
 
 // Fetches a single order with its full detail (address, shipping,
@@ -220,9 +279,12 @@ function shipOrder(id, extra = {}) {
     return updateOrderStatus(id, 'In Transit', extra).catch(() => null);
 }
 
-function deliverOrder(id) {
-    return updateOrderStatus(id, 'Delivered').catch(() => null);
-}
+// There is deliberately no deliverOrder() — a seller can no longer set
+// 'Delivered' at all (see Order::SELLER_SETTABLE_STATUSES /
+// SellerOrderController::updateStatus, which now rejects it). It's set
+// automatically instead: app/Console/Commands/AutoDeliverStaleOrders.php
+// (In Transit 7+ days with no confirmation), or eventually a buyer-side
+// confirmation.
 
 function statusBadgeClass(status) {
     const map = {
@@ -257,6 +319,9 @@ export function useOrders() {
         isUpdatingStatus,
         updateError,
         newOrdersCount,
+        orderFilters,
+        resetOrderFilters,
+        STATUS_LABELS,
         loadOrders,
         getOrderById,
         getOrderTracking,
@@ -272,6 +337,5 @@ export function useOrders() {
         rejectOrder,
         cancelOrder,
         shipOrder,
-        deliverOrder,
     };
 }

@@ -7,6 +7,7 @@ use App\Http\Controllers\Seller\SellerFeedbackController;
 use App\Http\Controllers\Seller\SellerInventoryController;
 use App\Http\Controllers\Seller\SellerNotificationController;
 use App\Http\Controllers\Seller\SellerOrderController;
+use App\Http\Controllers\Seller\SellerCourierController;
 use App\Http\Controllers\Seller\SellerProductController;
 use App\Http\Controllers\Seller\SellerReportController;
 use Illuminate\Support\Facades\Route;
@@ -32,6 +33,9 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     Route::put('/orders/{id}/status', [SellerOrderController::class, 'updateStatus'])->name('orders.update-status');
 
     Route::get('/products', [SellerProductController::class, 'index'])->name('products.index');
+    // Must stay ahead of the /products/{id} wildcard below, or "stock-trend"
+    // gets swallowed as an {id} and 404s against SellerProductController.
+    Route::get('/products/stock-trend', [SellerInventoryController::class, 'stockTrend'])->name('products.stock-trend');
     Route::get('/products/{id}', [SellerProductController::class, 'show'])->name('products.show');
     Route::post('/products', [SellerProductController::class, 'store'])->name('products.store');
     Route::put('/products/{id}', [SellerProductController::class, 'update'])->name('products.update');
@@ -44,6 +48,11 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     Route::get('/products/{id}/stock-movements', [SellerInventoryController::class, 'movements'])->name('products.stock.movements');
 
     Route::get('/category-config', [CategoryConfigController::class, 'show'])->name('category-config');
+
+    // Registered logistics companies a seller can hand a shipment to —
+    // feeds the Courier/Carrier dropdown on Prepare Shipment and Courier
+    // Handover (see SellerCourierController).
+    Route::get('/couriers', [SellerCourierController::class, 'index'])->name('couriers.index');
 
     // Seller notification inbox (header bell). Rows are written by
     // App\Services\SellerNotifier after the triggering transaction commits.
@@ -70,6 +79,11 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     Route::get('/reports/revenue-trend', [SellerReportController::class, 'revenueTrend'])->name('reports.revenue-trend');
     Route::get('/reports/order-breakdown', [SellerReportController::class, 'orderBreakdown'])->name('reports.order-breakdown');
     Route::get('/reports/top-products', [SellerReportController::class, 'topProducts'])->name('reports.top-products');
+    // Weekly Reports section (Reports.vue) — see each method's own
+    // docblock for exactly what real data backs it.
+    Route::get('/reports/weekly-fulfillment', [SellerReportController::class, 'weeklyFulfillment'])->name('reports.weekly-fulfillment');
+    Route::get('/reports/hourly-volume', [SellerReportController::class, 'hourlyVolume'])->name('reports.hourly-volume');
+    Route::get('/reports/customer-mix', [SellerReportController::class, 'customerMix'])->name('reports.customer-mix');
     Route::get('/reports/export', [SellerReportController::class, 'export'])->name('reports.export');
 
     // Extended report set (spec section 10): sales / order-summary /
@@ -83,14 +97,14 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     Route::get('/reports/download', [SellerReportController::class, 'download'])->name('reports.download');
 
     // Delivery Confirmations (SellerDeliveryController) — read/monitor
-    // only; the actual "mark as delivered" action reuses the existing
-    // SellerOrderController::updateStatus endpoint above (the In
-    // Transit -> Delivered transition it already permits), rather than
-    // duplicating status-change logic here. See that controller's
-    // docblock for scope, status mapping, and what's deliberately NOT
-    // supported (proof-of-delivery, buyer confirmation, returns).
+    // only. There is no "mark as delivered" action anywhere on this
+    // controller or reachable by a seller — see its docblock for scope,
+    // status mapping, and what's deliberately NOT supported
+    // (proof-of-delivery, buyer confirmation, returns).
     Route::get('/deliveries', [SellerDeliveryController::class, 'index'])->name('deliveries.index');
     Route::get('/deliveries/summary', [SellerDeliveryController::class, 'summary'])->name('deliveries.summary');
+    Route::get('/deliveries/courier-performance', [SellerDeliveryController::class, 'courierPerformance'])->name('deliveries.courier-performance');
+    Route::get('/deliveries/issues', [SellerDeliveryController::class, 'issues'])->name('deliveries.issues');
     Route::get('/deliveries/export', [SellerDeliveryController::class, 'export'])->name('deliveries.export');
 
     // Buyer <-> seller messaging (MessageController). Implements the API
@@ -100,6 +114,7 @@ Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.
     // the authenticated seller; another seller's conversation 404s.
     Route::prefix('messages')->name('messages.')->group(function () {
         Route::get('/unread-count', [MessageController::class, 'unreadCount'])->name('unread-count');
+        Route::get('/export', [MessageController::class, 'export'])->name('export');
         Route::get('/conversations', [MessageController::class, 'conversations'])->name('conversations.index');
         Route::post('/attachments', [MessageController::class, 'uploadAttachment'])->name('attachments.store');
         Route::get('/conversations/{id}', [MessageController::class, 'showConversation'])->name('conversations.show');

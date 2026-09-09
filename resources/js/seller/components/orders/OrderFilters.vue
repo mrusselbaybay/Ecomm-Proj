@@ -142,15 +142,10 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'reset']);
 
 const STATUS_OPTIONS = [
-    { value: 'New', label: 'Pending' },
-    { value: 'Confirmed', label: 'Confirmed' },
+    { value: 'New', label: 'New' },
     { value: 'Processing', label: 'Processing' },
-    { value: 'Packed', label: 'Packed' },
-    { value: 'Ready for Pickup', label: 'Ready for Pickup' },
-    { value: 'In Transit', label: 'Shipped' },
+    { value: 'In Transit', label: 'In Transit' },
     { value: 'Delivered', label: 'Delivered' },
-    { value: 'Cancelled', label: 'Cancelled' },
-    { value: 'Rejected', label: 'Rejected' },
 ];
 
 const local = reactive({ ...props.modelValue });

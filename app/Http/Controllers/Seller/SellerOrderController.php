@@ -14,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class SellerOrderController extends Controller
@@ -89,8 +90,16 @@ class SellerOrderController extends Controller
             ->pluck('c', 'status')
             ->all();
 
-        // No items.product here — product rows carry base64 images and
-        // would bloat the list. show() loads them for the details page.
+        // Real product photos were tried here for the Orders kanban card
+        // thumbnail (items.product:id,images, opt-in via ?with_thumbnails)
+        // but a `products` query filtered by `WHERE id IN (...)` while
+        // selecting the `images` column hangs indefinitely against this
+        // Supabase instance — confirmed directly via `php artisan tinker`
+        // with the web server, browser, and any concurrency ruled out
+        // (SELECT id, images FROM products alone works; the same select
+        // with a literal or bound WHERE id IN (...) never returns). Not
+        // safe to eager-load here; the kanban card uses a generic icon
+        // instead (see OrderCard.vue).
         $with = ['items', 'buyer.address'];
 
         // Return/refund rollup for the list badge (returnStatusFor()).
@@ -221,6 +230,18 @@ class SellerOrderController extends Controller
             ], 422);
         }
 
+        // Delivered is the one real status a seller can never set directly
+        // through this endpoint (see Order::SELLER_SETTABLE_STATUSES) — a
+        // seller declaring their own order delivered isn't a real
+        // confirmation of anything. It's set automatically instead (see
+        // AutoDeliverStaleOrders), or by a future buyer confirmation.
+        if (! $order->sellerMaySet($newStatus)) {
+            return response()->json([
+                'message' => Order::labelFor($newStatus).' is set automatically, not by the seller — '
+                    .'it clears on its own once the order is confirmed delivered or has been in transit long enough.',
+            ], 422);
+        }
+
         if ($isCancelLike && ! $order->sellerMayCancel()) {
             return response()->json([
                 'message' => 'An order can only be cancelled or rejected while it is still Pending or Confirmed.',
@@ -244,10 +265,21 @@ class SellerOrderController extends Controller
 
                 $order->status = $newStatus;
 
-                foreach (['tracking_number', 'shipping_carrier', 'shipping_service'] as $field) {
+                foreach (['shipping_carrier', 'shipping_service'] as $field) {
                     if ($request->filled($field)) {
                         $order->{$field} = $request->validated($field);
                     }
+                }
+
+                // Tracking number is never taken from the request — a
+                // seller typing an arbitrary string isn't a real AWB, and
+                // the buyer trusts this number to actually track their
+                // parcel. It's generated here, once, at the real moment
+                // the order is actually handed to a courier (In Transit),
+                // and left alone on every other transition so it's never
+                // silently regenerated later.
+                if ($newStatus === 'In Transit' && ! $order->tracking_number) {
+                    $order->tracking_number = $this->generateTrackingNumber();
                 }
 
                 if ($isCancelLike) {
@@ -286,6 +318,22 @@ class SellerOrderController extends Controller
     private function reloadDetail(Order $order): Order
     {
         return $order->fresh($this->detailRelations());
+    }
+
+    /**
+     * A real, unique AWB-style tracking number — BTW (BuyTheWay) +
+     * today's date + 6 random base-32 characters (Str::random's default
+     * pool minus visually-ambiguous 0/O/1/I would be nicer, but plain
+     * upper-alphanumeric keeps this simple and still collision-checked
+     * against every tracking number ever issued before it's accepted).
+     */
+    private function generateTrackingNumber(): string
+    {
+        do {
+            $candidate = 'BTW'.now()->format('ymd').strtoupper(Str::random(6));
+        } while (Order::where('tracking_number', $candidate)->exists());
+
+        return $candidate;
     }
 
     /**
@@ -379,6 +427,12 @@ class SellerOrderController extends Controller
                 'subtotal' => (float) ($item->subtotal ?? $item->unit_price * $item->quantity),
                 // Image is the one field with no snapshot column — pulled
                 // from the current product/variant when it still exists.
+                // Always null here: itemImage() only returns something
+                // when product/variant were eager-loaded, and this list
+                // deliberately doesn't (see the $with comment in index()
+                // above — selecting products.images filtered by
+                // WHERE id IN (...) hangs against this DB). The Orders
+                // kanban card shows a generic icon instead of a photo.
                 'image' => $this->itemImage($item),
             ])->all(),
         ];

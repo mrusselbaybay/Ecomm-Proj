@@ -84,10 +84,17 @@ class Order extends Model
         'Rejected' => [],
     ];
 
-    // Statuses the SELLER is allowed to set. 'In Transit'/'Delivered' are
-    // deliberately excluded — per the spec those belong to logistics.
+    // Statuses the SELLER is allowed to set via
+    // SellerOrderController::updateStatus(). 'In Transit' is included —
+    // Courier Handover's own "Confirm Pickup" is how a seller hands an
+    // order to a courier in this project (there's no separate logistics
+    // portal action wired up for it). 'Delivered' is deliberately
+    // excluded: a seller declaring their own order delivered isn't a
+    // real confirmation of anything — it's set automatically instead,
+    // either by AutoDeliverStaleOrders (7 days with no confirmation) or
+    // a future buyer-side confirmation.
     public const SELLER_SETTABLE_STATUSES = [
-        'Confirmed', 'Processing', 'Packed', 'Ready for Pickup', 'Cancelled', 'Rejected',
+        'Confirmed', 'Processing', 'Packed', 'Ready for Pickup', 'In Transit', 'Cancelled', 'Rejected',
     ];
 
     // Once here, an order never goes back to an earlier status.

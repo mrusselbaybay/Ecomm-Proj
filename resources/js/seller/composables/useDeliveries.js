@@ -7,9 +7,11 @@
 // docblock for what's supported vs. deliberately not (no proof of
 // delivery, buyer confirmation, or returns tables exist).
 //
-// Marking an order Delivered is NOT handled here — Delivery.vue calls
-// useOrders().deliverOrder() directly (the existing endpoint), so
-// there's exactly one place in the app that performs that transition.
+// There is no "mark as delivered" anywhere in this composable or
+// Delivery.vue — a seller can no longer set 'Delivered' at all (see
+// Order::SELLER_SETTABLE_STATUSES). It's set automatically instead:
+// app/Console/Commands/AutoDeliverStaleOrders.php (In Transit 7+ days
+// with no confirmation), or eventually a buyer-side confirmation.
 // ---------------------------------------------------------------
 
 import { ref, computed } from 'vue';
@@ -30,12 +32,25 @@ const summary = ref(null);
 const isLoadingSummary = ref(false);
 const summaryError = ref('');
 
+const courierPerformance = ref([]);
+const courierInsight = ref('');
+const isLoadingCourierPerformance = ref(false);
+const courierPerformanceError = ref('');
+
+const issuesList = ref([]);
+const isLoadingIssues = ref(false);
+const issuesError = ref('');
+
 const isExporting = ref(false);
 const exportError = ref('');
 
+// status is pinned to 'delivered' — Delivery.vue no longer has a
+// status-tab UI (only the Recent Deliveries list remains, which only
+// ever shows Delivered orders), so this composable no longer treats
+// 'all' as a real, reachable state.
 const filters = ref({
     search: '',
-    status: 'all',
+    status: 'delivered',
     sort: 'updated_desc',
     from: '',
     to: '',
@@ -79,12 +94,23 @@ function buildQuery(extra = {}) {
     const f = filters.value;
     const params = new URLSearchParams();
     if (f.search) params.set('search', f.search);
-    if (f.status && f.status !== 'all') params.set('status', f.status);
+    if (f.status) params.set('status', f.status);
     if (f.sort) params.set('sort', f.sort);
     if (f.from) params.set('from', f.from);
     if (f.to) params.set('to', f.to);
     if (f.page) params.set('page', f.page);
     Object.entries(extra).forEach(([k, v]) => params.set(k, v));
+    return params.toString();
+}
+
+// Just the date range, for the endpoints that only ever take that
+// filter (summary/courier-performance/issues aren't paginated,
+// searched, sorted, or status-filtered the way the main list is).
+function buildDateRangeQuery() {
+    const f = filters.value;
+    const params = new URLSearchParams();
+    if (f.from) params.set('from', f.from);
+    if (f.to) params.set('to', f.to);
     return params.toString();
 }
 
@@ -115,13 +141,46 @@ async function loadSummary() {
     summaryError.value = '';
 
     try {
-        const body = await apiFetch('/deliveries/summary');
+        const body = await apiFetch(`/deliveries/summary?${buildDateRangeQuery()}`);
         summary.value = body.data;
     } catch (err) {
         console.error('Error loading delivery summary:', err);
         summaryError.value = err?.message || 'Could not load the delivery summary.';
     } finally {
         isLoadingSummary.value = false;
+    }
+}
+
+async function loadCourierPerformance() {
+    isLoadingCourierPerformance.value = true;
+    courierPerformanceError.value = '';
+
+    try {
+        const body = await apiFetch(`/deliveries/courier-performance?${buildDateRangeQuery()}`);
+        courierPerformance.value = body.data;
+        courierInsight.value = body.meta?.insight || '';
+    } catch (err) {
+        console.error('Error loading courier performance:', err);
+        courierPerformanceError.value = err?.message || 'Could not load courier performance.';
+        courierPerformance.value = [];
+    } finally {
+        isLoadingCourierPerformance.value = false;
+    }
+}
+
+async function loadIssues() {
+    isLoadingIssues.value = true;
+    issuesError.value = '';
+
+    try {
+        const body = await apiFetch(`/deliveries/issues?${buildDateRangeQuery()}`);
+        issuesList.value = body.data;
+    } catch (err) {
+        console.error('Error loading delivery issues:', err);
+        issuesError.value = err?.message || 'Could not load delivery issues.';
+        issuesList.value = [];
+    } finally {
+        isLoadingIssues.value = false;
     }
 }
 
@@ -136,6 +195,17 @@ function setSearch(value) {
     }, 350);
 }
 
+// Re-fetching summary/courier-performance/issues on every setFilter
+// call (not just when from/to actually changed) is a little wasteful
+// for a plain status-tab click, but all three are cheap aggregate
+// queries and this keeps them honestly in sync with whatever date
+// range is active without tracking which specific field changed.
+function refreshDateScoped() {
+    loadSummary();
+    loadCourierPerformance();
+    loadIssues();
+}
+
 function setFilter(patch) {
     Object.assign(filters.value, patch);
     if (!('page' in patch)) {
@@ -143,12 +213,14 @@ function setFilter(patch) {
     }
     syncUrl();
     loadDeliveries();
+    refreshDateScoped();
 }
 
 function resetFilters() {
-    filters.value = { search: '', status: 'all', sort: 'updated_desc', from: '', to: '', page: 1 };
+    filters.value = { search: '', status: 'delivered', sort: 'updated_desc', from: '', to: '', page: 1 };
     syncUrl();
     loadDeliveries();
+    refreshDateScoped();
 }
 
 // See useReports.js's syncUrl/initFromUrl for the same pattern —
@@ -159,7 +231,7 @@ function syncUrl() {
     const f = filters.value;
     const set = (k, v) => (v ? url.searchParams.set(k, v) : url.searchParams.delete(k));
     set('search', f.search);
-    set('status', f.status !== 'all' ? f.status : '');
+    set('status', f.status !== 'delivered' ? f.status : '');
     set('sort', f.sort !== 'updated_desc' ? f.sort : '');
     set('from', f.from);
     set('to', f.to);
@@ -171,7 +243,7 @@ function initFromUrl() {
     const params = new URLSearchParams(window.location.search);
     filters.value = {
         search: params.get('search') || '',
-        status: params.get('status') || 'all',
+        status: params.get('status') || 'delivered',
         sort: params.get('sort') || 'updated_desc',
         from: params.get('from') || '',
         to: params.get('to') || '',
@@ -196,7 +268,7 @@ async function exportCsv() {
         const blob = await response.blob();
         const disposition = response.headers.get('Content-Disposition') || '';
         const match = disposition.match(/filename="?([^"]+)"?/);
-        const filename = match ? match[1] : `nexmart-deliveries-${new Date().toISOString().slice(0, 10)}.csv`;
+        const filename = match ? match[1] : `buytheway-deliveries-${new Date().toISOString().slice(0, 10)}.csv`;
 
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -214,8 +286,13 @@ async function exportCsv() {
     }
 }
 
+// `status` is deliberately not part of this check — Delivery.vue pins it
+// to 'delivered' permanently (there's no status-tab UI left for a
+// seller to actively change), so treating it as an "active filter"
+// would make this true forever and "Reset filters" would never
+// meaningfully go away.
 const hasActiveFilters = computed(
-    () => !!(filters.value.search || filters.value.status !== 'all' || filters.value.from || filters.value.to),
+    () => !!(filters.value.search || filters.value.from || filters.value.to),
 );
 
 export function useDeliveries() {
@@ -230,6 +307,17 @@ export function useDeliveries() {
         isLoadingSummary,
         summaryError,
         loadSummary,
+
+        courierPerformance,
+        courierInsight,
+        isLoadingCourierPerformance,
+        courierPerformanceError,
+        loadCourierPerformance,
+
+        issuesList,
+        isLoadingIssues,
+        issuesError,
+        loadIssues,
 
         filters,
         hasActiveFilters,

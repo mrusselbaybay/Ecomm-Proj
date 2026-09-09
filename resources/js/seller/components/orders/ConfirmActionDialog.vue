@@ -8,6 +8,7 @@
 -->
 <template>
     <Teleport to="body">
+        <Transition name="modal-fade">
         <div
             v-if="open"
             class="modal-overlay order-confirm-overlay"
@@ -85,6 +86,7 @@
                 </div>
             </div>
         </div>
+        </Transition>
     </Teleport>
 </template>
 
