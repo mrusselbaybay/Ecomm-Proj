@@ -15,7 +15,7 @@
             </div>
         </div>
 
-        <div v-if="isLoadingOrders" class="placeholder-page">
+        <div v-if="isLoadingOrders && prepQueueOrders.length === 0" class="placeholder-page">
             <div class="loading-spinner"></div>
             <p style="margin-top: 1rem">Loading your orders…</p>
         </div>
@@ -655,12 +655,14 @@ watch(() => props.orderId, loadOrder);
 // rhythm as Orders.vue/Dashboard.vue's poll) — only re-pulls the list
 // behind the modal, not the modal's own order (that stays in sync via
 // the orderId watch above, so an in-progress packing checklist is never
-// clobbered mid-edit).
+// clobbered mid-edit). { force: true }: loadOrders()'s own cache TTL is
+// also 30s, and without forcing, this timer races it and frequently
+// no-ops instead of actually fetching.
 const ORDERS_POLL_MS = 30 * 1000;
 let ordersPollTimer = null;
 
 onMounted(() => {
-    ordersPollTimer = setInterval(() => loadOrders(), ORDERS_POLL_MS);
+    ordersPollTimer = setInterval(() => loadOrders({}, { force: true }), ORDERS_POLL_MS);
 });
 
 onBeforeUnmount(() => {
@@ -853,13 +855,29 @@ const filteredPickerOrders = computed(() => {
 const PICKER_PAGE_SIZE = 9;
 const pickerPage = ref(1);
 
-watch(filteredPickerOrders, () => {
+// Watches the FILTER CRITERIA, not filteredPickerOrders itself — that
+// computed returns a brand-new array (and so a new reference) on every
+// recompute, including the ones the 30s orders poll triggers even when
+// its result is identical, which was silently bouncing a seller back to
+// page 1 every 30 seconds. Only an actual tab/search change should reset
+// the page.
+watch([activeStage, pickerSearch], () => {
     pickerPage.value = 1;
 });
 
 const pickerLastPage = computed(() =>
     Math.max(1, Math.ceil(filteredPickerOrders.value.length / PICKER_PAGE_SIZE)),
 );
+
+// Keeps the current page in range if the queue shrinks out from under
+// it (e.g. an order moves off the active stage) — safe to run on every
+// poll tick since it only acts when the page is actually now too high,
+// same pattern as Orders.vue's listOrders watch.
+watch(filteredPickerOrders, () => {
+    if (pickerPage.value > pickerLastPage.value) {
+        pickerPage.value = pickerLastPage.value;
+    }
+});
 
 const pagedPickerOrders = computed(() => {
     const start = (pickerPage.value - 1) * PICKER_PAGE_SIZE;

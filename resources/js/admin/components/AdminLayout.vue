@@ -122,7 +122,7 @@
                     </div>
 
                     <!-- Dynamic Component -->
-                    <component :is="currentComponent" />
+                    <component :is="currentComponent" v-bind="currentComponentProps" />
                 </div>
             </main>
 
@@ -188,19 +188,43 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue';
+import { ref, computed, defineAsyncComponent, h, onMounted, watch, onBeforeUnmount } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 
-// Regular imports
-import Chat from './Chat.vue';
-import Commission from './Commission.vue';
-import Complaints from './Complaints.vue';
-import Compliance from './Compliance.vue';
-import Dashboard from './Dashboard.vue';
-import Profile from './Profile.vue';
-import Reports from './Reports.vue';
-import Settings from './Settings.vue';
-import Users from './Users.vue';
+// AdminDashboardHome is the default landing section (see currentSection
+// below), so it's imported eagerly — lazy-loading it would just add a
+// network round trip before the FIRST thing an admin sees. Every other
+// section was previously eager too (same problem the seller portal's
+// SellerLayout.vue had — see its own async-import comment for the full
+// reasoning and the measured before/after bundle size), so each one's
+// real code now only downloads the first time an admin actually
+// navigates there.
+import AdminDashboardHome from './AdminDashboardHome.vue';
+
+const asyncSectionOptions = (loader) => ({
+    loader,
+    loadingComponent: {
+        // Same classes AdminLayout's own top-level "Loading admin
+        // panel..." state uses (see the template above), so a section's
+        // code downloading for the first time looks consistent with
+        // every other loading state in this app.
+        render: () => h(
+            'div',
+            { class: 'flex min-h-[50vh] items-center justify-center' },
+            [h('div', { class: 'loading-spinner' })],
+        ),
+    },
+    delay: 200,
+});
+
+const Chat = defineAsyncComponent(asyncSectionOptions(() => import('./Chat.vue')));
+const Commission = defineAsyncComponent(asyncSectionOptions(() => import('./Commission.vue')));
+const Complaints = defineAsyncComponent(asyncSectionOptions(() => import('./Complaints.vue')));
+const Compliance = defineAsyncComponent(asyncSectionOptions(() => import('./Compliance.vue')));
+const Profile = defineAsyncComponent(asyncSectionOptions(() => import('./Profile.vue')));
+const Reports = defineAsyncComponent(asyncSectionOptions(() => import('./Reports.vue')));
+const Settings = defineAsyncComponent(asyncSectionOptions(() => import('./Settings.vue')));
+const Users = defineAsyncComponent(asyncSectionOptions(() => import('./Users.vue')));
 
 // State
 const currentSection = ref('dashboard');
@@ -247,7 +271,7 @@ const sectionToPath = {
 
 // Component map
 const componentMap = {
-    dashboard: Dashboard,
+    dashboard: AdminDashboardHome,
     accounts: Users,
     compliance: Compliance,
     complaints: Complaints,
@@ -259,8 +283,22 @@ const componentMap = {
 };
 
 const currentComponent = computed(
-    () => componentMap[currentSection.value] || Dashboard,
+    () => componentMap[currentSection.value] || AdminDashboardHome,
 );
+
+// useAdmin() gives each caller its OWN fresh refs (no shared/singleton
+// state across calls — unlike the seller portal's composables), so
+// AdminDashboardHome can't just call useAdmin() itself and expect
+// adminProfile/pendingCount to already be populated: this component
+// already loaded them (see onMounted below), so they're passed down
+// explicitly instead of being redundantly re-fetched.
+const currentComponentProps = computed(() => {
+    if (currentSection.value === 'dashboard') {
+        return { adminProfile: adminProfile.value, pendingCount: pendingCount.value };
+    }
+
+    return {};
+});
 
 const sectionLabel = computed(() => {
     const labels = {

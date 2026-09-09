@@ -19,6 +19,24 @@ use Illuminate\Validation\ValidationException;
 
 class SellerOrderController extends Controller
 {
+    // Whether order_return_requests exists is a deployment-time schema
+    // fact, not something that changes mid-request or mid-process —
+    // caching it avoids paying this connection's own per-round-trip
+    // cost (~100-400ms, sometimes more — see the Order Details
+    // performance investigation) a second time in the same request AND
+    // across requests within the same long-lived process, same pattern
+    // OrderTrackingService already uses for parcel_locations. A
+    // per-request Cache::rememberForever() wouldn't help here — this
+    // project's CACHE_STORE is 'database', so that would just trade
+    // this round trip for an equally expensive one against the cache
+    // table.
+    private static ?bool $returnRequestsTableExists = null;
+
+    private function returnRequestsTableExists(): bool
+    {
+        return self::$returnRequestsTableExists ??= Schema::hasTable('order_return_requests');
+    }
+
     /**
      * Event-phrased labels for the order timeline on the details page.
      * (Order::STATUS_LABELS has the plain noun labels for badges.)
@@ -104,7 +122,7 @@ class SellerOrderController extends Controller
 
         // Return/refund rollup for the list badge (returnStatusFor()).
         // Guarded so the page still works before that migration is run.
-        if (Schema::hasTable('order_return_requests')) {
+        if ($this->returnRequestsTableExists()) {
             $with['returnRequests'] = fn ($q) => $q->select('id', 'order_id', 'status');
         }
 
@@ -352,7 +370,7 @@ class SellerOrderController extends Controller
             'seller.sellerDetail',
         ];
 
-        if (Schema::hasTable('order_return_requests')) {
+        if ($this->returnRequestsTableExists()) {
             $relations['returnRequests'] = fn ($q) => $q->select('id', 'order_id', 'status');
         }
 

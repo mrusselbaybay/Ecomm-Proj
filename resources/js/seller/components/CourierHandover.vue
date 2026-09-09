@@ -289,7 +289,7 @@
                     />
                 </div>
 
-                <div v-if="isLoadingOrders" class="placeholder-page" style="padding: 2rem 0">
+                <div v-if="isLoadingOrders && filteredHistory.length === 0" class="placeholder-page" style="padding: 2rem 0">
                     <div class="loading-spinner"></div>
                 </div>
 
@@ -535,8 +535,13 @@ onMounted(() => {
     loadCouriers();
 });
 
+// { force: true }: loadOrders()'s own cache TTL is also 30s, and
+// without forcing, the poll below races it and frequently no-ops
+// instead of actually fetching — forcing also makes the manual
+// "Refresh" button (bound to this same function) always land a real
+// request rather than a stale cache hit.
 function refresh() {
-    loadOrders();
+    loadOrders({}, { force: true });
 }
 
 // Same 30s poll rhythm as Orders.vue/Dashboard.vue — without it a

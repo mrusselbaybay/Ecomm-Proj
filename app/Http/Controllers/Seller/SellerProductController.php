@@ -19,11 +19,19 @@ class SellerProductController extends Controller
      *
      * The seller's whole catalogue with options/variants eager loaded.
      *
-     * The list payload is deliberately trimmed: product images are stored
-     * inline as base64 data URLs, so returning every image of every
-     * product made this response many megabytes. The list now sends only
-     * the FIRST image (the grid card's thumbnail) plus an image_count;
-     * the edit sheet pulls the full set from show() when it opens.
+     * The list payload trims each product down to its FIRST image (the
+     * grid card's thumbnail) plus an image_count — see transform()'s
+     * $full param. That trim used to matter for the DB round trip too:
+     * images were stored as inline base64 data URLs, so a plain
+     * `SELECT *` here pulled every image of every product out of
+     * Postgres in full, which was slow enough to blow past PHP's 30s
+     * execution limit on its own (a real incident, not a hypothetical
+     * one) — for a while this query carried a jsonb_build_array(images
+     * -> 0) trick specifically to avoid that. Images now live in
+     * Supabase Storage (see SellerProductService::processImages()) —
+     * the column only ever holds a handful of short {url, path}
+     * references, so a plain select is cheap again and the trim below
+     * is just about payload shape, not performance.
      */
     public function index(): JsonResponse
     {
@@ -128,10 +136,11 @@ class SellerProductController extends Controller
     {
         $images = $product->images ?? [];
         $listedImages = $full ? $images : array_slice($images, 0, 1);
+        $imageCount = count($images);
 
         return [
             'id' => $product->id,
-            'image_count' => count($images),
+            'image_count' => $imageCount,
             'name' => $product->name,
             'description' => $product->description,
             'category' => $product->category,

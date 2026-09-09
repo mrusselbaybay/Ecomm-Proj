@@ -82,8 +82,23 @@ async function apiFetch(path, { signal } = {}) {
     const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+        // The session expired (or was invalidated) while the seller was
+        // already using the app — checkAuth() in useSeller.js only
+        // verifies once, at initial load, nothing re-checks a live
+        // session mid-use. Without this, every widget on the page keeps
+        // failing with the same generic error forever, and its own
+        // "Try again" can never actually succeed since it just resends
+        // the same now-invalid token — sending the seller back to sign
+        // in is the only real fix.
+        if (response.status === 401) {
+            window.location.href = '/';
+
+            return new Promise(() => {}); // navigation is already underway; never resolve
+        }
+
         const err = new Error(body.message || 'Request failed.');
         err.status = response.status;
+
         throw err;
     }
 
@@ -93,13 +108,33 @@ async function apiFetch(path, { signal } = {}) {
 function buildQuery(extra = {}) {
     const f = filters.value;
     const params = new URLSearchParams();
-    if (f.search) params.set('search', f.search);
-    if (f.status) params.set('status', f.status);
-    if (f.sort) params.set('sort', f.sort);
-    if (f.from) params.set('from', f.from);
-    if (f.to) params.set('to', f.to);
-    if (f.page) params.set('page', f.page);
+
+    if (f.search) {
+params.set('search', f.search);
+}
+
+    if (f.status) {
+params.set('status', f.status);
+}
+
+    if (f.sort) {
+params.set('sort', f.sort);
+}
+
+    if (f.from) {
+params.set('from', f.from);
+}
+
+    if (f.to) {
+params.set('to', f.to);
+}
+
+    if (f.page) {
+params.set('page', f.page);
+}
+
     Object.entries(extra).forEach(([k, v]) => params.set(k, v));
+
     return params.toString();
 }
 
@@ -109,8 +144,15 @@ function buildQuery(extra = {}) {
 function buildDateRangeQuery() {
     const f = filters.value;
     const params = new URLSearchParams();
-    if (f.from) params.set('from', f.from);
-    if (f.to) params.set('to', f.to);
+
+    if (f.from) {
+params.set('from', f.from);
+}
+
+    if (f.to) {
+params.set('to', f.to);
+}
+
     return params.toString();
 }
 
@@ -127,7 +169,10 @@ async function loadDeliveries() {
         deliveries.value = body.data;
         deliveriesMeta.value = body.meta;
     } catch (err) {
-        if (err.name === 'AbortError') return;
+        if (err.name === 'AbortError') {
+return;
+}
+
         console.error('Error loading deliveries:', err);
         deliveriesError.value = err?.message || 'Could not load deliveries.';
         deliveries.value = [];
@@ -208,9 +253,11 @@ function refreshDateScoped() {
 
 function setFilter(patch) {
     Object.assign(filters.value, patch);
+
     if (!('page' in patch)) {
         filters.value.page = 1;
     }
+
     syncUrl();
     loadDeliveries();
     refreshDateScoped();
@@ -252,7 +299,10 @@ function initFromUrl() {
 }
 
 async function exportCsv() {
-    if (isExporting.value) return;
+    if (isExporting.value) {
+return;
+}
+
     isExporting.value = true;
     exportError.value = '';
 
@@ -262,6 +312,7 @@ async function exportCsv() {
 
         if (!response.ok) {
             const body = await response.json().catch(() => ({}));
+
             throw new Error(body.message || 'Export failed.');
         }
 

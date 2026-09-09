@@ -653,7 +653,7 @@
                             @click="openEditProductSheet(p)"
                         >
                             <span class="inv-attn-thumb">
-                                <img v-if="p.images?.[0]?.url" :src="p.images[0].url" :alt="p.name" />
+                                <img v-if="p.images?.[0]?.url" :src="p.images[0].url" :alt="p.name" loading="lazy" decoding="async" />
                                 <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
                             </span>
                             <span class="inv-attn-info">
@@ -953,7 +953,7 @@
                                         :key="idx"
                                         class="image-thumb"
                                     >
-                                        <img :src="img.url" />
+                                        <img :src="img.url" loading="lazy" decoding="async" />
                                         <button
                                             @click="form.images.splice(idx, 1)"
                                         >
@@ -1307,7 +1307,7 @@
                                                         style="display: none"
                                                         @change="handleVariantImageUpload($event, variant)"
                                                     />
-                                                    <img v-if="variant.image?.url" :src="variant.image.url" alt="" />
+                                                    <img v-if="variant.image?.url" :src="variant.image.url" alt="" loading="lazy" decoding="async" />
                                                     <svg
                                                         v-else
                                                         width="18"
@@ -3129,25 +3129,89 @@ async function confirmSave() {
     await handleSave();
 }
 
-function handleImageUpload(e) {
+// Phone-camera photos routinely land at 3-8MB. This upload still turns
+// the file into a base64 data: URL and sends it in the save payload as
+// before — SellerProductService::processSingleImage() is what now
+// uploads that to Supabase Storage server-side and swaps it for a real
+// {url, path} before it ever reaches the images column (previously
+// there was no object storage at all, and an un-resized upload going
+// straight into the database at full size is what made the seller's
+// own product list slow enough to blow past PHP's 30s execution limit
+// — a real production incident, not a hypothetical one). Downscaling
+// to a sane max dimension and re-encoding as JPEG here keeps the SAVE
+// request itself small regardless of where the image ends up.
+//
+// These numbers match the one-time backfill that fixed the existing
+// products (same reasoning: a 900px/quality-0.62 JPEG is plenty for a
+// catalog thumbnail or an edit-sheet preview — nobody's viewing these
+// at print resolution). A less aggressive setting was tried first
+// (1600px/0.82) and measured at ~490KB for a realistic 12MP photo —
+// bigger than this seller's entire existing catalog combined, which
+// would have silently reintroduced the same timeout on the very next
+// product uploaded. 900px/0.62 measured at under 80KB for the same
+// test photo.
+const IMAGE_MAX_DIMENSION = 900;
+const IMAGE_JPEG_QUALITY = 0.62;
+
+function compressImageFile(file) {
+    return new Promise((resolve) => {
+        const objectUrl = URL.createObjectURL(file);
+        const img = new Image();
+
+        const fallbackToRaw = () => {
+            URL.revokeObjectURL(objectUrl);
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(file);
+        };
+
+        img.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+
+            try {
+                const scale = Math.min(1, IMAGE_MAX_DIMENSION / Math.max(img.width, img.height));
+                const width = Math.round(img.width * scale) || img.width;
+                const height = Math.round(img.height * scale) || img.height;
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+
+                resolve(canvas.toDataURL('image/jpeg', IMAGE_JPEG_QUALITY));
+            } catch {
+                // Canvas can throw (e.g. a tainted/unsupported source) —
+                // fall back rather than silently dropping the upload.
+                fallbackToRaw();
+            }
+        };
+
+        // Not a decodable image (corrupt file, unsupported format) —
+        // same fallback.
+        img.onerror = fallbackToRaw;
+        img.src = objectUrl;
+    });
+}
+
+async function handleImageUpload(e) {
     const files = Array.from(e.target.files || []);
+    e.target.value = '';
 
     for (const file of files) {
-        const reader = new FileReader();
-        reader.onload = () => {
-            form.images.push({ url: reader.result, isNew: true });
-        };
-        reader.readAsDataURL(file);
-    }
+        const url = await compressImageFile(file);
 
-    e.target.value = '';
+        if (url) {
+            form.images.push({ url, isNew: true });
+        }
+    }
 }
 
 // One image per variant (product_variants.image is a single {url}, not a
 // gallery like products.images) — `target` is either stagingVariant (the
 // variant being configured) or an already-added row in form.variants,
 // both plain reactive objects this can set .image on directly.
-function handleVariantImageUpload(e, target) {
+async function handleVariantImageUpload(e, target) {
     const file = e.target.files?.[0];
     e.target.value = '';
 
@@ -3155,11 +3219,11 @@ function handleVariantImageUpload(e, target) {
         return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-        target.image = { url: reader.result, isNew: true };
-    };
-    reader.readAsDataURL(file);
+    const url = await compressImageFile(file);
+
+    if (url) {
+        target.image = { url, isNew: true };
+    }
 }
 
 async function handleSave() {

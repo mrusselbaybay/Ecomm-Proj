@@ -393,7 +393,7 @@
                 </div>
                 <ul v-else class="wr-product-list">
                     <li v-for="p in topProducts.slice(0, 5)" :key="p.productId" class="wr-product-row">
-                        <img v-if="p.image" :src="p.image" :alt="p.name" class="wr-product-thumb" />
+                        <img v-if="p.image" :src="p.image" :alt="p.name" class="wr-product-thumb" loading="lazy" decoding="async" />
                         <div v-else class="wr-product-thumb wr-product-thumb--empty" aria-hidden="true">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
                         </div>

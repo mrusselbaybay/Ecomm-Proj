@@ -148,6 +148,16 @@ return { aborted: true };
     const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+        // See useDeliveries.js's apiFetch for the full reasoning — a
+        // live session going stale mid-use is never re-checked, so
+        // without this every widget keeps failing forever and "Try
+        // again" can never succeed.
+        if (response.status === 401) {
+            window.location.href = '/';
+
+            return new Promise(() => {});
+        }
+
         const err = new Error(body.message || 'Request failed.');
         err.status = response.status;
 
@@ -256,7 +266,9 @@ async function loadHourlyVolume() {
     try {
         const res = await apiFetch(`/reports/hourly-volume?${rangeQuery()}`, 'hourlyVolume');
 
-        if (res.aborted) return;
+        if (res.aborted) {
+return;
+}
 
         hourlyVolume.value = res.data;
     } catch (err) {
@@ -274,7 +286,9 @@ async function loadCustomerMix() {
     try {
         const res = await apiFetch(`/reports/customer-mix?${rangeQuery()}`, 'customerMix');
 
-        if (res.aborted) return;
+        if (res.aborted) {
+return;
+}
 
         customerMix.value = res.data;
     } catch (err) {
@@ -296,7 +310,9 @@ async function loadWeeklyFulfillment() {
     try {
         const res = await apiFetch('/reports/weekly-fulfillment', 'weeklyFulfillment');
 
-        if (res.aborted) return;
+        if (res.aborted) {
+return;
+}
 
         weeklyFulfillment.value = res.data;
     } catch (err) {

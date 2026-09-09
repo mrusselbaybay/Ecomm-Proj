@@ -39,6 +39,16 @@ async function apiFetch(path, options = {}) {
     const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+        // See useDeliveries.js's apiFetch for the full reasoning — a
+        // live session going stale mid-use is never re-checked, so
+        // without this every widget keeps failing forever and "Try
+        // again" can never succeed.
+        if (response.status === 401) {
+            window.location.href = '/';
+
+            return new Promise(() => {});
+        }
+
         throw new Error(body.message || 'Request failed.');
     }
 

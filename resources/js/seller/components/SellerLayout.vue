@@ -565,24 +565,53 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, defineAsyncComponent, h, onMounted, onBeforeUnmount } from 'vue';
 import { useMessaging } from '../composables/useMessaging';
 import { useOrders } from '../composables/useOrders';
 import { useSeller } from '../composables/useSeller';
 import { useSellerNotifications } from '../composables/useSellerNotifications';
 import { useSellerProducts } from '../composables/useSellerProducts';
 
-import CourierHandover from './CourierHandover.vue';
+// Dashboard is the default landing section (see currentSection below),
+// so it's imported eagerly — lazy-loading it would just add a network
+// round trip before the FIRST thing a seller sees. Every other section
+// was previously eager too, meaning the whole seller portal (Inventory,
+// Reports' Chart.js, Messages, ...) had to download and parse before a
+// seller could see even the Dashboard — one ~540KB bundle regardless of
+// which single page they actually wanted. componentMap's values below
+// becoming async components is enough on its own: <component :is> (see
+// the template) already handles an async component transparently, so
+// each section's real code now only downloads the first time a seller
+// actually navigates there.
 import Dashboard from './Dashboard.vue';
-import Delivery from './Delivery.vue';
-import Feedback from './Feedback.vue';
-import Inventory from './Inventory.vue';
-import Messages from './Messages.vue';
-import OrderDetails from './OrderDetails.vue';
-import Orders from './Orders.vue';
-import PrepareOrders from './PrepareOrders.vue';
-import Profile from './Profile.vue';
-import Reports from './Reports.vue';
+
+// Same .empty-state/.loading-spinner pairing every page already shows
+// for its own data fetches (see Inventory.vue's "Loading products…",
+// etc.) — reused here so a section's code downloading for the first
+// time looks like the rest of this app's normal loading states, not a
+// jarring blank flash. `delay: 200` skips showing it at all for a
+// cached/fast chunk load, so switching to an already-visited section
+// stays instant.
+const asyncSectionOptions = (loader) => ({
+    loader,
+    loadingComponent: {
+        render: () => h('div', { class: 'empty-state', style: 'padding: 4rem 1rem' }, [
+            h('div', { class: 'loading-spinner' }),
+        ]),
+    },
+    delay: 200,
+});
+
+const CourierHandover = defineAsyncComponent(asyncSectionOptions(() => import('./CourierHandover.vue')));
+const Delivery = defineAsyncComponent(asyncSectionOptions(() => import('./Delivery.vue')));
+const Feedback = defineAsyncComponent(asyncSectionOptions(() => import('./Feedback.vue')));
+const Inventory = defineAsyncComponent(asyncSectionOptions(() => import('./Inventory.vue')));
+const Messages = defineAsyncComponent(asyncSectionOptions(() => import('./Messages.vue')));
+const OrderDetails = defineAsyncComponent(asyncSectionOptions(() => import('./OrderDetails.vue')));
+const Orders = defineAsyncComponent(asyncSectionOptions(() => import('./Orders.vue')));
+const PrepareOrders = defineAsyncComponent(asyncSectionOptions(() => import('./PrepareOrders.vue')));
+const Profile = defineAsyncComponent(asyncSectionOptions(() => import('./Profile.vue')));
+const Reports = defineAsyncComponent(asyncSectionOptions(() => import('./Reports.vue')));
 
 // A bound (not static) `src` so Vite's SFC compiler treats this as a
 // plain runtime string instead of trying to resolve/bundle it as a

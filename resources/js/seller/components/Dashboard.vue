@@ -472,7 +472,7 @@
                     <button
                         v-if="visibleActivityLog.length"
                         class="activity-clear-btn"
-                        @click="visibleActivityLog = []"
+                        @click="clearActivityLog"
                     >
                         Clear Activity Log
                     </button>
@@ -588,7 +588,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useOrders } from '../composables/useOrders';
 import { useSeller } from '../composables/useSeller';
 import { useSellerProducts } from '../composables/useSellerProducts';
@@ -632,16 +632,19 @@ onMounted(async () => {
 // Orders are created buyer-side straight in Supabase (not through this
 // Laravel API — see useOrders.js's own header comment), so a brand new
 // order placed while a seller is just sitting on the dashboard would
-// otherwise never show up until they navigate away and back. Poll on
-// the same cadence as the orders cache's own TTL (ORDERS_CACHE_TTL_MS
-// in useOrders.js) so each tick lands right as the cache goes stale —
-// a real fetch, not a wasted one — same 30s rhythm the notification
-// bell and message threads already poll at.
+// otherwise never show up until they navigate away and back. Same 30s
+// rhythm the notification bell and message threads already poll at.
+// { force: true }: loadOrders()'s own cache TTL is the same 30s, and
+// this timer's baseline starts slightly before the cache's does (the
+// interval is armed before the mount-time fetch above resolves and
+// stamps its timestamp) — without forcing, ticks land just inside the
+// still-"fresh" window and silently no-op most cycles instead of
+// actually fetching.
 const ORDERS_POLL_MS = 30 * 1000;
 let ordersPollTimer = null;
 
 onMounted(() => {
-    ordersPollTimer = setInterval(() => loadOrders(), ORDERS_POLL_MS);
+    ordersPollTimer = setInterval(() => loadOrders({}, { force: true }), ORDERS_POLL_MS);
 });
 
 onBeforeUnmount(() => {
@@ -1070,15 +1073,21 @@ const mergedActivityLog = computed(() =>
 
 // Local, non-destructive view of the merged feed so "Clear Activity Log"
 // only clears what's on screen — it never mutates the underlying
-// composable state or deletes anything server-side.
-const visibleActivityLog = ref([]);
-watch(
-    mergedActivityLog,
-    (val) => {
-        visibleActivityLog.value = [...val];
-    },
-    { immediate: true },
+// composable state or deletes anything server-side. Implemented as a
+// time boundary rather than snapshotting into a ref: mergedActivityLog
+// recomputes to a new array reference on every 30s orders poll (even
+// when nothing actually changed), and a ref+watch("clear the ref")
+// approach gets silently repopulated by the very next one of those
+// ticks. Filtering by boundary instead means a poll tick can never undo
+// the clear — only real new activity created after it can.
+const activityClearedAt = ref(0);
+const visibleActivityLog = computed(() =>
+    mergedActivityLog.value.filter((item) => new Date(item.time).getTime() > activityClearedAt.value),
 );
+
+function clearActivityLog() {
+    activityClearedAt.value = Date.now();
+}
 
 const hasProfileInfo = computed(() =>
     Boolean(

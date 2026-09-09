@@ -576,8 +576,13 @@ const revenueDonutSegments = computed(() => {
 // at once to group them into real columns, and the Orders List
 // drill-down (see openList()) paginates that same real array client-side
 // instead of re-fetching.
+// { force: true }: without it, the 30s poll below races loadOrders()'s
+// own 30s cache TTL and frequently no-ops instead of actually fetching
+// (see the poll's own comment) — forcing also makes a filter change or
+// a manual reload() call always land a real request, never a stale
+// cache hit.
 async function reload() {
-    await loadOrders({ ...filters.value });
+    await loadOrders({ ...filters.value }, { force: true });
 }
 
 watch(filters, reload, { deep: true });
@@ -600,9 +605,9 @@ onMounted(reload);
 // filter change or a fresh mount does). Without a poll, a seller who
 // just leaves the board open would never see a brand-new order land in
 // "New", or another order they shipped elsewhere move into "In
-// Transit" — same 30s rhythm as the orders cache's own TTL (and the
-// same fix already applied to Dashboard.vue) so each tick is a real
-// fetch, not a wasted one.
+// Transit" — same 30s rhythm as the orders cache's own TTL. reload()
+// itself forces past that cache (see its own comment), so every tick is
+// guaranteed to be a real fetch.
 const ORDERS_POLL_MS = 30 * 1000;
 let ordersPollTimer = null;
 

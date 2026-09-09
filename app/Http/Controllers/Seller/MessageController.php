@@ -9,6 +9,7 @@ use App\Http\Requests\Seller\UpdateConversationStatusRequest;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageAttachment;
+use App\Services\SupabaseStorageService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -46,6 +47,10 @@ class MessageController extends Controller
     private const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
     private const ALLOWED_ATTACHMENT_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
+
+    private const ATTACHMENTS_BUCKET = 'message-attachments';
+
+    public function __construct(private readonly SupabaseStorageService $storage) {}
 
     /**
      * GET /api/seller/messages/conversations
@@ -223,8 +228,10 @@ class MessageController extends Controller
                 ->limit($limit)
                 ->get();
 
+            $signedUrls = $this->signedUrlsForMessages($rows);
+
             return response()->json([
-                'data' => $rows->map(fn (Message $m) => $this->transformMessage($m))->all(),
+                'data' => $rows->map(fn (Message $m) => $this->transformMessage($m, $signedUrls))->all(),
                 'meta' => ['hasMore' => false, 'nextCursor' => null],
             ]);
         }
@@ -246,8 +253,10 @@ class MessageController extends Controller
                 ->exists()
             : false;
 
+        $signedUrls = $this->signedUrlsForMessages($rows);
+
         return response()->json([
-            'data' => $rows->map(fn (Message $m) => $this->transformMessage($m))->all(),
+            'data' => $rows->map(fn (Message $m) => $this->transformMessage($m, $signedUrls))->all(),
             'meta' => [
                 'hasMore' => $hasMore,
                 'nextCursor' => $oldest?->id,
@@ -274,19 +283,37 @@ class MessageController extends Controller
         $body = trim($request->validated('body') ?? '');
         $attachmentIds = $request->validated('attachment_ids') ?? [];
 
-        $message = DB::transaction(function () use ($conversation, $seller, $body, $attachmentIds) {
+        // Signed once, outside the transaction (signing doesn't touch
+        // the DB, no reason to hold a transaction open across it — see
+        // signedUrlsForMessages()'s own docblock on why this must be a
+        // single bulk call, not one per attachment).
+        $signedUrls = [];
+
+        $message = DB::transaction(function () use ($conversation, $seller, $body, $attachmentIds, &$signedUrls) {
             // Only this seller's own still-unlinked uploads count.
             $staged = MessageAttachment::whereIn('id', $attachmentIds)
                 ->where('seller_id', $seller->id)
                 ->whereNull('message_id')
                 ->get();
 
+            $signedUrls = $this->storage->createSignedUrls(
+                self::ATTACHMENTS_BUCKET,
+                $staged->pluck('path')->all(),
+            );
+
             $message = Message::create([
                 'conversation_id' => $conversation->id,
                 'sender_id' => $seller->id,
                 'sender_role' => 'seller',
                 'body' => $body,
-                'attachments' => $staged->map->toContractArray()->all(),
+                'attachments' => $staged->map(fn (MessageAttachment $att) => [
+                    'id' => $att->id,
+                    'name' => $att->name,
+                    'url' => $signedUrls[$att->path] ?? $att->url,
+                    'path' => $att->path,
+                    'mime' => $att->mime,
+                    'size' => $att->size,
+                ])->all(),
             ]);
 
             if ($staged->isNotEmpty()) {
@@ -312,7 +339,9 @@ class MessageController extends Controller
             return $message;
         });
 
-        return response()->json(['data' => $this->transformMessage($message)], 201);
+        // Reuses the same $signedUrls computed above instead of signing
+        // all over again to build this response.
+        return response()->json(['data' => $this->transformMessage($message, $signedUrls)], 201);
     }
 
     /**
@@ -370,10 +399,18 @@ class MessageController extends Controller
     /**
      * POST /api/seller/messages/attachments  (multipart, field "file")
      *
-     * Stores the file as a base64 data: URL (the way products.images /
-     * reviews.images hold binary in this schema) and returns its id for
-     * the follow-up send. Swapping to a Storage bucket later only changes
-     * what gets written to message_attachments.url.
+     * Uploads to a PRIVATE Supabase Storage bucket and returns the
+     * staged attachment's id for the follow-up send. Private, not
+     * public: these are 1:1 conversation attachments, not a public
+     * product catalogue — see MessageAttachment::signedUrl()/
+     * toContractArray() for how a real (time-limited, freshly-signed)
+     * URL gets handed to the client instead of a stored one. Used to
+     * store the file as a base64 data: URL directly in
+     * message_attachments.url (the way products.images / reviews.images
+     * hold binary in this schema) before being swapped out for the same
+     * real-Storage treatment that fixed the seller product list timing
+     * out under its own base64 bloat (see
+     * SellerProductService::processImages()).
      */
     public function uploadAttachment(Request $request): JsonResponse
     {
@@ -389,15 +426,30 @@ class MessageController extends Controller
         ]);
 
         $file = $validated['file'];
-        $dataUrl = 'data:'.$file->getMimeType().';base64,'.base64_encode(file_get_contents($file->getRealPath()));
+        $mime = $file->getMimeType();
+        $this->storage->ensureBucket(self::ATTACHMENTS_BUCKET, public: false);
+        $path = $seller->id.'/'.Str::uuid().'.'.$this->storage->extensionForMime($mime);
+        // The return value here is the bucket's PUBLIC url shape, which
+        // is meaningless (denied) against a private bucket — only
+        // `$path` matters going forward; MessageAttachment::signedUrl()
+        // is what actually produces a working URL, generated fresh on
+        // every read rather than stored.
+        $this->storage->upload(
+            self::ATTACHMENTS_BUCKET,
+            $path,
+            file_get_contents($file->getRealPath()),
+            $mime,
+        );
+        $url = $this->storage->createSignedUrl(self::ATTACHMENTS_BUCKET, $path) ?? '';
 
         $attachment = MessageAttachment::create([
             'seller_id' => $seller->id,
             'message_id' => null,
             'name' => $file->getClientOriginalName() ?: 'attachment',
-            'mime' => $file->getMimeType(),
+            'mime' => $mime,
             'size' => $file->getSize(),
-            'url' => $dataUrl,
+            'url' => $url,
+            'path' => $path,
         ]);
 
         return response()->json(['data' => $attachment->toContractArray()], 201);
@@ -573,17 +625,34 @@ class MessageController extends Controller
         return $base;
     }
 
-    private function transformMessage(Message $m): array
+    /**
+     * @param  array<string, string>  $signedUrls  path => signed url,
+     *                                 from signedUrlsForMessages() —
+     *                                 pass one bulk-signed map in for a
+     *                                 whole page of messages, never
+     *                                 sign per-message/per-attachment
+     *                                 individually (see that method's
+     *                                 docblock for why: ~1s per
+     *                                 individual sign call on this
+     *                                 project's connection).
+     */
+    private function transformMessage(Message $m, array $signedUrls = []): array
     {
         return [
             'id' => $m->id,
             'conversationId' => $m->conversation_id,
             'senderRole' => $m->sender_role,
             'body' => $m->body,
+            // Re-signed fresh from `path` on every read, however old
+            // the message — messages.attachments is a snapshot copied
+            // once at send time (see sendMessage()), and message-
+            // attachments is a private bucket, so trusting that
+            // snapshot's own `url` would mean an old conversation's
+            // images silently stop loading once that signature expires.
             'attachments' => collect($m->attachments ?? [])->map(fn ($a) => [
                 'id' => $a['id'] ?? null,
                 'name' => $a['name'] ?? 'attachment',
-                'url' => $a['url'] ?? null,
+                'url' => $this->resolveAttachmentUrl($a, $signedUrls),
                 'mime' => $a['mime'] ?? null,
                 'size' => $a['size'] ?? null,
             ])->all(),
@@ -598,6 +667,53 @@ class MessageController extends Controller
     private function productImage($product): ?string
     {
         return ($product->images ?? [])[0]['url'] ?? null;
+    }
+
+    /**
+     * $a is one entry from a message's stored `attachments` snapshot
+     * ({id, name, path, mime, size} — see MessageAttachment::
+     * toContractArray(), which is what wrote it at send time). Re-signs
+     * from `path` rather than trusting the snapshot's own `url`, which
+     * was only ever valid for the signed URL's original TTL. Falls back
+     * to that stored `url` for a legacy row with no `path` on record
+     * (from before this bucket went private) rather than returning a
+     * dead link outright. Looks up $signedUrls (a bulk-signed map)
+     * first; only falls back to an individual sign call if this
+     * specific path is somehow missing from it (shouldn't normally
+     * happen — defensive, not the expected path).
+     */
+    private function resolveAttachmentUrl(array $a, array $signedUrls = []): ?string
+    {
+        $path = $a['path'] ?? null;
+
+        if (! is_string($path) || $path === '') {
+            return $a['url'] ?? null;
+        }
+
+        return $signedUrls[$path]
+            ?? $this->storage->createSignedUrl(self::ATTACHMENTS_BUCKET, $path)
+            ?? ($a['url'] ?? null);
+    }
+
+    /**
+     * Collects every attachment path across a whole page of messages
+     * and signs them all in ONE request — see
+     * SupabaseStorageService::createSignedUrls()'s docblock: an
+     * individual sign call measures roughly 1 second on this project's
+     * connection, so signing N attachments one at a time (the original
+     * implementation) made loading a conversation with several image
+     * messages take several real seconds, every time.
+     *
+     * @param  \Illuminate\Support\Collection<int, Message>  $messages
+     * @return array<string, string>
+     */
+    private function signedUrlsForMessages($messages): array
+    {
+        $paths = $messages
+            ->flatMap(fn (Message $m) => collect($m->attachments ?? [])->pluck('path'))
+            ->all();
+
+        return $this->storage->createSignedUrls(self::ATTACHMENTS_BUCKET, $paths);
     }
 
     private function initialsFor(?string $name): string

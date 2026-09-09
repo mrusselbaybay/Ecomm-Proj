@@ -185,6 +185,16 @@ async function apiFetch(path, options = {}) {
     const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+        // See useDeliveries.js's apiFetch for the full reasoning — a
+        // live session going stale mid-use is never re-checked, so
+        // without this every widget keeps failing forever and "Try
+        // again" can never succeed.
+        if (response.status === 401) {
+            window.location.href = '/';
+
+            return new Promise(() => {});
+        }
+
         const err = new Error(body.message || 'Request failed.');
         err.status = response.status;
 
@@ -493,6 +503,13 @@ return null;
         if (idx !== -1) {
 messages.value[idx] = res.data;
 }
+
+        // Without this, newestKnownMessageId only ever advances inside
+        // openConversation()/pollNewMessages() — never here — so the
+        // very next poll tick (MESSAGE_POLL_MS later) re-fetches
+        // "everything after" a now-stale id, which includes the message
+        // just sent, and appends it a second time.
+        newestKnownMessageId = res.data.id;
 
         return res.data;
     } catch (err) {

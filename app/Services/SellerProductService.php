@@ -7,13 +7,19 @@ use App\Models\ProductVariant;
 use App\Models\Profile;
 use App\Support\CategoryFieldConfig;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class SellerProductService
 {
     private const EAGER = ['options.values', 'variants.optionValues.option'];
 
-    public function __construct(private readonly InventoryService $inventory) {}
+    private const IMAGES_BUCKET = 'product-images';
+
+    public function __construct(
+        private readonly InventoryService $inventory,
+        private readonly SupabaseStorageService $storage,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $data  Already-validated payload from
@@ -24,6 +30,12 @@ class SellerProductService
         return DB::transaction(function () use ($seller, $data) {
             $category = $this->resolveCategory($seller);
             $subcategory = $this->resolveSubcategory($category, $data);
+
+            // Uploads any newly-picked (still-base64) image to Supabase
+            // Storage and swaps it for a {url, path} reference BEFORE
+            // it ever reaches the images column — see
+            // processImages()'s own docblock for why.
+            $data['images'] = $this->processImages($data['images'] ?? [], $seller->id);
 
             $product = Product::create(array_merge(
                 $this->baseAttributes($category, $subcategory, $data),
@@ -63,6 +75,14 @@ class SellerProductService
             $stockBefore = (int) $product->stock;
             $hadVariants = (bool) $product->has_variants;
 
+            // Same upload as create() for any newly-picked image; a kept
+            // image (its url already a real Supabase Storage URL, not a
+            // data: URL) passes through untouched. Whatever was on the
+            // product before this save that ISN'T in the new list gets
+            // cleaned up below, once the update itself has succeeded.
+            $oldImages = $product->images ?? [];
+            $data['images'] = $this->processImages($data['images'] ?? [], $seller->id);
+
             $product->update(array_merge(
                 $this->baseAttributes($category, $subcategory, $data),
                 [
@@ -73,6 +93,8 @@ class SellerProductService
                     'has_variants' => ! empty($data['variants']),
                 ],
             ));
+
+            $this->cleanupRemovedImages($oldImages, $data['images']);
 
             // Match incoming variants against what's already on this
             // product BY OPTION COMBINATION (signed the same way
@@ -317,6 +339,11 @@ class SellerProductService
 
             $discountType = trim((string) ($variantInput['discount_type'] ?? ''));
 
+            // Same base64-to-Storage swap as processImages(), just for a
+            // single {url} object instead of an array — see that
+            // method's docblock.
+            $newImage = $this->processSingleImage($variantInput['image'] ?? null, $product->seller_id);
+
             // No 'sku' here: it's never client-submitted anymore (see
             // generateVariantSku()) — a kept variant's row simply isn't
             // touched, so update() below can't overwrite it, and a new
@@ -333,7 +360,7 @@ class SellerProductService
                 // Null falls back to the product's own threshold, then the
                 // app default — see ProductVariant::effectiveLowStockThreshold().
                 'low_stock_threshold' => $variantInput['low_stock_threshold'] ?? null,
-                'image' => $variantInput['image'] ?? null,
+                'image' => $newImage,
                 'status' => in_array($variantInput['status'] ?? null, ['active', 'unavailable'], true)
                     ? $variantInput['status']
                     : 'active',
@@ -341,9 +368,14 @@ class SellerProductService
 
             if ($existing) {
                 $stockBefore = (int) $existing->stock;
+                $oldImage = $existing->image;
                 $existing->update($attributes);
                 $variant = $existing;
                 $keptVariantIds[] = $existing->id;
+
+                if (($oldImage['path'] ?? null) !== ($newImage['path'] ?? null)) {
+                    $this->cleanupSingleImage($oldImage);
+                }
 
                 if ((int) $variant->stock !== $stockBefore) {
                     $this->inventory->recordFormStockEdit($product, $stockBefore, (int) $variant->stock, $actorId, $variant);
@@ -381,6 +413,7 @@ class SellerProductService
         // stock history survives at the product level.
         foreach ($existingVariantsByCombo as $existingVariant) {
             if (! in_array($existingVariant->id, $keptVariantIds, true)) {
+                $this->cleanupSingleImage($existingVariant->image);
                 $existingVariant->delete();
             }
         }
@@ -389,6 +422,109 @@ class SellerProductService
     private function comboKey(string $optionName, string $value): string
     {
         return mb_strtolower(trim($optionName)).'::'.mb_strtolower(trim($value));
+    }
+
+    /**
+     * Uploads any newly-picked image (its `url` still a `data:...;
+     * base64,...` string straight off the client's FileReader/canvas
+     * compression step) to Supabase Storage, replacing it with a real
+     * {url, path} reference — an already-migrated image (url already a
+     * real http(s) URL from a previous save) passes through untouched,
+     * never re-uploaded. This is what actually gets base64 out of the
+     * images column: pulling that column back out for the seller's own
+     * product list is what made the list time out (see this class's
+     * git history / the incident this was built to fix) — a `path` +
+     * short `url` string costs nothing to fetch back by comparison.
+     *
+     * @param  array<int, array<string, mixed>>  $images
+     * @return array<int, array{url: string, path: ?string}>
+     */
+    private function processImages(array $images, string $sellerId): array
+    {
+        $result = [];
+
+        foreach ($images as $image) {
+            $processed = $this->processSingleImage(is_array($image) ? $image : null, $sellerId);
+
+            if ($processed !== null) {
+                $result[] = $processed;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Same swap as processImages(), for the single {url} object
+     * product_variants.image holds instead of an array. Returns null
+     * for "no image" (never an empty array/object) so a variant with
+     * none stays genuinely null, not a stray empty shell.
+     *
+     * @return array{url: string, path: ?string}|null
+     */
+    private function processSingleImage(?array $image, string $sellerId): ?array
+    {
+        $url = $image['url'] ?? null;
+
+        if (! is_string($url) || $url === '') {
+            return null;
+        }
+
+        if (! str_starts_with($url, 'data:')) {
+            // Already a real URL from a previous save — keep it (and
+            // its path, so a later cleanup diff can still find it).
+            return ['url' => $url, 'path' => is_string($image['path'] ?? null) ? $image['path'] : null];
+        }
+
+        $decoded = $this->storage->decodeDataUrl($url);
+
+        if ($decoded === null) {
+            // Malformed data: URL — drop it rather than store garbage.
+            return null;
+        }
+
+        $this->storage->ensureBucket(self::IMAGES_BUCKET);
+        $ext = $this->storage->extensionForMime($decoded['mime']);
+        $path = "{$sellerId}/".(string) Str::uuid().".{$ext}";
+        $publicUrl = $this->storage->upload(self::IMAGES_BUCKET, $path, $decoded['binary'], $decoded['mime']);
+
+        return ['url' => $publicUrl, 'path' => $path];
+    }
+
+    /**
+     * Deletes whatever's in $oldImages but no longer in $newImages —
+     * call AFTER the row carrying $newImages has actually been saved,
+     * never before (a failed save must not orphan-delete a still-in-use
+     * file).
+     *
+     * @param  array<int, array<string, mixed>>  $oldImages
+     * @param  array<int, array<string, mixed>>  $newImages
+     */
+    private function cleanupRemovedImages(array $oldImages, array $newImages): void
+    {
+        $oldPaths = array_values(array_filter(array_map(
+            fn ($i) => is_array($i) ? ($i['path'] ?? null) : null,
+            $oldImages,
+        )));
+        $newPaths = array_values(array_filter(array_map(
+            fn ($i) => is_array($i) ? ($i['path'] ?? null) : null,
+            $newImages,
+        )));
+
+        $removed = array_diff($oldPaths, $newPaths);
+
+        if ($removed) {
+            $this->storage->delete(self::IMAGES_BUCKET, array_values($removed));
+        }
+    }
+
+    private function cleanupSingleImage(?array $image): void
+    {
+        $path = $image['path'] ?? null;
+
+        if (is_string($path) && $path !== '') {
+            $this->storage->delete(self::IMAGES_BUCKET, [$path]);
+        }
     }
 
     /**

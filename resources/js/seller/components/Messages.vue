@@ -443,7 +443,7 @@
                 <template v-else>
                     <div v-if="activeConversation.order" class="msg-context-section">
                         <button type="button" class="msg-order-card" @click="goToOrder(activeConversation.order.id)">
-                            <img v-if="activeConversation.product?.image" :src="activeConversation.product.image" :alt="activeConversation.product.name" />
+                            <img v-if="activeConversation.product?.image" :src="activeConversation.product.image" :alt="activeConversation.product.name" loading="lazy" decoding="async" />
                             <div v-else class="feedback-product-thumb-placeholder" aria-hidden="true">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
                             </div>

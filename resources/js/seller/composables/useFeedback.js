@@ -92,6 +92,16 @@ async function apiFetch(path, options = {}) {
     const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+        // See useDeliveries.js's apiFetch for the full reasoning — a
+        // live session going stale mid-use is never re-checked, so
+        // without this every widget keeps failing forever and "Try
+        // again" can never succeed.
+        if (response.status === 401) {
+            window.location.href = '/';
+
+            return new Promise(() => {});
+        }
+
         throw new Error(body.message || 'Request failed.');
     }
 
@@ -137,21 +147,42 @@ params.set('page', f.page);
     return params.toString();
 }
 
+// A filter-tab switch, the new 30s poll, and respondToReview()'s own
+// follow-up refresh can all fire a loadReviews() call before an earlier
+// one finishes — without a guard, whichever response happens to land
+// last wins, even if it's the OLDER one (e.g. the poll's request started
+// just before a reply was submitted, then resolves just after that
+// reply's own refresh, silently reverting the just-answered review back
+// to "unanswered"). Aborting the previous request cancels it outright
+// instead of racing it — same pattern as useMessaging.js's
+// loadConversations().
+let loadReviewsController = null;
+
 async function loadReviews() {
+    loadReviewsController?.abort();
+    const controller = new AbortController();
+    loadReviewsController = controller;
+
     isLoadingReviews.value = true;
     loadError.value = '';
 
     try {
-        const body = await apiFetch(`/feedback?${buildQuery()}`);
+        const body = await apiFetch(`/feedback?${buildQuery()}`, { signal: controller.signal });
         reviews.value = body.data;
         meta.value = body.meta;
     } catch (err) {
+        if (err.name === 'AbortError') {
+            return; // superseded by a newer loadReviews() call — not a real error
+        }
+
         console.error('Error loading seller feedback:', err);
         loadError.value =
             err?.message || 'Something went wrong while loading your reviews.';
         reviews.value = [];
     } finally {
-        isLoadingReviews.value = false;
+        if (loadReviewsController === controller) {
+            isLoadingReviews.value = false;
+        }
     }
 }
 
