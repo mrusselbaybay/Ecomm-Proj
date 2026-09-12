@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\AdminNotificationController;
 use App\Http\Controllers\Admin\AdminProfileController;
 use App\Http\Controllers\Admin\CommissionController;
 use App\Http\Controllers\Admin\ComplaintController;
+use App\Http\Controllers\Admin\CustomerServiceController as AdminCustomerServiceController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\SellerComplianceController;
@@ -19,13 +20,20 @@ use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
 use App\Http\Controllers\Api\Logistics\ParcelAssignmentController;
 use App\Http\Controllers\Api\Logistics\ResignationRequestController as LogisticsResignationRequestController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CustomerService\SupportTicketController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
+use App\Http\Controllers\Logistics\MessageController as LogisticsMessageController;
+use App\Http\Controllers\Messaging\MessageAttachmentController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\PsgcProxyController;
 use App\Mail\RegistrationApproved;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/message-attachments/{attachment}', [MessageAttachmentController::class, 'show'])
+    ->middleware('signed')
+    ->name('message-attachments.show');
 
 /*
 |--------------------------------------------------------------------------
@@ -49,6 +57,28 @@ Route::prefix('auth')->group(function () {
 Route::get('/products', [ProductController::class, 'index'])->name('products.index');
 Route::get('/products/{id}', [ProductController::class, 'show'])->name('products.show');
 Route::get('/products/{id}/reviews', [ProductController::class, 'reviews'])->name('products.reviews');
+
+// ============================================================
+// CUSTOMER SERVICE (all active public account roles)
+// ============================================================
+Route::middleware('supabase.auth')
+    ->prefix('customer-service')
+    ->name('customer-service.')
+    ->group(function () {
+        Route::get('/faqs', [SupportTicketController::class, 'faqs'])->name('faqs');
+        Route::get('/categories', [SupportTicketController::class, 'categories'])->name('categories');
+        Route::get('/tickets', [SupportTicketController::class, 'index'])->name('tickets.index');
+        Route::post('/tickets', [SupportTicketController::class, 'store'])
+            ->middleware('throttle:5,1')
+            ->name('tickets.store');
+        Route::get('/tickets/{ticket}', [SupportTicketController::class, 'show'])->name('tickets.show');
+        Route::get('/tickets/{ticket}/messages', [SupportTicketController::class, 'messages'])->name('tickets.messages.index');
+        Route::post('/tickets/{ticket}/messages', [SupportTicketController::class, 'reply'])
+            ->middleware('throttle:30,1')
+            ->name('tickets.messages.store');
+        Route::post('/tickets/{ticket}/close', [SupportTicketController::class, 'close'])->name('tickets.close');
+        Route::post('/tickets/{ticket}/reopen', [SupportTicketController::class, 'reopen'])->name('tickets.reopen');
+    });
 
 // ============================================================
 // PASSWORD RESET ROUTES
@@ -213,6 +243,18 @@ Route::middleware(['supabase.auth', 'logistics'])
             ->name('parcel-transfer-requests.reject');
         Route::post('/parcel-transfer-requests/{parcelTransferRequest}/cancel', [ParcelAssignmentController::class, 'cancelTransferRequest'])
             ->name('parcel-transfer-requests.cancel');
+
+        Route::get('/messages/unread-count', [LogisticsMessageController::class, 'unreadCount']);
+        Route::get('/messages/conversations', [LogisticsMessageController::class, 'conversations']);
+        Route::post('/messages/attachments', [LogisticsMessageController::class, 'uploadAttachment'])
+            ->middleware('throttle:20,1');
+        Route::get('/messages/conversations/{id}', [LogisticsMessageController::class, 'show']);
+        Route::get('/messages/conversations/{id}/messages', [LogisticsMessageController::class, 'messages']);
+        Route::post('/messages/conversations/{id}/messages', [LogisticsMessageController::class, 'send'])
+            ->middleware('throttle:30,1');
+        Route::put('/messages/conversations/{id}/read', [LogisticsMessageController::class, 'markRead']);
+        Route::put('/messages/conversations/{id}/status', [LogisticsMessageController::class, 'setStatus']);
+        Route::delete('/messages/conversations/{id}', [LogisticsMessageController::class, 'deleteConversation']);
     });
 
 // ============================================================
@@ -258,6 +300,18 @@ Route::middleware(['supabase.auth', 'admin'])
 
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');
+
+        Route::prefix('customer-service')->name('customer-service.')->group(function () {
+            Route::get('/tickets', [AdminCustomerServiceController::class, 'index'])->name('tickets.index');
+            Route::get('/tickets/{ticket}', [AdminCustomerServiceController::class, 'show'])->name('tickets.show');
+            Route::patch('/tickets/{ticket}/assignment', [AdminCustomerServiceController::class, 'assignment'])->name('tickets.assignment');
+            Route::patch('/tickets/{ticket}/status', [AdminCustomerServiceController::class, 'status'])->name('tickets.status');
+            Route::post('/tickets/{ticket}/reply', [AdminCustomerServiceController::class, 'reply'])
+                ->middleware('throttle:30,1')
+                ->name('tickets.reply');
+            Route::post('/tickets/{ticket}/internal-notes', [AdminCustomerServiceController::class, 'internalNote'])->name('tickets.internal-notes.store');
+            Route::post('/tickets/{ticket}/resolve', [AdminCustomerServiceController::class, 'resolve'])->name('tickets.resolve');
+        });
 
         // Approval/Rejection notifications
         Route::post('/notify-approval', [AdminNotificationController::class, 'notifyApproval'])

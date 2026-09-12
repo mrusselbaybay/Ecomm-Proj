@@ -270,6 +270,24 @@ body {
 .seller-content-wrapper {
     padding: 2rem 2rem 3rem;
 }
+/* The Messages page needs its own two scroll regions (conversation list,
+   active thread) instead of the whole dashboard page scrolling. Without a
+   bounded height here, .msg-page's "height: 100%" resolves to auto (a
+   percentage height only applies against an ancestor with an explicit
+   height), so its internal overflow-y:auto panels never actually overflow
+   and .seller-main ends up as the only thing that scrolls — hovering the
+   conversation list or the thread both just scroll the whole page. Scoped
+   to this page only so every other seller page keeps its normal
+   grows-with-content / .seller-main-scrolls behavior. */
+.seller-content-wrapper.is-messages-page {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.seller-content-wrapper.is-messages-page .content-header {
+    flex-shrink: 0;
+}
 
 .content-header {
     display: flex;
@@ -560,6 +578,7 @@ body {
 .btn-primary {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 0.4rem;
     background: linear-gradient(135deg, var(--teal-600), var(--teal-500));
     color: white;
@@ -5325,7 +5344,7 @@ body {
 
 .msg-page {
     display: flex;
-    height: 100%;
+    flex: 1;
     min-height: 0;
     gap: 1.25rem;
     position: relative;
@@ -5345,7 +5364,83 @@ body {
     overflow: hidden;
 }
 .msg-list-header {
-    padding: 1.1rem 1.1rem 0.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 1.15rem 1.1rem 0.85rem;
+}
+.msg-list-eyebrow {
+    margin: 0 0 0.15rem;
+    color: #94a3b8;
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.msg-list-unread {
+    padding: 0.3rem 0.55rem;
+    border-radius: 999px;
+    background: var(--teal-100);
+    color: var(--teal-800);
+    font-size: 0.66rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.logistics-contact-strip {
+    margin: 0 0.65rem 0.85rem;
+    padding: 0.75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    background: #f8fafc;
+}
+
+.logistics-contact-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-bottom: 0.6rem;
+}
+.logistics-contact-icon {
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    flex: none;
+    place-items: center;
+    border-radius: 0.6rem;
+    background: var(--teal-100);
+    color: var(--teal-800);
+}
+.logistics-contact-heading label {
+    display: block;
+    color: #475569;
+    font-size: 0.7rem;
+    font-weight: 800;
+}
+.logistics-contact-heading p {
+    margin: 0.08rem 0 0;
+    color: #94a3b8;
+    font-size: 0.66rem;
+    line-height: 1.35;
+}
+
+.logistics-contact-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.logistics-contact-controls .field-input {
+    min-width: 0;
+    height: 2.35rem;
+    padding: 0 0.65rem;
+    font-size: 0.75rem;
+}
+
+.logistics-contact-controls .btn-primary {
+    flex: none;
+    white-space: nowrap;
 }
 .msg-list-title {
     font-size: 1.15rem;
@@ -5353,11 +5448,62 @@ body {
     color: #0f172a;
     margin: 0;
 }
+.msg-search-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 1.1rem 0.75rem;
+}
 .msg-search {
-    padding: 0 1.1rem 0.75rem;
+    /* margin, not padding — the search icon is absolutely positioned
+       relative to .header-search's own padding edge, so padding here would
+       shift the <input> box rightward without moving the icon, leaving it
+       straddling the input's left border instead of centered inside it. */
+    flex: 1;
+    min-width: 0;
 }
 .msg-search input {
     width: 100%;
+}
+/* "View archived conversations" shortcut — mirrors the buyer popup's
+   equivalent button next to its own search bar (same outline-box archive
+   glyph, same corner badge), so all three roles reach the archived view
+   the same way despite seller also having an Archived tab below. */
+.msg-archived-shortcut {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    flex-shrink: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    background: white;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+.msg-archived-shortcut:hover,
+.msg-archived-shortcut.active {
+    color: var(--teal-600);
+    border-color: var(--teal-200);
+}
+.msg-archived-shortcut-badge {
+    position: absolute;
+    top: -0.3rem;
+    right: -0.3rem;
+    min-width: 0.9rem;
+    height: 0.9rem;
+    padding: 0 0.2rem;
+    border-radius: 999px;
+    background: #94a3b8;
+    color: white;
+    font-size: 0.58rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 .msg-filter-tabs {
     display: flex;
@@ -5403,14 +5549,10 @@ body {
 .msg-list-empty {
     padding: 2.5rem 1.25rem;
 }
-.msg-list-pagination {
-    margin: 0;
-    padding: 0.75rem 1rem;
-    border-top: 1px solid #f1f5f9;
-}
-.msg-list-pagination .pagination-controls {
-    width: 100%;
-    justify-content: space-between;
+.msg-list-loading-more {
+    display: flex;
+    justify-content: center;
+    padding: 0.85rem 0;
 }
 
 .msg-skeleton-list {
@@ -5435,6 +5577,14 @@ body {
     flex-direction: column;
     gap: 0.5rem;
     justify-content: center;
+}
+/* Was referenced in Messages.vue's skeleton markup with no rule at all —
+   rendered as an invisible zero-height <div>, just an inline `width` with
+   nothing to give it a visible box. */
+.msg-skeleton-line {
+    height: 0.55rem;
+    border-radius: 999px;
+    background: #eef2f7;
 }
 
 .msg-convo-card {
@@ -5481,6 +5631,10 @@ body {
     font-size: 0.75rem;
     font-weight: 800;
     flex-shrink: 0;
+}
+img.msg-convo-avatar {
+    object-fit: cover;
+    display: block;
 }
 .msg-convo-avatar.sm {
     width: 1.75rem;
@@ -5535,6 +5689,16 @@ body {
     align-items: center;
     gap: 0.4rem;
     margin-top: 0.15rem;
+}
+.msg-convo-type {
+    padding: 0.15rem 0.35rem;
+    border-radius: 0.35rem;
+    background: var(--teal-100);
+    color: var(--teal-800);
+    font-size: 0.6rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
 }
 .msg-convo-order {
     font-size: 0.62rem;
@@ -5647,12 +5811,17 @@ body {
     cursor: pointer;
     flex-shrink: 0;
 }
+.msg-icon-btn:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
 .msg-icon-btn:hover {
     background: #f1f5f9;
     color: var(--teal-600);
 }
-.msg-details-btn {
-    display: none;
+.msg-icon-btn-danger:hover {
+    background: #fef2f2;
+    color: #dc2626;
 }
 .msg-more-menu {
     position: relative;
@@ -5779,11 +5948,168 @@ body {
 .msg-bubble-col {
     display: flex;
     flex-direction: column;
+    gap: 0.35rem;
     min-width: 0;
 }
 .msg-row.sent .msg-bubble-col {
     align-items: flex-end;
 }
+/* Per-message "regarding this purchase" card — a thread now covers every
+   order/product from one buyer, so this replaces what used to be a single
+   order/product panel for the whole conversation. */
+.msg-inquiry-card {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    max-width: 16rem;
+    padding: 0.5rem 0.85rem 0.5rem 0.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 1rem;
+    background: white;
+}
+.msg-inquiry-thumb {
+    width: 2.5rem;
+    height: 2.5rem;
+    flex-shrink: 0;
+    border-radius: 0.65rem;
+    overflow: hidden;
+    background: #f1f5f9;
+}
+.msg-inquiry-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.msg-inquiry-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    flex-shrink: 0;
+    border-radius: 0.65rem;
+    background: var(--teal-100);
+    color: var(--teal-700);
+}
+.msg-inquiry-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.msg-inquiry-label {
+    font-size: 0.58rem;
+    font-weight: 800;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.msg-inquiry-name {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #1e293b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.msg-inquiry-price {
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: var(--teal-600);
+}
+
+/* Auto-generated "order placed" system message (see
+   DirectConversationService::startForOrder()) — one self-contained card
+   with the product photo + item count + total, instead of a chat bubble.
+   It's conceptually a buyer action, so it aligns like any other
+   buyer-authored message here: on the left (seller's "received" side) —
+   matching the buyer's own UI, where the same card sits on the right. */
+.msg-order-card-row {
+    display: flex;
+    justify-content: flex-start;
+    max-width: 75%;
+}
+.msg-order-card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    max-width: 20rem;
+    padding: 0.75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 1rem;
+    background: white;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.msg-order-card-thumb {
+    width: 4rem;
+    height: 4rem;
+    flex-shrink: 0;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background: #f1f5f9;
+}
+.msg-order-card-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.msg-order-card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 4rem;
+    height: 4rem;
+    flex-shrink: 0;
+    border-radius: 0.75rem;
+    background: var(--teal-100);
+    color: var(--teal-700);
+}
+.msg-order-card-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.msg-order-card-name {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #0f172a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.msg-order-card-summary {
+    margin-top: 0.15rem;
+    font-size: 0.78rem;
+    color: #64748b;
+}
+/* Small inline spinner for a button mid-request (archive/unarchive) —
+   reuses the same `spin` keyframe as .loading-spinner, just sized to sit
+   inside an icon button or next to button label text. */
+.btn-spinner {
+    display: inline-block;
+    width: 0.95rem;
+    height: 0.95rem;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: currentColor;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+}
+.msg-icon-btn .btn-spinner {
+    border-color: rgba(100, 116, 139, 0.25);
+    border-top-color: #64748b;
+}
+
+.msg-order-card-time {
+    display: flex;
+    justify-content: flex-start;
+    margin-left: 0.25rem;
+    font-size: 0.68rem;
+    color: #94a3b8;
+}
+
 .msg-bubble {
     padding: 0.65rem 0.9rem;
     border-radius: 1rem;
@@ -5815,8 +6141,19 @@ body {
     font-size: 0.65rem;
     color: #94a3b8;
     font-weight: 600;
-    margin-top: 0.25rem;
+    max-width: 75%;
+    margin: -0.05rem 0 0.35rem;
     padding: 0 0.3rem;
+}
+/* A sibling of .msg-row rather than a child of .msg-bubble-col, so the
+   avatar (which bottom-aligns to .msg-row's own height) lines up with the
+   bubble itself instead of stretching down to include the timestamp. */
+.msg-meta.received {
+    align-self: flex-start;
+    margin-left: calc(1.75rem + 0.55rem);
+}
+.msg-meta.sent {
+    align-self: flex-end;
 }
 .msg-failed {
     color: #dc2626;
@@ -5825,22 +6162,68 @@ body {
 .msg-attachments {
     display: flex;
     flex-wrap: wrap;
+    align-items: flex-start;
     gap: 0.4rem;
     margin-top: 0.4rem;
 }
-.msg-attachment-chip {
+/* Fixed-size square thumbnail shared by image and video attachments — a
+   message with several attachments lays them out in a horizontal,
+   Messenger-style row instead of stacking full-size media vertically. */
+.msg-attachment-thumb {
+    position: relative;
+    display: block;
+    width: 6.5rem;
+    height: 6.5rem;
     border: none;
     padding: 0;
     cursor: pointer;
-    border-radius: 0.6rem;
+    border-radius: 0.85rem;
     overflow: hidden;
-    background: rgba(255, 255, 255, 0.15);
+    background: #0f172a;
+    flex-shrink: 0;
 }
-.msg-attachment-chip img {
-    width: 6rem;
-    height: 6rem;
+.msg-attachment-thumb img,
+.msg-attachment-thumb video {
+    width: 100%;
+    height: 100%;
     object-fit: cover;
     display: block;
+}
+.msg-attachment-image-expand {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0);
+    opacity: 0;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+.msg-attachment-thumb:hover .msg-attachment-image-expand {
+    opacity: 1;
+    background: rgba(15, 23, 42, 0.25);
+}
+.msg-attachment-play-icon {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.25);
+    color: #fff;
+    transition: background 0.15s ease;
+}
+.msg-attachment-thumb:hover .msg-attachment-play-icon {
+    background: rgba(15, 23, 42, 0.4);
+}
+.msg-attachment-file-chip {
+    border: 1px solid #e2e8f0;
+    background: white;
+    padding: 0;
+    border-radius: 0.6rem;
+    overflow: hidden;
+    cursor: pointer;
+    flex-shrink: 0;
 }
 .msg-attachment-file {
     display: flex;
@@ -5889,6 +6272,137 @@ body {
     flex-wrap: wrap;
     margin-bottom: 0.6rem;
 }
+.feedback-quick-reply-btn.active {
+    background: var(--teal-600);
+    border-color: var(--teal-600);
+    color: white;
+}
+
+/* "Inquire about a certain product" parcel picker — sits just above the
+   quick-reply chips, spanning the composer width evenly (a flex row: a
+   circular nav button on each end, an equal-column grid of 4 squares
+   between them, so there's no dead space at either edge). */
+.msg-parcel-picker {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+}
+.msg-parcel-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    flex-shrink: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 50%;
+    background: white;
+    color: #64748b;
+    cursor: pointer;
+}
+.msg-parcel-nav:hover:not(:disabled) {
+    border-color: var(--teal-200);
+    color: var(--teal-600);
+}
+.msg-parcel-nav:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+.msg-parcel-grid {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+}
+.msg-parcel-square {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    aspect-ratio: 1;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background: #f8fafc;
+    padding: 0;
+    cursor: pointer;
+}
+.msg-parcel-square:hover {
+    border-color: var(--teal-300, var(--teal-200));
+}
+.msg-parcel-square img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.msg-parcel-square-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    color: var(--teal-600);
+    background: var(--teal-100);
+}
+.msg-parcel-square-label {
+    position: absolute;
+    inset: auto 0 0 0;
+    padding: 0.2rem 0.35rem;
+    background: rgba(15, 23, 42, 0.65);
+    color: white;
+    font-size: 0.58rem;
+    font-weight: 700;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.msg-parcel-skeleton {
+    background: #eef2f7;
+}
+.msg-parcel-empty {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 0.6rem 0;
+    color: #94a3b8;
+    font-size: 0.72rem;
+    text-align: center;
+}
+.msg-parcel-confirm-preview {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0.75rem 0;
+    padding: 0.6rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    background: #f8fafc;
+}
+.msg-parcel-confirm-thumb {
+    width: 3rem;
+    height: 3rem;
+    flex-shrink: 0;
+    border-radius: 0.6rem;
+    overflow: hidden;
+}
+.msg-parcel-confirm-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.msg-parcel-confirm-name {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+.msg-parcel-confirm-meta {
+    margin: 0.15rem 0 0;
+    font-size: 0.72rem;
+    color: #64748b;
+}
 .msg-staged-attachments {
     display: flex;
     gap: 0.5rem;
@@ -5913,6 +6427,59 @@ body {
     border-radius: 0.35rem;
     object-fit: cover;
     flex-shrink: 0;
+}
+.msg-staged-thumb {
+    position: relative;
+    display: block;
+    flex-shrink: 0;
+    width: 1.8rem;
+    height: 1.8rem;
+    border: none;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+}
+.msg-staged-preview-hint {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.35rem;
+    background: rgba(15, 23, 42, 0);
+    opacity: 0;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+.msg-staged-thumb:hover .msg-staged-preview-hint {
+    opacity: 1;
+    background: rgba(15, 23, 42, 0.35);
+}
+.msg-staged-thumb img,
+.msg-staged-thumb video {
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 0.35rem;
+    object-fit: cover;
+    display: block;
+    background: #0f172a;
+}
+.msg-staged-spinner {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.35rem;
+    background: rgba(15, 23, 42, 0.45);
+}
+.msg-staged-spinner::after {
+    content: '';
+    width: 0.8rem;
+    height: 0.8rem;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: #fff;
+    animation: spin 0.7s linear infinite;
 }
 .msg-staged-name {
     overflow: hidden;
@@ -6004,182 +6571,6 @@ body {
     cursor: not-allowed;
 }
 
-/* ---- context panel ---- */
-.msg-context-panel {
-    width: 18rem;
-    flex-shrink: 0;
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 0.85rem;
-    box-shadow: 0 1px 2px rgba(15, 118, 110, 0.04);
-    overflow-y: auto;
-    min-height: 0;
-}
-.msg-context-header {
-    display: none;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.1rem;
-    border-bottom: 1px solid #f1f5f9;
-}
-.msg-context-header h3 {
-    margin: 0;
-    font-size: 0.9rem;
-    font-weight: 800;
-    color: #0f172a;
-}
-.msg-context-body {
-    padding: 1.25rem 1.1rem;
-}
-.msg-context-buyer {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    text-align: center;
-    margin-bottom: 1.5rem;
-}
-.msg-context-buyer h4 {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 800;
-    color: #0f172a;
-}
-.msg-context-section {
-    margin-bottom: 1.5rem;
-}
-.msg-context-label {
-    font-size: 0.65rem;
-    font-weight: 800;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin: 0 0 0.6rem;
-}
-.msg-context-label-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 0.6rem;
-}
-.msg-context-label-row .msg-context-label {
-    margin: 0;
-}
-.msg-context-count {
-    font-size: 0.65rem;
-    font-weight: 700;
-    color: #94a3b8;
-}
-.msg-context-empty {
-    font-size: 0.75rem;
-    color: #94a3b8;
-    margin: 0;
-}
-.msg-order-card {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    width: 100%;
-    background: #f8fafc;
-    border: 1px solid #f1f5f9;
-    border-radius: 0.65rem;
-    padding: 0.6rem;
-    cursor: pointer;
-    text-align: left;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
-}
-.msg-order-card:hover {
-    border-color: var(--teal-500);
-    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.05);
-    transform: translateY(-1px);
-}
-.msg-order-card img,
-.msg-order-card .feedback-product-thumb-placeholder {
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 0.5rem;
-    object-fit: cover;
-    flex-shrink: 0;
-}
-.msg-order-card-info {
-    min-width: 0;
-}
-.msg-order-card-product {
-    font-size: 0.78rem;
-    font-weight: 700;
-    color: #1e293b;
-    margin: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.msg-order-card-variant {
-    font-size: 0.68rem;
-    color: #94a3b8;
-    margin: 0.1rem 0 0;
-}
-.msg-order-card-number {
-    font-size: 0.68rem;
-    color: var(--teal-600);
-    font-weight: 700;
-    margin: 0.1rem 0 0;
-}
-.msg-context-facts {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-}
-.msg-context-facts > div {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-}
-.msg-context-facts span {
-    font-size: 0.62rem;
-    color: #94a3b8;
-    font-weight: 700;
-    text-transform: uppercase;
-}
-.msg-context-facts strong {
-    font-size: 0.78rem;
-    color: #1e293b;
-}
-.msg-media-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.4rem;
-}
-.msg-media-thumb {
-    aspect-ratio: 1;
-    border-radius: 0.5rem;
-    overflow: hidden;
-    border: 1px solid #f1f5f9;
-    background: #f8fafc;
-    padding: 0;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #94a3b8;
-    transition: box-shadow 0.15s ease;
-}
-.msg-media-thumb:hover {
-    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
-}
-.msg-media-thumb img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    transition: transform 0.2s ease;
-}
-.msg-media-thumb:hover img {
-    transform: scale(1.08);
-}
-.msg-context-backdrop {
-    display: none;
-}
-
 /* ---- reduced motion ---- */
 @media (prefers-reduced-motion: reduce) {
     .msg-skeleton-bubble {
@@ -6189,49 +6580,10 @@ body {
 }
 
 /* ---- responsive ----
-   >=1181px (desktop): all three panels visible inline.
-   861-1180px (tablet): list + chat visible; context becomes a drawer
-   behind the "Details" button.
-   <=860px (mobile): list OR chat (toggled by .has-active), context
-   stays a drawer, chat gets a Back button.
+   >=861px (desktop/tablet): list + chat visible side by side.
+   <=860px (mobile): list OR chat (toggled by .has-active), chat gets a
+   Back button.
    ============================================================ */
-@media (max-width: 1180px) {
-    .msg-context-panel {
-        position: fixed;
-        top: 0;
-        right: 0;
-        bottom: 0;
-        width: 20rem;
-        max-width: 85vw;
-        border-radius: 0;
-        transform: translateX(100%);
-        transition: transform 0.2s ease;
-        z-index: 45;
-        box-shadow: -10px 0 30px rgba(15, 23, 42, 0.15);
-    }
-    .msg-context-panel.open {
-        transform: translateX(0);
-    }
-    .msg-context-header {
-        display: flex;
-    }
-    .msg-details-btn {
-        display: inline-flex;
-    }
-    .msg-context-backdrop {
-        display: block;
-        position: fixed;
-        inset: 0;
-        background: rgba(15, 23, 42, 0.45);
-        z-index: 44;
-    }
-}
-@media (prefers-reduced-motion: reduce) {
-    .msg-context-panel {
-        transition: none;
-    }
-}
-
 @media (max-width: 860px) {
     .msg-page {
         gap: 0;
@@ -6257,6 +6609,22 @@ body {
     .msg-row,
     .msg-row.sent {
         max-width: 88%;
+    }
+}
+
+@media (max-width: 420px) {
+    .logistics-contact-controls {
+        align-items: stretch;
+        flex-direction: column;
+    }
+    .logistics-contact-controls .btn-primary {
+        width: 100%;
+    }
+    .msg-chat-header {
+        padding-inline: 0.75rem;
+    }
+    .msg-chat-actions {
+        gap: 0.1rem;
     }
 }
 

@@ -7,17 +7,13 @@
 // replaces the copy of this logic that used to live inside useBuyer.js.
 import { authHeaders } from './useBuyerSession';
 
-/**
- * Calls /api<path> with the buyer's bearer token attached and returns the
- * parsed `data` property of the JSON body. Throws Error(message) on a
- * non-2xx response so callers can surface `err.message` directly.
- *
- * @param {string} path  e.g. '/buyer/addresses' (the leading /api is added)
- * @param {RequestInit} options
- * @returns {Promise<any>} the response body's `data` (or the whole body if absent)
- */
-export async function buyerApi(path, options = {}) {
+async function request(path, options = {}) {
     const headers = await authHeaders();
+
+    if (typeof FormData !== 'undefined' && options.body instanceof FormData) {
+        delete headers['Content-Type'];
+    }
+
     const response = await fetch(`/api${path}`, { ...options, headers });
     const body = await response.json().catch(() => ({}));
 
@@ -29,9 +25,39 @@ export async function buyerApi(path, options = {}) {
         throw error;
     }
 
+    return body;
+}
+
+/**
+ * Calls /api<path> with the buyer's bearer token attached and returns the
+ * parsed `data` property of the JSON body. Throws Error(message) on a
+ * non-2xx response so callers can surface `err.message` directly.
+ *
+ * @param {string} path  e.g. '/buyer/addresses' (the leading /api is added)
+ * @param {RequestInit} options
+ * @returns {Promise<any>} the response body's `data` (or the whole body if absent)
+ */
+export async function buyerApi(path, options = {}) {
+    const body = await request(path, options);
+
     return body.data !== undefined ? body.data : body;
 }
 
+/**
+ * Same as buyerApi(), but also returns `meta` (pagination info, cursors,
+ * etc.) instead of discarding it — needed by the messaging composable's
+ * lazy-loaded conversation list / message history.
+ *
+ * @param {string} path
+ * @param {RequestInit} options
+ * @returns {Promise<{data: any, meta: any}>}
+ */
+export async function buyerApiWithMeta(path, options = {}) {
+    const body = await request(path, options);
+
+    return { data: body.data, meta: body.meta };
+}
+
 export function useBuyerApi() {
-    return { buyerApi };
+    return { buyerApi, buyerApiWithMeta };
 }

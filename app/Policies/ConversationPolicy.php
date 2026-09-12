@@ -1,0 +1,113 @@
+<?php
+
+namespace App\Policies;
+
+use App\Models\Conversation;
+use App\Models\Profile;
+
+class ConversationPolicy
+{
+    public function viewAny(Profile $user): bool
+    {
+        return $this->hasActiveMessagingAccount($user);
+    }
+
+    public function view(Profile $user, Conversation $conversation): bool
+    {
+        if ($user->role === Profile::ROLE_ADMIN && $conversation->type !== 'support') {
+            return false;
+        }
+
+        return $conversation->hasActiveParticipant($user->id);
+    }
+
+    public function create(Profile $user): bool
+    {
+        return $this->hasActiveMessagingAccount($user) && $user->role !== Profile::ROLE_ADMIN;
+    }
+
+    public function sendMessage(Profile $user, Conversation $conversation): bool
+    {
+        return $this->view($user, $conversation)
+            && $conversation->isWritable()
+            && $this->hasValidContext($conversation);
+    }
+
+    public function markRead(Profile $user, Conversation $conversation): bool
+    {
+        return $this->view($user, $conversation);
+    }
+
+    public function report(Profile $user, Conversation $conversation): bool
+    {
+        return $conversation->type !== 'support' && $this->view($user, $conversation);
+    }
+
+    public function resolve(Profile $user, Conversation $conversation): bool
+    {
+        return $conversation->type !== 'support' && $this->view($user, $conversation);
+    }
+
+    public function close(Profile $user, Conversation $conversation): bool
+    {
+        return $conversation->type !== 'support' && $this->view($user, $conversation);
+    }
+
+    /**
+     * "Delete" removes the conversation from this user's own list only
+     * (Conversation::leaveFor()) — support tickets have their own
+     * dedicated resolution workflow, so they're excluded here same as
+     * resolve/close.
+     */
+    public function delete(Profile $user, Conversation $conversation): bool
+    {
+        return $conversation->type !== 'support' && $this->view($user, $conversation);
+    }
+
+    private function hasActiveMessagingAccount(Profile $user): bool
+    {
+        return $user->status === 'approved' && $user->account_status === 'active';
+    }
+
+    private function hasValidContext(Conversation $conversation): bool
+    {
+        if ($conversation->type === 'support') {
+            return $conversation->support_ticket_id !== null;
+        }
+
+        if ($conversation->type === 'product') {
+            return $conversation->product_id !== null
+                && $conversation->buyer_id !== null
+                && $conversation->seller_id !== null
+                && $conversation->product?->seller_id === $conversation->seller_id;
+        }
+
+        if ($conversation->type === 'order') {
+            return $conversation->order_id !== null
+                && $conversation->buyer_id !== null
+                && $conversation->seller_id !== null
+                && $conversation->order?->buyer_profile_id === $conversation->buyer_id
+                && $conversation->order?->seller_id === $conversation->seller_id;
+        }
+
+        // A buyer<->seller thread keyed by (buyer, seller) only — order/
+        // product are now optional per-message context rather than
+        // required on the conversation itself (see DirectConversationService).
+        if ($conversation->type === 'direct') {
+            return $conversation->buyer_id !== null && $conversation->seller_id !== null;
+        }
+
+        if ($conversation->type === 'shipment') {
+            $assignment = $conversation->parcelAssignment;
+
+            return $assignment !== null
+                && $conversation->seller_id !== null
+                && $conversation->logistics_company_id !== null
+                && $assignment->order?->seller_id === $conversation->seller_id
+                && $assignment->logistics_company_id === $conversation->logistics_company_id
+                && $assignment->rider_profile_id !== null;
+        }
+
+        return false;
+    }
+}

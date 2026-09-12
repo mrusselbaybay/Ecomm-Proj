@@ -318,4 +318,34 @@ class Order extends Model
     {
         return in_array($this->status, self::SELLER_CANCELLABLE_FROM, true);
     }
+
+    /**
+     * A lightweight summary for a chat message's inline "order placed" card
+     * (see DirectConversationService::startForOrder() and the buyer/seller
+     * MessageControllers' transformMessage()) — item count, total, and a
+     * thumbnail preview. Shared by both roles so the card looks and behaves
+     * identically everywhere it appears.
+     *
+     * @return array<string, mixed>
+     */
+    public function messagePreview(): array
+    {
+        $items = $this->relationLoaded('items') ? $this->items : $this->items()->with('product:id,images')->get();
+        $itemCount = $items->count();
+        $firstItem = $items->first();
+
+        return [
+            'id' => $this->id,
+            'orderNumber' => $this->order_number,
+            'itemCount' => $itemCount,
+            'total' => (float) $this->total,
+            // The order's own line items are the source of truth for the
+            // name/qty (denormalised at checkout, so it survives a product
+            // being renamed/deleted later) — only the thumbnail needs a
+            // live join back to the product, since OrderItem doesn't store
+            // one of its own.
+            'previewName' => $itemCount > 1 ? "{$itemCount} items" : $firstItem?->product_name,
+            'previewImage' => ($firstItem?->product?->images ?? [])[0]['url'] ?? null,
+        ];
+    }
 }

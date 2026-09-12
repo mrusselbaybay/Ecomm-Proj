@@ -104,11 +104,16 @@
 import { ref, computed } from 'vue';
 import { getSupabase } from './useSeller';
 
-const ALLOWED_ATTACHMENT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
+const ALLOWED_ATTACHMENT_TYPES = [
+    'image/png', 'image/jpeg', 'image/webp', 'application/pdf',
+    'video/mp4', 'video/webm', 'video/quicktime',
+];
+const VIDEO_ATTACHMENT_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
+const MAX_VIDEO_ATTACHMENT_BYTES = 50 * 1024 * 1024; // 50MB
 const UNREAD_POLL_MS = 30000;
 const MESSAGE_POLL_MS = 15000;
-const MESSAGES_PAGE_SIZE = 30;
+const MESSAGES_PAGE_SIZE = 10;
 
 const conversations = ref([]);
 const conversationsMeta = ref({
@@ -119,8 +124,10 @@ const conversationsMeta = ref({
     statusCounts: { all: 0, unread: 0, needsResponse: 0, resolved: 0, archived: 0 },
 });
 const isLoadingConversations = ref(false);
+const isLoadingMoreConversations = ref(false);
 const conversationsError = ref('');
 const backendMissing = ref(false);
+let conversationRequestSequence = 0;
 
 const filters = ref({ search: '', status: 'all', page: 1 });
 
@@ -128,6 +135,7 @@ const activeConversationId = ref(null);
 const activeConversation = ref(null);
 const isLoadingActiveConversation = ref(false);
 const activeConversationError = ref('');
+let activeConversationRequestSequence = 0;
 
 const messages = ref([]);
 const messagesMeta = ref({ hasMore: false, nextCursor: null });
@@ -143,6 +151,54 @@ let newestKnownMessageId = null;
 
 const unreadBadgeCount = ref(0);
 let unreadPollTimer = null;
+
+// The server re-signs a fresh temporary URL for the same attachment on
+// every fetch (list load, poll, older-messages page...). Passing that
+// straight through churns the <img>/<video> src on every poll tick even
+// though nothing changed — for video this aborts the in-flight
+// playback/load ("AbortError: play() request was interrupted by a new
+// load request") and forces a full re-download from scratch. Cache the
+// signed URL per attachment id and keep reusing it until it's actually
+// close to expiring (Laravel embeds `expires` as a unix timestamp in the
+// query string), so the media element's src stays stable across polls.
+const attachmentUrlCache = new Map();
+const SIGNED_URL_EXPIRY_BUFFER_MS = 60000;
+
+function signedUrlExpiryMs(url) {
+    try {
+        const expires = Number(new URL(url, window.location.origin).searchParams.get('expires'));
+        return Number.isFinite(expires) && expires > 0 ? expires * 1000 : null;
+    } catch {
+        return null;
+    }
+}
+
+function stabilizeAttachmentUrl(id, freshUrl) {
+    if (!id || !freshUrl) return freshUrl || null;
+    const cached = attachmentUrlCache.get(id);
+    if (cached) {
+        const expiresAt = signedUrlExpiryMs(cached);
+        if (!expiresAt || expiresAt - Date.now() > SIGNED_URL_EXPIRY_BUFFER_MS) {
+            return cached;
+        }
+    }
+    attachmentUrlCache.set(id, freshUrl);
+    return freshUrl;
+}
+
+function stabilizeMessage(message) {
+    if (message && Array.isArray(message.attachments)) {
+        message.attachments = message.attachments.map((att) => ({
+            ...att,
+            url: stabilizeAttachmentUrl(att.id, att.url),
+        }));
+    }
+    return message;
+}
+
+function stabilizeMessages(list) {
+    return (list || []).map(stabilizeMessage);
+}
 
 async function authHeaders(extra = {}) {
     const supabase = getSupabase();
@@ -181,6 +237,21 @@ async function apiFetch(path, options = {}) {
     return body;
 }
 
+async function loadLogisticsContacts() {
+    const body = await apiFetch('/messages/logistics-contacts');
+    return body.data || [];
+}
+
+async function startLogisticsConversation(parcelAssignmentId) {
+    const body = await apiFetch('/messages/logistics-conversations', {
+        method: 'POST',
+        body: JSON.stringify({ parcel_assignment_id: parcelAssignmentId }),
+    });
+    await loadConversations();
+    await openConversation(body.data.id);
+    return body.data;
+}
+
 function buildQuery() {
     const params = new URLSearchParams();
     const f = filters.value;
@@ -190,25 +261,51 @@ function buildQuery() {
     return params.toString();
 }
 
-async function loadConversations() {
-    isLoadingConversations.value = true;
+// `append: true` powers infinite scroll (Messages.vue calls loadMoreConversations()
+// when the list is scrolled near its bottom) — it adds the next page onto
+// the end instead of replacing the list, so conversations already
+// rendered aren't disturbed and nothing needs to load all at once.
+async function loadConversations({ append = false } = {}) {
+    const requestSequence = ++conversationRequestSequence;
+    const showLoadingState = !append && conversations.value.length === 0;
+
+    if (showLoadingState) {
+        isLoadingConversations.value = true;
+    }
+    if (append) {
+        isLoadingMoreConversations.value = true;
+    }
     conversationsError.value = '';
 
     try {
         const body = await apiFetch(`/messages/conversations?${buildQuery()}`);
-        conversations.value = body.data;
+
+        if (requestSequence !== conversationRequestSequence) {
+            return;
+        }
+
+        conversations.value = append ? [...conversations.value, ...body.data] : body.data;
         conversationsMeta.value = body.meta;
         backendMissing.value = false;
     } catch (err) {
+        if (requestSequence !== conversationRequestSequence) {
+            return;
+        }
+
         console.error('Error loading conversations:', err);
         if (err.status === 404) {
             backendMissing.value = true;
         } else {
             conversationsError.value = err?.message || 'Something went wrong while loading your conversations.';
         }
-        conversations.value = [];
+        if (showLoadingState) {
+            conversations.value = [];
+        }
     } finally {
-        isLoadingConversations.value = false;
+        if (requestSequence === conversationRequestSequence) {
+            isLoadingConversations.value = false;
+            isLoadingMoreConversations.value = false;
+        }
     }
 }
 
@@ -220,13 +317,28 @@ function setFilter(patch) {
     loadConversations();
 }
 
+function loadMoreConversations() {
+    if (isLoadingMoreConversations.value || isLoadingConversations.value) {
+        return;
+    }
+
+    if (filters.value.page >= (conversationsMeta.value.lastPage || 1)) {
+        return;
+    }
+
+    filters.value.page += 1;
+    loadConversations({ append: true });
+}
+
 async function openConversation(id) {
+    const requestSequence = ++activeConversationRequestSequence;
     activeConversationId.value = id;
     activeConversation.value = null;
     messages.value = [];
     messagesMeta.value = { hasMore: false, nextCursor: null };
     isLoadingActiveConversation.value = true;
     isLoadingMessages.value = true;
+    isLoadingOlderMessages.value = false;
     activeConversationError.value = '';
     messagesError.value = '';
 
@@ -235,14 +347,16 @@ async function openConversation(id) {
             apiFetch(`/messages/conversations/${encodeURIComponent(id)}`),
             apiFetch(`/messages/conversations/${encodeURIComponent(id)}/messages?limit=${MESSAGES_PAGE_SIZE}`),
         ]);
+        if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== id) return;
         activeConversation.value = detailBody.data;
-        messages.value = messagesBody.data;
+        messages.value = stabilizeMessages(messagesBody.data);
         messagesMeta.value = messagesBody.meta;
         newestKnownMessageId = messages.value.at(-1)?.id ?? null;
         newIncomingCount.value = 0;
         backendMissing.value = false;
         markRead(id);
     } catch (err) {
+        if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== id) return;
         console.error('Error opening conversation:', err);
         if (err.status === 404) {
             backendMissing.value = true;
@@ -250,15 +364,19 @@ async function openConversation(id) {
             activeConversationError.value = err?.message || "Couldn't load this conversation.";
         }
     } finally {
-        isLoadingActiveConversation.value = false;
-        isLoadingMessages.value = false;
+        if (requestSequence === activeConversationRequestSequence) {
+            isLoadingActiveConversation.value = false;
+            isLoadingMessages.value = false;
+        }
     }
 }
 
 function closeActiveConversation() {
+    ++activeConversationRequestSequence;
     activeConversationId.value = null;
     activeConversation.value = null;
     messages.value = [];
+    isLoadingOlderMessages.value = false;
     newIncomingCount.value = 0;
     newestKnownMessageId = null;
 }
@@ -276,17 +394,22 @@ function closeActiveConversation() {
 async function pollNewMessages(isAtBottom) {
     if (!activeConversationId.value || !newestKnownMessageId) return;
 
+    const conversationId = activeConversationId.value;
+    const knownMessageId = newestKnownMessageId;
+    const requestSequence = activeConversationRequestSequence;
+
     try {
         const body = await apiFetch(
-            `/messages/conversations/${encodeURIComponent(activeConversationId.value)}/messages?after=${encodeURIComponent(newestKnownMessageId)}&limit=${MESSAGES_PAGE_SIZE}`,
+            `/messages/conversations/${encodeURIComponent(conversationId)}/messages?after=${encodeURIComponent(knownMessageId)}&limit=${MESSAGES_PAGE_SIZE}`,
         );
+        if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== conversationId) return;
         if (!body.data.length) return;
 
-        messages.value = [...messages.value, ...body.data];
+        messages.value = [...messages.value, ...stabilizeMessages(body.data)];
         newestKnownMessageId = body.data.at(-1).id;
 
         if (isAtBottom) {
-            markRead(activeConversationId.value);
+            markRead(conversationId);
         } else {
             newIncomingCount.value += body.data.filter((m) => m.senderRole === 'buyer').length;
         }
@@ -309,12 +432,16 @@ async function loadOlderMessages() {
     }
 
     isLoadingOlderMessages.value = true;
+    const conversationId = activeConversationId.value;
+    const nextCursor = messagesMeta.value.nextCursor;
+    const requestSequence = activeConversationRequestSequence;
 
     try {
         const body = await apiFetch(
-            `/messages/conversations/${encodeURIComponent(activeConversationId.value)}/messages?limit=${MESSAGES_PAGE_SIZE}&before=${encodeURIComponent(messagesMeta.value.nextCursor)}`,
+            `/messages/conversations/${encodeURIComponent(conversationId)}/messages?limit=${MESSAGES_PAGE_SIZE}&before=${encodeURIComponent(nextCursor)}`,
         );
-        messages.value = [...body.data, ...messages.value];
+        if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== conversationId) return;
+        messages.value = [...stabilizeMessages(body.data), ...messages.value];
         messagesMeta.value = body.meta;
     } catch (err) {
         console.error('Error loading older messages:', err);
@@ -322,7 +449,7 @@ async function loadOlderMessages() {
         // interrupting the conversation with an error banner. The seller
         // can just scroll again to retry.
     } finally {
-        isLoadingOlderMessages.value = false;
+        if (requestSequence === activeConversationRequestSequence) isLoadingOlderMessages.value = false;
     }
 }
 
@@ -343,9 +470,13 @@ async function markRead(id) {
 // copy on success, or flipped to 'failed' (with a Retry action) on
 // failure. Prevents duplicate sends by disabling the composer via
 // isSending while one is in flight.
-async function sendMessage(conversationId, body, attachmentIds = []) {
+// `context` optionally carries { orderId, productId } — the purchase/
+// parcel this specific message is about (see the "Inquire about a
+// certain product" picker in Messages.vue), rendered as an inline
+// inquiry card via the message's own orderContext/productContext.
+async function sendMessage(conversationId, body, attachmentIds = [], context = {}) {
     const text = body.trim();
-    if (!text || isSending.value) return null;
+    if ((!text && attachmentIds.length === 0) || isSending.value) return null;
 
     const localId = `local-${Date.now()}`;
     const optimistic = {
@@ -366,10 +497,15 @@ async function sendMessage(conversationId, body, attachmentIds = []) {
     try {
         const res = await apiFetch(`/messages/conversations/${encodeURIComponent(conversationId)}/messages`, {
             method: 'POST',
-            body: JSON.stringify({ body: text, attachment_ids: attachmentIds }),
+            body: JSON.stringify({
+                body: text,
+                attachment_ids: attachmentIds,
+                order_id: context.orderId || null,
+                product_id: context.productId || null,
+            }),
         });
         const idx = messages.value.findIndex((m) => m.id === localId);
-        if (idx !== -1) messages.value[idx] = res.data;
+        if (idx !== -1) messages.value[idx] = stabilizeMessage(res.data);
         return res.data;
     } catch (err) {
         console.error('Error sending message:', err);
@@ -381,6 +517,13 @@ async function sendMessage(conversationId, body, attachmentIds = []) {
     } finally {
         isSending.value = false;
     }
+}
+
+// Paginated (4 per page), for the "Inquire about a certain product"
+// picker — the seller's own non-delivered parcels shipped through this
+// (shipment-type) conversation's logistics company.
+async function fetchConversationParcels(conversationId, page = 1) {
+    return apiFetch(`/messages/conversations/${encodeURIComponent(conversationId)}/parcels?page=${page}`);
 }
 
 async function retryMessage(localId) {
@@ -407,6 +550,22 @@ async function setConversationStatus(id, status) {
     }
 }
 
+// Removes the conversation from the seller's own inbox only — the other
+// side still sees their copy, and it reappears automatically if either
+// side messages the other again (see Conversation::leaveFor()/
+// reviveLeftParticipants() on the backend).
+async function deleteConversation(id) {
+    try {
+        await apiFetch(`/messages/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        conversations.value = conversations.value.filter((c) => c.id !== id);
+        if (activeConversationId.value === id) closeActiveConversation();
+        return true;
+    } catch (err) {
+        console.error('Error deleting conversation:', err);
+        throw err;
+    }
+}
+
 async function reportBuyer(id, reason) {
     try {
         await apiFetch(`/messages/conversations/${encodeURIComponent(id)}/report`, {
@@ -423,10 +582,12 @@ async function reportBuyer(id, reason) {
 
 function validateAttachment(file) {
     if (!ALLOWED_ATTACHMENT_TYPES.includes(file.type)) {
-        return 'Only PNG, JPG, WEBP, or PDF files are allowed.';
+        return 'Only PNG, JPG, WEBP, PDF, MP4, WEBM, or MOV files are allowed.';
     }
-    if (file.size > MAX_ATTACHMENT_BYTES) {
-        return 'Files must be 10MB or smaller.';
+    const isVideo = VIDEO_ATTACHMENT_TYPES.includes(file.type);
+    const maxBytes = isVideo ? MAX_VIDEO_ATTACHMENT_BYTES : MAX_ATTACHMENT_BYTES;
+    if (file.size > maxBytes) {
+        return isVideo ? 'Videos must be 50MB or smaller.' : 'Files must be 10MB or smaller.';
     }
     return null;
 }
@@ -524,12 +685,16 @@ export function useMessaging() {
         conversations,
         conversationsMeta,
         isLoadingConversations,
+        isLoadingMoreConversations,
         conversationsError,
         backendMissing,
         hasConversations,
         filters,
         setFilter,
         loadConversations,
+        loadMoreConversations,
+        loadLogisticsContacts,
+        startLogisticsConversation,
 
         activeConversationId,
         activeConversation,
@@ -538,6 +703,7 @@ export function useMessaging() {
         openConversation,
         closeActiveConversation,
         setConversationStatus,
+        deleteConversation,
         reportBuyer,
 
         messages,
@@ -551,6 +717,7 @@ export function useMessaging() {
         sendError,
         sendMessage,
         retryMessage,
+        fetchConversationParcels,
 
         newIncomingCount,
         pollNewMessages,

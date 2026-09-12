@@ -6,13 +6,18 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Buyer\CheckoutRequest;
 use App\Models\Order;
 use App\Services\CheckoutService;
+use App\Services\DirectConversationService;
+use App\Services\SellerNotifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
 
 class CheckoutController extends Controller
 {
-    public function __construct(private readonly CheckoutService $checkoutService)
-    {
+    public function __construct(
+        private readonly CheckoutService $checkoutService,
+        private readonly SellerNotifier $sellerNotifier,
+        private readonly DirectConversationService $directConversationService,
+    ) {
     }
 
     /**
@@ -29,6 +34,16 @@ class CheckoutController extends Controller
             return response()->json([
                 'message' => collect($e->errors())->flatten()->first() ?? 'Checkout failed.',
             ], 422);
+        }
+
+        // Both of these run AFTER checkout()'s transaction has already
+        // committed (per SellerNotifier's own contract) and never throw —
+        // a notification/messaging hiccup must not undo an order that's
+        // already placed. One call per seller order, matching how
+        // CheckoutService grouped the cart in the first place.
+        foreach ($orders as $order) {
+            $this->sellerNotifier->orderPlaced($order);
+            $this->directConversationService->startForOrder($order);
         }
 
         return response()->json([

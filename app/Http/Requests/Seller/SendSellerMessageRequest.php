@@ -22,9 +22,15 @@ class SendSellerMessageRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'body' => ['required', 'string', 'max:4000'],
-            'attachment_ids' => ['nullable', 'array', 'max:5'],
-            'attachment_ids.*' => ['uuid'],
+            'body' => ['nullable', 'required_without:attachment_ids', 'string', 'max:4000'],
+            'attachment_ids' => ['nullable', 'required_without:body', 'array', 'max:5'],
+            'attachment_ids.*' => ['uuid', 'distinct'],
+            // Optional purchase/parcel context for this specific message
+            // (e.g. a seller "inquiring about" a parcel with logistics) —
+            // the controller re-checks either one actually belongs to this
+            // seller before attaching it, same trust model as attachment_ids.
+            'order_id' => ['nullable', 'uuid'],
+            'product_id' => ['nullable', 'uuid'],
         ];
     }
 }

@@ -3,8 +3,10 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Notifications\Notifiable;
 
 /**
  * @property string $id
@@ -20,6 +22,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  */
 class Profile extends Model
 {
+    use Notifiable;
+
     protected $table = 'profiles';
 
     public $incrementing = false;
@@ -174,6 +178,18 @@ class Profile extends Model
     public function conversationsAsSeller(): HasMany
     {
         return $this->hasMany(Conversation::class, 'seller_id');
+    }
+
+    public function messagingConversations(): BelongsToMany
+    {
+        return $this->belongsToMany(Conversation::class, 'conversation_participants', 'user_id', 'conversation_id')
+            ->withPivot(['joined_at', 'last_read_at', 'left_at'])
+            ->withTimestamps();
+    }
+
+    public function supportTickets(): HasMany
+    {
+        return $this->hasMany(SupportTicket::class, 'created_by');
     }
 
     public function getFullNameAttribute(): string

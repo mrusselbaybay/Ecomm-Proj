@@ -25,4 +25,11 @@ export default defineConfig({
         vue(),
         tailwindcss(),
     ],
+    server: {
+        hmr: {
+            host: 'buythewaymarket.shop',
+            protocol: 'https',
+            port: 443,
+        },
+    },
 });

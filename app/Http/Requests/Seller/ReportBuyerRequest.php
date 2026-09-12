@@ -7,8 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 /**
  * POST /api/seller/messages/conversations/{id}/report
  *
- * See MessageController::report() — this is intentionally a log-only
- * acknowledgement, not a write into the (admin-owned) complaints table.
+ * The controller persists the report in the admin complaint queue.
  */
 class ReportBuyerRequest extends FormRequest
 {

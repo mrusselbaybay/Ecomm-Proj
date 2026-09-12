@@ -241,6 +241,10 @@ const Applications = defineAsyncComponent(() => import('./Applications.vue'));
 const AccountSettings = defineAsyncComponent(
     () => import('./AccountSettings.vue'),
 );
+const Messages = defineAsyncComponent(() => import('./Messages.vue'));
+const CustomerServicePage = defineAsyncComponent(
+    () => import('../../shared/CustomerServicePage.vue'),
+);
 
 const {
     companyName,
@@ -281,6 +285,11 @@ const navGroups = [
         label: 'Management',
         tabs: [
             { key: 'messages', label: 'Messages', icon: 'messages' },
+            {
+                key: 'customer-service',
+                label: 'Customer Service',
+                icon: 'support',
+            },
             { key: 'reports', label: 'Reports', icon: 'reports' },
             { key: 'account', label: 'Account Settings', icon: 'account' },
         ],
@@ -294,6 +303,8 @@ const TAB_COMPONENTS = {
     areas: DeliveryAreas,
     riders: Riders,
     applications: Applications,
+    messages: Messages,
+    'customer-service': CustomerServicePage,
     account: AccountSettings,
 };
 

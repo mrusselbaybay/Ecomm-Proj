@@ -320,6 +320,7 @@ const pathToSection = {
     '/admin/reports': 'reports',
     '/admin/settings': 'settings',
     '/admin/chat': 'chat',
+    '/admin/customer-service': 'chat',
     '/admin/profile': 'profile',
 };
 
@@ -333,7 +334,7 @@ const sectionToPath = {
     commission: '/admin/commission',
     reports: '/admin/reports',
     settings: '/admin/settings',
-    chat: '/admin/chat',
+    chat: '/admin/customer-service',
     profile: '/admin/profile',
 };
 
@@ -365,7 +366,7 @@ const sectionLabel = computed(() => {
         commission: 'Commission (10%)',
         reports: 'Generate Reports',
         settings: 'Platform Settings',
-        chat: 'Chat / Messaging',
+        chat: 'Customer Service Management',
         profile: 'Account Management',
     };
 
@@ -386,7 +387,7 @@ const navItems = computed(() => [
     { id: 'commission', label: 'Commission (10%)', icon: 'percent' },
     { id: 'reports', label: 'Generate Reports', icon: 'file' },
     { id: 'settings', label: 'Platform Settings', icon: 'settings' },
-    { id: 'chat', label: 'Chat / Messaging', icon: 'chat' },
+    { id: 'chat', label: 'Customer Service', icon: 'chat' },
     { id: 'profile', label: 'Account Management', icon: 'userCog' },
 ]);
 
@@ -482,4 +483,3 @@ onBeforeUnmount(() => {
     window.removeEventListener('popstate', handlePopState);
 });
 </script>
-

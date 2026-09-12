@@ -19,7 +19,7 @@ class UpdateConversationStatusRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'status' => ['required', Rule::in(Conversation::STATUSES)],
+            'status' => ['required', Rule::in(Conversation::STATUS_REQUEST_VALUES)],
         ];
     }
 }

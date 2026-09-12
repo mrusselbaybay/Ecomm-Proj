@@ -3,18 +3,30 @@
 namespace App\Http\Controllers\Seller;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Messaging\UploadMessageAttachmentRequest;
 use App\Http\Requests\Seller\ReportBuyerRequest;
 use App\Http\Requests\Seller\SendSellerMessageRequest;
+use App\Http\Requests\Seller\StartLogisticsConversationRequest;
 use App\Http\Requests\Seller\UpdateConversationStatusRequest;
+use App\Models\Complaint;
 use App\Models\Conversation;
+use App\Models\CourierApplication;
 use App\Models\Message;
 use App\Models\MessageAttachment;
+use App\Models\Order;
+use App\Models\ParcelAssignment;
+use App\Models\Product;
+use App\Models\Profile;
+use App\Policies\ConversationPolicy;
+use App\Services\MessageAttachmentService;
+use App\Services\ShipmentConversationService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\JoinClause;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Backs resources/js/seller/components/Messages.vue via
@@ -39,11 +51,118 @@ class MessageController extends Controller
 
     private const MAX_PER_PAGE = 50;
 
-    private const MESSAGES_PAGE_SIZE = 30;
+    private const MESSAGES_PAGE_SIZE = 10;
 
-    private const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+    public function __construct(
+        private ConversationPolicy $conversationPolicy,
+        private MessageAttachmentService $messageAttachmentService,
+        private ShipmentConversationService $shipmentConversationService,
+    ) {}
 
-    private const ALLOWED_ATTACHMENT_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
+    public function startLogisticsConversation(StartLogisticsConversationRequest $request): JsonResponse
+    {
+        $seller = $request->user();
+        $conversation = $this->shipmentConversationService->findOrCreate(
+            $seller,
+            $request->validated('parcel_assignment_id'),
+        );
+
+        $body = trim((string) $request->validated('body', ''));
+
+        if ($body !== '' && $conversation->messages()->doesntExist()) {
+            $this->storeMessage($conversation, $seller, $body, []);
+        }
+
+        return response()->json([
+            'data' => $this->transformConversationDetail(
+                $conversation->fresh(['buyer', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider', 'participantRecords']),
+            ),
+        ], 201);
+    }
+
+    public function logisticsContacts(Request $request): JsonResponse
+    {
+        $assignments = ParcelAssignment::query()
+            ->with(['order', 'logisticsCompany', 'rider'])
+            ->whereNotNull('rider_profile_id')
+            ->whereHas('order', fn (Builder $query) => $query->where('seller_id', $request->user()->id))
+            ->whereHas('logisticsCompany', fn (Builder $query) => $query
+                ->whereIn('region', ['Luzon', 'Visayas', 'Mindanao'])
+                ->where('status', 'approved')
+                ->where('account_status', 'active'))
+            ->latest('assigned_at')
+            ->get()
+            ->filter(fn (ParcelAssignment $assignment) => CourierApplication::query()
+                ->where('logistics_company_id', $assignment->logistics_company_id)
+                ->where('courier_profile_id', $assignment->rider_profile_id)
+                ->where('status', CourierApplication::STATUS_ACCEPTED)
+                ->exists())
+            ->values();
+
+        return response()->json(['data' => $assignments->map(fn (ParcelAssignment $assignment) => [
+            'parcel_assignment_id' => $assignment->id,
+            'order_number' => $assignment->order?->order_number,
+            'company' => $assignment->logisticsCompany?->company_name,
+            'region' => $assignment->logisticsCompany?->region,
+            'rider' => $assignment->rider?->full_name,
+        ])]);
+    }
+
+    /**
+     * GET /api/seller/messages/conversations/{id}/parcels
+     *
+     * Backs the "Inquire about a certain product" picker in a
+     * seller<->logistics (type 'shipment') conversation — the seller's own
+     * orders shipped through THIS conversation's logistics company,
+     * excluding delivered ones, 4 per page (see Messages.vue's picker
+     * grid). Each entry carries order_id/product_id ready to attach to a
+     * message (see storeMessage()'s order_id/product_id params).
+     */
+    public function parcels(Request $request, string $id): JsonResponse
+    {
+        $seller = $request->user();
+        $conversation = $this->findForSeller($request, $id);
+
+        if (! $conversation || $conversation->type !== 'shipment' || ! $conversation->logistics_company_id) {
+            return response()->json(['message' => 'Conversation not found.'], 404);
+        }
+
+        $paginated = Order::query()
+            ->where('seller_id', $seller->id)
+            ->where('status', '!=', 'Delivered')
+            ->whereHas('parcelAssignments', fn (Builder $q) => $q
+                ->where('logistics_company_id', $conversation->logistics_company_id))
+            ->with('items.product:id,images')
+            ->orderByDesc('placed_at')
+            ->paginate(4);
+
+        return response()->json([
+            'data' => $paginated->getCollection()->map(fn (Order $order) => $this->transformParcel($order))->all(),
+            'meta' => [
+                'currentPage' => $paginated->currentPage(),
+                'lastPage' => $paginated->lastPage(),
+                'total' => $paginated->total(),
+            ],
+        ]);
+    }
+
+    private function transformParcel(Order $order): array
+    {
+        $items = $order->items;
+        $firstItem = $items->first();
+        $itemCount = $items->count();
+
+        return [
+            'orderId' => $order->id,
+            'orderNumber' => $order->order_number,
+            'productId' => $firstItem?->product_id,
+            'previewName' => $itemCount > 1 ? "{$itemCount} items" : $firstItem?->product_name,
+            'previewImage' => ($firstItem?->product?->images ?? [])[0]['url'] ?? null,
+            'itemCount' => $itemCount,
+            'total' => (float) $order->total,
+            'status' => $order->status,
+        ];
+    }
 
     /**
      * GET /api/seller/messages/conversations
@@ -61,19 +180,13 @@ class MessageController extends Controller
 
         $base = $this->searchScopedQuery($seller->id, $request);
 
-        $statusCounts = [
-            'all' => (clone $base)->count(),
-            'unread' => (clone $base)->where('seller_unread_count', '>', 0)->count(),
-            'needsResponse' => (clone $base)->where('status', 'open')
-                ->where('last_message_sender_role', 'buyer')->count(),
-            'resolved' => (clone $base)->where('status', 'resolved')->count(),
-            'archived' => (clone $base)->where('status', 'archived')->count(),
-        ];
+        $statusCounts = $this->statusCounts(clone $base);
 
         $query = $this->applyStatusFilter(clone $base, $request->string('status')->toString())
-            ->with(['buyer', 'order', 'product'])
-            ->orderByRaw('last_message_at desc nulls last')
-            ->orderByDesc('created_at');
+            ->select('conversations.*')
+            ->with(['buyer', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider', 'participantRecords'])
+            ->orderByRaw('conversations.last_message_at desc nulls last')
+            ->orderByDesc('conversations.created_at');
 
         $perPage = min(
             (int) ($request->integer('per_page') ?: self::DEFAULT_PER_PAGE),
@@ -100,7 +213,7 @@ class MessageController extends Controller
      */
     public function showConversation(Request $request, string $id): JsonResponse
     {
-        $conversation = $this->findForSeller($request, $id, ['buyer', 'order', 'product']);
+        $conversation = $this->findForSeller($request, $id, ['buyer', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider', 'participantRecords']);
 
         if (! $conversation) {
             return response()->json(['message' => 'Conversation not found.'], 404);
@@ -136,6 +249,7 @@ class MessageController extends Controller
 
         if ($afterCursor) {
             $rows = Message::where('conversation_id', $conversation->id)
+                ->with(['order.items.product:id,images', 'product'])
                 ->where(fn (Builder $q) => $this->tupleGreaterThan($q, $afterCursor))
                 ->orderBy('created_at')
                 ->orderBy('id')
@@ -148,7 +262,7 @@ class MessageController extends Controller
             ]);
         }
 
-        $query = Message::where('conversation_id', $conversation->id);
+        $query = Message::where('conversation_id', $conversation->id)->with(['order.items.product:id,images', 'product']);
 
         if ($beforeCursor) {
             $query->where(fn (Builder $q) => $this->tupleLessThan($q, $beforeCursor));
@@ -186,52 +300,88 @@ class MessageController extends Controller
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        if ($conversation->status === 'archived') {
-            return response()->json(['message' => 'This conversation is archived.'], 422);
+        if (! $this->conversationPolicy->sendMessage($seller, $conversation)) {
+            return response()->json(['message' => 'This conversation is not open for new messages.'], 422);
         }
 
-        $body = trim($request->validated('body'));
-        $attachmentIds = $request->validated('attachment_ids') ?? [];
+        $body = trim((string) $request->validated('body', ''));
+        $attachmentIds = $request->validated('attachment_ids', []);
+        $orderId = $request->validated('order_id');
+        $productId = $request->validated('product_id');
 
-        $message = DB::transaction(function () use ($conversation, $seller, $body, $attachmentIds) {
-            // Only this seller's own still-unlinked uploads count.
-            $staged = MessageAttachment::whereIn('id', $attachmentIds)
-                ->where('seller_id', $seller->id)
-                ->whereNull('message_id')
-                ->get();
-
-            $message = Message::create([
-                'conversation_id' => $conversation->id,
-                'sender_id' => $seller->id,
-                'sender_role' => 'seller',
-                'body' => $body,
-                'attachments' => $staged->map->toContractArray()->all(),
-            ]);
-
-            if ($staged->isNotEmpty()) {
-                MessageAttachment::whereKey($staged->pluck('id'))->update(['message_id' => $message->id]);
-            }
-
-            // The seller replying means they've seen everything in the
-            // thread — clear their unread and stamp buyer messages read.
-            Message::where('conversation_id', $conversation->id)
-                ->where('sender_role', 'buyer')
-                ->whereNull('read_at')
-                ->update(['read_at' => now()]);
-
-            $conversation->forceFill([
-                'last_message_at' => $message->created_at,
-                'last_message_preview' => Str::limit($body, 140),
-                'last_message_sender_role' => 'seller',
-                'seller_unread_count' => 0,
-            ])->save();
-
-            $conversation->increment('buyer_unread_count');
-
-            return $message;
+        $message = DB::transaction(function () use ($conversation, $seller, $body, $attachmentIds, $orderId, $productId) {
+            return $this->storeMessage($conversation, $seller, $body, $attachmentIds, $orderId, $productId);
         });
 
         return response()->json(['data' => $this->transformMessage($message)], 201);
+    }
+
+    /** @param list<string> $attachmentIds */
+    private function storeMessage(
+        Conversation $conversation,
+        Profile $seller,
+        string $body,
+        array $attachmentIds,
+        ?string $orderId = null,
+        ?string $productId = null,
+    ): Message {
+        $staged = $this->messageAttachmentService->findOwnedUnlinked($seller, $attachmentIds);
+
+        if ($staged->count() !== count($attachmentIds)) {
+            throw ValidationException::withMessages([
+                'attachment_ids' => 'One or more attachments are unavailable.',
+            ]);
+        }
+
+        // Never trust a client-sent order/product id at face value — same
+        // "re-check it's actually theirs" rule as attachment_ids above,
+        // since this is what backs the "inquire about a parcel" card sent
+        // to logistics (see parcels()) as well as any other per-message
+        // purchase context a seller attaches going forward.
+        if ($orderId && ! Order::where('id', $orderId)->where('seller_id', $seller->id)->exists()) {
+            throw ValidationException::withMessages(['order_id' => 'That order does not belong to you.']);
+        }
+
+        if ($productId && ! Product::where('id', $productId)->where('seller_id', $seller->id)->exists()) {
+            throw ValidationException::withMessages(['product_id' => 'That product does not belong to you.']);
+        }
+
+        $message = Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_id' => $seller->id,
+            'sender_role' => 'seller',
+            'message_type' => $body === '' ? 'attachment' : 'text',
+            'body' => $body,
+            'attachments' => $staged->map->toStoredArray()->all(),
+            'order_id' => $orderId,
+            'product_id' => $productId,
+        ]);
+
+        $this->messageAttachmentService->linkToMessage($staged, $message);
+
+        // The seller replying means they've seen everything in the
+        // thread — clear their unread and stamp buyer messages read.
+        Message::where('conversation_id', $conversation->id)
+            ->where('sender_role', '!=', 'seller')
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        $conversation->forceFill([
+            'last_message_at' => $message->created_at,
+            'last_message_preview' => $body !== ''
+                ? Str::limit($body, 140)
+                : ($staged->count() === 1 ? 'Sent an attachment' : 'Sent attachments'),
+            'last_message_sender_role' => 'seller',
+            'seller_unread_count' => 0,
+        ])->save();
+
+        $conversation->increment(
+            $conversation->type === 'shipment' ? 'logistics_unread_count' : 'buyer_unread_count'
+        );
+
+        $conversation->reviveLeftParticipants();
+
+        return $message;
     }
 
     /**
@@ -247,31 +397,82 @@ class MessageController extends Controller
 
         DB::transaction(function () use ($conversation) {
             Message::where('conversation_id', $conversation->id)
-                ->where('sender_role', 'buyer')
+                ->where('sender_role', '!=', 'seller')
                 ->whereNull('read_at')
                 ->update(['read_at' => now()]);
 
             $conversation->forceFill(['seller_unread_count' => 0])->save();
+            $conversation->participantRecords()
+                ->where('user_id', $conversation->seller_id)
+                ->update(['last_read_at' => now()]);
         });
 
         return response()->json(['data' => ['unreadCount' => 0]]);
     }
 
     /**
-     * PUT /api/seller/messages/conversations/{id}/status
+     * DELETE /api/seller/messages/conversations/{id}
+     *
+     * Removes the conversation from this seller's own inbox only (see
+     * Conversation::leaveFor()) — the other side's copy and the message
+     * history are untouched, and it reappears automatically if either side
+     * messages the other again.
      */
-    public function setStatus(UpdateConversationStatusRequest $request, string $id): JsonResponse
+    public function deleteConversation(Request $request, string $id): JsonResponse
     {
-        $conversation = $this->findForSeller($request, $id, ['buyer', 'order', 'product']);
+        $conversation = $this->findForSeller($request, $id);
 
         if (! $conversation) {
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        $conversation->forceFill(['status' => $request->validated('status')])->save();
+        if (! $this->conversationPolicy->delete($request->user(), $conversation)) {
+            return response()->json(['message' => 'This conversation cannot be deleted.'], 422);
+        }
 
+        $conversation->leaveFor($request->user()->id);
+
+        return response()->json(['data' => ['deleted' => true]]);
+    }
+
+    /**
+     * PUT /api/seller/messages/conversations/{id}/status
+     *
+     * `archived`/un-archiving are per-user (Conversation::archiveFor()/
+     * unarchiveFor()) — hides the thread from this seller's own inbox
+     * without touching the buyer's (or logistics') copy or blocking anyone
+     * from writing into it. A genuine 'resolved' <-> 'open' transition is
+     * still the shared Conversation.status.
+     */
+    public function setStatus(UpdateConversationStatusRequest $request, string $id): JsonResponse
+    {
+        $conversation = $this->findForSeller($request, $id, ['buyer', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider', 'participantRecords']);
+
+        if (! $conversation) {
+            return response()->json(['message' => 'Conversation not found.'], 404);
+        }
+
+        $status = $request->validated('status');
+        $userId = $request->user()->id;
+
+        if ($status === 'archived') {
+            $conversation->archiveFor($userId);
+        } elseif ($status === 'open' && $conversation->isArchivedFor($userId)) {
+            $conversation->unarchiveFor($userId);
+        } elseif (! $conversation->canTransitionTo($status)) {
+            return response()->json([
+                'message' => "A conversation cannot move from {$conversation->status} to {$status}.",
+            ], 422);
+        } else {
+            $conversation->forceFill(['status' => $status])->save();
+        }
+
+        // archiveFor()/unarchiveFor() keep participantRecords in sync
+        // in-memory, so $conversation is already current — no need for a
+        // second fresh() re-fetch of the exact same relations just loaded
+        // two lines up.
         return response()->json([
-            'data' => $this->transformConversationDetail($conversation->fresh(['buyer', 'order', 'product'])),
+            'data' => $this->transformConversationDetail($conversation),
         ]);
     }
 
@@ -281,6 +482,10 @@ class MessageController extends Controller
     public function unreadCount(Request $request): JsonResponse
     {
         $count = (int) Conversation::where('seller_id', $request->user()->id)
+            ->where('type', '!=', 'support')
+            ->whereHas('participantRecords', fn (Builder $query) => $query
+                ->where('user_id', $request->user()->id)
+                ->whereNull('left_at'))
             ->sum('seller_unread_count');
 
         return response()->json(['data' => ['count' => $count]]);
@@ -289,35 +494,12 @@ class MessageController extends Controller
     /**
      * POST /api/seller/messages/attachments  (multipart, field "file")
      *
-     * Stores the file as a base64 data: URL (the way products.images /
-     * reviews.images hold binary in this schema) and returns its id for
-     * the follow-up send. Swapping to a Storage bucket later only changes
-     * what gets written to message_attachments.url.
+     * Stores the file on the private message-attachment disk and returns
+     * its id for the follow-up send.
      */
-    public function uploadAttachment(Request $request): JsonResponse
+    public function uploadAttachment(UploadMessageAttachmentRequest $request): JsonResponse
     {
-        $seller = $request->user();
-
-        $validated = $request->validate([
-            'file' => [
-                'required',
-                'file',
-                'max:'.(self::MAX_ATTACHMENT_BYTES / 1024),
-                'mimetypes:'.implode(',', self::ALLOWED_ATTACHMENT_MIMES),
-            ],
-        ]);
-
-        $file = $validated['file'];
-        $dataUrl = 'data:'.$file->getMimeType().';base64,'.base64_encode(file_get_contents($file->getRealPath()));
-
-        $attachment = MessageAttachment::create([
-            'seller_id' => $seller->id,
-            'message_id' => null,
-            'name' => $file->getClientOriginalName() ?: 'attachment',
-            'mime' => $file->getMimeType(),
-            'size' => $file->getSize(),
-            'url' => $dataUrl,
-        ]);
+        $attachment = $this->messageAttachmentService->stage($request->user(), $request->file('file'));
 
         return response()->json(['data' => $attachment->toContractArray()], 201);
     }
@@ -325,31 +507,32 @@ class MessageController extends Controller
     /**
      * POST /api/seller/messages/conversations/{id}/report
      *
-     * Deliberately log-only. A `complaints` table exists in the schema but
-     * has no model/owner on this branch — that's the admin moderation
-     * feature's territory (see useMessaging.js's contract note). Writing
-     * into it unilaterally from here would be a cross-role decision this
-     * endpoint shouldn't make, so it acknowledges the report (keeping the
-     * UI's flow intact) and records it for a human to pick up.
+     * Persists the report in the existing admin complaint workflow.
      */
     public function report(ReportBuyerRequest $request, string $id): JsonResponse
     {
         $seller = $request->user();
         $conversation = $this->findForSeller($request, $id, ['buyer']);
 
-        if (! $conversation) {
+        if (! $conversation || $conversation->type === 'shipment') {
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        Log::warning('Seller reported a buyer', [
-            'conversation_id' => $conversation->id,
-            'seller_id' => $seller->id,
-            'buyer_id' => $conversation->buyer_id,
+        $complaint = Complaint::create([
+            'complainant_id' => $seller->id,
+            'respondent_id' => $conversation->buyer_id,
             'order_id' => $conversation->order_id,
-            'reason' => $request->validated('reason'),
+            'type' => 'message_report',
+            'subject' => 'Buyer messaging report',
+            'description' => $request->validated('reason'),
+            'evidence' => [['conversation_id' => $conversation->id]],
+            'status' => 'pending',
+            'priority' => 'normal',
         ]);
 
-        return response()->json(['data' => ['reported' => true]]);
+        return response()->json([
+            'data' => ['reported' => true, 'complaint_id' => $complaint->id],
+        ], 201);
     }
 
     /*
@@ -358,17 +541,34 @@ class MessageController extends Controller
     |--------------------------------------------------------------------------
     */
 
+    /**
+     * Joins (rather than whereHas()'s EXISTS subquery) the seller's own
+     * participant row so its per-user `archived_at` (see
+     * Conversation::archiveFor()) is available as a real, filterable/
+     * aggregable column for applyStatusFilter()'s 'archived' branch and
+     * statusCounts()'s aggregate — an EXISTS subquery can't expose a column
+     * back to the outer query the way a join can.
+     */
     private function searchScopedQuery(string $sellerId, Request $request): Builder
     {
-        $query = Conversation::query()->where('seller_id', $sellerId);
+        $query = Conversation::query()
+            ->join('conversation_participants', function (JoinClause $join) use ($sellerId) {
+                $join->on('conversation_participants.conversation_id', '=', 'conversations.id')
+                    ->where('conversation_participants.user_id', $sellerId)
+                    ->whereNull('conversation_participants.left_at');
+            })
+            ->where('conversations.seller_id', $sellerId)
+            ->where('conversations.type', '!=', 'support');
 
         if ($search = $request->string('search')->toString()) {
             $query->where(function (Builder $q) use ($search) {
-                $q->where('subject', 'ilike', "%{$search}%")
-                    ->orWhere('last_message_preview', 'ilike', "%{$search}%")
+                $q->where('conversations.subject', 'ilike', "%{$search}%")
+                    ->orWhere('conversations.last_message_preview', 'ilike', "%{$search}%")
                     ->orWhereHas('buyer', function (Builder $bq) use ($search) {
                         $bq->where(DB::raw("(first_name || ' ' || last_name)"), 'ilike', "%{$search}%");
                     })
+                    ->orWhereHas('logisticsCompany', fn (Builder $logisticsQuery) => $logisticsQuery
+                        ->where('company_name', 'ilike', "%{$search}%"))
                     ->orWhereHas('order', function (Builder $oq) use ($search) {
                         $oq->where('order_number', 'ilike', "%{$search}%");
                     });
@@ -378,13 +578,40 @@ class MessageController extends Controller
         return $query;
     }
 
+    /**
+     * The 5 tab badges as ONE aggregate query (conditional SUMs) instead of
+     * 5 separate COUNT(*) round-trips against the same filtered base — the
+     * list load already costs a paginated query, so this was doubling the
+     * request's DB round-trips for what's just header decoration.
+     *
+     * @return array{all: int, unread: int, needsResponse: int, resolved: int, archived: int}
+     */
+    private function statusCounts(Builder $base): array
+    {
+        $row = $base->selectRaw(<<<'SQL'
+            COUNT(*) AS all_count,
+            SUM(CASE WHEN conversations.seller_unread_count > 0 THEN 1 ELSE 0 END) AS unread_count,
+            SUM(CASE WHEN conversations.status = 'open' AND conversations.last_message_sender_role != 'seller' THEN 1 ELSE 0 END) AS needs_response_count,
+            SUM(CASE WHEN conversations.status = 'resolved' THEN 1 ELSE 0 END) AS resolved_count,
+            SUM(CASE WHEN conversation_participants.archived_at IS NOT NULL THEN 1 ELSE 0 END) AS archived_count
+        SQL)->first();
+
+        return [
+            'all' => (int) $row->all_count,
+            'unread' => (int) $row->unread_count,
+            'needsResponse' => (int) $row->needs_response_count,
+            'resolved' => (int) $row->resolved_count,
+            'archived' => (int) $row->archived_count,
+        ];
+    }
+
     private function applyStatusFilter(Builder $query, ?string $status): Builder
     {
         return match ($status) {
-            'unread' => $query->where('seller_unread_count', '>', 0),
-            'needs_response' => $query->where('status', 'open')->where('last_message_sender_role', 'buyer'),
-            'resolved' => $query->where('status', 'resolved'),
-            'archived' => $query->where('status', 'archived'),
+            'unread' => $query->where('conversations.seller_unread_count', '>', 0),
+            'needs_response' => $query->where('conversations.status', 'open')->where('conversations.last_message_sender_role', '!=', 'seller'),
+            'resolved' => $query->where('conversations.status', 'resolved'),
+            'archived' => $query->whereNotNull('conversation_participants.archived_at'),
             default => $query,
         };
     }
@@ -396,6 +623,10 @@ class MessageController extends Controller
     {
         return Conversation::with($with)
             ->where('seller_id', $request->user()->id)
+            ->where('type', '!=', 'support')
+            ->whereHas('participantRecords', fn (Builder $query) => $query
+                ->where('user_id', $request->user()->id)
+                ->whereNull('left_at'))
             ->whereKey($id)
             ->first();
     }
@@ -427,14 +658,37 @@ class MessageController extends Controller
 
     private function transformConversation(Conversation $c): array
     {
+        $counterpartyName = $c->type === 'shipment'
+            ? ($c->logisticsCompany?->company_name ?: 'Logistics')
+            : ($c->buyer?->full_name ?: 'Buyer');
+
         return [
             'id' => $c->id,
+            'type' => $c->type,
             'status' => $c->status,
+            // Per-participant, not the shared `status` column — see
+            // Conversation::archiveFor()/isArchivedFor(). Every conversation
+            // here already belongs to the authenticated seller.
+            'archived' => $c->isArchivedFor($c->seller_id),
             'buyer' => [
-                'id' => $c->buyer_id,
-                'name' => $c->buyer?->full_name ?: 'Buyer',
-                'initials' => $this->initialsFor($c->buyer?->full_name),
+                'id' => $c->type === 'shipment' ? $c->logisticsCompany?->owner_profile_id : $c->buyer_id,
+                'name' => $counterpartyName,
+                'initials' => $this->initialsFor($counterpartyName),
+                // Reuses the Profile relation already eager-loaded for this
+                // conversation (no extra query) — the `avatars` bucket is
+                // public, so this is a stable URL, unlike message
+                // attachments' signed links.
+                'avatarUrl' => $c->type === 'shipment'
+                    ? $c->logisticsCompany?->owner?->avatar_url
+                    : $c->buyer?->avatar_url,
+                'role' => $c->type === 'shipment' ? 'logistics' : 'buyer',
             ],
+            'shipment' => $c->parcelAssignment ? [
+                'id' => $c->parcelAssignment->id,
+                'region' => $c->logisticsCompany?->region,
+                'company' => $c->logisticsCompany?->company_name,
+                'rider' => $c->parcelAssignment->rider?->full_name,
+            ] : null,
             'order' => $c->order ? [
                 'id' => $c->order->order_number,
                 'orderNumber' => $c->order->order_number,
@@ -455,7 +709,7 @@ class MessageController extends Controller
                 'createdAt' => optional($c->last_message_at)->toIso8601String(),
             ] : null,
             'unreadCount' => (int) $c->seller_unread_count,
-            'needsResponse' => $c->status === 'open' && $c->last_message_sender_role === 'buyer',
+            'needsResponse' => $c->status === 'open' && $c->last_message_sender_role !== 'seller',
             'updatedAt' => optional($c->last_message_at ?? $c->updated_at)->toIso8601String(),
         ];
     }
@@ -495,10 +749,23 @@ class MessageController extends Controller
             'attachments' => collect($m->attachments ?? [])->map(fn ($a) => [
                 'id' => $a['id'] ?? null,
                 'name' => $a['name'] ?? 'attachment',
-                'url' => $a['url'] ?? null,
+                'url' => MessageAttachment::contractUrlFor($a),
                 'mime' => $a['mime'] ?? null,
                 'size' => $a['size'] ?? null,
             ])->all(),
+            // Which purchase (if any) this specific message/inquiry was
+            // about — either the buyer's own inquiry context, or the
+            // auto-generated "order placed" system message (see
+            // DirectConversationService::startForOrder()) — shown here as
+            // an inline card per message, since one thread can now span
+            // several orders/products from the same buyer.
+            'orderContext' => $m->order?->messagePreview(),
+            'productContext' => $m->product ? [
+                'id' => $m->product->id,
+                'name' => $m->product->name,
+                'price' => (float) $m->product->price,
+                'image' => ($m->product->images ?? [])[0]['url'] ?? null,
+            ] : null,
             // Read receipts only make sense for the seller's own messages;
             // buyer messages carry no status (per the contract).
             'status' => $m->sender_role === 'seller' ? ($m->read_at ? 'read' : 'sent') : null,

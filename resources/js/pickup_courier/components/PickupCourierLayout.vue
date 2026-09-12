@@ -19,6 +19,13 @@
         </div>
         <div class="flex items-center gap-3">
           <button
+            type="button"
+            class="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-teal-700"
+            @click="showCustomerService = true"
+          >
+            Customer Service
+          </button>
+          <button
             @click="showApplicationsModal = true"
             class="relative inline-flex items-center gap-2 bg-white border border-gray-200 hover:border-teal-400 text-gray-700 text-sm font-medium px-3 py-2 rounded-xl shadow-sm transition"
           >
@@ -361,10 +368,16 @@
       </div>
     </div>
   </div>
+  <CustomerServicePage
+    v-if="showCustomerService"
+    modal
+    @close="showCustomerService = false"
+  />
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import CustomerServicePage from '../../shared/CustomerServicePage.vue';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -382,6 +395,7 @@ const selectedRegion = ref('All Regions');
 const loading = ref(false);
 const showApplyModal = ref(false);
 const showApplicationsModal = ref(false);
+const showCustomerService = ref(false);
 const selectedCompany = ref(null);
 const selectedCompanyId = ref(null);
 const resumeFile = ref(null);

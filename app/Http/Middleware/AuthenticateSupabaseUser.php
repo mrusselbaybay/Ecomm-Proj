@@ -23,8 +23,14 @@ use Symfony\Component\HttpFoundation\Response;
  * expired/tampered token is rejected the same way Supabase itself would
  * reject it, with no extra secret to manage.
  *
- * The verification result is cached briefly per-token so a page that fires
- * several API calls in a row doesn't round-trip to Supabase for each one.
+ * The verification result is cached per-token so a page that fires several
+ * API calls in a row — or a chat panel polling every 15s — doesn't
+ * round-trip to Supabase's auth server for each one. This external call is
+ * the dominant source of per-request latency in the app (a real network hop
+ * to GoTrue, on top of the app's own already-remote database), so the
+ * window below is generous rather than the few seconds a naive cache would
+ * use — a revoked/expired token can stay accepted for up to that long,
+ * which is an acceptable trade for how much request latency it removes.
  */
 class AuthenticateSupabaseUser
 {
@@ -68,15 +74,15 @@ class AuthenticateSupabaseUser
 
     /**
      * Returns the Supabase auth.users id the token belongs to, or null if
-     * the token is missing/invalid/expired. Cached for a short window
-     * keyed by a hash of the token (never the raw token) so we don't log
-     * or store the credential itself.
+     * the token is missing/invalid/expired. Cached keyed by a hash of the
+     * token (never the raw token) so we don't log or store the credential
+     * itself.
      */
     private function resolveSupabaseUserId(string $token): ?string
     {
         $cacheKey = 'supabase_auth_token:'.hash('sha256', $token);
 
-        return Cache::remember($cacheKey, now()->addSeconds(30), function () use ($token) {
+        return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($token) {
             $url = rtrim((string) config('services.supabase.url'), '/').'/auth/v1/user';
             $anonKey = config('services.supabase.anon_key');
 
