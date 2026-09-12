@@ -14,6 +14,7 @@ use App\Models\CourierApplication;
 use App\Models\Message;
 use App\Models\MessageAttachment;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\ParcelAssignment;
 use App\Models\Product;
 use App\Models\Profile;
@@ -155,9 +156,14 @@ class MessageController extends Controller
         return [
             'orderId' => $order->id,
             'orderNumber' => $order->order_number,
+            // Null until the seller/logistics actually dispatches it (see
+            // Order::generateTrackingNumber()) — a parcel still "New"/
+            // "Confirmed"/etc. simply has no tracking number yet.
+            'trackingNumber' => $order->tracking_number,
             'productId' => $firstItem?->product_id,
             'previewName' => $itemCount > 1 ? "{$itemCount} items" : $firstItem?->product_name,
             'previewImage' => ($firstItem?->product?->images ?? [])[0]['url'] ?? null,
+            'quantity' => $firstItem?->quantity,
             'itemCount' => $itemCount,
             'total' => (float) $order->total,
             'status' => $order->status,
@@ -346,11 +352,17 @@ class MessageController extends Controller
             throw ValidationException::withMessages(['product_id' => 'That product does not belong to you.']);
         }
 
+        $isPureInquiryCard = $body === '' && $staged->isEmpty() && ($orderId || $productId);
+
         $message = Message::create([
             'conversation_id' => $conversation->id,
             'sender_id' => $seller->id,
             'sender_role' => 'seller',
-            'message_type' => $body === '' ? 'attachment' : 'text',
+            'message_type' => match (true) {
+                $isPureInquiryCard => 'inquiry',
+                $body === '' => 'attachment',
+                default => 'text',
+            },
             'body' => $body,
             'attachments' => $staged->map->toStoredArray()->all(),
             'order_id' => $orderId,
@@ -368,9 +380,12 @@ class MessageController extends Controller
 
         $conversation->forceFill([
             'last_message_at' => $message->created_at,
-            'last_message_preview' => $body !== ''
-                ? Str::limit($body, 140)
-                : ($staged->count() === 1 ? 'Sent an attachment' : 'Sent attachments'),
+            'last_message_preview' => match (true) {
+                $body !== '' => Str::limit($body, 140),
+                $isPureInquiryCard => 'Sent a parcel inquiry',
+                $staged->count() === 1 => 'Sent an attachment',
+                default => 'Sent attachments',
+            },
             'last_message_sender_role' => 'seller',
             'seller_unread_count' => 0,
         ])->save();
@@ -765,6 +780,13 @@ class MessageController extends Controller
                 'name' => $m->product->name,
                 'price' => (float) $m->product->price,
                 'image' => ($m->product->images ?? [])[0]['url'] ?? null,
+                // The quantity of THIS product within THIS order — only
+                // resolvable when a message carries both (the "Inquiring
+                // About" parcel-inquiry card); null for a bare product
+                // reference with no order attached.
+                'quantity' => ($m->order_id && $m->product_id)
+                    ? OrderItem::where('order_id', $m->order_id)->where('product_id', $m->product_id)->value('quantity')
+                    : null,
             ] : null,
             // Read receipts only make sense for the seller's own messages;
             // buyer messages carry no status (per the contract).

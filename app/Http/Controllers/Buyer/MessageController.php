@@ -10,6 +10,9 @@ use App\Http\Requests\Messaging\UploadMessageAttachmentRequest;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageAttachment;
+use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\Product;
 use App\Models\Profile;
 use App\Policies\ConversationPolicy;
 use App\Services\DirectConversationService;
@@ -154,6 +157,60 @@ class MessageController extends Controller
     }
 
     /**
+     * GET /api/buyer/messages/conversations/{id}/products
+     *
+     * Backs the "Inquire about a certain product" picker in a buyer<->
+     * seller conversation — this buyer's own orders with THIS seller,
+     * newest first, 4 per page (mirrors Seller\MessageController::parcels()).
+     * Each entry carries order_id/product_id ready to attach to a message
+     * (see appendMessage()'s order_id/product_id params).
+     */
+    public function products(Request $request, string $id): JsonResponse
+    {
+        $buyer = $request->user();
+        $conversation = $this->findForBuyer($request, $id);
+
+        if (! $conversation) {
+            return response()->json(['message' => 'Conversation not found.'], 404);
+        }
+
+        $paginated = Order::query()
+            ->where('buyer_profile_id', $buyer->id)
+            ->where('seller_id', $conversation->seller_id)
+            ->with('items.product:id,images')
+            ->orderByDesc('placed_at')
+            ->paginate(4);
+
+        return response()->json([
+            'data' => $paginated->getCollection()->map(fn (Order $order) => $this->transformOrderPreview($order))->all(),
+            'meta' => [
+                'currentPage' => $paginated->currentPage(),
+                'lastPage' => $paginated->lastPage(),
+                'total' => $paginated->total(),
+            ],
+        ]);
+    }
+
+    private function transformOrderPreview(Order $order): array
+    {
+        $items = $order->items;
+        $firstItem = $items->first();
+        $itemCount = $items->count();
+
+        return [
+            'orderId' => $order->id,
+            'orderNumber' => $order->order_number,
+            'productId' => $firstItem?->product_id,
+            'previewName' => $itemCount > 1 ? "{$itemCount} items" : $firstItem?->product_name,
+            'previewImage' => ($firstItem?->product?->images ?? [])[0]['url'] ?? null,
+            'quantity' => $firstItem?->quantity,
+            'itemCount' => $itemCount,
+            'total' => (float) $order->total,
+            'status' => $order->status,
+        ];
+    }
+
+    /**
      * GET /api/buyer/messages/conversations/{id}/messages
      *
      * Cursor pagination by message id, mirroring the seller side
@@ -223,21 +280,36 @@ class MessageController extends Controller
 
     public function sendMessage(SendMessageRequest $request, string $id): JsonResponse
     {
+        $buyer = $request->user();
         $conversation = $this->findForBuyer($request, $id);
 
         if (! $conversation) {
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        if (! $this->conversationPolicy->sendMessage($request->user(), $conversation)) {
+        if (! $this->conversationPolicy->sendMessage($buyer, $conversation)) {
             return response()->json(['message' => 'This conversation is not open for new messages.'], 422);
         }
 
         $body = trim((string) $request->validated('body', ''));
         $attachmentIds = $request->validated('attachment_ids', []);
+        $orderId = $request->validated('order_id');
+        $productId = $request->validated('product_id');
 
-        $message = DB::transaction(function () use ($attachmentIds, $body, $conversation, $request) {
-            return $this->appendMessage($conversation, $request->user(), 'buyer', $body, $attachmentIds);
+        // Never trust a client-sent order/product id at face value (same
+        // rule as attachment_ids) — this backs the "Inquire about a
+        // certain product" card, so both must actually belong to this
+        // buyer<->seller pair.
+        if ($orderId && ! Order::where('id', $orderId)->where('buyer_profile_id', $buyer->id)->where('seller_id', $conversation->seller_id)->exists()) {
+            throw ValidationException::withMessages(['order_id' => 'That order does not belong to you.']);
+        }
+
+        if ($productId && ! Product::where('id', $productId)->where('seller_id', $conversation->seller_id)->exists()) {
+            throw ValidationException::withMessages(['product_id' => 'That product does not belong to this seller.']);
+        }
+
+        $message = DB::transaction(function () use ($attachmentIds, $body, $conversation, $request, $orderId, $productId) {
+            return $this->appendMessage($conversation, $request->user(), 'buyer', $body, $attachmentIds, $orderId, $productId);
         });
 
         return response()->json(['data' => $this->transformMessage($message)], 201);
@@ -400,10 +472,16 @@ class MessageController extends Controller
             ]);
         }
 
+        $isPureInquiryCard = $body === '' && $stagedAttachments->isEmpty() && ($orderId || $productId);
+
         $message = $conversation->messages()->create([
             'sender_id' => $sender->id,
             'sender_role' => $role,
-            'message_type' => $body === '' ? 'attachment' : 'text',
+            'message_type' => match (true) {
+                $isPureInquiryCard => 'inquiry',
+                $body === '' => 'attachment',
+                default => 'text',
+            },
             'body' => $body,
             'attachments' => $stagedAttachments->map->toStoredArray()->all(),
             'order_id' => $orderId,
@@ -412,9 +490,12 @@ class MessageController extends Controller
 
         $this->messageAttachmentService->linkToMessage($stagedAttachments, $message);
 
-        $preview = $body !== ''
-            ? mb_substr($body, 0, 160)
-            : ($stagedAttachments->count() === 1 ? 'Sent an attachment' : 'Sent attachments');
+        $preview = match (true) {
+            $body !== '' => mb_substr($body, 0, 160),
+            $isPureInquiryCard => 'Sent a product inquiry',
+            $stagedAttachments->count() === 1 => 'Sent an attachment',
+            default => 'Sent attachments',
+        };
 
         $conversation->forceFill([
             'last_message_at' => $message->created_at,
@@ -524,6 +605,11 @@ class MessageController extends Controller
                 'name' => $m->product->name,
                 'price' => (float) $m->product->price,
                 'image' => ($m->product->images ?? [])[0]['url'] ?? null,
+                // Only resolvable when a message carries both order_id and
+                // product_id (the "Inquire about a certain product" card).
+                'quantity' => ($m->order_id && $m->product_id)
+                    ? OrderItem::where('order_id', $m->order_id)->where('product_id', $m->product_id)->value('quantity')
+                    : null,
             ] : null,
             'at' => optional($m->created_at)->toIso8601String(),
             'readAt' => optional($m->read_at)->toIso8601String(),

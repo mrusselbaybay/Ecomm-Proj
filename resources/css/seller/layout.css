@@ -6029,6 +6029,20 @@ img.msg-convo-avatar {
     justify-content: flex-start;
     max-width: 75%;
 }
+/* The seller's own "Inquiring About" parcel-inquiry card (see the
+   composer's product picker) sits on the seller's own "sent" side,
+   unlike the buyer-originated order-placed card above. */
+.msg-order-card-row.sent {
+    justify-content: flex-end;
+    margin-left: auto;
+}
+.msg-order-card-label {
+    font-size: 0.6rem;
+    font-weight: 800;
+    color: var(--teal-600);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
 .msg-order-card {
     display: flex;
     align-items: center;
@@ -6108,6 +6122,11 @@ img.msg-convo-avatar {
     margin-left: 0.25rem;
     font-size: 0.68rem;
     color: #94a3b8;
+}
+.msg-order-card-time.sent {
+    justify-content: flex-end;
+    margin-left: 0;
+    margin-right: 0.25rem;
 }
 
 .msg-bubble {
@@ -6348,12 +6367,24 @@ img.msg-convo-avatar {
 .msg-parcel-square-label {
     position: absolute;
     inset: auto 0 0 0;
+    display: flex;
+    flex-direction: column;
     padding: 0.2rem 0.35rem;
     background: rgba(15, 23, 42, 0.65);
     color: white;
+    line-height: 1.2;
+}
+.msg-parcel-square-name {
     font-size: 0.58rem;
     font-weight: 700;
-    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.msg-parcel-square-tracking {
+    font-size: 0.52rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.8);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

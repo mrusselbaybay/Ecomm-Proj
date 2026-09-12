@@ -405,13 +405,24 @@ async function pollNewMessages(isAtBottom) {
         if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== conversationId) return;
         if (!body.data.length) return;
 
-        messages.value = [...messages.value, ...stabilizeMessages(body.data)];
         newestKnownMessageId = body.data.at(-1).id;
+
+        // Defensive de-dupe: if a just-sent message's own optimistic-to-real
+        // replacement (see sendMessage()) hadn't landed yet when this poll
+        // fired, the server already has that message persisted and this
+        // fetch would return it too — appending unconditionally produced
+        // two copies of the same message once the optimistic replace ran.
+        const knownIds = new Set(messages.value.map((m) => m.id));
+        const fresh = stabilizeMessages(body.data).filter((m) => !knownIds.has(m.id));
+
+        if (fresh.length) {
+            messages.value = [...messages.value, ...fresh];
+        }
 
         if (isAtBottom) {
             markRead(conversationId);
         } else {
-            newIncomingCount.value += body.data.filter((m) => m.senderRole === 'buyer').length;
+            newIncomingCount.value += fresh.filter((m) => m.senderRole === 'buyer').length;
         }
     } catch {
         // Silent — background poll; a transient failure just tries again
@@ -476,7 +487,8 @@ async function markRead(id) {
 // inquiry card via the message's own orderContext/productContext.
 async function sendMessage(conversationId, body, attachmentIds = [], context = {}) {
     const text = body.trim();
-    if ((!text && attachmentIds.length === 0) || isSending.value) return null;
+    const hasCardContext = !!(context.orderId || context.productId);
+    if ((!text && attachmentIds.length === 0 && !hasCardContext) || isSending.value) return null;
 
     const localId = `local-${Date.now()}`;
     const optimistic = {

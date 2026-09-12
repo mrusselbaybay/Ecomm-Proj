@@ -125,28 +125,54 @@
             <div v-if="activeConversation" ref="messageBody" class="message-body" @scroll="onMessageBodyScroll">
                 <div v-if="isLoadingOlderMessages" class="loading-older" aria-hidden="true"><span class="spinner"></span></div>
 
-                <div v-for="message in messages" :key="message.id" class="message-row" :class="message.from === 'logistics' ? 'mine' : 'theirs'">
-                    <div class="bubble" :class="{ 'bubble-media': message.attachments?.length && !message.text }">
-                        <div v-if="message.attachments?.length" class="bubble-attachments">
-                            <a
-                                v-for="attachment in message.attachments"
-                                :key="attachment.id"
-                                :href="attachment.url"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                class="bubble-attachment"
-                            >
-                                <img v-if="attachment.mime?.startsWith('image/')" :src="attachment.url" :alt="attachment.name" loading="lazy" />
-                                <video v-else-if="attachment.mime?.startsWith('video/')" :src="attachment.url" muted playsinline preload="metadata"></video>
-                                <span v-else class="bubble-attachment-file">{{ attachment.name }}</span>
-                            </a>
+                <template v-for="message in messages" :key="message.id">
+                    <!-- Seller's "Inquiring About" parcel-inquiry card (see the
+                         product picker in Seller\Messages.vue) — a card-only
+                         message, no text bubble, so it renders standalone. -->
+                    <div v-if="!message.text && message.productContext" class="message-row" :class="message.from === 'logistics' ? 'mine' : 'theirs'">
+                        <div class="order-card-col">
+                            <div class="order-card">
+                                <span v-if="message.productContext.image" class="order-card-thumb">
+                                    <img :src="message.productContext.image" :alt="message.productContext.name" loading="lazy" />
+                                </span>
+                                <span v-else class="order-card-icon" aria-hidden="true">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+                                </span>
+                                <span class="order-card-info">
+                                    <span class="order-card-label">Inquiring About</span>
+                                    <span class="order-card-name">{{ message.productContext.name }}</span>
+                                    <span class="order-card-summary">
+                                        Qty: {{ message.productContext.quantity ?? 1 }} · {{ formatCurrency(message.productContext.price) }}
+                                    </span>
+                                </span>
+                            </div>
+                            <time class="order-card-time">{{ formatTime(message.at) }}</time>
                         </div>
-                        <p v-if="message.text">{{ message.text }}</p>
-                        <time v-if="message.status !== 'sending' && message.status !== 'failed'">{{ formatTime(message.at) }}</time>
-                        <time v-else-if="message.status === 'sending'">Sending…</time>
-                        <span v-else class="send-failed">Failed to send</span>
                     </div>
-                </div>
+
+                    <div v-else class="message-row" :class="message.from === 'logistics' ? 'mine' : 'theirs'">
+                        <div class="bubble" :class="{ 'bubble-media': message.attachments?.length && !message.text }">
+                            <div v-if="message.attachments?.length" class="bubble-attachments">
+                                <a
+                                    v-for="attachment in message.attachments"
+                                    :key="attachment.id"
+                                    :href="attachment.url"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="bubble-attachment"
+                                >
+                                    <img v-if="attachment.mime?.startsWith('image/')" :src="attachment.url" :alt="attachment.name" loading="lazy" />
+                                    <video v-else-if="attachment.mime?.startsWith('video/')" :src="attachment.url" muted playsinline preload="metadata"></video>
+                                    <span v-else class="bubble-attachment-file">{{ attachment.name }}</span>
+                                </a>
+                            </div>
+                            <p v-if="message.text">{{ message.text }}</p>
+                            <time v-if="message.status !== 'sending' && message.status !== 'failed'">{{ formatTime(message.at) }}</time>
+                            <time v-else-if="message.status === 'sending'">Sending…</time>
+                            <span v-else class="send-failed">Failed to send</span>
+                        </div>
+                    </div>
+                </template>
                 <div v-if="loadingMessages" class="conversation-empty"><p>Loading this order's messages...</p></div>
                 <div v-else-if="messages.length === 0" class="conversation-empty"><strong>No messages yet</strong><p>Start the conversation about this assigned shipment.</p></div>
             </div>
@@ -676,6 +702,7 @@ async function runDeleteConversation() {
 }
 function initials(name) { return (name || '?').split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase(); }
 function formatTime(value) { return value ? new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''; }
+function formatCurrency(value) { return `₱${Number(value || 0).toFixed(2)}`; }
 function formatListTime(value) { return value ? new Date(value).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''; }
 function timestamp(value) { return value ? new Date(value).getTime() : 0; }
 function chronological(items) { return [...items].sort((first, second) => timestamp(first.at) - timestamp(second.at)); }
@@ -796,6 +823,19 @@ img.avatar { object-fit: cover; display: block; }
 .bubble-attachment img, .bubble-attachment video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .bubble-attachment-file { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0.4rem; color: #fff; font-size: 0.65rem; text-align: center; overflow-wrap: anywhere; }
 .bubble.bubble-media { background: transparent; border: 0; box-shadow: none; padding: 0; }
+/* Seller's "Inquiring About" parcel-inquiry card — a card-only message
+   (no text bubble), aligned like any other message from its sender. */
+.order-card-col { display: flex; flex-direction: column; max-width: min(72%, 24rem); }
+.message-row.mine .order-card-col { align-items: flex-end; }
+.order-card { display: flex; align-items: center; gap: 0.65rem; width: 100%; padding: 0.65rem; border: 1px solid #e2e8f0; border-radius: 1rem; background: #fff; box-shadow: 0 2px 4px rgba(15, 23, 42, 0.03); }
+.order-card-thumb { width: 3.25rem; height: 3.25rem; flex-shrink: 0; border-radius: 0.65rem; overflow: hidden; background: #f1f5f9; }
+.order-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.order-card-icon { display: flex; align-items: center; justify-content: center; width: 3.25rem; height: 3.25rem; flex-shrink: 0; border-radius: 0.65rem; background: #ccfbf1; color: #0f766e; }
+.order-card-info { display: flex; flex-direction: column; min-width: 0; }
+.order-card-label { font-size: 0.58rem; font-weight: 800; color: #0f766e; text-transform: uppercase; letter-spacing: 0.04em; }
+.order-card-name { font-size: 0.82rem; font-weight: 700; color: #0f172a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order-card-summary { margin-top: 0.1rem; font-size: 0.72rem; color: #64748b; }
+.order-card-time { margin-top: 0.3rem; font-size: 0.65rem; color: #94a3b8; }
 .error-copy.small { padding: 0; margin: 0; text-align: left; font-size: 0.72rem; }
 .empty-copy, .error-copy { margin: 0; padding: 1.5rem; color: #64748b; font-size: 0.8rem; line-height: 1.55; text-align: center; }
 .error-copy { color: #b91c1c; }

@@ -10,6 +10,7 @@ use App\Models\Conversation;
 use App\Models\LogisticsCompany;
 use App\Models\Message;
 use App\Models\MessageAttachment;
+use App\Models\OrderItem;
 use App\Policies\ConversationPolicy;
 use App\Services\MessageAttachmentService;
 use Illuminate\Database\Eloquent\Builder;
@@ -149,6 +150,7 @@ class MessageController extends Controller
 
         if ($afterCursor) {
             $rows = Message::where('conversation_id', $conversation->id)
+                ->with(['order.items.product:id,images', 'product'])
                 ->where(fn ($q) => $this->tupleGreaterThan($q, $afterCursor))
                 ->orderBy('created_at')
                 ->orderBy('id')
@@ -161,7 +163,7 @@ class MessageController extends Controller
             ]);
         }
 
-        $query = Message::where('conversation_id', $conversation->id);
+        $query = Message::where('conversation_id', $conversation->id)->with(['order.items.product:id,images', 'product']);
 
         if ($beforeCursor) {
             $query->where(fn ($q) => $this->tupleLessThan($q, $beforeCursor));
@@ -476,6 +478,20 @@ class MessageController extends Controller
                 ...$attachment,
                 'url' => MessageAttachment::contractUrlFor($attachment),
             ])->all(),
+            // The seller's "Inquiring About" parcel-inquiry card (see
+            // Seller\MessageController::storeMessage()'s order_id/
+            // product_id) — without these, a card-only message (empty
+            // body) rendered as nothing at all on the logistics side.
+            'orderContext' => $message->order?->messagePreview(),
+            'productContext' => $message->product ? [
+                'id' => $message->product->id,
+                'name' => $message->product->name,
+                'price' => (float) $message->product->price,
+                'image' => ($message->product->images ?? [])[0]['url'] ?? null,
+                'quantity' => ($message->order_id && $message->product_id)
+                    ? OrderItem::where('order_id', $message->order_id)->where('product_id', $message->product_id)->value('quantity')
+                    : null,
+            ] : null,
             'at' => optional($message->created_at)->toIso8601String(),
             'read_at' => optional($message->read_at)->toIso8601String(),
         ];

@@ -88,6 +88,7 @@ Route::middleware(['supabase.auth', 'buyer'])->prefix('api/buyer')->name('api.bu
     Route::get('/messages/conversations/{id}', [MessageController::class, 'showConversation'])->name('messages.conversations.show');
     Route::get('/messages/conversations/{id}/messages', [MessageController::class, 'messages'])->name('messages.conversations.messages');
     Route::post('/messages/conversations/{id}/messages', [MessageController::class, 'sendMessage'])->name('messages.conversations.send');
+    Route::get('/messages/conversations/{id}/products', [MessageController::class, 'products'])->name('messages.conversations.products');
     Route::put('/messages/conversations/{id}/read', [MessageController::class, 'markRead'])->name('messages.conversations.read');
     Route::put('/messages/conversations/{id}/status', [MessageController::class, 'setStatus'])->name('messages.conversations.status');
     Route::delete('/messages/conversations/{id}', [MessageController::class, 'deleteConversation'])->name('messages.conversations.delete');

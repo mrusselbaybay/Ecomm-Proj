@@ -320,6 +320,30 @@
                             </div>
                             <div class="msg-order-card-time">{{ formatTime(item.message.createdAt) }}</div>
                             </template>
+                            <!-- "Inquire about a certain product" card (see the parcel picker
+                                 in the composer) — the whole message IS the card, no separate
+                                 text bubble, matching the system order-placed card's shape but
+                                 captioned "Inquiring About" and showing this item's quantity. -->
+                            <template v-else-if="!item.message.body && item.message.productContext">
+                            <div class="msg-order-card-row" :class="item.message.senderRole === 'seller' ? 'sent' : ''">
+                                <div class="msg-order-card">
+                                    <span v-if="item.message.productContext.image" class="msg-order-card-thumb">
+                                        <img :src="item.message.productContext.image" :alt="item.message.productContext.name" loading="lazy" />
+                                    </span>
+                                    <span v-else class="msg-order-card-icon" aria-hidden="true">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+                                    </span>
+                                    <span class="msg-order-card-info">
+                                        <span class="msg-order-card-label">Inquiring About</span>
+                                        <span class="msg-order-card-name">{{ item.message.productContext.name }}</span>
+                                        <span class="msg-order-card-summary">
+                                            Qty: {{ item.message.productContext.quantity ?? 1 }} · {{ formatCurrency(item.message.productContext.price) }}
+                                        </span>
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="msg-order-card-time" :class="item.message.senderRole === 'seller' ? 'sent' : ''">{{ formatTime(item.message.createdAt) }}</div>
+                            </template>
                             <template v-else>
                             <div class="msg-row" :class="item.message.senderRole === 'seller' ? 'sent' : 'received'">
                                 <span v-if="item.message.senderRole !== 'seller'" class="msg-row-avatar">
@@ -453,14 +477,17 @@
                                     :key="item.orderId"
                                     type="button"
                                     class="msg-parcel-square"
-                                    :title="item.previewName"
+                                    :title="item.trackingNumber ? `${item.previewName} · ${item.trackingNumber}` : item.previewName"
                                     @click="selectParcel(item)"
                                 >
                                     <img v-if="item.previewImage" :src="item.previewImage" :alt="item.previewName" loading="lazy" />
                                     <span v-else class="msg-parcel-square-icon" aria-hidden="true">
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
                                     </span>
-                                    <span class="msg-parcel-square-label">{{ item.previewName }}</span>
+                                    <span class="msg-parcel-square-label">
+                                        <span class="msg-parcel-square-name">{{ item.previewName }}</span>
+                                        <span class="msg-parcel-square-tracking">{{ item.trackingNumber || 'Not shipped yet' }}</span>
+                                    </span>
                                 </button>
                             </template>
                             <p v-else class="msg-parcel-empty">{{ parcelPickerError || 'No active parcels with this company right now.' }}</p>
@@ -592,8 +619,9 @@
                     <div>
                         <p class="msg-parcel-confirm-name">{{ pendingParcelInquiry.previewName }}</p>
                         <p class="msg-parcel-confirm-meta">
-                            Order #{{ pendingParcelInquiry.orderNumber }} · {{ pendingParcelInquiry.itemCount }} item{{ pendingParcelInquiry.itemCount === 1 ? '' : 's' }} · {{ formatCurrency(pendingParcelInquiry.total) }}
+                            Order #{{ pendingParcelInquiry.orderNumber }} · Qty: {{ pendingParcelInquiry.quantity ?? 1 }} · {{ formatCurrency(pendingParcelInquiry.total) }}
                         </p>
+                        <p class="msg-parcel-confirm-meta">{{ pendingParcelInquiry.trackingNumber || 'Not shipped yet' }}</p>
                     </div>
                 </div>
                 <p class="modal-desc">This sends a message to logistics asking about this specific parcel.</p>
@@ -1034,7 +1062,10 @@ async function confirmParcelInquiry() {
     isSendingParcelInquiry.value = true;
     parcelInquiryError.value = '';
 
-    const result = await sendMessage(activeConversationId.value, 'Inquiring about this parcel:', [], {
+    // No body text — the card itself (rendered from orderContext/
+    // productContext, see the "Inquiring About" render branch above) is
+    // the whole message, not a caption plus a separate bubble.
+    const result = await sendMessage(activeConversationId.value, '', [], {
         orderId: pendingParcelInquiry.value.orderId,
         productId: pendingParcelInquiry.value.productId,
     });

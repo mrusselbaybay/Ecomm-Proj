@@ -17,9 +17,15 @@ class SendMessageRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'body' => ['nullable', 'required_without:attachment_ids', 'string', 'max:4000'],
-            'attachment_ids' => ['nullable', 'required_without:body', 'array', 'max:5'],
+            // A "pure card" message (the "Inquire about a certain product"
+            // picker) has neither body nor attachments — order_id is
+            // content enough on its own, so it counts alongside
+            // attachment_ids as satisfying the other.
+            'body' => ['nullable', 'required_without_all:attachment_ids,order_id', 'string', 'max:4000'],
+            'attachment_ids' => ['nullable', 'required_without_all:body,order_id', 'array', 'max:5'],
             'attachment_ids.*' => ['uuid', 'distinct'],
+            'order_id' => ['nullable', 'uuid'],
+            'product_id' => ['nullable', 'uuid'],
         ];
     }
 }

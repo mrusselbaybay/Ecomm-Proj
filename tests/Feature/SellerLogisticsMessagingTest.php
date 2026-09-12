@@ -386,7 +386,7 @@ it('lists the sellers non-delivered parcels shipped through this logistics compa
     expect(collect([...$page1, ...$page2])->every(fn ($p) => $p['previewImage'] === 'https://example.test/mouse.jpg' || $p['orderId'] === $context['order']->id))->toBeTrue();
 });
 
-it('lets a seller attach a parcel inquiry (order/product context) to a logistics message', function () {
+it('lets a seller attach a parcel inquiry (order/product context, no body) to a logistics message, visible to logistics too', function () {
     $context = makeAssignedSellerParcel();
     actingAsSeller($context['seller']);
     $conversationId = $this->postJson('/api/seller/messages/logistics-conversations', [
@@ -394,23 +394,39 @@ it('lets a seller attach a parcel inquiry (order/product context) to a logistics
         'body' => 'Please confirm this parcel handover.',
     ])->json('data.id');
 
-    $product = makeProduct($context['seller'], ['name' => 'Bluetooth Speaker']);
     $order = makeParcelOrder(makeBuyer(), $context['seller'], $context['company'], $context['rider']);
+    $item = $order->items->first();
 
+    // No body text — the card itself is the whole message.
     $this->postJson("/api/seller/messages/conversations/{$conversationId}/messages", [
-        'body' => 'Inquiring about this parcel:',
         'order_id' => $order->id,
-        'product_id' => $order->items->first()->product_id,
+        'product_id' => $item->product_id,
     ])->assertCreated()
+        ->assertJsonPath('data.body', '')
         ->assertJsonPath('data.orderContext.orderNumber', $order->order_number)
-        ->assertJsonPath('data.productContext.name', 'Wireless Mouse');
+        ->assertJsonPath('data.productContext.name', 'Wireless Mouse')
+        ->assertJsonPath('data.productContext.quantity', $item->quantity);
+
+    // The card must be visible on the LOGISTICS side too, not just the
+    // seller's own copy — this was the reported bug (empty body + no
+    // orderContext/productContext meant it rendered as nothing at all).
+    actingAsProfile($context['logistics']);
+    $messages = $this->getJson("/api/logistics/messages/conversations/{$conversationId}/messages")
+        ->assertOk()
+        ->json('data');
+
+    $inquiry = collect($messages)->firstWhere('text', '');
+    expect($inquiry)->not->toBeNull();
+    expect($inquiry['productContext']['name'])->toBe('Wireless Mouse');
+    expect($inquiry['productContext']['quantity'])->toBe($item->quantity);
+    expect($inquiry['orderContext']['orderNumber'])->toBe($order->order_number);
 
     // Someone else's order/product is rejected, not silently trusted.
+    actingAsSeller($context['seller']);
     $unrelatedSeller = makeSeller();
     $unrelatedOrder = makeParcelOrder(makeBuyer(), $unrelatedSeller, $context['company'], $context['rider']);
 
     $this->postJson("/api/seller/messages/conversations/{$conversationId}/messages", [
-        'body' => 'Inquiring about this parcel:',
         'order_id' => $unrelatedOrder->id,
     ])->assertStatus(422);
 });

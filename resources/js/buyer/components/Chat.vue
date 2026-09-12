@@ -49,6 +49,7 @@ const {
     loadMoreConversations,
     loadOlderMessages,
     sendMessage,
+    fetchConversationProducts,
     validateAttachment,
     uploadAttachment,
 } = useBuyerChat();
@@ -62,6 +63,18 @@ const pendingDeleteId = ref(null);
 const isDeletingConversation = ref(false);
 const deleteError = ref('');
 const isUpdatingStatus = ref(false);
+
+// "Inquire about a certain product" — a picker of this buyer's own orders
+// with the active seller (see Buyer\MessageController::products()), 4 at
+// a time. Only ever relevant here since every buyer conversation is with
+// a seller (there's no buyer<->logistics chat).
+const isProductPickerOpen = ref(false);
+const isLoadingProducts = ref(false);
+const productPickerItems = ref([]);
+const productPickerMeta = ref({ currentPage: 1, lastPage: 1, total: 0 });
+const productPickerError = ref('');
+const pendingProductInquiry = ref(null);
+const productInquiryError = ref('');
 
 // 'list' | 'thread' — only matters below the md breakpoint, where the two
 // panes don't fit side by side.
@@ -138,6 +151,8 @@ function scrollThreadToBottom() {
 
 async function selectConversation(id) {
     mobileView.value = 'thread';
+    isProductPickerOpen.value = false;
+    productPickerItems.value = [];
     // Awaited so the bottom-scroll happens once the messages have actually
     // rendered — firing it immediately raced the fetch and could leave the
     // thread scrolled to wherever it happened to be mid-load (looking like
@@ -283,6 +298,66 @@ function handleSend() {
     }
 }
 
+// ---- "Inquire about a certain product" picker ----
+function toggleProductPicker() {
+    isProductPickerOpen.value = !isProductPickerOpen.value;
+
+    if (isProductPickerOpen.value) {
+        loadProductPickerPage(1);
+    }
+}
+
+async function loadProductPickerPage(page) {
+    if (!activeConversationId.value || isLoadingProducts.value) {
+        return;
+    }
+
+    isLoadingProducts.value = true;
+    productPickerError.value = '';
+
+    try {
+        const { data, meta } = await fetchConversationProducts(activeConversationId.value, page);
+        productPickerItems.value = data || [];
+        productPickerMeta.value = meta || { currentPage: 1, lastPage: 1, total: 0 };
+    } catch (error) {
+        productPickerError.value = error?.message || 'Could not load products.';
+        productPickerItems.value = [];
+    } finally {
+        isLoadingProducts.value = false;
+    }
+}
+
+function selectProduct(item) {
+    productInquiryError.value = '';
+    pendingProductInquiry.value = item;
+}
+
+function confirmProductInquiry() {
+    if (!pendingProductInquiry.value) {
+        return;
+    }
+
+    const item = pendingProductInquiry.value;
+    const sent = sendMessage('', [], [], {
+        orderId: item.orderId,
+        productId: item.productId,
+        preview: {
+            name: item.previewName,
+            image: item.previewImage,
+            quantity: item.quantity,
+            price: item.total,
+        },
+    });
+
+    if (sent) {
+        pendingProductInquiry.value = null;
+        isProductPickerOpen.value = false;
+        scrollThreadToBottom();
+    } else {
+        productInquiryError.value = 'Could not send this inquiry.';
+    }
+}
+
 function isImageAttachment(attachment) {
     return attachment.mime?.startsWith('image/');
 }
@@ -403,6 +478,8 @@ function handleKeydown(event) {
 
     if (pendingDeleteId.value) {
         pendingDeleteId.value = null;
+    } else if (pendingProductInquiry.value) {
+        pendingProductInquiry.value = null;
     } else if (pendingStatusAction.value) {
         pendingStatusAction.value = null;
     } else if (previewMedia.value) {
@@ -766,6 +843,44 @@ onBeforeUnmount(() => {
                             </div>
                             </template>
 
+                            <!-- "Inquire about a certain product" card (see the picker
+                                 above the composer) — the whole message IS the card,
+                                 no separate text bubble, matching the system order-
+                                 placed card's size but captioned "Inquiring About"
+                                 and showing this item's quantity. -->
+                            <template v-else-if="!message.text && message.productContext">
+                            <div class="flex max-w-[85%]" :class="message.from === 'buyer' ? 'justify-end ml-auto' : 'justify-start'">
+                                <div class="flex w-full max-w-[320px] items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                                    <span
+                                        v-if="message.productContext.image"
+                                        class="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-100"
+                                    >
+                                        <img
+                                            :src="message.productContext.image"
+                                            :alt="message.productContext.name"
+                                            loading="lazy"
+                                            class="h-full w-full object-cover"
+                                        >
+                                    </span>
+                                    <span v-else class="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-[#0d9488]/10 text-[#0d9488]">
+                                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" />
+                                        </svg>
+                                    </span>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="text-[10px] font-bold uppercase tracking-wide text-[#0d9488]">Inquiring About</p>
+                                        <p class="truncate text-sm font-semibold text-slate-900">{{ message.productContext.name }}</p>
+                                        <p class="mt-0.5 text-[13px] text-slate-500">
+                                            Qty: {{ message.productContext.quantity ?? 1 }} · {{ formatPrice(message.productContext.price) }}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex text-[9px] text-slate-400" :class="message.from === 'buyer' ? 'justify-end pr-1' : 'justify-start pl-1'">
+                                {{ message.at }}
+                            </div>
+                            </template>
+
                             <template v-else>
                             <!-- Inline inquiry card: which purchase this particular message was
                                  about. A thread now covers every purchase from one seller, so
@@ -952,6 +1067,71 @@ onBeforeUnmount(() => {
                             class="shrink-0 p-4 border-t border-slate-100 flex flex-col gap-2"
                             @submit.prevent="handleSend"
                         >
+                            <!-- "Inquire about a certain product" picker — this buyer's own
+                                 orders with this seller, 4 at a time, spanning the composer
+                                 width evenly. -->
+                            <div v-if="isProductPickerOpen" class="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 disabled:opacity-30"
+                                    aria-label="Previous products"
+                                    :disabled="productPickerMeta.currentPage <= 1 || isLoadingProducts"
+                                    @click="loadProductPickerPage(productPickerMeta.currentPage - 1)"
+                                >
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+                                </button>
+
+                                <div class="grid flex-1 grid-cols-4 gap-2">
+                                    <template v-if="isLoadingProducts">
+                                        <div v-for="n in 4" :key="n" class="aspect-square animate-pulse rounded-xl bg-slate-200"></div>
+                                    </template>
+                                    <template v-else-if="productPickerItems.length">
+                                        <button
+                                            v-for="item in productPickerItems"
+                                            :key="item.orderId"
+                                            type="button"
+                                            class="group relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                                            :title="item.previewName"
+                                            @click="selectProduct(item)"
+                                        >
+                                            <img v-if="item.previewImage" :src="item.previewImage" :alt="item.previewName" loading="lazy" class="h-full w-full object-cover">
+                                            <span v-else class="flex h-full w-full items-center justify-center text-[#0d9488]">
+                                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+                                            </span>
+                                            <span class="absolute inset-x-0 bottom-0 truncate bg-slate-900/65 px-1.5 py-1 text-[9px] font-semibold text-white">
+                                                {{ item.previewName }}
+                                            </span>
+                                        </button>
+                                    </template>
+                                    <p v-else class="col-span-4 py-2 text-center text-[11px] text-slate-400">
+                                        {{ productPickerError || "You haven't ordered from this seller yet." }}
+                                    </p>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 disabled:opacity-30"
+                                    aria-label="Next products"
+                                    :disabled="productPickerMeta.currentPage >= productPickerMeta.lastPage || isLoadingProducts"
+                                    @click="loadProductPickerPage(productPickerMeta.currentPage + 1)"
+                                >
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+                                </button>
+                            </div>
+
+                            <div class="flex flex-wrap gap-1.5">
+                                <button
+                                    type="button"
+                                    class="rounded-lg border px-2 py-1 text-[11px] font-semibold transition-colors"
+                                    :class="isProductPickerOpen
+                                        ? 'border-[#0d9488] bg-[#0d9488] text-white'
+                                        : 'border-[#0d9488]/25 bg-[#0d9488]/[0.06] text-[#0d9488] hover:bg-[#0d9488]/[0.12]'"
+                                    @click="toggleProductPicker"
+                                >
+                                    Inquire about a certain product
+                                </button>
+                            </div>
+
                             <div v-if="stagedAttachments.length" class="flex flex-wrap gap-2">
                                 <div
                                     v-for="attachment in stagedAttachments"
@@ -1138,6 +1318,52 @@ onBeforeUnmount(() => {
                             @click="runDeleteConversation"
                         >
                             {{ isDeletingConversation ? 'Deleting…' : 'Delete' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Transition>
+
+        <!-- Product inquiry confirmation -->
+        <Transition name="chat-fade">
+            <div
+                v-if="pendingProductInquiry"
+                class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Inquire about this product"
+                @click.self="pendingProductInquiry = null"
+            >
+                <div class="w-full max-w-sm rounded-3xl bg-white p-6 shadow-xl">
+                    <h3 class="text-base font-bold text-slate-900">Inquire about this product?</h3>
+                    <div class="mt-3 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                        <span v-if="pendingProductInquiry.previewImage" class="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                            <img :src="pendingProductInquiry.previewImage" :alt="pendingProductInquiry.previewName" class="h-full w-full object-cover">
+                        </span>
+                        <span v-else class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#0d9488]/10 text-[#0d9488]">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+                        </span>
+                        <div class="min-w-0">
+                            <p class="truncate text-sm font-bold text-slate-900">{{ pendingProductInquiry.previewName }}</p>
+                            <p class="text-[12px] text-slate-500">Order #{{ pendingProductInquiry.orderNumber }} · Qty: {{ pendingProductInquiry.quantity ?? 1 }} · {{ formatPrice(pendingProductInquiry.total) }}</p>
+                        </div>
+                    </div>
+                    <p class="mt-3 text-[13px] text-slate-500">This sends a message to the seller asking about this specific product.</p>
+                    <p v-if="productInquiryError" class="mt-2 text-xs text-red-600">{{ productInquiryError }}</p>
+                    <div class="mt-5 flex gap-2.5">
+                        <button
+                            type="button"
+                            class="flex-1 rounded-2xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                            @click="pendingProductInquiry = null"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            class="flex-1 rounded-2xl bg-[#0d9488] py-2.5 text-sm font-semibold text-white hover:bg-[#0f766e] transition-colors disabled:opacity-50"
+                            @click="confirmProductInquiry"
+                        >
+                            Send Inquiry
                         </button>
                     </div>
                 </div>

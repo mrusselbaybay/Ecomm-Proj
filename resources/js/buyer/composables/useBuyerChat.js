@@ -197,6 +197,7 @@ function mapMessage(message) {
                 name: message.productContext.name,
                 price: message.productContext.price,
                 image: message.productContext.image || null,
+                quantity: message.productContext.quantity ?? null,
             }
             : null,
         at: threadTimeLabel(message.at) || timeOfDay(new Date()),
@@ -697,11 +698,18 @@ async function loadOlderMessages() {
 |
 */
 
-function sendMessage(text, attachmentIds = [], attachmentPreviews = []) {
+// `context` optionally carries { orderId, productId, preview } — the
+// purchase this specific message is about (see the "Inquire about a
+// certain product" picker in Chat.vue). `preview` (the picked item's
+// already-known name/image/quantity/price) is used only for the
+// optimistic bubble, so the card renders immediately instead of sitting
+// blank until the server's own orderContext/productContext comes back.
+function sendMessage(text, attachmentIds = [], attachmentPreviews = [], context = {}) {
     const convo = activeConversation.value;
     const body = (text || '').trim();
+    const hasCardContext = !!(context.orderId || context.productId);
 
-    if (!convo || (!body && attachmentIds.length === 0)) {
+    if (!convo || (!body && attachmentIds.length === 0 && !hasCardContext)) {
         return false;
     }
 
@@ -712,6 +720,7 @@ function sendMessage(text, attachmentIds = [], attachmentPreviews = []) {
         from: 'buyer',
         text: body,
         attachments: attachmentPreviews,
+        productContext: context.preview || null,
         at: timeOfDay(new Date()),
     });
     convo.updatedAt = timeOfDay(new Date());
@@ -721,6 +730,8 @@ function sendMessage(text, attachmentIds = [], attachmentPreviews = []) {
         body: JSON.stringify({
             body: body || null,
             attachment_ids: attachmentIds,
+            order_id: context.orderId || null,
+            product_id: context.productId || null,
         }),
     })
         .then(message => {
@@ -736,6 +747,12 @@ function sendMessage(text, attachmentIds = [], attachmentPreviews = []) {
         });
 
     return true;
+}
+
+// Paginated (4 per page), for the "Inquire about a certain product"
+// picker — this buyer's own orders with this specific seller.
+async function fetchConversationProducts(conversationId, page = 1) {
+    return buyerApiWithMeta(`/buyer/messages/conversations/${encodeURIComponent(conversationId)}/products?page=${page}`);
 }
 
 function validateAttachment(file) {
@@ -843,6 +860,7 @@ export function useBuyerChat() {
         showInboxConversations,
         loadOlderMessages,
         sendMessage,
+        fetchConversationProducts,
         validateAttachment,
         uploadAttachment,
         MAX_ATTACHMENT_BYTES,
