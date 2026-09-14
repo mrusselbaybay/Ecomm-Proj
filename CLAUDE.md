@@ -138,3 +138,69 @@ Default format:
 * **Next step:** Only if necessary.
 
 Do not provide a lengthy explanation unless I explicitly ask for one.
+
+## Performance & Loading Speed (only perform this when i ask you to optimize performance)
+
+Always prioritize fast perceived and actual loading performance without sacrificing existing functionality or UI.
+
+Database
+
+- Avoid N+1 queries. Use eager loading ("with()") when relationships are needed.
+- Do not fetch unnecessary columns or records.
+- Always paginate large datasets such as products, orders, messages, deliveries, and users.
+- Add appropriate database indexes for frequently queried, filtered, sorted, and foreign-key columns.
+- Avoid duplicate database queries within the same request.
+- Prefer efficient Eloquent/query-builder queries over unnecessary loops containing database queries.
+- Do not use raw SQL unless it provides a clear performance or functionality benefit.
+- When modifying database-related code, check for potential performance regressions.
+
+API / Backend
+
+- Avoid unnecessary API requests.
+- Do not make sequential requests when independent requests can safely run in parallel.
+- Return only the data required by the frontend.
+- Avoid loading large datasets when only a summary or small subset is needed.
+- Cache data that is expensive to calculate and does not change frequently.
+- Keep expensive processing out of normal page/request loading whenever possible.
+
+Frontend
+
+- Lazy-load images and non-critical components.
+- Use optimized image sizes rather than loading full-resolution images for thumbnails/cards.
+- Prefer WebP/AVIF where supported.
+- Always provide explicit image dimensions to reduce layout shifting.
+- Lazy-load images below the initial viewport.
+- Avoid unnecessary Vue re-renders and reactive state.
+- Do not repeatedly fetch the same data if it can be reused from existing state.
+- Debounce search inputs and other frequently triggered API requests.
+- Use pagination or infinite scrolling for large lists.
+- Avoid loading entire datasets into the browser just to display a small portion.
+
+Images
+
+- Never load original/full-resolution product images when a smaller version is sufficient.
+- Product listings should use thumbnails.
+- Product detail pages may use larger optimized images.
+- Use placeholders while images are loading.
+- Do not block the entire page while non-critical images load.
+
+General Rule
+
+Before implementing a feature, consider its impact on:
+
+1. Number of database queries
+2. Amount of data transferred
+3. Number and size of images loaded
+4. Number of API requests
+5. Frontend rendering/re-rendering
+6. Initial page load time
+
+When fixing or improving a feature, preserve existing functionality and UI unless explicitly asked to change them.
+
+Do not perform unnecessary large-scale refactors solely for optimization. Prefer targeted, measurable improvements.
+### Performance Investigation
+- Before making performance-related changes, identify the actual bottleneck.
+- Check browser Network requests, API response times, database query count, query duration, and image sizes when relevant.
+- Do not assume PostgreSQL/MySQL, Vue, Laravel, or the network is the bottleneck without evidence.
+- Fix the highest-impact bottleneck first.
+- After optimization, verify that functionality remains unchanged.

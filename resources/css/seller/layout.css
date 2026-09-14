@@ -5635,6 +5635,11 @@ body {
 img.msg-convo-avatar {
     object-fit: cover;
     display: block;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+img.msg-convo-avatar.loaded {
+    opacity: 1;
 }
 .msg-convo-avatar.sm {
     width: 1.75rem;
@@ -6376,6 +6381,36 @@ img.msg-convo-avatar {
     height: 100%;
     object-fit: cover;
     display: block;
+}
+.msg-parcel-square-img {
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+.msg-parcel-square-img.loaded {
+    opacity: 1;
+}
+/* Shared shimmer placeholder for any image that loads independently of the
+   text/content beside it (attachment thumbnails, order/inquiry card
+   thumbnails, parcel picker cards) — the image fades in over this once
+   loaded, so text is never blocked and nothing shifts layout. */
+@keyframes msg-img-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+.msg-img-skeleton {
+    background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 37%, #e2e8f0 63%);
+    background-size: 400% 100%;
+    animation: msg-img-shimmer 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .msg-img-skeleton { animation: none; }
+}
+.msg-fade-img {
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+.msg-fade-img.loaded {
+    opacity: 1;
 }
 .msg-parcel-square-icon {
     display: flex;

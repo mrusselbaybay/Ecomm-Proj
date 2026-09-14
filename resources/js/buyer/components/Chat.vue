@@ -150,8 +150,28 @@ function scrollThreadToBottom() {
     });
 }
 
+// TEMPORARY DIAGNOSTIC — remove after measuring click-to-paint timing.
+// Logs a table of performance.now() deltas from click to the browser
+// actually painting the first message. Open DevTools console, click a
+// conversation, read the table it prints.
+function __convTiming(label) {
+    if (typeof performance === 'undefined') return;
+    performance.mark(`conv:${label}`);
+}
+window.__logConvTiming = function () {
+    if (typeof performance === 'undefined') return;
+    const marks = performance.getEntriesByType('mark').filter(m => m.name.startsWith('conv:'));
+    if (!marks.length) { console.log('[conv-timing] no marks recorded yet'); return; }
+    const t0 = marks[0].startTime;
+    console.table(marks.map(m => ({ step: m.name.replace('conv:', ''), 'ms since click': Math.round(m.startTime - t0) })));
+    performance.clearMarks();
+};
+
 async function selectConversation(id) {
+    performance?.clearMarks?.();
+    __convTiming('click');
     mobileView.value = 'thread';
+    __convTiming('shell-visible (sync)');
     isProductPickerOpen.value = false;
     productPickerItems.value = [];
     // Awaited so the bottom-scroll happens once the messages have actually
@@ -659,7 +679,10 @@ onBeforeUnmount(() => {
                                         :src="convo.avatarUrl"
                                         :alt="convo.seller"
                                         loading="lazy"
-                                        class="w-11 h-11 shrink-0 rounded-xl object-cover"
+                                        decoding="async"
+                                        class="w-11 h-11 shrink-0 rounded-xl object-cover opacity-0 transition-opacity duration-300"
+                                        @load="$event.target.classList.remove('opacity-0')"
+                                        @error="$event.target.classList.remove('opacity-0')"
                                     >
                                     <span v-else class="w-11 h-11 shrink-0 rounded-xl bg-[#0d9488]/10 text-[#0d9488] text-sm font-bold flex items-center justify-center">
                                         {{ initials(convo.seller) }}
@@ -734,15 +757,6 @@ onBeforeUnmount(() => {
                                         <path d="m15 18-6-6 6-6" />
                                     </svg>
                                 </button>
-                                <img
-                                    v-if="activeConversation.avatarUrl"
-                                    :src="activeConversation.avatarUrl"
-                                    :alt="activeConversation.seller"
-                                    class="w-10 h-10 shrink-0 rounded-2xl object-cover"
-                                >
-                                <span v-else class="w-10 h-10 shrink-0 rounded-2xl bg-[#0d9488]/10 text-[#0d9488] text-sm font-bold flex items-center justify-center">
-                                    {{ initials(activeConversation.seller) }}
-                                </span>
                                 <div class="min-w-0">
                                     <h3 class="font-bold text-slate-900 leading-tight text-[15px] truncate">{{ activeConversation.seller }}</h3>
                                     <div class="flex items-center gap-1.5 mt-0.5">
@@ -840,13 +854,16 @@ onBeforeUnmount(() => {
                                 <div class="flex w-full max-w-[320px] items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
                                     <span
                                         v-if="message.orderContext.previewImage"
-                                        class="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-100"
+                                        class="h-16 w-16 shrink-0 overflow-hidden rounded-xl img-skeleton"
                                     >
                                         <img
                                             :src="message.orderContext.previewImage"
                                             :alt="message.orderContext.previewName || 'Order item'"
                                             loading="lazy"
-                                            class="h-full w-full object-cover"
+                                            decoding="async"
+                                            class="h-full w-full object-cover fade-img"
+                                            @load="$event.target.classList.add('loaded')"
+                                            @error="$event.target.classList.add('loaded')"
                                         >
                                     </span>
                                     <span v-else class="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-[#0d9488]/10 text-[#0d9488]">
@@ -877,13 +894,16 @@ onBeforeUnmount(() => {
                                 <div class="flex w-full max-w-[320px] items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
                                     <span
                                         v-if="message.productContext.image"
-                                        class="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-100"
+                                        class="h-16 w-16 shrink-0 overflow-hidden rounded-xl img-skeleton"
                                     >
                                         <img
                                             :src="message.productContext.image"
                                             :alt="message.productContext.name"
                                             loading="lazy"
-                                            class="h-full w-full object-cover"
+                                            decoding="async"
+                                            class="h-full w-full object-cover fade-img"
+                                            @load="$event.target.classList.add('loaded')"
+                                            @error="$event.target.classList.add('loaded')"
                                         >
                                     </span>
                                     <span v-else class="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-[#0d9488]/10 text-[#0d9488]">
@@ -917,12 +937,16 @@ onBeforeUnmount(() => {
                                 <div class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-2.5 pr-4">
                                     <span
                                         v-if="message.productContext?.image || message.orderContext?.previewImage"
-                                        class="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-slate-100"
+                                        class="h-11 w-11 shrink-0 overflow-hidden rounded-xl img-skeleton"
                                     >
                                         <img
                                             :src="message.productContext?.image || message.orderContext?.previewImage"
                                             :alt="message.productContext?.name || message.orderContext?.previewName"
-                                            class="h-full w-full object-cover"
+                                            loading="lazy"
+                                            decoding="async"
+                                            class="h-full w-full object-cover fade-img"
+                                            @load="$event.target.classList.add('loaded')"
+                                            @error="$event.target.classList.add('loaded')"
                                         >
                                     </span>
                                     <span v-else class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0d9488]/10 text-[#0d9488]">
@@ -943,16 +967,6 @@ onBeforeUnmount(() => {
                                 class="flex gap-2.5 max-w-[85%]"
                                 :class="message.from === 'buyer' ? 'flex-row-reverse ml-auto' : ''"
                             >
-                                <img
-                                    v-if="message.from !== 'buyer' && message.from !== 'system' && activeConversation.avatarUrl"
-                                    :src="activeConversation.avatarUrl"
-                                    :alt="activeConversation.seller"
-                                    class="w-7 h-7 rounded-lg object-cover self-end shrink-0"
-                                >
-                                <span
-                                    v-else-if="message.from !== 'buyer' && message.from !== 'system'"
-                                    class="w-7 h-7 rounded-lg bg-[#0d9488]/10 text-[#0d9488] text-[10px] font-bold flex items-center justify-center self-end shrink-0"
-                                >{{ initials(activeConversation.seller) }}</span>
                                 <div class="space-y-1 min-w-0">
                                     <!-- Attachments render bare (no bubble chrome), laid out in a
                                          horizontal row of fixed-size thumbnails — Messenger/Instagram
@@ -984,15 +998,18 @@ onBeforeUnmount(() => {
                                             <button
                                                 v-else-if="isImageAttachment(attachment)"
                                                 type="button"
-                                                class="group relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl"
+                                                class="group relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl img-skeleton"
                                                 :aria-label="`View ${attachment.name} full size`"
                                                 @click="previewSentAttachment(attachment)"
                                             >
                                                 <img
                                                     :src="attachment.url"
                                                     :alt="attachment.name"
-                                                    class="h-full w-full object-cover"
+                                                    class="h-full w-full object-cover fade-img"
                                                     loading="lazy"
+                                                    decoding="async"
+                                                    @load="$event.target.classList.add('loaded')"
+                                                    @error="$event.target.classList.add('loaded')"
                                                 >
                                                 <span class="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/25 group-hover:opacity-100">
                                                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1124,16 +1141,30 @@ onBeforeUnmount(() => {
                                             v-for="item in productPickerItems"
                                             :key="item.orderId"
                                             type="button"
-                                            class="group relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
-                                            :title="item.previewName"
+                                            class="group relative aspect-square overflow-hidden rounded-xl border border-slate-200"
+                                            :class="item.previewImage ? 'img-skeleton' : 'bg-slate-50'"
+                                            :title="item.trackingNumber ? `${item.previewName} · ${item.trackingNumber}` : item.previewName"
                                             @click="selectProduct(item)"
                                         >
-                                            <img v-if="item.previewImage" :src="item.previewImage" :alt="item.previewName" loading="lazy" class="h-full w-full object-cover">
+                                            <!-- Name + tracking number render immediately; the image loads
+                                                 lazily behind it and fades in once decoded, so it never blocks
+                                                 first paint of the card's text. -->
+                                            <img
+                                                v-if="item.previewImage"
+                                                :src="item.previewImage"
+                                                :alt="item.previewName"
+                                                loading="lazy"
+                                                decoding="async"
+                                                class="absolute inset-0 h-full w-full object-cover fade-img"
+                                                @load="$event.target.classList.add('loaded')"
+                                                @error="$event.target.classList.add('loaded')"
+                                            >
                                             <span v-else class="flex h-full w-full items-center justify-center text-[#0d9488]">
                                                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
                                             </span>
-                                            <span class="absolute inset-x-0 bottom-0 truncate bg-slate-900/65 px-1.5 py-1 text-[9px] font-semibold text-white">
-                                                {{ item.previewName }}
+                                            <span class="absolute inset-x-0 bottom-0 flex flex-col bg-slate-900/65 px-1.5 py-1 text-white">
+                                                <span class="truncate text-[9px] font-semibold">{{ item.previewName }}</span>
+                                                <span class="truncate text-[8px] font-medium text-white/80">{{ item.trackingNumber || 'Not shipped yet' }}</span>
                                             </span>
                                         </button>
                                     </template>
@@ -1371,8 +1402,15 @@ onBeforeUnmount(() => {
                 <div class="w-full max-w-sm rounded-3xl bg-white p-6 shadow-xl">
                     <h3 class="text-base font-bold text-slate-900">Inquire about this product?</h3>
                     <div class="mt-3 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                        <span v-if="pendingProductInquiry.previewImage" class="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-slate-100">
-                            <img :src="pendingProductInquiry.previewImage" :alt="pendingProductInquiry.previewName" class="h-full w-full object-cover">
+                        <span v-if="pendingProductInquiry.previewImage" class="h-12 w-12 shrink-0 overflow-hidden rounded-xl img-skeleton">
+                            <img
+                                :src="pendingProductInquiry.previewImage"
+                                :alt="pendingProductInquiry.previewName"
+                                decoding="async"
+                                class="h-full w-full object-cover fade-img"
+                                @load="$event.target.classList.add('loaded')"
+                                @error="$event.target.classList.add('loaded')"
+                            >
                         </span>
                         <span v-else class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#0d9488]/10 text-[#0d9488]">
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
@@ -1452,6 +1490,30 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Shared shimmer placeholder for any image that loads independently of the
+   text/content beside it (order/inquiry card thumbnails, attachment
+   thumbnails) — the image fades in over this once loaded, so text is
+   never blocked and nothing shifts layout. */
+@keyframes img-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+.img-skeleton {
+    background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%);
+    background-size: 400% 100%;
+    animation: img-shimmer 1.6s ease-in-out infinite;
+}
+.fade-img {
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+.fade-img.loaded {
+    opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+    .img-skeleton { animation: none; }
+}
+
 .chat-fade-enter-active,
 .chat-fade-leave-active {
     transition: opacity 0.25s ease;

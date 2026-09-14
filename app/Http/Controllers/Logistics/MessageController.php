@@ -12,7 +12,7 @@ use App\Models\CourierApplication;
 use App\Models\LogisticsCompany;
 use App\Models\Message;
 use App\Models\MessageAttachment;
-use App\Models\OrderItem;
+use App\Models\Product;
 use App\Policies\ConversationPolicy;
 use App\Services\MessageAttachmentService;
 use Illuminate\Database\Eloquent\Builder;
@@ -50,6 +50,11 @@ class MessageController extends Controller
         $base = $this->searchScopedQuery($request, $company);
 
         $statusCounts = $this->statusCounts(clone $base);
+        // Computed in the same aggregate query as the rest of statusCounts()
+        // (see its SUM(conversations.logistics_unread_count)) instead of a
+        // second scopedQuery()->sum() round-trip.
+        $unreadTotal = $statusCounts['unreadTotal'];
+        unset($statusCounts['unreadTotal']);
 
         $query = $this->applyStatusFilter(clone $base, $request->string('status')->toString())
             ->select('conversations.*')
@@ -70,7 +75,7 @@ class MessageController extends Controller
                 'lastPage' => $paginated->lastPage(),
                 'perPage' => $paginated->perPage(),
                 'total' => $paginated->total(),
-                'unread_total' => (int) $this->scopedQuery($request, $company)->sum('logistics_unread_count'),
+                'unread_total' => $unreadTotal,
                 'statusCounts' => $statusCounts,
             ],
         ]);
@@ -129,9 +134,29 @@ class MessageController extends Controller
 
         abort_unless($conversation, 404);
 
-        $this->markConversationRead($conversation, $request->user()->id);
+        // markConversationRead() below is a transaction across 3 UPDATE
+        // statements on 3 tables — real writes, but nothing the response
+        // itself needs to wait on: the frontend already patches its own
+        // `unread = 0` the instant a thread is opened (see openConversation()
+        // in Messages.vue). Reflecting that in-memory here (not persisted —
+        // just what transformConversation() below reads) and running the
+        // actual writes after the response has been sent takes them off
+        // the blocking path entirely.
+        $conversation->logistics_unread_count = 0;
+        $userId = $request->user()->id;
 
-        return response()->json(['data' => $this->transformConversation($conversation, $request->user()->id)]);
+        $response = response()->json(['data' => $this->transformConversation($conversation, $userId)]);
+
+        // app()->terminating() (not dispatch()->afterResponse(), which
+        // routes a closure through the queue dispatcher and serializes it
+        // — on unserialize that re-fetches $conversation and its relations
+        // from scratch, turning 3 writes into 6+ queries) — a terminating
+        // callback runs in the same process after the response is sent,
+        // keeping the exact in-memory $conversation with everything
+        // already loaded.
+        app()->terminating(fn () => $this->markConversationRead($conversation, $userId));
+
+        return $response;
     }
 
     /**
@@ -143,22 +168,44 @@ class MessageController extends Controller
      */
     public function messages(Request $request, string $id): JsonResponse
     {
-        $conversation = $this->findConversation($request, $id);
-        abort_unless($conversation, 404);
-
         $limit = min(max((int) ($request->integer('limit') ?: self::MESSAGES_PAGE_SIZE), 1), 100);
+        $afterId = $request->string('after')->toString();
 
-        $beforeCursor = $this->resolveCursor($conversation->id, $request->string('before')->toString());
-        $afterCursor = $this->resolveCursor($conversation->id, $request->string('after')->toString());
+        // Realtime-poll hot path (?after=<id>): fires on every incoming
+        // message while a thread is open, so the ownership check is folded
+        // into this same cursor-lookup query instead of a separate
+        // findConversation() round trip first — cuts this path from 3
+        // sequential DB round trips to 2 (companyFor() is cache-backed, so
+        // it rarely adds a round trip of its own). On this project's
+        // remote Supabase pooler each round trip costs ~150-200ms
+        // regardless of query complexity, so this is the dominant cost of
+        // polling a thread, not row count. A cursor that doesn't resolve
+        // (wrong owner, or the message was deleted) returns no messages
+        // rather than falling back to "latest N" — safe by default.
+        if ($afterId !== '') {
+            $company = $this->companyFor($request);
+            $userId = $request->user()->id;
 
-        if ($afterCursor) {
-            $rows = Message::where('conversation_id', $conversation->id)
-                ->with(['order.items.product:id,images', 'product'])
+            $afterCursor = Message::where('conversation_id', $id)
+                ->whereHas('conversation', fn ($q) => $q
+                    ->whereIn('type', ['shipment', 'roster'])
+                    ->where('logistics_company_id', $company->id)
+                    ->whereHas('participantRecords', fn ($p) => $p->where('user_id', $userId)->whereNull('left_at')))
+                ->whereKey($afterId)
+                ->first();
+
+            if (! $afterCursor) {
+                return response()->json(['data' => [], 'meta' => ['hasMore' => false, 'nextCursor' => null]]);
+            }
+
+            $rows = Message::where('conversation_id', $id)
+                ->with(['order.items'])
                 ->where(fn ($q) => $this->tupleGreaterThan($q, $afterCursor))
                 ->orderBy('created_at')
                 ->orderBy('id')
                 ->limit($limit)
                 ->get();
+            $this->hydrateProductContext($rows);
 
             return response()->json([
                 'data' => $rows->map(fn (Message $m) => $this->transformMessage($m))->all(),
@@ -166,20 +213,40 @@ class MessageController extends Controller
             ]);
         }
 
-        $query = Message::where('conversation_id', $conversation->id)->with(['order.items.product:id,images', 'product']);
+        // The common "just opened this thread" case (no cursor at all):
+        // fold ownership into this one query (whereHas, like the ?after=
+        // branch above) instead of a separate findConversation() round
+        // trip, and fetch one extra row to detect hasMore instead of a
+        // second exists() round trip — collapses what used to be 3
+        // sequential DB round trips into 1 (companyFor() is cache-backed
+        // so it rarely adds one of its own). The parallel show() call this
+        // always runs alongside already returns a proper 404 for an
+        // invalid/foreign id, so this endpoint returning an empty list for
+        // that case instead of its own 404 costs nothing in practice.
+        $company = $this->companyFor($request);
+        $userId = $request->user()->id;
+        $beforeId = $request->string('before')->toString();
 
-        if ($beforeCursor) {
-            $query->where(fn ($q) => $this->tupleLessThan($q, $beforeCursor));
+        $query = Message::where('conversation_id', $id)
+            ->whereHas('conversation', fn ($q) => $q
+                ->whereIn('type', ['shipment', 'roster'])
+                ->where('logistics_company_id', $company->id)
+                ->whereHas('participantRecords', fn ($p) => $p->where('user_id', $userId)->whereNull('left_at')))
+            ->with(['order.items']);
+
+        if ($beforeId !== '') {
+            $beforeCursor = Message::where('conversation_id', $id)->whereKey($beforeId)->first();
+
+            if ($beforeCursor) {
+                $query->where(fn ($q) => $this->tupleLessThan($q, $beforeCursor));
+            }
         }
 
-        $rows = $query->orderByDesc('created_at')->orderByDesc('id')->limit($limit)->get()->reverse()->values();
-
+        $rows = $query->orderByDesc('created_at')->orderByDesc('id')->limit($limit + 1)->get();
+        $hasMore = $rows->count() > $limit;
+        $rows = $rows->take($limit)->reverse()->values();
         $oldest = $rows->first();
-        $hasMore = $oldest
-            ? Message::where('conversation_id', $conversation->id)
-                ->where(fn ($q) => $this->tupleLessThan($q, $oldest))
-                ->exists()
-            : false;
+        $this->hydrateProductContext($rows);
 
         return response()->json([
             'data' => $rows->map(fn (Message $m) => $this->transformMessage($m))->all(),
@@ -188,6 +255,53 @@ class MessageController extends Controller
                 'nextCursor' => $oldest?->id,
             ],
         ]);
+    }
+
+    /**
+     * transformMessage() needs each message's own `product` (productContext)
+     * and, via Order::messagePreview(), each order item's `product`
+     * (orderContext's thumbnail) — two separate BelongsTo targets on the
+     * same `products` table. Eager-loading them as two nested relations
+     * (`order.items.product` + `product`) fires two more round trips than
+     * necessary, and the two often reference the *same* product (the
+     * "Inquiring About" parcel-inquiry card sets both product_id and
+     * order_id together). This collects every product id either path
+     * needs across the whole page, fetches them in ONE query, then injects
+     * the result back via setRelation() so `$message->product` and
+     * `$item->product` both resolve from memory — transformMessage() and
+     * Order::messagePreview() need no changes, they just stop lazy-loading.
+     *
+     * @param  \Illuminate\Support\Collection<int, Message>  $messages
+     */
+    private function hydrateProductContext($messages): void
+    {
+        $productIds = collect();
+
+        foreach ($messages as $message) {
+            if ($message->product_id) {
+                $productIds->push($message->product_id);
+            }
+
+            foreach ($message->order?->items ?? [] as $item) {
+                if ($item->product_id) {
+                    $productIds->push($item->product_id);
+                }
+            }
+        }
+
+        $productIds = $productIds->unique()->values();
+
+        $products = $productIds->isEmpty()
+            ? collect()
+            : Product::query()->whereIn('id', $productIds)->get(['id', 'images', 'name', 'price'])->keyBy('id');
+
+        foreach ($messages as $message) {
+            $message->setRelation('product', $message->product_id ? $products->get($message->product_id) : null);
+
+            foreach ($message->order?->items ?? [] as $item) {
+                $item->setRelation('product', $item->product_id ? $products->get($item->product_id) : null);
+            }
+        }
     }
 
     public function send(SendMessageRequest $request, string $id): JsonResponse
@@ -448,7 +562,8 @@ class MessageController extends Controller
             SUM(CASE WHEN conversations.logistics_unread_count > 0 THEN 1 ELSE 0 END) AS unread_count,
             SUM(CASE WHEN conversations.status = 'open' AND conversations.last_message_sender_role != 'logistics' THEN 1 ELSE 0 END) AS needs_response_count,
             SUM(CASE WHEN conversations.status = 'resolved' THEN 1 ELSE 0 END) AS resolved_count,
-            SUM(CASE WHEN conversation_participants.archived_at IS NOT NULL THEN 1 ELSE 0 END) AS archived_count
+            SUM(CASE WHEN conversation_participants.archived_at IS NOT NULL THEN 1 ELSE 0 END) AS archived_count,
+            SUM(conversations.logistics_unread_count) AS unread_total
         SQL)->first();
 
         return [
@@ -457,6 +572,7 @@ class MessageController extends Controller
             'needsResponse' => (int) $row->needs_response_count,
             'resolved' => (int) $row->resolved_count,
             'archived' => (int) $row->archived_count,
+            'unreadTotal' => (int) $row->unread_total,
         ];
     }
 
@@ -468,15 +584,6 @@ class MessageController extends Controller
             ->with(['seller.sellerDetail', 'order', 'parcelAssignment.rider', 'courier.courierDetail', 'logisticsCompany', 'participantRecords'])
             ->whereKey($id)
             ->first();
-    }
-
-    private function resolveCursor(string $conversationId, string $messageId): ?Message
-    {
-        if ($messageId === '') {
-            return null;
-        }
-
-        return Message::where('conversation_id', $conversationId)->whereKey($messageId)->first();
     }
 
     private function tupleLessThan($query, Message $cursor): void
@@ -573,8 +680,11 @@ class MessageController extends Controller
                 'name' => $message->product->name,
                 'price' => (float) $message->product->price,
                 'image' => ($message->product->images ?? [])[0]['url'] ?? null,
+                // Read from the already eager-loaded order.items instead of
+                // a fresh per-message query — `order.items.product` is
+                // always loaded alongside this message (see messages()).
                 'quantity' => ($message->order_id && $message->product_id)
-                    ? OrderItem::where('order_id', $message->order_id)->where('product_id', $message->product_id)->value('quantity')
+                    ? $message->order?->items?->firstWhere('product_id', $message->product_id)?->quantity
                     : null,
             ] : null,
             'at' => optional($message->created_at)->toIso8601String(),

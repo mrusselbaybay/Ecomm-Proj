@@ -48,11 +48,10 @@
 //
 // GET /api/seller/messages/conversations/{id}/messages
 //   Query: before? (cursor: a message id, for scrolling up into history)
-//          after?  (cursor: a message id, for polling in new messages —
-//                   see pollNewMessages() below; this project has no
-//                   realtime/websocket infrastructure, so "new message
-//                   arrived" is detected by polling this on an interval
-//                   rather than a push subscription)
+//          after?  (cursor: a message id, for pulling in new messages —
+//                   see pollNewMessages() below; called when a Supabase
+//                   Realtime postgres_changes INSERT event fires for this
+//                   conversation, rather than on a timer)
 //          limit? (default 30)
 //   -> { data: Message[] (oldest -> newest), meta: { hasMore, nextCursor } }
 //   `hasMore`/`nextCursor` describe the `before` direction (older
@@ -111,12 +110,14 @@ const ALLOWED_ATTACHMENT_TYPES = [
 const VIDEO_ATTACHMENT_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
 const MAX_VIDEO_ATTACHMENT_BYTES = 50 * 1024 * 1024; // 50MB
+// Sidebar unread badge (SellerLayout.vue) — app-wide and low-urgency, so it
+// stays on a slow poll rather than a persistent realtime subscription kept
+// open outside the Messages screen itself.
 const UNREAD_POLL_MS = 30000;
-// Fast enough that a buyer's reply feels close to instant with no realtime
-// infra — the sidebar unread badge above stays slower since it's not what
-// the seller is actively looking at while a thread is open.
-const MESSAGE_POLL_MS = 5000;
 const MESSAGES_PAGE_SIZE = 10;
+// First paint only needs the tail of the conversation — older history loads
+// in via loadOlderMessages() as the seller scrolls up.
+const INITIAL_MESSAGES_LIMIT = 3;
 
 const conversations = ref([]);
 const conversationsMeta = ref({
@@ -151,6 +152,7 @@ const sendError = ref('');
 
 const newIncomingCount = ref(0);
 let newestKnownMessageId = null;
+let localIdSequence = 0;
 
 const unreadBadgeCount = ref(0);
 let unreadPollTimer = null;
@@ -312,6 +314,40 @@ async function loadConversations({ append = false } = {}) {
     }
 }
 
+// Realtime-triggered refresh of the (currently filtered/paged) conversation
+// list: patches unreadCount/lastMessage/status/updatedAt on rows already
+// shown and prepends genuinely new conversations, instead of replacing the
+// whole list the way loadConversations() does — so a background inbox
+// update doesn't disturb whatever page/scroll position is already loaded.
+async function syncConversationMeta() {
+    try {
+        const body = await apiFetch(`/messages/conversations?${buildQuery()}`);
+        conversationsMeta.value = body.meta || conversationsMeta.value;
+        const newlyDiscovered = [];
+
+        for (const incoming of body.data || []) {
+            const local = conversations.value.find((c) => c.id === incoming.id);
+
+            if (local) {
+                local.status = incoming.status;
+                local.lastMessage = incoming.lastMessage;
+                local.unreadCount = incoming.unreadCount;
+                local.needsResponse = incoming.needsResponse;
+                local.updatedAt = incoming.updatedAt;
+                if (incoming.buyer) local.buyer = { ...local.buyer, ...incoming.buyer };
+            } else {
+                newlyDiscovered.push(incoming);
+            }
+        }
+
+        if (newlyDiscovered.length) {
+            conversations.value = [...newlyDiscovered, ...conversations.value];
+        }
+    } catch {
+        // Background refresh — a transient miss just retries next tick.
+    }
+}
+
 function setFilter(patch) {
     Object.assign(filters.value, patch);
     if (!('page' in patch)) {
@@ -333,45 +369,109 @@ function loadMoreConversations() {
     loadConversations({ append: true });
 }
 
+// Switching thread A -> thread B -> thread A shouldn't refetch A's history
+// from scratch — keep whatever was last loaded for each conversation, same
+// pattern buyer/logistics already use. Revisiting a cached thread shows it
+// instantly (no skeleton) while this silently refreshes it in background.
+const conversationCache = new Map();
+
 async function openConversation(id) {
     const requestSequence = ++activeConversationRequestSequence;
     activeConversationId.value = id;
-    activeConversation.value = null;
-    messages.value = [];
-    messagesMeta.value = { hasMore: false, nextCursor: null };
-    isLoadingActiveConversation.value = true;
-    isLoadingMessages.value = true;
-    isLoadingOlderMessages.value = false;
     activeConversationError.value = '';
     messagesError.value = '';
+    isLoadingOlderMessages.value = false;
 
-    try {
-        const [detailBody, messagesBody] = await Promise.all([
-            apiFetch(`/messages/conversations/${encodeURIComponent(id)}`),
-            apiFetch(`/messages/conversations/${encodeURIComponent(id)}/messages?limit=${MESSAGES_PAGE_SIZE}`),
-        ]);
-        if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== id) return;
-        activeConversation.value = detailBody.data;
-        messages.value = stabilizeMessages(messagesBody.data);
-        messagesMeta.value = messagesBody.meta;
-        newestKnownMessageId = messages.value.at(-1)?.id ?? null;
+    const cached = conversationCache.get(id);
+
+    if (cached) {
+        activeConversation.value = cached.detail;
+        messages.value = cached.messages;
+        messagesMeta.value = cached.messagesMeta;
+        newestKnownMessageId = cached.messages.at(-1)?.id ?? null;
         newIncomingCount.value = 0;
-        backendMissing.value = false;
-        markRead(id);
-    } catch (err) {
-        if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== id) return;
-        console.error('Error opening conversation:', err);
-        if (err.status === 404) {
-            backendMissing.value = true;
-        } else {
-            activeConversationError.value = err?.message || "Couldn't load this conversation.";
-        }
-    } finally {
-        if (requestSequence === activeConversationRequestSequence) {
-            isLoadingActiveConversation.value = false;
-            isLoadingMessages.value = false;
-        }
+        isLoadingActiveConversation.value = false;
+        isLoadingMessages.value = false;
+    } else {
+        activeConversation.value = null;
+        messages.value = [];
+        messagesMeta.value = { hasMore: false, nextCursor: null };
+        isLoadingActiveConversation.value = true;
+        isLoadingMessages.value = true;
     }
+
+    // Reopening an already-cached thread: the cached messages are already
+    // showing (set above) — don't re-fetch "latest N" and overwrite the
+    // array, which would silently truncate away any older history already
+    // scrolled into via loadOlderMessages(). Fetch just the detail
+    // metadata (online status, etc.) and delta-sync anything new via the
+    // same `?after=` fetch realtime already uses (pollNewMessages()),
+    // instead of duplicating that logic here.
+    if (cached) {
+        try {
+            const detailBody = await apiFetch(`/messages/conversations/${encodeURIComponent(id)}`);
+            if (requestSequence === activeConversationRequestSequence && activeConversationId.value === id) {
+                activeConversation.value = detailBody.data;
+                conversationCache.set(id, { detail: activeConversation.value, messages: messages.value, messagesMeta: messagesMeta.value });
+            }
+        } catch {
+            // Background metadata refresh — a transient miss leaves the cached metadata as-is.
+        }
+
+        if (requestSequence === activeConversationRequestSequence && activeConversationId.value === id) {
+            await pollNewMessages(true);
+        }
+
+        return;
+    }
+
+    // Fetch messages and conversation detail independently rather than
+    // Promise.all-then-merge-both: the detail endpoint (~350-530ms, 3 DB
+    // round trips) is structurally slower than the messages endpoint
+    // (~110-150ms, 1 round trip) — combining them meant text that had
+    // already arrived sat unrendered waiting on metadata the seller's own
+    // inbox list usually already had. Each response now updates its own
+    // refs the moment it resolves instead of waiting for both.
+    const messagesDone = apiFetch(`/messages/conversations/${encodeURIComponent(id)}/messages?limit=${INITIAL_MESSAGES_LIMIT}`)
+        .then(messagesBody => {
+            if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== id) return;
+            messages.value = stabilizeMessages(messagesBody.data);
+            messagesMeta.value = messagesBody.meta;
+            newestKnownMessageId = messages.value.at(-1)?.id ?? null;
+            newIncomingCount.value = 0;
+            backendMissing.value = false;
+            isLoadingMessages.value = false;
+            conversationCache.set(id, { detail: activeConversation.value, messages: messages.value, messagesMeta: messagesMeta.value });
+        })
+        .catch(err => {
+            if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== id) return;
+            console.error('Error loading messages:', err);
+            if (err.status === 404) backendMissing.value = true;
+            isLoadingMessages.value = false;
+        });
+
+    const detailDone = apiFetch(`/messages/conversations/${encodeURIComponent(id)}`)
+        .then(detailBody => {
+            if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== id) return;
+            activeConversation.value = detailBody.data;
+            isLoadingActiveConversation.value = false;
+            conversationCache.set(id, { detail: activeConversation.value, messages: messages.value, messagesMeta: messagesMeta.value });
+            markRead(id);
+        })
+        .catch(err => {
+            if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== id) return;
+            console.error('Error opening conversation:', err);
+            if (err.status === 404) {
+                backendMissing.value = true;
+            } else if (!cached) {
+                // A cached thread stays showing what it already had rather than
+                // being replaced with an error banner over a background refresh miss.
+                activeConversationError.value = err?.message || "Couldn't load this conversation.";
+            }
+            isLoadingActiveConversation.value = false;
+        });
+
+    await Promise.all([messagesDone, detailDone]);
 }
 
 function closeActiveConversation() {
@@ -384,13 +484,11 @@ function closeActiveConversation() {
     newestKnownMessageId = null;
 }
 
-// Polls for messages newer than the last one this client knows about —
-// the honest substitute for a realtime subscription (see the module
-// docblock: this project has no websocket/Supabase-Realtime wiring at
-// all). Messages.vue owns the actual setInterval (see
-// MESSAGE_POLL_MS below) and calls this on each tick, passing whether
-// the seller is currently scrolled to the bottom — only the component
-// knows real scroll position. If they're not at the bottom, new
+// Fetches messages newer than the last one this client knows about.
+// Messages.vue calls this whenever its Supabase Realtime `messages`
+// channel fires an INSERT event for the open conversation, passing
+// whether the seller is currently scrolled to the bottom — only the
+// component knows real scroll position. If they're not at the bottom, new
 // messages are counted in `newIncomingCount` instead of being silently
 // appended-and-scrolled-to, so the UI can show a "New messages" button
 // rather than yanking their scroll position.
@@ -420,6 +518,8 @@ async function pollNewMessages(isAtBottom) {
 
         if (fresh.length) {
             messages.value = [...messages.value, ...fresh];
+            const cached = conversationCache.get(conversationId);
+            if (cached) cached.messages = messages.value;
         }
 
         if (isAtBottom) {
@@ -457,6 +557,8 @@ async function loadOlderMessages() {
         if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== conversationId) return;
         messages.value = [...stabilizeMessages(body.data), ...messages.value];
         messagesMeta.value = body.meta;
+        const cached = conversationCache.get(conversationId);
+        if (cached) { cached.messages = messages.value; cached.messagesMeta = messagesMeta.value; }
     } catch (err) {
         console.error('Error loading older messages:', err);
         // Silent — this is a background scroll-triggered load, not worth
@@ -493,7 +595,7 @@ async function sendMessage(conversationId, body, attachmentIds = [], context = {
     const hasCardContext = !!(context.orderId || context.productId);
     if ((!text && attachmentIds.length === 0 && !hasCardContext) || isSending.value) return null;
 
-    const localId = `local-${Date.now()}`;
+    const localId = `local-${Date.now()}-${++localIdSequence}`;
     const optimistic = {
         id: localId,
         conversationId,
@@ -521,6 +623,8 @@ async function sendMessage(conversationId, body, attachmentIds = [], context = {
         });
         const idx = messages.value.findIndex((m) => m.id === localId);
         if (idx !== -1) messages.value[idx] = stabilizeMessage(res.data);
+        const cached = conversationCache.get(conversationId);
+        if (cached) cached.messages = messages.value;
         return res.data;
     } catch (err) {
         console.error('Error sending message:', err);
@@ -711,6 +815,7 @@ export function useMessaging() {
         filters,
         setFilter,
         loadConversations,
+        syncConversationMeta,
         loadMoreConversations,
         loadLogisticsContacts,
         startLogisticsConversation,
@@ -741,7 +846,6 @@ export function useMessaging() {
         newIncomingCount,
         pollNewMessages,
         clearNewIncoming,
-        MESSAGE_POLL_MS,
 
         ALLOWED_ATTACHMENT_TYPES,
         MAX_ATTACHMENT_BYTES,

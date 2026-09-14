@@ -137,7 +137,7 @@
                         :class="{ active: c.id === activeConversationId, unread: c.unreadCount > 0 }"
                         @click="selectConversation(c.id)"
                     >
-                        <img v-if="c.buyer.avatarUrl" class="msg-convo-avatar" :src="c.buyer.avatarUrl" :alt="c.buyer.name" loading="lazy">
+                        <img v-if="c.buyer.avatarUrl" class="msg-convo-avatar" :src="c.buyer.avatarUrl" :alt="c.buyer.name" loading="lazy" decoding="async" @load="$event.target.classList.add('loaded')" @error="$event.target.classList.add('loaded')">
                         <span v-else class="msg-convo-avatar">{{ c.buyer.initials }}</span>
                         <span class="msg-convo-body">
                             <span class="msg-convo-top">
@@ -193,8 +193,6 @@
                     </button>
 
                     <div v-if="activeConversation" class="msg-chat-header-info">
-                        <img v-if="activeConversation.buyer.avatarUrl" class="msg-convo-avatar" :src="activeConversation.buyer.avatarUrl" :alt="activeConversation.buyer.name">
-                        <span v-else class="msg-convo-avatar">{{ activeConversation.buyer.initials }}</span>
                         <div>
                             <h3 class="msg-chat-buyer-name">{{ activeConversation.buyer.name }}</h3>
                             <div class="msg-chat-header-meta">
@@ -331,8 +329,16 @@
                             <template v-else-if="!item.message.body && item.message.productContext">
                             <div class="msg-order-card-row" :class="item.message.senderRole === 'seller' ? 'sent' : ''">
                                 <div class="msg-order-card">
-                                    <span v-if="item.message.productContext.image" class="msg-order-card-thumb">
-                                        <img :src="item.message.productContext.image" :alt="item.message.productContext.name" loading="lazy" />
+                                    <span v-if="item.message.productContext.image" class="msg-order-card-thumb msg-img-skeleton">
+                                        <img
+                                            :src="item.message.productContext.image"
+                                            :alt="item.message.productContext.name"
+                                            loading="lazy"
+                                            decoding="async"
+                                            class="msg-fade-img"
+                                            @load="$event.target.classList.add('loaded')"
+                                            @error="$event.target.classList.add('loaded')"
+                                        />
                                     </span>
                                     <span v-else class="msg-order-card-icon" aria-hidden="true">
                                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
@@ -350,19 +356,22 @@
                             </template>
                             <template v-else>
                             <div class="msg-row" :class="item.message.senderRole === 'seller' ? 'sent' : 'received'">
-                                <span v-if="item.message.senderRole !== 'seller'" class="msg-row-avatar">
-                                    <template v-if="item.showMeta">
-                                        <img v-if="activeConversation?.buyer?.avatarUrl" class="msg-convo-avatar sm" :src="activeConversation.buyer.avatarUrl" :alt="activeConversation.buyer.name">
-                                        <span v-else class="msg-convo-avatar sm">{{ activeConversation?.buyer?.initials }}</span>
-                                    </template>
-                                </span>
+                                <span v-if="item.message.senderRole !== 'seller'" class="msg-row-avatar"></span>
                                 <div class="msg-bubble-col">
                                     <!-- Inline inquiry card: which purchase this particular message was
                                          about. A thread now covers every purchase from this buyer, so
                                          this is per-message rather than one card for the whole thread. -->
                                     <div v-if="item.message.productContext || item.message.orderContext" class="msg-inquiry-card">
-                                        <span v-if="item.message.productContext?.image" class="msg-inquiry-thumb">
-                                            <img :src="item.message.productContext.image" :alt="item.message.productContext.name" />
+                                        <span v-if="item.message.productContext?.image" class="msg-inquiry-thumb msg-img-skeleton">
+                                            <img
+                                                :src="item.message.productContext.image"
+                                                :alt="item.message.productContext.name"
+                                                loading="lazy"
+                                                decoding="async"
+                                                class="msg-fade-img"
+                                                @load="$event.target.classList.add('loaded')"
+                                                @error="$event.target.classList.add('loaded')"
+                                            />
                                         </span>
                                         <span v-else class="msg-inquiry-icon" aria-hidden="true">
                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
@@ -393,11 +402,19 @@
                                             <button
                                                 v-else-if="isImageMime(att.mime)"
                                                 type="button"
-                                                class="msg-attachment-thumb"
+                                                class="msg-attachment-thumb msg-img-skeleton"
                                                 :aria-label="`View ${att.name} full size`"
                                                 @click="openAttachment(att)"
                                             >
-                                                <img :src="att.url" :alt="att.name" loading="lazy" />
+                                                <img
+                                                    :src="att.url"
+                                                    :alt="att.name"
+                                                    loading="lazy"
+                                                    decoding="async"
+                                                    class="msg-fade-img"
+                                                    @load="$event.target.classList.add('loaded')"
+                                                    @error="$event.target.classList.add('loaded')"
+                                                />
                                                 <span class="msg-attachment-image-expand" aria-hidden="true">
                                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
                                                 </span>
@@ -481,10 +498,20 @@
                                     :key="item.orderId"
                                     type="button"
                                     class="msg-parcel-square"
+                                    :class="{ 'msg-img-skeleton': item.previewImage }"
                                     :title="item.trackingNumber ? `${item.previewName} · ${item.trackingNumber}` : item.previewName"
                                     @click="selectParcel(item)"
                                 >
-                                    <img v-if="item.previewImage" :src="item.previewImage" :alt="item.previewName" loading="lazy" />
+                                    <img
+                                        v-if="item.previewImage"
+                                        :src="item.previewImage"
+                                        :alt="item.previewName"
+                                        loading="lazy"
+                                        decoding="async"
+                                        class="msg-parcel-square-img"
+                                        @load="$event.target.classList.add('loaded')"
+                                        @error="$event.target.classList.add('loaded')"
+                                    />
                                     <span v-else class="msg-parcel-square-icon" aria-hidden="true">
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
                                     </span>
@@ -614,8 +641,15 @@
                     </button>
                 </div>
                 <div class="msg-parcel-confirm-preview">
-                    <span v-if="pendingParcelInquiry.previewImage" class="msg-parcel-confirm-thumb">
-                        <img :src="pendingParcelInquiry.previewImage" :alt="pendingParcelInquiry.previewName" />
+                    <span v-if="pendingParcelInquiry.previewImage" class="msg-parcel-confirm-thumb msg-img-skeleton">
+                        <img
+                            :src="pendingParcelInquiry.previewImage"
+                            :alt="pendingParcelInquiry.previewName"
+                            decoding="async"
+                            class="msg-fade-img"
+                            @load="$event.target.classList.add('loaded')"
+                            @error="$event.target.classList.add('loaded')"
+                        />
                     </span>
                     <span v-else class="msg-parcel-square-icon" aria-hidden="true">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
@@ -716,6 +750,8 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue';
 import AttachmentVideoPlayer from '../../shared/AttachmentVideoPlayer.vue';
 import { useMessaging } from '../composables/useMessaging';
+import { getSupabase } from '../composables/useSeller';
+import { subscribeToConversationMessages, subscribeToInbox } from '../../shared/realtime';
 
 const {
     conversations,
@@ -728,6 +764,7 @@ const {
     filters,
     setFilter,
     loadConversations,
+    syncConversationMeta,
     loadMoreConversations,
     loadLogisticsContacts,
     startLogisticsConversation,
@@ -756,7 +793,6 @@ const {
     newIncomingCount,
     pollNewMessages,
     clearNewIncoming,
-    MESSAGE_POLL_MS,
 
     validateAttachment,
     uploadAttachment,
@@ -1256,32 +1292,53 @@ function onGlobalKeydown(e) {
     }
 }
 
-// ---- polling for new messages while a conversation is open (see
-// useMessaging.js's docblock: no realtime infra exists, so this is a
-// genuine interval poll, not a fabricated live-update mechanism) ----
-let messagePollTimer = null;
+// ---- Supabase Realtime: new messages while a conversation is open ----
+// A postgres_changes INSERT on `messages` for the open conversation
+// triggers the same delta fetch (`?after=<cursor>`) the old interval poll
+// used, just event-triggered instead of timer-triggered.
+let messageRealtimeChannel = null;
+async function onRealtimeMessageInsert() {
+    const before = messages.value.length;
+    await pollNewMessages(isAtBottom.value);
+    if (messages.value.length > before && isAtBottom.value) {
+        await nextTick();
+        scrollToBottom(true);
+    }
+}
 watch(activeConversationId, (id) => {
-    clearInterval(messagePollTimer);
+    messageRealtimeChannel?.unsubscribe();
+    messageRealtimeChannel = null;
     if (!id) return;
-    messagePollTimer = setInterval(async () => {
-        // Skip while the tab is backgrounded — matches the logistics chat's
-        // polling loop; no point re-fetching a thread nobody is looking at.
-        if (document.hidden) return;
-
-        const before = messages.value.length;
-        await pollNewMessages(isAtBottom.value);
-        if (messages.value.length > before && isAtBottom.value) {
-            await nextTick();
-            scrollToBottom(true);
-        }
-    }, MESSAGE_POLL_MS);
+    messageRealtimeChannel = subscribeToConversationMessages(getSupabase(), id, {
+        onInsert: onRealtimeMessageInsert,
+        // Channel dropped and reconnected — catch up on anything missed.
+        onReconnect: onRealtimeMessageInsert,
+    });
 });
+
+// ---- Supabase Realtime: inbox list (unread/preview/new conversations) ----
+let inboxRealtimeChannel = null;
+
+// Catch-up for anything missed while the tab was backgrounded (a realtime
+// channel can be suspended by the browser while hidden).
+function onVisibilityChange() {
+    if (!document.hidden) {
+        syncConversationMeta();
+        if (activeConversationId.value) onRealtimeMessageInsert();
+    }
+}
 
 onMounted(() => {
     loadConversations();
     loadLogisticsContacts().then(data => { logisticsContacts.value = data; }).catch(() => {});
     document.addEventListener('click', onDocClick);
     document.addEventListener('keydown', onGlobalKeydown);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    inboxRealtimeChannel = subscribeToInbox(getSupabase(), {
+        onChange: () => syncConversationMeta(),
+        onReconnect: () => syncConversationMeta(),
+    });
 });
 
 async function contactLogistics() {
@@ -1301,9 +1358,11 @@ async function contactLogistics() {
 }
 onBeforeUnmount(() => {
     clearTimeout(searchDebounce);
-    clearInterval(messagePollTimer);
+    messageRealtimeChannel?.unsubscribe();
+    inboxRealtimeChannel?.unsubscribe();
     document.removeEventListener('click', onDocClick);
     document.removeEventListener('keydown', onGlobalKeydown);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     stagedAttachments.value.forEach((a) => a.previewUrl && URL.revokeObjectURL(a.previewUrl));
 });
 </script>

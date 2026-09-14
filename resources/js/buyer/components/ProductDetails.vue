@@ -456,43 +456,44 @@ const { startConversation } = useBuyerChat();
 
 const messageOpen = ref(false);
 const messageDraft = ref('');
-const messageSending = ref(false);
-const messageError = ref('');
 const messageInput = ref(null);
 
 function toggleMessageComposer() {
     messageOpen.value = !messageOpen.value;
-    messageError.value = '';
 
     if (messageOpen.value) {
         nextTick(() => messageInput.value?.focus());
     }
 }
 
-async function sendSellerMessage() {
+// Opens the chat popup immediately (see useBuyerChat.js's startConversation()
+// docblock) instead of waiting for the network round trip — the composer
+// closes right away and the popup shows the message being sent, with the
+// actual create-thread request running in the background. A failure surfaces
+// there (a "Failed · Retry" bubble), not back on this page.
+function sendSellerMessage() {
     const body = messageDraft.value.trim();
 
     if (!body || !props.product?.seller_id) {
         return;
     }
 
-    messageSending.value = true;
-    messageError.value = '';
+    messageDraft.value = '';
+    messageOpen.value = false;
 
-    try {
-        await startConversation({
-            sellerId: props.product.seller_id,
-            productId: props.product.id,
-            body
-        });
-
-        messageDraft.value = '';
-        messageOpen.value = false;
-    } catch (err) {
-        messageError.value = err?.message || 'Could not send your message. Please sign in and try again.';
-    } finally {
-        messageSending.value = false;
-    }
+    startConversation({
+        sellerId: props.product.seller_id,
+        productId: props.product.id,
+        sellerName: props.product.seller || null,
+        preview: {
+            name: props.product.name,
+            price: props.product.price,
+            image: productImage.value || null,
+        },
+        body
+    }).catch(err => {
+        console.error('Error starting conversation:', err);
+    });
 }
 
 /*
@@ -861,19 +862,13 @@ function selectRelatedProduct(item) {
                             :placeholder="`Ask ${product.seller || 'the seller'} about “${product.name}”…`"
                             @keydown.enter.exact.prevent="sendSellerMessage"
                         ></textarea>
-                        <p
-                            v-if="messageError"
-                            class="message-seller-error"
-                        >
-                            {{ messageError }}
-                        </p>
                         <button
                             type="button"
                             class="message-seller-send"
-                            :disabled="messageSending || !messageDraft.trim()"
+                            :disabled="!messageDraft.trim()"
                             @click="sendSellerMessage"
                         >
-                            {{ messageSending ? 'Sending…' : 'Send Message' }}
+                            Send Message
                         </button>
                     </div>
                 </div>

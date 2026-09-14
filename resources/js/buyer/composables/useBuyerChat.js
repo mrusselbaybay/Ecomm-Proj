@@ -1,6 +1,8 @@
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 
 import { buyerApi, buyerApiWithMeta } from './useBuyerApi';
+import { getSupabase } from './useBuyerSession';
+import { subscribeToConversationMessages, subscribeToInbox } from '../../shared/realtime';
 
 /*
 |--------------------------------------------------------------------------
@@ -21,24 +23,25 @@ import { buyerApi, buyerApiWithMeta } from './useBuyerApi';
 |
 | Times are formatted to short labels here (the server returns ISO).
 |
-| The project has no websocket / Supabase-Realtime wiring, so while the
-| popup is open this polls on two cadences: the active thread's messages
-| every MESSAGE_POLL_MS (picking up the seller's replies), and the other
-| threads' badges/previews every META_POLL_MS (less urgent, so slower).
-| Optimistic "local-" bubbles are preserved across a poll.
+| While the popup is open, Supabase Realtime (postgres_changes) drives
+| updates instead of polling: a channel on the active thread's `messages`
+| row INSERTs triggers refreshActiveConversation() (the existing
+| `?after=<cursor>` delta fetch), and a channel on `conversations`
+| INSERT/UPDATE triggers syncConversationMeta() for the inbox list — both
+| already-incremental fetches, just now event-triggered instead of timer-
+| triggered. A `visibilitychange` handler re-runs both once when the tab
+| regains focus, as a lightweight catch-up for anything missed while a
+| realtime channel was suspended in the background.
+| Optimistic "local-" bubbles are preserved across a refresh.
 | `startConversation` is the entry point used by the "Message Seller"
 | buttons on ProductDetails.vue / OrderDetails.vue.
 |
 */
 
-// Split into two cadences: an open thread's messages poll fast (so a
-// seller's reply feels close to instant with no realtime infra), while the
-// inbox's badges/previews for OTHER threads poll slower since they're not
-// what the buyer is actively looking at — this halves the request volume
-// the old single-cadence tick would need to hit the same message latency.
-const MESSAGE_POLL_MS = 5000;
-const META_POLL_MS = 20000;
 const MESSAGES_PAGE_SIZE = 10;
+// First paint only needs the tail of the conversation — older history loads
+// in via loadOlderMessages() as the buyer scrolls up.
+const INITIAL_MESSAGES_LIMIT = 3;
 const ALLOWED_ATTACHMENT_TYPES = [
     'image/png', 'image/jpeg', 'image/webp', 'application/pdf',
     'video/mp4', 'video/webm', 'video/quicktime',
@@ -67,9 +70,12 @@ const unreadCount = ref(0);
 let loadedOnce = false;
 let inFlight = null;
 let unreadPrimed = false;
-let messagePollTimer = null;
-let metaPollTimer = null;
+let conversationsPrimed = false;
 let localIdSequence = 0;
+let inboxChannel = null;
+let messageChannel = null;
+let subscribedConversationId = null;
+let visibilityListenerAttached = false;
 
 const activeConversation = computed(
     () => conversations.value.find(c => c.id === activeConversationId.value) || null,
@@ -264,15 +270,6 @@ function mapConversation(conversation) {
     };
 }
 
-// Server messages are authoritative; any optimistic "local-" bubbles not
-// yet echoed back are re-appended so a poll / refetch never makes the
-// buyer's just-sent message flicker out.
-function withPendingLocal(existing, incoming) {
-    const pending = (existing?.messages || []).filter(m => String(m.id).startsWith('local-'));
-
-    return { ...incoming, messages: [...incoming.messages, ...pending] };
-}
-
 /*
 |--------------------------------------------------------------------------
 | Load
@@ -423,11 +420,9 @@ async function syncConversationMeta() {
     }
 }
 
-// Polls only for messages newer than the last real (non-optimistic) one
+// Fetches only messages newer than the last real (non-optimistic) one
 // already shown, instead of re-fetching the whole conversation + its full
-// message history on every tick — the previous approach re-downloaded
-// everything (including attachments) every MESSAGE_POLL_MS just to check
-// for a seller reply.
+// message history on every realtime INSERT event.
 async function refreshActiveConversation() {
     const convo = activeConversation.value;
 
@@ -470,58 +465,82 @@ async function refreshActiveConversation() {
     }
 }
 
-// Shared guard for both timers: nothing can be sent into an archived thread
-// (the server rejects it — Conversation::isWritable()) and
-// syncConversationMeta() always queries the *default* (non-archived)
-// endpoint, so polling while the archived view is open would do nothing
+// Shared guard for realtime-triggered refreshes: nothing can be sent into
+// an archived thread (the server rejects it — Conversation::isWritable())
+// and syncConversationMeta() always queries the *default* (non-archived)
+// endpoint, so a refresh while the archived view is open would do nothing
 // useful for the open thread and would wrongly pull unarchived
-// conversations into view. Also skips entirely while the tab is
-// backgrounded — matches the logistics chat's polling loop — so a buyer
-// who tabs away with the popup still open isn't firing requests for a
-// screen nobody is looking at.
+// conversations into view.
 function canPoll() {
-    return isChatOpen.value && !isViewingArchived.value && !document.hidden;
+    return isChatOpen.value && !isViewingArchived.value;
 }
 
-function messagePollTick() {
-    if (canPoll()) {
-        refreshActiveConversation();
+// Subscribes the message channel to whichever conversation is currently
+// open, tearing down the previous one first — a thread switch shouldn't
+// leave a stale channel listening on the conversation the buyer just left.
+function subscribeActiveConversation() {
+    const id = activeConversationId.value;
+
+    if (subscribedConversationId === id) {
+        return;
+    }
+
+    messageChannel?.unsubscribe();
+    messageChannel = null;
+    subscribedConversationId = id;
+
+    if (!id) {
+        return;
+    }
+
+    messageChannel = subscribeToConversationMessages(getSupabase(), id, {
+        onInsert: () => { if (canPoll()) refreshActiveConversation(); },
+        // The channel dropped and came back (network blip, tab resume) —
+        // catch up on anything missed in between via the same delta fetch.
+        onReconnect: () => { if (canPoll()) refreshActiveConversation(); },
+    });
+}
+
+function startRealtime() {
+    if (!inboxChannel) {
+        inboxChannel = subscribeToInbox(getSupabase(), {
+            onChange: () => { if (canPoll()) syncConversationMeta(); },
+            onReconnect: () => { if (canPoll()) syncConversationMeta(); },
+        });
+    }
+
+    subscribeActiveConversation();
+
+    if (!visibilityListenerAttached) {
+        visibilityListenerAttached = true;
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && canPoll()) {
+                refreshActiveConversation();
+                syncConversationMeta();
+            }
+        });
     }
 }
 
-function metaPollTick() {
-    if (canPoll()) {
-        syncConversationMeta();
-    }
-}
-
-function startPolling() {
-    if (!messagePollTimer) {
-        messagePollTimer = setInterval(messagePollTick, MESSAGE_POLL_MS);
-    }
-
-    if (!metaPollTimer) {
-        metaPollTimer = setInterval(metaPollTick, META_POLL_MS);
-    }
-}
-
-function stopPolling() {
-    if (messagePollTimer) {
-        clearInterval(messagePollTimer);
-        messagePollTimer = null;
-    }
-
-    if (metaPollTimer) {
-        clearInterval(metaPollTimer);
-        metaPollTimer = null;
-    }
+function stopRealtime() {
+    inboxChannel?.unsubscribe();
+    inboxChannel = null;
+    messageChannel?.unsubscribe();
+    messageChannel = null;
+    subscribedConversationId = null;
 }
 
 watch(isChatOpen, open => {
     if (open) {
-        startPolling();
+        startRealtime();
     } else {
-        stopPolling();
+        stopRealtime();
+    }
+});
+
+watch(activeConversationId, () => {
+    if (isChatOpen.value) {
+        subscribeActiveConversation();
     }
 });
 
@@ -584,6 +603,40 @@ async function openConversation(id) {
     const existingIndex = conversations.value.findIndex(c => c.id === id);
     const alreadyLoaded = existingIndex !== -1 && conversations.value[existingIndex].messagesLoaded;
 
+    // Reopening an already-cached thread (Chat A -> Chat B -> Chat A, or
+    // closing and reopening the same one): the cached messages are already
+    // showing — activeConversationId flipping above is enough for Vue to
+    // render them instantly. Don't re-fetch "latest N" and overwrite the
+    // array (that would silently truncate away any older history the
+    // buyer already scrolled into via loadOlderMessages()). Instead reuse
+    // the same delta fetch realtime already uses, merging in only
+    // messages newer than what's cached, plus a light metadata refresh
+    // (online status, archived/status flags).
+    if (alreadyLoaded) {
+        try {
+            const detail = await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}`);
+
+            if (activeConversationId.value === id) {
+                const target = conversations.value.find(c => c.id === id);
+
+                if (target) {
+                    target.sellerOnline = Boolean(detail.sellerOnline);
+                    target.status = detail.status || target.status;
+                    target.archived = Boolean(detail.archived);
+                    target.unread = Number(detail.unread || 0);
+                }
+            }
+        } catch (err) {
+            // Background metadata refresh — a transient miss leaves the
+            // cached metadata as-is.
+        }
+
+        await refreshActiveConversation();
+        refreshUnreadCount();
+
+        return;
+    }
+
     // Skip the loading flag (and the skeleton it drives) on a revisit —
     // whatever was last loaded for this thread is shown instantly while
     // this fetch silently refreshes it in the background.
@@ -591,37 +644,103 @@ async function openConversation(id) {
         conversations.value[existingIndex].isLoadingMessages = true;
     }
 
-    try {
-        const [detail, messagesResult] = await Promise.all([
-            buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}`),
-            buyerApiWithMeta(`/buyer/messages/conversations/${encodeURIComponent(id)}/messages?limit=${MESSAGES_PAGE_SIZE}`),
-        ]);
+    // Fetch messages and conversation detail independently rather than
+    // Promise.all-then-merge-both: showConversation() (~350-530ms, 3 DB
+    // round trips) is structurally slower than messages() (~110-150ms, 1
+    // round trip), and combining them into a single mapConversation() call
+    // meant text that had already arrived sat unrendered waiting on
+    // metadata (seller name/avatar/product) the buyer's own inbox list
+    // had almost always already supplied — both endpoints share the exact
+    // same transformConversation() shape. Now each response updates the
+    // UI the moment IT resolves: text/messages render as soon as
+    // messages() lands, and showConversation() patches in fresher
+    // metadata (online status, archived flag, product context)
+    // independently whenever it lands, without blocking the former.
+    performance?.mark?.('conv:msg-request-start');
 
-        if (activeConversationId.value !== id) {
-            return;
-        }
+    const messagesDone = buyerApiWithMeta(`/buyer/messages/conversations/${encodeURIComponent(id)}/messages?limit=${INITIAL_MESSAGES_LIMIT}`)
+        .then(messagesResult => {
+            performance?.mark?.('conv:msg-response-received');
+            if (activeConversationId.value !== id) return;
 
-        const mapped = mapConversation({
-            ...detail,
-            messages: messagesResult.data || [],
-            messagesMeta: messagesResult.meta || { hasMore: false, nextCursor: null },
-            messagesLoaded: true,
+            const loadedMessages = (messagesResult.data || []).map(mapMessage);
+            const idx = conversations.value.findIndex(c => c.id === id);
+
+            if (idx !== -1) {
+                const existing = conversations.value[idx];
+                const pendingLocal = existing.messages.filter(m => String(m.id).startsWith('local-'));
+                existing.messages = [...loadedMessages, ...pendingLocal];
+                existing.messagesMeta = messagesResult.meta || { hasMore: false, nextCursor: null };
+                existing.messagesLoaded = true;
+                existing.isLoadingMessages = false;
+                performance?.mark?.('conv:msg-state-applied');
+                // TEMPORARY DIAGNOSTIC — nextTick (Vue DOM patch complete) +
+                // double rAF (browser has painted the patched frame).
+                nextTick(() => {
+                    performance?.mark?.('conv:vue-dom-updated');
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                        performance?.mark?.('conv:browser-painted');
+                        window.__logConvTiming?.();
+                    }));
+                });
+            } else {
+                // Not in the inbox list yet (deep link / not-yet-listed
+                // conversation) — a minimal shell so the thread is
+                // readable immediately; the detail fetch below fills in
+                // seller/product metadata moments later.
+                conversations.value.unshift({
+                    id, seller: 'BuyTheWay Seller', sellerId: null, avatarUrl: null, role: 'seller',
+                    status: 'open', archived: false, sellerOnline: false, unread: 0, updatedAt: '',
+                    lastMessagePreview: null, product: null, messages: loadedMessages,
+                    messagesMeta: messagesResult.meta || { hasMore: false, nextCursor: null },
+                    isLoadingOlderMessages: false, messagesLoaded: true, isLoadingMessages: false,
+                });
+            }
+        })
+        .catch(() => {
+            if (activeConversationId.value !== id) return;
+            const idx = conversations.value.findIndex(c => c.id === id);
+            if (idx !== -1) conversations.value[idx].isLoadingMessages = false;
         });
-        const index = conversations.value.findIndex(c => c.id === id);
 
-        if (index !== -1) {
-            conversations.value[index] = withPendingLocal(conversations.value[index], mapped);
-        } else {
-            conversations.value.unshift(mapped);
-        }
+    performance?.mark?.('conv:detail-request-start');
 
-        refreshUnreadCount();
-    } catch (err) {
-        if (existingIndex !== -1) {
-            conversations.value[existingIndex].isLoadingMessages = false;
-        }
-        // Leave whatever's already shown for this thread.
-    }
+    const detailDone = buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}`)
+        .then(detail => {
+            performance?.mark?.('conv:detail-response-received');
+            if (activeConversationId.value !== id) return;
+
+            const mappedDetail = mapConversation(detail);
+            const idx = conversations.value.findIndex(c => c.id === id);
+
+            if (idx !== -1) {
+                const existing = conversations.value[idx];
+                existing.seller = mappedDetail.seller;
+                existing.sellerId = mappedDetail.sellerId;
+                existing.avatarUrl = mappedDetail.avatarUrl;
+                existing.role = mappedDetail.role;
+                existing.status = mappedDetail.status;
+                existing.archived = mappedDetail.archived;
+                existing.sellerOnline = mappedDetail.sellerOnline;
+                existing.unread = mappedDetail.unread;
+                existing.updatedAt = mappedDetail.updatedAt;
+                existing.lastMessagePreview = mappedDetail.lastMessagePreview;
+                existing.product = mappedDetail.product;
+            } else {
+                conversations.value.unshift({
+                    ...mappedDetail, messages: [], messagesMeta: { hasMore: false, nextCursor: null },
+                    isLoadingOlderMessages: false, messagesLoaded: false, isLoadingMessages: false,
+                });
+            }
+
+            refreshUnreadCount();
+        })
+        .catch(() => {});
+
+    // Both promises above already handle their own failure (clearing the
+    // loading flag / leaving cached data in place), so this just waits for
+    // both to settle before returning — nothing left to catch here.
+    await Promise.all([messagesDone, detailDone]);
 }
 
 // Archive/unarchive (and, in principle, resolve/reopen — only the two
@@ -800,10 +919,26 @@ function sendMessage(text, attachmentIds = [], attachmentPreviews = [], context 
 // Seller\useMessaging.js's retryMessage() (attachments/order/product
 // context aren't reattached on retry there either, so this stays
 // consistent rather than being a one-off richer retry).
+//
+// A failed message on a still-`pending-` conversation (the "Message
+// Seller" thread was never actually created on the server) can't be
+// retried via the normal per-message send endpoint — there's no real
+// conversation id yet — so this re-runs startConversation() instead,
+// reusing the stashed payload and the same pending id.
 function retryMessage(localId) {
     const convo = activeConversation.value;
 
     if (!convo) {
+        return;
+    }
+
+    if (String(convo.id).startsWith('pending-')) {
+        const payload = pendingStartPayloads.get(convo.id);
+
+        if (payload) {
+            startConversation(payload, convo.id).catch(() => {});
+        }
+
         return;
     }
 
@@ -854,14 +989,95 @@ async function uploadAttachment(file) {
     });
 }
 
+// Payload stashed per pending-conversation id so a failed "Message Seller"
+// send can be retried (see retryMessage() below) without the caller
+// (ProductDetails.vue/OrderDetails.vue) needing to remember it itself.
+const pendingStartPayloads = new Map();
+
 /**
  * Start (or reuse) a thread with a seller and send the first message.
- * `payload` = { sellerId, orderNumber?, productId?, subject?, body }
- * (orderNumber is the display id, e.g. "#SN-40412" — the leading "#" is
- * stripped here). Returns the mapped conversation. On success the popup
- * opens on the new thread.
+ * `payload` = { sellerId, orderNumber?, productId?, subject?, body,
+ * sellerName?, preview?: { name, price, image } } (orderNumber is the
+ * display id, e.g. "#SN-40412" — the leading "#" is stripped here;
+ * sellerName/preview are only used for the optimistic placeholder below,
+ * the server response is always authoritative).
+ *
+ * Opens the popup on this thread IMMEDIATELY — either an already-known
+ * conversation with this seller (existing.id, via the normal optimistic
+ * sendMessage() path) or a brand-new placeholder conversation showing the
+ * seller name/product context already known client-side — instead of
+ * waiting for the POST /buyer/messages/conversations round trip to finish
+ * first. The network call then runs in the background and reconciles the
+ * placeholder with the server's real conversation once it resolves.
+ *
+ * `reuseId` is internal — retryMessage() passes the previous pending id
+ * back in so a retry updates the same row instead of creating another one.
  */
-async function startConversation(payload) {
+async function startConversation(payload, reuseId = null) {
+    const existing = !reuseId && conversations.value.find(c => c.sellerId === payload.sellerId);
+
+    // Already chatting with this seller — just send into that thread the
+    // normal (already-optimistic, already-incremental) way instead of
+    // going through findOrCreate + a fresh conversation fetch.
+    if (existing) {
+        activeConversationId.value = existing.id;
+        isChatOpen.value = true;
+        sendMessage(payload.body, [], [], payload.productId ? { productId: payload.productId, preview: payload.preview || null } : {});
+
+        return existing;
+    }
+
+    const pendingId = reuseId || `pending-${Date.now()}-${++localIdSequence}`;
+    const localId = `local-${Date.now()}-${++localIdSequence}`;
+    pendingStartPayloads.set(pendingId, payload);
+
+    const optimisticMessage = {
+        id: localId,
+        from: 'buyer',
+        text: payload.body,
+        attachments: [],
+        productContext: payload.productId ? {
+            id: payload.productId,
+            name: payload.preview?.name || null,
+            price: payload.preview?.price ?? null,
+            image: payload.preview?.image || null,
+            quantity: null,
+        } : null,
+        at: timeOfDay(new Date()),
+        status: null,
+    };
+
+    const existingPendingIndex = conversations.value.findIndex(c => c.id === pendingId);
+
+    if (existingPendingIndex !== -1) {
+        // Retry: same placeholder row, fresh optimistic message.
+        conversations.value[existingPendingIndex].messages = [optimisticMessage];
+    } else {
+        conversations.value.unshift({
+            id: pendingId,
+            seller: payload.sellerName || 'BuyTheWay Seller',
+            sellerId: payload.sellerId,
+            avatarUrl: null,
+            role: 'seller',
+            status: 'open',
+            archived: false,
+            sellerOnline: false,
+            unread: 0,
+            updatedAt: timeOfDay(new Date()),
+            lastMessagePreview: payload.body,
+            product: payload.preview ? { name: payload.preview.name, price: payload.preview.price, oldPrice: null } : null,
+            messages: [optimisticMessage],
+            messagesMeta: { hasMore: false, nextCursor: null },
+            isLoadingOlderMessages: false,
+            messagesLoaded: true,
+            isLoadingMessages: false,
+        });
+    }
+
+    loadedOnce = true;
+    activeConversationId.value = pendingId;
+    isChatOpen.value = true;
+
     try {
         const data = await buyerApi('/buyer/messages/conversations', {
             method: 'POST',
@@ -875,21 +1091,44 @@ async function startConversation(payload) {
         });
 
         const mapped = mapConversation(data);
-        const index = conversations.value.findIndex(c => c.id === mapped.id);
+        pendingStartPayloads.delete(pendingId);
 
-        if (index !== -1) {
-            conversations.value[index] = mapped;
+        // The server response already carries the just-sent message as the
+        // thread's own authoritative history — replaces the placeholder
+        // wholesale rather than merging (there's nothing else to merge for
+        // a brand-new thread).
+        const pendingIndex = conversations.value.findIndex(c => c.id === pendingId);
+        const existingRealIndex = conversations.value.findIndex(c => c.id === mapped.id);
+
+        if (existingRealIndex !== -1 && existingRealIndex !== pendingIndex) {
+            // A realtime/meta sync already discovered this conversation
+            // under its real id while the POST was in flight — drop the
+            // now-redundant placeholder instead of showing it twice.
+            conversations.value.splice(pendingIndex, 1);
+            conversations.value[conversations.value.findIndex(c => c.id === mapped.id)] = mapped;
+        } else if (pendingIndex !== -1) {
+            conversations.value[pendingIndex] = mapped;
         } else {
             conversations.value.unshift(mapped);
         }
 
-        loadedOnce = true;
-        activeConversationId.value = mapped.id;
-        isChatOpen.value = true;
+        if (activeConversationId.value === pendingId) {
+            activeConversationId.value = mapped.id;
+        }
 
         return mapped;
     } catch (err) {
         console.error('Error starting conversation:', err);
+
+        const pending = conversations.value.find(c => c.id === pendingId);
+
+        if (pending) {
+            const msgIdx = pending.messages.findIndex(m => m.id === localId);
+
+            if (msgIdx !== -1) {
+                pending.messages[msgIdx] = { ...pending.messages[msgIdx], status: 'failed' };
+            }
+        }
 
         throw err;
     }
@@ -901,6 +1140,21 @@ export function useBuyerChat() {
     if (!unreadPrimed) {
         unreadPrimed = true;
         refreshUnreadCount();
+    }
+
+    // Prime the conversation list in the background once per page load —
+    // not just when the chat popup opens. Without this, a buyer who goes
+    // straight to a product/order page and clicks "Message Seller" has an
+    // empty `conversations` list client-side, so startConversation()'s
+    // "already have a thread with this seller" check can never find an
+    // existing thread even when one exists server-side, and always takes
+    // the create-a-new-placeholder path instead of opening the real one
+    // directly. loadConversations() is already idempotent (guards on
+    // loadedOnce/inFlight), so this is a no-op once the popup has loaded
+    // it for real.
+    if (!conversationsPrimed) {
+        conversationsPrimed = true;
+        loadConversations();
     }
 
     return {

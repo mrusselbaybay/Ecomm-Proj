@@ -63,7 +63,7 @@
 
             <div v-else class="thread-scroll" @scroll="onListScroll">
                 <button v-for="conversation in filteredConversations" :key="conversation.id" class="thread-button" :class="{ active: conversation.id === activeId, unread: conversation.unread > 0 }" @click="openConversation(conversation.id)">
-                    <img v-if="contactOf(conversation).avatarUrl" class="avatar" :src="contactOf(conversation).avatarUrl" :alt="contactOf(conversation).name" loading="lazy">
+                    <img v-if="contactOf(conversation).avatarUrl" class="avatar" :src="contactOf(conversation).avatarUrl" :alt="contactOf(conversation).name" loading="lazy" decoding="async" @load="$event.target.classList.add('loaded')" @error="$event.target.classList.add('loaded')">
                     <span v-else class="avatar">{{ initials(contactOf(conversation).name) }}</span>
                     <span class="thread-copy">
                         <span class="thread-top"><strong>{{ contactOf(conversation).name }}</strong><time>{{ formatListTime(conversation.last_message_at) }}</time></span>
@@ -85,8 +85,6 @@
                 <button class="back-button" type="button" aria-label="Back to conversations" @click="closeConversation">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6" /></svg>
                 </button>
-                <img v-if="contactOf(activeConversation).avatarUrl" class="avatar" :src="contactOf(activeConversation).avatarUrl" :alt="contactOf(activeConversation).name">
-                <span v-else class="avatar">{{ initials(contactOf(activeConversation).name) }}</span>
                 <div class="chat-title">
                     <p class="eyebrow">{{ activeConversation.type === 'roster' ? 'Courier' : 'Seller' }}</p><h3>{{ contactOf(activeConversation).name }}</h3>
                     <div class="context-tags">
@@ -141,8 +139,16 @@
                     <div v-if="!message.text && message.productContext" class="message-row" :class="message.from === 'logistics' ? 'mine' : 'theirs'">
                         <div class="order-card-col">
                             <div class="order-card">
-                                <span v-if="message.productContext.image" class="order-card-thumb">
-                                    <img :src="message.productContext.image" :alt="message.productContext.name" loading="lazy" />
+                                <span v-if="message.productContext.image" class="order-card-thumb img-skeleton">
+                                    <img
+                                        :src="message.productContext.image"
+                                        :alt="message.productContext.name"
+                                        loading="lazy"
+                                        decoding="async"
+                                        class="fade-img"
+                                        @load="$event.target.classList.add('loaded')"
+                                        @error="$event.target.classList.add('loaded')"
+                                    />
                                 </span>
                                 <span v-else class="order-card-icon" aria-hidden="true">
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
@@ -162,18 +168,27 @@
                     <div v-else class="message-row" :class="message.from === 'logistics' ? 'mine' : 'theirs'">
                         <div class="bubble" :class="{ 'bubble-media': message.attachments?.length && !message.text }">
                             <div v-if="message.attachments?.length" class="bubble-attachments">
-                                <a
+                                <button
                                     v-for="attachment in message.attachments"
                                     :key="attachment.id"
-                                    :href="attachment.url"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
+                                    type="button"
                                     class="bubble-attachment"
+                                    :class="{ 'img-skeleton': isImageMime(attachment.mime) }"
+                                    @click="openAttachment(attachment)"
                                 >
-                                    <img v-if="attachment.mime?.startsWith('image/')" :src="attachment.url" :alt="attachment.name" loading="lazy" />
-                                    <video v-else-if="attachment.mime?.startsWith('video/')" :src="attachment.url" muted playsinline preload="metadata"></video>
+                                    <img
+                                        v-if="isImageMime(attachment.mime)"
+                                        :src="attachment.url"
+                                        :alt="attachment.name"
+                                        loading="lazy"
+                                        decoding="async"
+                                        class="fade-img"
+                                        @load="$event.target.classList.add('loaded')"
+                                        @error="$event.target.classList.add('loaded')"
+                                    />
+                                    <video v-else-if="isVideoMime(attachment.mime)" :src="attachment.url" muted playsinline preload="metadata"></video>
                                     <span v-else class="bubble-attachment-file">{{ attachment.name }}</span>
-                                </a>
+                                </button>
                             </div>
                             <p v-if="message.text">{{ message.text }}</p>
                             <time v-if="message.status !== 'sending' && message.status !== 'failed'">{{ formatTime(message.at) }}</time>
@@ -261,22 +276,42 @@
                 </div>
             </div>
         </div>
+
+        <!-- Image preview modal -->
+        <div v-if="previewImageUrl" class="modal-overlay" role="dialog" aria-modal="true" aria-label="Attachment preview" @click.self="previewImageUrl = null">
+            <div class="attachment-preview-modal">
+                <button type="button" class="modal-close attachment-preview-close" aria-label="Close preview" @click="previewImageUrl = null">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                </button>
+                <img :src="previewImageUrl" alt="Attachment preview" />
+            </div>
+        </div>
+
+        <!-- Video preview modal -->
+        <div v-if="previewVideoAttachment" class="modal-overlay" role="dialog" aria-modal="true" aria-label="Video preview" @click.self="previewVideoAttachment = null">
+            <div class="attachment-preview-modal" style="width: min(32rem, 90vw)">
+                <button type="button" class="modal-close attachment-preview-close" aria-label="Close preview" @click="previewVideoAttachment = null">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                </button>
+                <AttachmentVideoPlayer :src="previewVideoAttachment.url" :name="previewVideoAttachment.name" />
+            </div>
+        </div>
     </section>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import { useLogistics } from '../composables/useLogistics';
+import { useLogistics, getSupabase } from '../composables/useLogistics';
+import AttachmentVideoPlayer from '../../shared/AttachmentVideoPlayer.vue';
+import { subscribeToConversationMessages, subscribeToInbox } from '../../shared/realtime';
 
 const { logisticsFetch } = useLogistics();
 
 const MESSAGES_PAGE_SIZE = 10;
-// Split into two cadences: the open thread's messages poll fast (so a
-// seller's reply feels close to instant with no realtime infra), while the
-// inbox's badges/previews for OTHER threads poll slower since they're not
-// what's actively being looked at.
-const MESSAGE_POLL_MS = 5000;
-const META_POLL_MS = 20000;
+// First paint only needs the tail of the conversation — older history loads
+// in via loadOlderMessages() as the rider scrolls up, so opening a thread
+// doesn't pay for 10 messages' worth of transfer/render up front.
+const INITIAL_MESSAGES_LIMIT = 3;
 const ALLOWED_ATTACHMENT_TYPES = [
     'image/png', 'image/jpeg', 'image/webp', 'application/pdf',
     'video/mp4', 'video/webm', 'video/quicktime',
@@ -312,6 +347,8 @@ const statusActionError = ref('');
 const stagedAttachments = ref([]);
 const attachmentError = ref('');
 const fileInput = ref(null);
+const previewImageUrl = ref(null);
+const previewVideoAttachment = ref(null);
 const activeConversation = computed(() => conversations.value.find(item => item.id === activeId.value) || null);
 // The server already applies search + status filtering and returns
 // newest-first — this just guards against a stale ordering while a debounced
@@ -326,15 +363,60 @@ const canSend = computed(() => {
 
     return !hasUploadingAttachment.value && (hasText || hasAttachment);
 });
-let messagePollTimer = null;
-let metaPollTimer = null;
 let polling = false;
 let messageRequestVersion = 0;
 let searchDebounce = null;
+let messageRealtimeChannel = null;
+let inboxRealtimeChannel = null;
+let subscribedConversationId = null;
+let localIdSequence = 0;
 
 // Switching Chat A -> Chat B -> Chat A shouldn't refetch Chat A's history
 // from scratch — keep whatever was last loaded for each conversation.
 const messagesCache = new Map();
+
+// The server hands back a fresh temporary-signed URL for the same
+// attachment on every fetch (initial load, older-history page, realtime
+// delta fetch...). Passing that straight through would churn the
+// <img>/<video> src every time — even though nothing changed — forcing the
+// browser to redownload an already-loaded image. Cache the signed URL per
+// attachment id and keep reusing it until it's actually close to expiring
+// (the URL embeds `expires` as a unix timestamp), so the element's src
+// stays stable and images already on screen never reload. Mirrors buyer's
+// useBuyerChat.js / seller's useMessaging.js, which already do this.
+const attachmentUrlCache = new Map();
+const SIGNED_URL_EXPIRY_BUFFER_MS = 60000;
+
+function signedUrlExpiryMs(url) {
+    try {
+        const expires = Number(new URL(url, window.location.origin).searchParams.get('expires'));
+        return Number.isFinite(expires) && expires > 0 ? expires * 1000 : null;
+    } catch {
+        return null;
+    }
+}
+
+function stabilizeAttachmentUrl(id, freshUrl) {
+    if (!id || !freshUrl) return freshUrl || null;
+    const cached = attachmentUrlCache.get(id);
+    if (cached) {
+        const expiresAt = signedUrlExpiryMs(cached);
+        if (!expiresAt || expiresAt - Date.now() > SIGNED_URL_EXPIRY_BUFFER_MS) {
+            return cached;
+        }
+    }
+    attachmentUrlCache.set(id, freshUrl);
+    return freshUrl;
+}
+
+function stabilizeMessages(list) {
+    return (list || []).map(message => ({
+        ...message,
+        attachments: Array.isArray(message.attachments)
+            ? message.attachments.map(attachment => ({ ...attachment, url: stabilizeAttachmentUrl(attachment.id, attachment.url) }))
+            : message.attachments,
+    }));
+}
 
 async function request(path, options = {}) {
     const response = await logisticsFetch(`/api/logistics/messages${path}`, options);
@@ -443,24 +525,93 @@ async function syncConversationMeta() {
     }
 }
 
+// Fetches messages newer than the last real (non-optimistic) one already
+// shown for the active conversation — called on a Supabase Realtime
+// `messages` INSERT event (or on channel reconnect, to catch up on
+// anything missed) instead of on a polling interval.
+async function fetchNewMessages() {
+    if (polling || document.hidden || !activeId.value || sending.value) return;
+    polling = true;
+    try {
+        const conversationId = activeId.value;
+        const newestKnown = [...messages.value].reverse().find(m => !String(m.id).startsWith('local-'));
+
+        if (newestKnown) {
+            const requestVersion = ++messageRequestVersion;
+            const { data } = await apiWithMeta(
+                `/conversations/${conversationId}/messages?after=${encodeURIComponent(newestKnown.id)}&limit=${MESSAGES_PAGE_SIZE}`,
+            );
+
+            if (requestVersion === messageRequestVersion && activeId.value === conversationId && !sending.value && data.length) {
+                const knownIds = new Set(messages.value.map(m => m.id));
+                const fresh = stabilizeMessages(data.filter(m => !knownIds.has(m.id)));
+
+                if (fresh.length) {
+                    messages.value = chronological([...messages.value, ...fresh]);
+                    messagesCache.set(conversationId, { messages: messages.value, meta: messagesMeta.value });
+                }
+            }
+        }
+    } catch {
+        // A transient failure is retried on the next realtime event.
+    } finally { polling = false; }
+}
+
+// Subscribes the message channel to whichever conversation is currently
+// open, tearing down the previous one first.
+function subscribeActiveConversation(id) {
+    if (subscribedConversationId === id) return;
+    messageRealtimeChannel?.unsubscribe();
+    messageRealtimeChannel = null;
+    subscribedConversationId = id;
+    if (!id) return;
+    messageRealtimeChannel = subscribeToConversationMessages(getSupabase(), id, {
+        onInsert: fetchNewMessages,
+        onReconnect: fetchNewMessages,
+    });
+}
+
 async function openConversation(id) {
     const requestVersion = ++messageRequestVersion;
     activeId.value = id;
     error.value = '';
+    subscribeActiveConversation(id);
 
     const cached = messagesCache.get(id);
     messages.value = cached ? cached.messages : [];
     messagesMeta.value = cached ? cached.meta : { hasMore: false, nextCursor: null };
     loadingMessages.value = !cached;
 
+    // Reopening an already-cached thread: the cached messages are already
+    // showing (set above) — mark it read server-side and delta-sync
+    // anything new via the same fetch realtime already uses
+    // (fetchNewMessages()), instead of re-fetching "latest N" and
+    // overwriting history already scrolled into via loadOlderMessages().
+    if (cached) {
+        api(`/conversations/${id}`).catch(() => {});
+        const item = conversations.value.find(conversation => conversation.id === id);
+        if (item) item.unread = 0;
+        await fetchNewMessages();
+        await nextTick();
+        if (messageBody.value) messageBody.value.scrollTop = messageBody.value.scrollHeight;
+        return;
+    }
+
+    // The detail call's response isn't used for rendering at all — the
+    // header/context already comes straight from `conversations.value`
+    // (the inbox list, already loaded — see `activeConversation` above);
+    // this request exists purely to mark the thread read server-side. It
+    // used to be awaited in the same Promise.all as the messages fetch,
+    // which meant messages (~110-150ms) sat unrendered waiting on this
+    // (~350-530ms) call for a result nothing reads. Fire it independently
+    // instead of blocking on it.
+    api(`/conversations/${id}`).catch(() => {});
+
     try {
-        const [, messagesResult] = await Promise.all([
-            api(`/conversations/${id}`),
-            apiWithMeta(`/conversations/${id}/messages?limit=${MESSAGES_PAGE_SIZE}`),
-        ]);
+        const messagesResult = await apiWithMeta(`/conversations/${id}/messages?limit=${INITIAL_MESSAGES_LIMIT}`);
         if (requestVersion !== messageRequestVersion || activeId.value !== id) return;
 
-        const loaded = chronological(messagesResult.data);
+        const loaded = chronological(stabilizeMessages(messagesResult.data));
         messages.value = loaded;
         messagesMeta.value = messagesResult.meta;
         messagesCache.set(id, { messages: loaded, meta: messagesResult.meta });
@@ -493,7 +644,7 @@ async function loadOlderMessages() {
         );
         if (activeId.value !== id) return;
 
-        messages.value = [...chronological(data), ...messages.value];
+        messages.value = [...chronological(stabilizeMessages(data)), ...messages.value];
         messagesMeta.value = meta;
         messagesCache.set(id, { messages: messages.value, meta });
     } catch {
@@ -527,7 +678,7 @@ async function send() {
     draft.value = '';
     clearStagedAttachments();
 
-    const localId = `local-${Date.now()}`;
+    const localId = `local-${Date.now()}-${++localIdSequence}`;
     messages.value = chronological([
         ...messages.value,
         { id: localId, from: 'logistics', text: body, attachments: uploaded, at: new Date().toISOString(), status: 'sending' },
@@ -543,7 +694,7 @@ async function send() {
             body: JSON.stringify({ body: body || null, attachment_ids: attachmentIds }),
         });
         const idx = messages.value.findIndex(m => m.id === localId);
-        if (idx !== -1) messages.value[idx] = message;
+        if (idx !== -1) messages.value[idx] = stabilizeMessages([message])[0];
         messagesCache.set(conversationId, { messages: messages.value, meta: messagesMeta.value });
 
         // Patch the sidebar preview locally instead of refetching the whole
@@ -561,7 +712,7 @@ async function send() {
         sending.value = false;
     }
 }
-function closeConversation() { ++messageRequestVersion; activeId.value = null; messages.value = []; loadingMessages.value = false; }
+function closeConversation() { ++messageRequestVersion; activeId.value = null; messages.value = []; loadingMessages.value = false; subscribeActiveConversation(null); }
 
 function validateAttachment(file) {
     if (!ALLOWED_ATTACHMENT_TYPES.includes(file.type)) {
@@ -720,49 +871,44 @@ async function runDeleteConversation() {
 // duplicating it per type.
 function contactOf(conversation) { return conversation.type === 'roster' ? conversation.courier : conversation.seller; }
 function initials(name) { return (name || '?').split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase(); }
+function isImageMime(mime) { return !!mime && mime.startsWith('image/'); }
+function isVideoMime(mime) { return !!mime && mime.startsWith('video/'); }
+function openAttachment(attachment) {
+    if (isImageMime(attachment.mime)) {
+        previewImageUrl.value = attachment.url;
+    } else if (isVideoMime(attachment.mime)) {
+        previewVideoAttachment.value = attachment;
+    } else {
+        window.open(attachment.url, '_blank', 'noopener');
+    }
+}
 function formatTime(value) { return value ? new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''; }
 function formatCurrency(value) { return `₱${Number(value || 0).toFixed(2)}`; }
 function formatListTime(value) { return value ? new Date(value).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''; }
 function timestamp(value) { return value ? new Date(value).getTime() : 0; }
 function chronological(items) { return [...items].sort((first, second) => timestamp(first.at) - timestamp(second.at)); }
+// Catch-up for anything missed while the tab was backgrounded (a realtime
+// channel can be suspended by the browser while hidden).
+function onVisibilityChange() {
+    if (!document.hidden) {
+        syncConversationMeta();
+        if (activeId.value) fetchNewMessages();
+    }
+}
+
 onMounted(async () => {
     await loadConversations();
 
-    messagePollTimer = window.setInterval(async () => {
-        if (polling || document.hidden || !activeId.value || sending.value) return;
-        polling = true;
-        try {
-            const conversationId = activeId.value;
-            const newestKnown = [...messages.value].reverse().find(m => !String(m.id).startsWith('local-'));
-
-            if (newestKnown) {
-                const requestVersion = ++messageRequestVersion;
-                const { data } = await apiWithMeta(
-                    `/conversations/${conversationId}/messages?after=${encodeURIComponent(newestKnown.id)}&limit=${MESSAGES_PAGE_SIZE}`,
-                );
-
-                if (requestVersion === messageRequestVersion && activeId.value === conversationId && !sending.value && data.length) {
-                    const knownIds = new Set(messages.value.map(m => m.id));
-                    const fresh = data.filter(m => !knownIds.has(m.id));
-
-                    if (fresh.length) {
-                        messages.value = chronological([...messages.value, ...fresh]);
-                        messagesCache.set(conversationId, { messages: messages.value, meta: messagesMeta.value });
-                    }
-                }
-            }
-        } catch {
-            // A transient background failure is retried on the next interval.
-        } finally { polling = false; }
-    }, MESSAGE_POLL_MS);
-
-    metaPollTimer = window.setInterval(() => {
-        if (!document.hidden) syncConversationMeta();
-    }, META_POLL_MS);
+    inboxRealtimeChannel = subscribeToInbox(getSupabase(), {
+        onChange: () => syncConversationMeta(),
+        onReconnect: () => syncConversationMeta(),
+    });
+    document.addEventListener('visibilitychange', onVisibilityChange);
 });
 onBeforeUnmount(() => {
-    window.clearInterval(messagePollTimer);
-    window.clearInterval(metaPollTimer);
+    messageRealtimeChannel?.unsubscribe();
+    inboxRealtimeChannel?.unsubscribe();
+    document.removeEventListener('visibilitychange', onVisibilityChange);
 });
 </script>
 
@@ -799,7 +945,8 @@ onBeforeUnmount(() => {
 .thread-button.active { border-left-color: #0f766e; background: #f0fdfa; }
 .thread-button.unread .thread-copy strong { font-weight: 800; }
 .avatar { display: grid; width: 2.55rem; height: 2.55rem; flex: none; place-items: center; border-radius: 0.8rem; background: #ccfbf1; color: #0f766e; font-size: 0.78rem; font-weight: 800; }
-img.avatar { object-fit: cover; display: block; }
+img.avatar { object-fit: cover; display: block; opacity: 0; transition: opacity 0.25s ease; }
+img.avatar.loaded { opacity: 1; }
 .thread-copy { display: grid; min-width: 0; flex: 1; gap: 0.2rem; }
 .thread-copy strong, .thread-copy > span, .thread-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thread-top { display: flex; justify-content: space-between; gap: 0.5rem; }
@@ -846,9 +993,24 @@ img.avatar { object-fit: cover; display: block; }
 .staged-attachment-status.error { color: #b91c1c; }
 .staged-attachment-remove { position: absolute; top: 0.2rem; right: 0.2rem; display: grid; width: 1.1rem; height: 1.1rem; place-items: center; border: 0; border-radius: 50%; background: rgba(15, 23, 42, 0.55); color: #fff; font-size: 0.75rem; line-height: 1; cursor: pointer; }
 .bubble-attachments { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.4rem; }
-.bubble-attachment { display: block; width: 6rem; height: 6rem; border-radius: 0.75rem; overflow: hidden; background: #0f172a; }
+.bubble-attachment { display: block; width: 6rem; height: 6rem; padding: 0; border: 0; border-radius: 0.75rem; overflow: hidden; background: #0f172a; cursor: pointer; }
 .bubble-attachment img, .bubble-attachment video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .bubble-attachment-file { display: flex; align-items: center; justify-content: center; height: 100%; padding: 0.4rem; color: #fff; font-size: 0.65rem; text-align: center; overflow-wrap: anywhere; }
+/* Shared shimmer placeholder for any image that loads independently of the
+   text/content beside it (order/inquiry card thumbnails, attachment
+   thumbnails) — the image fades in over this once loaded, so text is
+   never blocked and nothing shifts layout. */
+@keyframes img-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.img-skeleton { background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 37%, #e2e8f0 63%); background-size: 400% 100%; animation: img-shimmer 1.6s ease-in-out infinite; }
+.fade-img { opacity: 0; transition: opacity 0.25s ease; }
+.fade-img.loaded { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+    .img-skeleton { animation: none; }
+}
+.attachment-preview-modal { position: relative; max-width: 90vw; max-height: 85vh; }
+.attachment-preview-modal img { display: block; max-width: 90vw; max-height: 85vh; border-radius: 0.75rem; }
+.attachment-preview-close { position: absolute; top: -2.5rem; right: 0; border-color: transparent; background: rgba(15, 23, 42, 0.55); color: #fff; }
+.attachment-preview-close:hover { background: rgba(15, 23, 42, 0.75); color: #fff; }
 .bubble.bubble-media { background: transparent; border: 0; box-shadow: none; padding: 0; }
 /* Seller's "Inquiring About" parcel-inquiry card — a card-only message
    (no text bubble), aligned like any other message from its sender. */

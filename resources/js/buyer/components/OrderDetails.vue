@@ -373,44 +373,39 @@ const { startConversation } = useBuyerChat();
 
 const messageOpen = ref(false);
 const messageDraft = ref('');
-const messageSending = ref(false);
-const messageError = ref('');
 const messageInput = ref(null);
 
 function toggleMessageComposer() {
     messageOpen.value = !messageOpen.value;
-    messageError.value = '';
 
     if (messageOpen.value) {
         nextTick(() => messageInput.value?.focus());
     }
 }
 
-async function sendSellerMessage() {
+// Opens the chat popup immediately (see useBuyerChat.js's startConversation()
+// docblock) instead of waiting for the network round trip — the composer
+// closes right away and the popup shows the message being sent, with the
+// actual create-thread request running in the background. A failure surfaces
+// there (a "Failed · Retry" bubble), not back on this page.
+function sendSellerMessage() {
     const body = messageDraft.value.trim();
 
     if (!body || !props.order?.seller_id) {
         return;
     }
 
-    messageSending.value = true;
-    messageError.value = '';
+    messageDraft.value = '';
+    messageOpen.value = false;
 
-    try {
-        await startConversation({
-            sellerId: props.order.seller_id,
-            orderNumber: props.order.orderId,
-            subject: `Order ${props.order.orderId}`,
-            body
-        });
-
-        messageDraft.value = '';
-        messageOpen.value = false;
-    } catch (err) {
-        messageError.value = err?.message || 'Could not send your message. Please try again.';
-    } finally {
-        messageSending.value = false;
-    }
+    startConversation({
+        sellerId: props.order.seller_id,
+        orderNumber: props.order.orderId,
+        subject: `Order ${props.order.orderId}`,
+        body
+    }).catch(err => {
+        console.error('Error starting conversation:', err);
+    });
 }
 
 // Small inline copy icon lives next to the tracking number itself in the
@@ -628,15 +623,14 @@ function handleHeaderSelectCategory(category) {
                             placeholder="Type your message…"
                             class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all resize-y"
                         ></textarea>
-                        <p v-if="messageError" class="text-xs text-red-500 mt-2">{{ messageError }}</p>
                         <div class="mt-3 flex justify-end">
                             <button
                                 type="button"
                                 class="px-6 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                :disabled="messageSending || !messageDraft.trim()"
+                                :disabled="!messageDraft.trim()"
                                 @click="sendSellerMessage"
                             >
-                                {{ messageSending ? 'Sending…' : 'Send Message' }}
+                                Send Message
                             </button>
                         </div>
                     </div>
