@@ -56,7 +56,36 @@ class AuthenticateSupabaseUser
 
         $request->setUserResolver(fn () => $profile);
 
+        $this->touchActivity($profile);
+
         return $next($request);
+    }
+
+    /**
+     * Powers the messaging thread header's "Online"/"Offline" indicator
+     * (Profile::isOnline()). Every authenticated request across every role
+     * passes through here, so this is the one place that can mark a
+     * profile active without duplicating the check per-route.
+     *
+     * Throttled via cache rather than writing on every request: a buyer
+     * with the chat popup open alone fires this on every poll, so an
+     * unthrottled UPDATE would hammer the profiles table. The cache key's
+     * TTL bounds writes to at most one per profile per window, independent
+     * of how many requests that profile makes — and the write itself uses
+     * the query builder (not $profile->save()), so it doesn't touch
+     * `updated_at` or fire model events.
+     */
+    private function touchActivity(Profile $profile): void
+    {
+        $cacheKey = 'profile_activity_touch:'.$profile->id;
+
+        if (Cache::has($cacheKey)) {
+            return;
+        }
+
+        Cache::put($cacheKey, true, 60);
+
+        Profile::where('id', $profile->id)->update(['last_active_at' => now()]);
     }
 
     private function bearerToken(Request $request): ?string

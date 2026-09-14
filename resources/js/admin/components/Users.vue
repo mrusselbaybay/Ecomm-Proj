@@ -235,68 +235,127 @@
                     </section>
                 </div>
                 <div v-else class="space-y-6 p-5">
-                    <dl class="grid gap-4 text-sm sm:grid-cols-2">
-                        <div>
-                            <dt class="field-label">Email</dt>
-                            <dd>{{ selectedAccount.email }}</dd>
-                        </div>
-                        <div>
-                            <dt class="field-label">Phone</dt>
-                            <dd>
-                                {{
-                                    selectedAccount.contact_no || 'Not provided'
-                                }}
-                            </dd>
-                        </div>
-                        <div>
-                            <dt class="field-label">Birthday</dt>
-                            <dd>{{ formatDate(selectedAccount.birthday) }}</dd>
-                        </div>
-                        <div>
-                            <dt class="field-label">Address</dt>
-                            <dd>
-                                {{
-                                    selectedAccount.address?.full_address ||
-                                    'Not provided'
-                                }}
-                            </dd>
-                        </div>
-                        <div v-if="selectedAccount.seller_detail">
-                            <dt class="field-label">Seller business</dt>
-                            <dd>
-                                {{
-                                    selectedAccount.seller_detail.business_name
-                                }}
-                                —
-                                {{
-                                    selectedAccount.seller_detail
-                                        .line_of_business
-                                }}
-                            </dd>
-                        </div>
-                        <div v-if="selectedAccount.courier_detail">
-                            <dt class="field-label">Courier vehicle</dt>
-                            <dd>
-                                {{ selectedAccount.courier_detail.vehicle }}
-                                ({{
-                                    selectedAccount.courier_detail.plate_number
-                                }})
-                            </dd>
-                        </div>
-                        <div v-if="selectedAccount.driver_detail">
-                            <dt class="field-label">Driver details</dt>
-                            <dd>
-                                {{ selectedAccount.driver_detail.vehicle }}
-                                ({{
-                                    selectedAccount.driver_detail.plate_number
-                                }}) · License
-                                {{
-                                    selectedAccount.driver_detail
-                                        .license_number || 'not provided'
-                                }}
-                            </dd>
-                        </div>
-                    </dl>
+                    <div>
+                        <h4 class="mb-3 font-bold text-slate-900">
+                            Profile details
+                        </h4>
+                        <dl class="grid gap-3 sm:grid-cols-2">
+                            <div class="info-field">
+                                <span class="info-icon" aria-hidden="true">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>
+                                </span>
+                                <div class="min-w-0">
+                                    <dt class="field-label">Email</dt>
+                                    <dd>{{ selectedAccount.email }}</dd>
+                                </div>
+                            </div>
+                            <div class="info-field">
+                                <span class="info-icon" aria-hidden="true">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" /></svg>
+                                </span>
+                                <div class="min-w-0">
+                                    <dt class="field-label">Phone</dt>
+                                    <dd>
+                                        {{
+                                            selectedAccount.contact_no ||
+                                            'Not provided'
+                                        }}
+                                    </dd>
+                                </div>
+                            </div>
+                            <div class="info-field">
+                                <span class="info-icon" aria-hidden="true">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+                                </span>
+                                <div class="min-w-0">
+                                    <dt class="field-label">Birthday</dt>
+                                    <dd>{{ formatDate(selectedAccount.birthday) }}</dd>
+                                </div>
+                            </div>
+                            <div class="info-field">
+                                <span class="info-icon" aria-hidden="true">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>
+                                </span>
+                                <div class="min-w-0">
+                                    <dt class="field-label">Address</dt>
+                                    <dd>
+                                        {{
+                                            selectedAccount.address
+                                                ?.full_address ||
+                                            'Not provided'
+                                        }}
+                                    </dd>
+                                </div>
+                            </div>
+                            <div v-if="selectedAccount.seller_detail" class="info-field">
+                                <span class="info-icon" aria-hidden="true">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+                                </span>
+                                <div class="min-w-0">
+                                    <dt class="field-label">Seller business</dt>
+                                    <dd>
+                                        {{
+                                            selectedAccount.seller_detail
+                                                .business_name
+                                        }}
+                                        —
+                                        {{
+                                            selectedAccount.seller_detail
+                                                .line_of_business
+                                        }}
+                                    </dd>
+                                </div>
+                            </div>
+                            <div v-if="selectedAccount.courier_detail" class="info-field">
+                                <span class="info-icon" aria-hidden="true">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h11v9H3z" /><path d="M14 10h4l3 3v3h-7z" /><circle cx="7" cy="18" r="1.6" /><circle cx="17.5" cy="18" r="1.6" /></svg>
+                                </span>
+                                <div class="min-w-0">
+                                    <dt class="field-label">Courier vehicle</dt>
+                                    <dd>
+                                        {{ selectedAccount.courier_detail.vehicle }}
+                                        ({{
+                                            selectedAccount.courier_detail
+                                                .plate_number
+                                        }})
+                                    </dd>
+                                </div>
+                            </div>
+                            <div v-if="selectedAccount.role === 'courier'" class="info-field">
+                                <span class="info-icon" aria-hidden="true">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M3 13h18" /></svg>
+                                </span>
+                                <div class="min-w-0">
+                                    <dt class="field-label">Employed by</dt>
+                                    <dd v-if="selectedAccount.employer">
+                                        {{ selectedAccount.employer.company_name }}
+                                        <span class="block text-xs text-slate-400">{{ selectedAccount.employer.region }}</span>
+                                    </dd>
+                                    <dd v-else class="text-slate-400">Unemployed</dd>
+                                </div>
+                            </div>
+                            <div v-if="selectedAccount.driver_detail" class="info-field">
+                                <span class="info-icon" aria-hidden="true">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h11v9H3z" /><path d="M14 10h4l3 3v3h-7z" /><circle cx="7" cy="18" r="1.6" /><circle cx="17.5" cy="18" r="1.6" /></svg>
+                                </span>
+                                <div class="min-w-0">
+                                    <dt class="field-label">Driver details</dt>
+                                    <dd>
+                                        {{ selectedAccount.driver_detail.vehicle }}
+                                        ({{
+                                            selectedAccount.driver_detail
+                                                .plate_number
+                                        }}) · License
+                                        {{
+                                            selectedAccount.driver_detail
+                                                .license_number ||
+                                            'not provided'
+                                        }}
+                                    </dd>
+                                </div>
+                            </div>
+                        </dl>
+                    </div>
 
                     <section>
                         <h4 class="font-bold text-slate-900">Status history</h4>
@@ -955,6 +1014,31 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
     font-weight: 700;
     letter-spacing: 0.05em;
     text-transform: uppercase;
+}
+.info-field {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.65rem;
+    background: #f8fafc;
+    padding: 0.7rem 0.8rem;
+}
+.info-icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    background: #ccfbf1;
+    color: #0f766e;
+}
+.info-field dd {
+    color: #1e293b;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
 }
 .admin-table {
     width: 100%;

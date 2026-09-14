@@ -190,7 +190,7 @@ class MessageController extends Controller
 
         $query = $this->applyStatusFilter(clone $base, $request->string('status')->toString())
             ->select('conversations.*')
-            ->with(['buyer', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider', 'participantRecords'])
+            ->with(['buyer', 'courier', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider', 'participantRecords'])
             ->orderByRaw('conversations.last_message_at desc nulls last')
             ->orderByDesc('conversations.created_at');
 
@@ -219,7 +219,7 @@ class MessageController extends Controller
      */
     public function showConversation(Request $request, string $id): JsonResponse
     {
-        $conversation = $this->findForSeller($request, $id, ['buyer', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider', 'participantRecords']);
+        $conversation = $this->findForSeller($request, $id, ['buyer', 'courier', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider', 'participantRecords']);
 
         if (! $conversation) {
             return response()->json(['message' => 'Conversation not found.'], 404);
@@ -390,9 +390,11 @@ class MessageController extends Controller
             'seller_unread_count' => 0,
         ])->save();
 
-        $conversation->increment(
-            $conversation->type === 'shipment' ? 'logistics_unread_count' : 'buyer_unread_count'
-        );
+        $conversation->increment(match ($conversation->type) {
+            'shipment' => 'logistics_unread_count',
+            'delivery' => 'courier_unread_count',
+            default => 'buyer_unread_count',
+        });
 
         $conversation->reviveLeftParticipants();
 
@@ -461,7 +463,7 @@ class MessageController extends Controller
      */
     public function setStatus(UpdateConversationStatusRequest $request, string $id): JsonResponse
     {
-        $conversation = $this->findForSeller($request, $id, ['buyer', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider', 'participantRecords']);
+        $conversation = $this->findForSeller($request, $id, ['buyer', 'courier', 'order', 'product', 'logisticsCompany.owner', 'parcelAssignment.rider', 'participantRecords']);
 
         if (! $conversation) {
             return response()->json(['message' => 'Conversation not found.'], 404);
@@ -529,7 +531,10 @@ class MessageController extends Controller
         $seller = $request->user();
         $conversation = $this->findForSeller($request, $id, ['buyer']);
 
-        if (! $conversation || $conversation->type === 'shipment') {
+        // Only a genuine buyer<->seller thread has a buyer to report —
+        // 'shipment' (logistics) and 'delivery' (courier) counterparties
+        // go through their own moderation channels, not this one.
+        if (! $conversation || in_array($conversation->type, ['shipment', 'delivery'], true)) {
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
@@ -671,11 +676,39 @@ class MessageController extends Controller
             });
     }
 
+    /**
+     * The counterparty on a seller's conversation: the logistics company's
+     * owner on a 'shipment' thread, the courier who started it on a
+     * 'delivery' thread (DeliveryConversationService::findOrCreate() — the
+     * "Message" button on the driver app's delivery-detail screen), or the
+     * buyer on every other (buyer<->seller) thread type.
+     */
+    private function counterpartyProfile(Conversation $c): ?Profile
+    {
+        return match ($c->type) {
+            'shipment' => $c->logisticsCompany?->owner,
+            'delivery' => $c->courier,
+            default => $c->buyer,
+        };
+    }
+
+    private function counterpartyRole(Conversation $c): string
+    {
+        return match ($c->type) {
+            'shipment' => 'logistics',
+            'delivery' => 'courier',
+            default => 'buyer',
+        };
+    }
+
     private function transformConversation(Conversation $c): array
     {
-        $counterpartyName = $c->type === 'shipment'
-            ? ($c->logisticsCompany?->company_name ?: 'Logistics')
-            : ($c->buyer?->full_name ?: 'Buyer');
+        $counterpartyProfile = $this->counterpartyProfile($c);
+        $counterpartyName = match ($c->type) {
+            'shipment' => $c->logisticsCompany?->company_name ?: 'Logistics',
+            'delivery' => $counterpartyProfile?->full_name ?: 'Courier',
+            default => $counterpartyProfile?->full_name ?: 'Buyer',
+        };
 
         return [
             'id' => $c->id,
@@ -686,7 +719,7 @@ class MessageController extends Controller
             // here already belongs to the authenticated seller.
             'archived' => $c->isArchivedFor($c->seller_id),
             'buyer' => [
-                'id' => $c->type === 'shipment' ? $c->logisticsCompany?->owner_profile_id : $c->buyer_id,
+                'id' => $c->type === 'shipment' ? $c->logisticsCompany?->owner_profile_id : $counterpartyProfile?->id,
                 'name' => $counterpartyName,
                 'initials' => $this->initialsFor($counterpartyName),
                 // Reuses the Profile relation already eager-loaded for this
@@ -695,8 +728,11 @@ class MessageController extends Controller
                 // attachments' signed links.
                 'avatarUrl' => $c->type === 'shipment'
                     ? $c->logisticsCompany?->owner?->avatar_url
-                    : $c->buyer?->avatar_url,
-                'role' => $c->type === 'shipment' ? 'logistics' : 'buyer',
+                    : $counterpartyProfile?->avatar_url,
+                'role' => $this->counterpartyRole($c),
+                // Activity-based presence (Profile::isOnline()) — refreshed
+                // on every conversations poll, no dedicated request needed.
+                'online' => (bool) $counterpartyProfile?->isOnline(),
             ],
             'shipment' => $c->parcelAssignment ? [
                 'id' => $c->parcelAssignment->id,

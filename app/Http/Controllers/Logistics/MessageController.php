@@ -7,6 +7,8 @@ use App\Http\Requests\Logistics\SendMessageRequest;
 use App\Http\Requests\Logistics\UpdateConversationStatusRequest;
 use App\Http\Requests\Messaging\UploadMessageAttachmentRequest;
 use App\Models\Conversation;
+use App\Models\ConversationParticipant;
+use App\Models\CourierApplication;
 use App\Models\LogisticsCompany;
 use App\Models\Message;
 use App\Models\MessageAttachment;
@@ -44,13 +46,14 @@ class MessageController extends Controller
     public function conversations(Request $request): JsonResponse
     {
         $company = $this->companyFor($request);
+        $this->ensureRosterConversations($company, $request->user()->id);
         $base = $this->searchScopedQuery($request, $company);
 
         $statusCounts = $this->statusCounts(clone $base);
 
         $query = $this->applyStatusFilter(clone $base, $request->string('status')->toString())
             ->select('conversations.*')
-            ->with(['seller.sellerDetail', 'order', 'parcelAssignment.rider', 'participantRecords'])
+            ->with(['seller.sellerDetail', 'order', 'parcelAssignment.rider', 'courier.courierDetail', 'participantRecords'])
             ->orderByRaw('conversations.last_message_at desc nulls last')
             ->orderByDesc('conversations.created_at');
 
@@ -273,9 +276,74 @@ class MessageController extends Controller
     public function unreadCount(Request $request): JsonResponse
     {
         $company = $this->companyFor($request);
+        $this->ensureRosterConversations($company, $request->user()->id);
         $count = (int) $this->scopedQuery($request, $company)->sum('logistics_unread_count');
 
         return response()->json(['data' => ['count' => $count]]);
+    }
+
+    /**
+     * Every currently-employed courier (an 'accepted' CourierApplication —
+     * see the STATUS_ACCEPTED comment on that model, the source of truth
+     * for employment; courier_details.logistics_company_id is never kept in
+     * sync) automatically gets a 'roster' conversation with this company's
+     * owner, so the inbox lists them even before either side has sent a
+     * message — mirrors ShipmentConversationService::findOrCreate()'s
+     * firstOrCreate pattern, just for the whole roster at once instead of
+     * one parcel assignment.
+     *
+     * Only couriers can read this yet — there is no courier-side inbox —
+     * so this only ever needs to run for the logistics owner's own view,
+     * and only has to reconcile new hires, never remove anyone (leaving a
+     * stale thread around after a courier is let go preserves history the
+     * same way every other conversation type does).
+     *
+     * Cached per company for a few minutes so the frequent inbox poll
+     * doesn't re-run the diff query on every tick — a brand new hire simply
+     * takes up to that long to appear automatically.
+     */
+    private function ensureRosterConversations(LogisticsCompany $company, string $ownerId): void
+    {
+        $cacheKey = "logistics_roster_ensured:{$company->id}";
+        if (Cache::has($cacheKey)) {
+            return;
+        }
+
+        $employedCourierIds = CourierApplication::query()
+            ->where('logistics_company_id', $company->id)
+            ->where('status', CourierApplication::STATUS_ACCEPTED)
+            ->pluck('courier_profile_id');
+
+        if ($employedCourierIds->isNotEmpty()) {
+            $existingCourierIds = Conversation::query()
+                ->where('type', 'roster')
+                ->where('logistics_company_id', $company->id)
+                ->pluck('courier_profile_id');
+
+            foreach ($employedCourierIds->diff($existingCourierIds) as $courierId) {
+                DB::transaction(function () use ($company, $courierId, $ownerId): void {
+                    $conversation = Conversation::query()->firstOrCreate(
+                        ['context_key' => Conversation::makeContextKey('roster', $courierId, [$ownerId, $courierId])],
+                        [
+                            'type' => 'roster',
+                            'created_by' => $ownerId,
+                            'logistics_company_id' => $company->id,
+                            'courier_profile_id' => $courierId,
+                            'status' => 'open',
+                        ],
+                    );
+
+                    foreach ([$ownerId, $courierId] as $participantId) {
+                        ConversationParticipant::query()->firstOrCreate(
+                            ['conversation_id' => $conversation->id, 'user_id' => $participantId],
+                            ['joined_at' => now()],
+                        );
+                    }
+                });
+            }
+        }
+
+        Cache::put($cacheKey, true, now()->addMinutes(3));
     }
 
     /**
@@ -310,7 +378,7 @@ class MessageController extends Controller
     private function scopedQuery(Request $request, LogisticsCompany $company): Builder
     {
         return Conversation::query()
-            ->where('type', 'shipment')
+            ->whereIn('type', ['shipment', 'roster'])
             ->where('logistics_company_id', $company->id)
             ->whereHas('participantRecords', fn (Builder $query) => $query
                 ->where('user_id', $request->user()->id)->whereNull('left_at'));
@@ -334,7 +402,7 @@ class MessageController extends Controller
                     ->where('conversation_participants.user_id', $userId)
                     ->whereNull('conversation_participants.left_at');
             })
-            ->where('conversations.type', 'shipment')
+            ->whereIn('conversations.type', ['shipment', 'roster'])
             ->where('conversations.logistics_company_id', $company->id);
 
         if ($search = $request->string('search')->toString()) {
@@ -342,6 +410,9 @@ class MessageController extends Controller
                 $q->where('conversations.last_message_preview', 'ilike', "%{$search}%")
                     ->orWhereHas('seller', function (Builder $sq) use ($search) {
                         $sq->where(DB::raw("(first_name || ' ' || last_name)"), 'ilike', "%{$search}%");
+                    })
+                    ->orWhereHas('courier', function (Builder $cq) use ($search) {
+                        $cq->where(DB::raw("(first_name || ' ' || last_name)"), 'ilike', "%{$search}%");
                     })
                     ->orWhereHas('order', function (Builder $oq) use ($search) {
                         $oq->where('order_number', 'ilike', "%{$search}%");
@@ -394,7 +465,7 @@ class MessageController extends Controller
         $company = $this->companyFor($request);
 
         return $this->scopedQuery($request, $company)
-            ->with(['seller.sellerDetail', 'order', 'parcelAssignment.rider', 'logisticsCompany', 'participantRecords'])
+            ->with(['seller.sellerDetail', 'order', 'parcelAssignment.rider', 'courier.courierDetail', 'logisticsCompany', 'participantRecords'])
             ->whereKey($id)
             ->first();
     }
@@ -437,6 +508,7 @@ class MessageController extends Controller
     {
         return [
             'id' => $conversation->id,
+            'type' => $conversation->type,
             'status' => $conversation->status,
             // Per-participant, not the shared `status` column — see
             // Conversation::archiveFor()/isArchivedFor(). Unlike buyer/
@@ -451,7 +523,20 @@ class MessageController extends Controller
                 // public, so this is a stable URL, unlike message
                 // attachments' signed links.
                 'avatarUrl' => $conversation->seller?->avatar_url,
+                // Activity-based presence (Profile::isOnline()) — refreshed
+                // on every conversations poll, no dedicated request needed.
+                'online' => (bool) $conversation->seller?->isOnline(),
             ],
+            // Only populated for type === 'roster' — a thread with one of
+            // this company's own employed couriers (see
+            // ensureRosterConversations()), null on a 'shipment' thread.
+            'courier' => $conversation->type === 'roster' ? [
+                'id' => $conversation->courier_profile_id,
+                'name' => $conversation->courier?->full_name,
+                'avatarUrl' => $conversation->courier?->avatar_url,
+                'online' => (bool) $conversation->courier?->isOnline(),
+                'vehicle' => $conversation->courier?->courierDetail?->vehicle,
+            ] : null,
             'order' => [
                 'id' => $conversation->order?->id,
                 'number' => $conversation->order?->order_number,

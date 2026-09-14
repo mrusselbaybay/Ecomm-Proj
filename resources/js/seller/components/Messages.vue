@@ -149,6 +149,7 @@
                             </span>
                             <span class="msg-convo-tags">
                                 <span v-if="c.buyer.role === 'logistics'" class="msg-convo-type">Logistics</span>
+                                <span v-else-if="c.buyer.role === 'courier'" class="msg-convo-type">Courier</span>
                                 <span v-if="c.needsResponse" class="badge badge-amber">Needs Response</span>
                                 <span v-else-if="c.status === 'resolved'" class="badge badge-emerald">Resolved</span>
                                 <span v-else-if="c.archived" class="badge badge-slate">Archived</span>
@@ -197,6 +198,9 @@
                         <div>
                             <h3 class="msg-chat-buyer-name">{{ activeConversation.buyer.name }}</h3>
                             <div class="msg-chat-header-meta">
+                                <span class="msg-presence" :class="{ online: activeConversation.buyer.online }">
+                                    <span class="msg-presence-dot"></span>{{ activeConversation.buyer.online ? 'Online' : 'Offline' }}
+                                </span>
                                 <span v-if="activeConversation.order" class="msg-order-link" @click="goToOrder(activeConversation.order.id)">
                                     Order {{ activeConversation.order.orderNumber }}
                                 </span>
@@ -1260,6 +1264,10 @@ watch(activeConversationId, (id) => {
     clearInterval(messagePollTimer);
     if (!id) return;
     messagePollTimer = setInterval(async () => {
+        // Skip while the tab is backgrounded — matches the logistics chat's
+        // polling loop; no point re-fetching a thread nobody is looking at.
+        if (document.hidden) return;
+
         const before = messages.value.length;
         await pollNewMessages(isAtBottom.value);
         if (messages.value.length > before && isAtBottom.value) {

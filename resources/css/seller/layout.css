@@ -5792,6 +5792,27 @@ img.msg-convo-avatar {
 .msg-order-link:hover {
     text-decoration: underline;
 }
+.msg-presence {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #94a3b8;
+}
+.msg-presence-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #94a3b8;
+    flex-shrink: 0;
+}
+.msg-presence.online {
+    color: var(--teal-700, #0f766e);
+}
+.msg-presence.online .msg-presence-dot {
+    background: var(--teal-600, #0d9488);
+}
 .msg-chat-actions {
     display: flex;
     align-items: center;

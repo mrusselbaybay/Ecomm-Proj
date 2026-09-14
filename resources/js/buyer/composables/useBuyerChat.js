@@ -15,22 +15,29 @@ import { buyerApi, buyerApiWithMeta } from './useBuyerApi';
 | edits. Conversation / message objects are mapped here to the exact
 | shape Chat.vue already renders:
 |
-|   conversation: { id, seller, memberSince, unread, updatedAt,
+|   conversation: { id, seller, sellerOnline, unread, updatedAt,
 |                   product: { name, price, oldPrice } | null,
 |                   messages: [{ id, from: 'buyer'|'seller', text, at }] }
 |
 | Times are formatted to short labels here (the server returns ISO).
 |
 | The project has no websocket / Supabase-Realtime wiring, so while the
-| popup is open this polls every POLL_MS: it re-fetches the active thread
-| (picking up the seller's replies) and refreshes the other threads'
-| unread badges. Optimistic "local-" bubbles are preserved across a poll.
+| popup is open this polls on two cadences: the active thread's messages
+| every MESSAGE_POLL_MS (picking up the seller's replies), and the other
+| threads' badges/previews every META_POLL_MS (less urgent, so slower).
+| Optimistic "local-" bubbles are preserved across a poll.
 | `startConversation` is the entry point used by the "Message Seller"
 | buttons on ProductDetails.vue / OrderDetails.vue.
 |
 */
 
-const POLL_MS = 15000;
+// Split into two cadences: an open thread's messages poll fast (so a
+// seller's reply feels close to instant with no realtime infra), while the
+// inbox's badges/previews for OTHER threads poll slower since they're not
+// what the buyer is actively looking at — this halves the request volume
+// the old single-cadence tick would need to hit the same message latency.
+const MESSAGE_POLL_MS = 5000;
+const META_POLL_MS = 20000;
 const MESSAGES_PAGE_SIZE = 10;
 const ALLOWED_ATTACHMENT_TYPES = [
     'image/png', 'image/jpeg', 'image/webp', 'application/pdf',
@@ -60,7 +67,9 @@ const unreadCount = ref(0);
 let loadedOnce = false;
 let inFlight = null;
 let unreadPrimed = false;
-let pollTimer = null;
+let messagePollTimer = null;
+let metaPollTimer = null;
+let localIdSequence = 0;
 
 const activeConversation = computed(
     () => conversations.value.find(c => c.id === activeConversationId.value) || null,
@@ -160,10 +169,11 @@ function mapMessage(message) {
         // Collapsing anything that wasn't literally 'seller' down to
         // 'buyer' used to also swallow the 'system' role (the auto
         // "order placed" message — see DirectConversationService::
-        // startForOrder()), which made it render as a right-aligned teal
-        // buyer bubble with read-receipt checkmarks instead of the
-        // dedicated order card in Chat.vue.
-        from: message.from === 'seller' || message.from === 'system' ? message.from : 'buyer',
+        // startForOrder()) and, once 'delivery' threads existed, the
+        // courier's own 'driver'/'courier' sender_role too — both would
+        // otherwise render as a right-aligned teal buyer bubble with
+        // read-receipt checkmarks instead of showing as an incoming message.
+        from: ['seller', 'system', 'driver', 'courier'].includes(message.from) ? message.from : 'buyer',
         text: message.text,
         attachments: Array.isArray(message.attachments)
             ? message.attachments.map(attachment => ({
@@ -210,12 +220,19 @@ function mapConversation(conversation) {
         seller: conversation.seller || 'BuyTheWay Seller',
         sellerId: conversation.sellerId || null,
         avatarUrl: conversation.sellerAvatarUrl || null,
+        // 'courier' on a 'delivery' thread (the driver app's "Message"
+        // button on a delivery's contact row), 'seller' on every ordinary
+        // thread — badges the sidebar row so it doesn't look like just
+        // another seller conversation.
+        role: conversation.sellerRole || 'seller',
         status: conversation.status || 'open',
         // Per-participant (see Conversation::archiveFor()/isArchivedFor()
         // on the backend) — archiving never touches `status`, so this is a
         // separate field, not status === 'archived'.
         archived: Boolean(conversation.archived),
-        memberSince: conversation.memberSince || null,
+        // Activity-based presence — kept fresh by syncConversationMeta()'s
+        // existing poll below, so showing it costs no extra request.
+        sellerOnline: Boolean(conversation.sellerOnline),
         unread: Number(conversation.unread || 0),
         updatedAt: threadTimeLabel(conversation.updatedAt),
         // The list endpoint deliberately never embeds messages (see its own
@@ -275,10 +292,11 @@ async function fetchConversations() {
         conversations.value = (data || []).map(mapConversation);
         conversationsMeta.value = meta || conversationsMeta.value;
 
-        if (!activeConversationId.value && conversations.value.length) {
-            activeConversationId.value = conversations.value[0].id;
-        }
-
+        // Deliberately doesn't auto-select conversations[0] here — matches
+        // seller/logistics, which both leave the thread pane on "Select a
+        // conversation" until the buyer actually picks one, instead of
+        // spending 2 extra requests (and silently marking a thread read)
+        // for a conversation nobody asked to open.
         loadedOnce = true;
     } catch (err) {
         if (err?.status && err.status !== 401) {
@@ -385,6 +403,7 @@ async function syncConversationMeta() {
                 local.updatedAt = threadTimeLabel(incoming.updatedAt);
                 local.status = incoming.status || local.status;
                 local.lastMessagePreview = incoming.lastMessagePreview || local.lastMessagePreview;
+                local.sellerOnline = Boolean(incoming.sellerOnline);
             } else {
                 newlyDiscovered.push(mapConversation(incoming));
             }
@@ -407,8 +426,8 @@ async function syncConversationMeta() {
 // Polls only for messages newer than the last real (non-optimistic) one
 // already shown, instead of re-fetching the whole conversation + its full
 // message history on every tick — the previous approach re-downloaded
-// everything (including attachments) every POLL_MS just to check for a
-// seller reply.
+// everything (including attachments) every MESSAGE_POLL_MS just to check
+// for a seller reply.
 async function refreshActiveConversation() {
     const convo = activeConversation.value;
 
@@ -451,37 +470,50 @@ async function refreshActiveConversation() {
     }
 }
 
-function pollTick() {
-    if (!isChatOpen.value) {
-        return;
-    }
+// Shared guard for both timers: nothing can be sent into an archived thread
+// (the server rejects it — Conversation::isWritable()) and
+// syncConversationMeta() always queries the *default* (non-archived)
+// endpoint, so polling while the archived view is open would do nothing
+// useful for the open thread and would wrongly pull unarchived
+// conversations into view. Also skips entirely while the tab is
+// backgrounded — matches the logistics chat's polling loop — so a buyer
+// who tabs away with the popup still open isn't firing requests for a
+// screen nobody is looking at.
+function canPoll() {
+    return isChatOpen.value && !isViewingArchived.value && !document.hidden;
+}
 
-    // Nothing can be sent into an archived thread (the server rejects it —
-    // Conversation::isWritable()) and syncConversationMeta() always queries
-    // the *default* (non-archived) endpoint, so polling while the archived
-    // view is open would do nothing useful for the open thread and would
-    // wrongly pull unarchived conversations into view. Just freeze polling
-    // until the buyer switches back to the inbox.
-    if (isViewingArchived.value) {
-        return;
+function messagePollTick() {
+    if (canPoll()) {
+        refreshActiveConversation();
     }
+}
 
-    refreshActiveConversation();
-    syncConversationMeta();
+function metaPollTick() {
+    if (canPoll()) {
+        syncConversationMeta();
+    }
 }
 
 function startPolling() {
-    if (pollTimer) {
-        return;
+    if (!messagePollTimer) {
+        messagePollTimer = setInterval(messagePollTick, MESSAGE_POLL_MS);
     }
 
-    pollTimer = setInterval(pollTick, POLL_MS);
+    if (!metaPollTimer) {
+        metaPollTimer = setInterval(metaPollTick, META_POLL_MS);
+    }
 }
 
 function stopPolling() {
-    if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
+    if (messagePollTimer) {
+        clearInterval(messagePollTimer);
+        messagePollTimer = null;
+    }
+
+    if (metaPollTimer) {
+        clearInterval(metaPollTimer);
+        metaPollTimer = null;
     }
 }
 
@@ -518,10 +550,13 @@ async function openChat() {
         await loadConversations();
     }
 
-    if (!activeConversationId.value && conversations.value.length) {
-        activeConversationId.value = conversations.value[0].id;
-    }
-
+    // No longer auto-selects conversations.value[0] on a first-ever open —
+    // that forced 2 extra requests (~4-5 DB round-trips) for a thread the
+    // buyer never asked to see, and silently marked it read the instant the
+    // popup opened. Matches seller/logistics, which both already show the
+    // "Select a conversation" empty state (below in Chat.vue) instead of
+    // picking one automatically. A conversation already selected from an
+    // earlier open in this session still refreshes silently on reopen.
     if (activeConversationId.value) {
         openConversation(activeConversationId.value);
     }
@@ -713,7 +748,10 @@ function sendMessage(text, attachmentIds = [], attachmentPreviews = [], context 
         return false;
     }
 
-    const localId = `local-${Date.now()}`;
+    // Date.now() alone could collide if two sends land in the same
+    // millisecond (fast double-click/programmatic double-submit) — the
+    // counter suffix keeps every optimistic id unique within a session.
+    const localId = `local-${Date.now()}-${++localIdSequence}`;
 
     convo.messages.push({
         id: localId,
@@ -722,6 +760,7 @@ function sendMessage(text, attachmentIds = [], attachmentPreviews = [], context 
         attachments: attachmentPreviews,
         productContext: context.preview || null,
         at: timeOfDay(new Date()),
+        status: null,
     });
     convo.updatedAt = timeOfDay(new Date());
 
@@ -743,10 +782,39 @@ function sendMessage(text, attachmentIds = [], attachmentPreviews = [], context 
         })
         .catch(err => {
             console.error('Error sending message:', err);
-            convo.messages = convo.messages.filter(m => m.id !== localId);
+
+            // Mark it failed instead of silently dropping it — matches the
+            // seller/logistics chat, which already show "Failed · Retry"
+            // rather than making a buyer's typed message vanish.
+            const idx = convo.messages.findIndex(m => m.id === localId);
+
+            if (idx !== -1) {
+                convo.messages[idx] = { ...convo.messages[idx], status: 'failed' };
+            }
         });
 
     return true;
+}
+
+// Removes a failed optimistic bubble and re-sends its text — mirrors
+// Seller\useMessaging.js's retryMessage() (attachments/order/product
+// context aren't reattached on retry there either, so this stays
+// consistent rather than being a one-off richer retry).
+function retryMessage(localId) {
+    const convo = activeConversation.value;
+
+    if (!convo) {
+        return;
+    }
+
+    const failed = convo.messages.find(m => m.id === localId);
+
+    if (!failed) {
+        return;
+    }
+
+    convo.messages = convo.messages.filter(m => m.id !== localId);
+    sendMessage(failed.text);
 }
 
 // Paginated (4 per page), for the "Inquire about a certain product"
@@ -860,6 +928,7 @@ export function useBuyerChat() {
         showInboxConversations,
         loadOlderMessages,
         sendMessage,
+        retryMessage,
         fetchConversationProducts,
         validateAttachment,
         uploadAttachment,

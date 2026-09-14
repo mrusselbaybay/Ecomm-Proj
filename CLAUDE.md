@@ -3,7 +3,7 @@
 ## Project Location
 
 * When I say **"mobile"**, I mean the Flutter project located at:
-  `C:\Users\Russel\OneDrive\Documents\ecommerce`
+  `C:\Users\Russel\OneDrive\Documents\BUYTHEWAY FOLDERS\BuyTheWay - Mobile`
 * Treat this as the default mobile project directory unless I specify otherwise.
 
 ## Code Quality & Performance

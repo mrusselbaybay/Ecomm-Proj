@@ -38,12 +38,21 @@ class Profile extends Model
 
     protected $casts = [
         'birthday' => 'date',
+        'last_active_at' => 'datetime',
     ];
 
     // Roles that go through the registration/approval workflow.
     public const REGISTRABLE_ROLES = ['buyer', 'seller', 'courier', 'driver', 'logistics'];
 
     public const ROLE_ADMIN = 'admin';
+
+    // How recently `last_active_at` must have been touched for the
+    // messaging UI to show this profile as "Online" rather than "Offline".
+    // Kept above AuthenticateSupabaseUser's write-throttle window (60s) —
+    // 90s gives a 1.5x margin so a genuinely active user never flickers
+    // offline between two throttled writes, while staying as tight as that
+    // margin allows.
+    public const ONLINE_THRESHOLD_SECONDS = 90;
 
     /**
      * Defense-in-depth: block any Eloquent-level attempt to (re)assign
@@ -197,6 +206,17 @@ class Profile extends Model
         $mi = $this->middle_initial ? "{$this->middle_initial}. " : '';
 
         return trim("{$this->first_name} {$mi}{$this->last_name}");
+    }
+
+    /**
+     * Activity-based presence for the messaging thread header: true if this
+     * profile has touched any authenticated endpoint within the last
+     * ONLINE_THRESHOLD_SECONDS (see AuthenticateSupabaseUser).
+     */
+    public function isOnline(): bool
+    {
+        return $this->last_active_at !== null
+            && $this->last_active_at->gt(now()->subSeconds(self::ONLINE_THRESHOLD_SECONDS));
     }
 
     /**

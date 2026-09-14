@@ -36,6 +36,7 @@ class Conversation extends Model
         'product_id',
         'parcel_assignment_id',
         'logistics_company_id',
+        'courier_profile_id',
         'support_ticket_id',
         'subject',
         'status',
@@ -45,6 +46,7 @@ class Conversation extends Model
         'buyer_unread_count',
         'seller_unread_count',
         'logistics_unread_count',
+        'courier_unread_count',
     ];
 
     protected $casts = [
@@ -52,6 +54,7 @@ class Conversation extends Model
         'buyer_unread_count' => 'integer',
         'seller_unread_count' => 'integer',
         'logistics_unread_count' => 'integer',
+        'courier_unread_count' => 'integer',
     ];
 
     public const STATUSES = ['open', 'active', 'resolved', 'closed', 'blocked', 'under_review'];
@@ -107,6 +110,11 @@ class Conversation extends Model
     public function logisticsCompany(): BelongsTo
     {
         return $this->belongsTo(LogisticsCompany::class);
+    }
+
+    public function courier(): BelongsTo
+    {
+        return $this->belongsTo(Profile::class, 'courier_profile_id');
     }
 
     public function supportTicket(): BelongsTo

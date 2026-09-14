@@ -2,7 +2,7 @@
     <section class="messages-card" :class="{ 'has-active': !!activeId }">
         <aside class="thread-list">
             <div class="panel-heading">
-                <div><p class="eyebrow">Inbox</p><h2>Seller messages</h2><p class="heading-copy">Conversations for shipments handled by your team.</p></div>
+                <div><p class="eyebrow">Inbox</p><h2>Messages</h2><p class="heading-copy">Your employed couriers, plus seller conversations for shipments your team handles.</p></div>
                 <button class="icon-button" :disabled="loading" aria-label="Refresh conversations" title="Refresh conversations" @click="loadConversations">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5" /></svg>
                 </button>
@@ -11,8 +11,8 @@
             <div class="search-row">
                 <label class="thread-search">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-                    <span class="sr-only">Search seller conversations</span>
-                    <input v-model="search" type="search" placeholder="Search seller, order, or region" @input="onSearchInput" />
+                    <span class="sr-only">Search conversations</span>
+                    <input v-model="search" type="search" placeholder="Search seller, courier, order, or region" @input="onSearchInput" />
                 </label>
                 <button
                     type="button"
@@ -58,17 +58,18 @@
                     </span>
                 </div>
             </div>
-            <p v-else-if="conversations.length === 0" class="empty-copy">Conversations appear after your company assigns an accepted rider to a seller's parcel.</p>
+            <p v-else-if="conversations.length === 0" class="empty-copy">Your employed couriers will appear here automatically. Seller conversations appear once your company is assigned an accepted rider's parcel.</p>
             <p v-else-if="filteredConversations.length === 0" class="empty-copy">No conversations match your search.</p>
 
             <div v-else class="thread-scroll" @scroll="onListScroll">
                 <button v-for="conversation in filteredConversations" :key="conversation.id" class="thread-button" :class="{ active: conversation.id === activeId, unread: conversation.unread > 0 }" @click="openConversation(conversation.id)">
-                    <img v-if="conversation.seller.avatarUrl" class="avatar" :src="conversation.seller.avatarUrl" :alt="conversation.seller.name" loading="lazy">
-                    <span v-else class="avatar">{{ initials(conversation.seller.name) }}</span>
+                    <img v-if="contactOf(conversation).avatarUrl" class="avatar" :src="contactOf(conversation).avatarUrl" :alt="contactOf(conversation).name" loading="lazy">
+                    <span v-else class="avatar">{{ initials(contactOf(conversation).name) }}</span>
                     <span class="thread-copy">
-                        <span class="thread-top"><strong>{{ conversation.seller.name }}</strong><time>{{ formatListTime(conversation.last_message_at) }}</time></span>
-                        <small>Order #{{ conversation.order.number }} - {{ conversation.shipment.region }}</small>
-                        <span>{{ conversation.last_message || 'Shipment conversation ready' }}</span>
+                        <span class="thread-top"><strong>{{ contactOf(conversation).name }}</strong><time>{{ formatListTime(conversation.last_message_at) }}</time></span>
+                        <small v-if="conversation.type === 'roster'">Courier<template v-if="conversation.courier?.vehicle"> · {{ conversation.courier.vehicle }}</template></small>
+                        <small v-else>Order #{{ conversation.order.number }} - {{ conversation.shipment.region }}</small>
+                        <span>{{ conversation.last_message || (conversation.type === 'roster' ? 'Say hello to get started' : 'Shipment conversation ready') }}</span>
                     </span>
                     <b v-if="conversation.unread" class="unread-badge">{{ conversation.unread }}</b>
                 </button>
@@ -84,12 +85,20 @@
                 <button class="back-button" type="button" aria-label="Back to conversations" @click="closeConversation">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6" /></svg>
                 </button>
-                <img v-if="activeConversation.seller.avatarUrl" class="avatar" :src="activeConversation.seller.avatarUrl" :alt="activeConversation.seller.name">
-                <span v-else class="avatar">{{ initials(activeConversation.seller.name) }}</span>
+                <img v-if="contactOf(activeConversation).avatarUrl" class="avatar" :src="contactOf(activeConversation).avatarUrl" :alt="contactOf(activeConversation).name">
+                <span v-else class="avatar">{{ initials(contactOf(activeConversation).name) }}</span>
                 <div class="chat-title">
-                    <p class="eyebrow">Seller</p><h3>{{ activeConversation.seller.name }}</h3>
+                    <p class="eyebrow">{{ activeConversation.type === 'roster' ? 'Courier' : 'Seller' }}</p><h3>{{ contactOf(activeConversation).name }}</h3>
                     <div class="context-tags">
-                        <span>Order #{{ activeConversation.order.number }}</span><span>{{ activeConversation.shipment.region }}</span><span>Rider: {{ activeConversation.shipment.rider }}</span>
+                        <span class="presence-tag" :class="{ online: contactOf(activeConversation).online }">
+                            <span class="presence-dot"></span>{{ contactOf(activeConversation).online ? 'Online' : 'Offline' }}
+                        </span>
+                        <template v-if="activeConversation.type === 'roster'">
+                            <span v-if="activeConversation.courier?.vehicle">{{ activeConversation.courier.vehicle }}</span>
+                        </template>
+                        <template v-else>
+                            <span>Order #{{ activeConversation.order.number }}</span><span>{{ activeConversation.shipment.region }}</span><span>Rider: {{ activeConversation.shipment.rider }}</span>
+                        </template>
                         <span v-if="activeConversation.status && activeConversation.status !== 'open'" class="status-tag" :class="activeConversation.status">{{ activeConversation.status }}</span>
                     </div>
                 </div>
@@ -199,14 +208,14 @@
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
                     </button>
                     <input ref="fileInput" type="file" class="sr-only" accept="image/png,image/jpeg,image/webp,application/pdf,video/mp4,video/webm,video/quicktime" multiple @change="onFilePicked" />
-                    <textarea v-model="draft" rows="2" maxlength="4000" placeholder="Message the seller about this shipment..."></textarea>
+                    <textarea v-model="draft" rows="2" maxlength="4000" :placeholder="activeConversation.type === 'roster' ? 'Message your courier...' : 'Message the seller about this shipment...'"></textarea>
                     <button class="btn-primary" :disabled="!canSend || sending">{{ sending ? 'Sending...' : 'Send' }}</button>
                 </div>
             </form>
 
             <div v-else class="empty-chat">
                 <span class="empty-chat-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 10h8M8 14h4" /><path d="M21 12c0 4.4-4 8-9 8-1.1 0-2.1-.2-3-.5L3 21l1.5-3.8A7.3 7.3 0 0 1 3 13c0-4.4 4-8 9-8s9 3.6 9 7Z" /></svg></span>
-                <strong>Select a conversation</strong><p>Choose a seller shipment from the inbox to view its messages.</p>
+                <strong>Select a conversation</strong><p>Choose a courier or seller shipment thread from the inbox to view its messages.</p>
             </div>
         </div>
 
@@ -219,7 +228,7 @@
                 </div>
                 <p class="modal-desc">
                     {{ pendingStatusAction.status === 'archived'
-                        ? "It moves out of your inbox into the Archived filter — the seller isn't affected and can still message you."
+                        ? "It moves out of your inbox into the Archived filter — the other side isn't affected and can still message you."
                         : 'It moves back into your main inbox.' }}
                 </p>
                 <p v-if="statusActionError" class="error-copy">{{ statusActionError }}</p>
@@ -242,7 +251,7 @@
                     <h3>Delete this conversation?</h3>
                     <button type="button" class="modal-close" aria-label="Close" @click="pendingDeleteId = null">&times;</button>
                 </div>
-                <p class="modal-desc">This removes it from your inbox. The seller still sees their side, and it'll come back if either of you sends a new message.</p>
+                <p class="modal-desc">This removes it from your inbox. They still see their side, and it'll come back if either of you sends a new message.</p>
                 <p v-if="deleteError" class="error-copy">{{ deleteError }}</p>
                 <div class="modal-actions">
                     <button type="button" class="btn-outline" @click="pendingDeleteId = null">Cancel</button>
@@ -262,7 +271,12 @@ import { useLogistics } from '../composables/useLogistics';
 const { logisticsFetch } = useLogistics();
 
 const MESSAGES_PAGE_SIZE = 10;
-const POLL_MS = 15000;
+// Split into two cadences: the open thread's messages poll fast (so a
+// seller's reply feels close to instant with no realtime infra), while the
+// inbox's badges/previews for OTHER threads poll slower since they're not
+// what's actively being looked at.
+const MESSAGE_POLL_MS = 5000;
+const META_POLL_MS = 20000;
 const ALLOWED_ATTACHMENT_TYPES = [
     'image/png', 'image/jpeg', 'image/webp', 'application/pdf',
     'video/mp4', 'video/webm', 'video/quicktime',
@@ -312,7 +326,8 @@ const canSend = computed(() => {
 
     return !hasUploadingAttachment.value && (hasText || hasAttachment);
 });
-let pollTimer = null;
+let messagePollTimer = null;
+let metaPollTimer = null;
 let polling = false;
 let messageRequestVersion = 0;
 let searchDebounce = null;
@@ -700,6 +715,10 @@ async function runDeleteConversation() {
         isDeletingConversation.value = false;
     }
 }
+// The inbox mixes two contact shapes — a shipment thread's `seller` and a
+// roster thread's `courier` — under one list/header markup instead of
+// duplicating it per type.
+function contactOf(conversation) { return conversation.type === 'roster' ? conversation.courier : conversation.seller; }
 function initials(name) { return (name || '?').split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase(); }
 function formatTime(value) { return value ? new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''; }
 function formatCurrency(value) { return `₱${Number(value || 0).toFixed(2)}`; }
@@ -708,39 +727,43 @@ function timestamp(value) { return value ? new Date(value).getTime() : 0; }
 function chronological(items) { return [...items].sort((first, second) => timestamp(first.at) - timestamp(second.at)); }
 onMounted(async () => {
     await loadConversations();
-    pollTimer = window.setInterval(async () => {
-        if (polling || document.hidden) return;
+
+    messagePollTimer = window.setInterval(async () => {
+        if (polling || document.hidden || !activeId.value || sending.value) return;
         polling = true;
         try {
-            await syncConversationMeta();
+            const conversationId = activeId.value;
+            const newestKnown = [...messages.value].reverse().find(m => !String(m.id).startsWith('local-'));
 
-            if (activeId.value && !sending.value) {
-                const conversationId = activeId.value;
-                const newestKnown = [...messages.value].reverse().find(m => !String(m.id).startsWith('local-'));
+            if (newestKnown) {
+                const requestVersion = ++messageRequestVersion;
+                const { data } = await apiWithMeta(
+                    `/conversations/${conversationId}/messages?after=${encodeURIComponent(newestKnown.id)}&limit=${MESSAGES_PAGE_SIZE}`,
+                );
 
-                if (newestKnown) {
-                    const requestVersion = ++messageRequestVersion;
-                    const { data } = await apiWithMeta(
-                        `/conversations/${conversationId}/messages?after=${encodeURIComponent(newestKnown.id)}&limit=${MESSAGES_PAGE_SIZE}`,
-                    );
+                if (requestVersion === messageRequestVersion && activeId.value === conversationId && !sending.value && data.length) {
+                    const knownIds = new Set(messages.value.map(m => m.id));
+                    const fresh = data.filter(m => !knownIds.has(m.id));
 
-                    if (requestVersion === messageRequestVersion && activeId.value === conversationId && !sending.value && data.length) {
-                        const knownIds = new Set(messages.value.map(m => m.id));
-                        const fresh = data.filter(m => !knownIds.has(m.id));
-
-                        if (fresh.length) {
-                            messages.value = chronological([...messages.value, ...fresh]);
-                            messagesCache.set(conversationId, { messages: messages.value, meta: messagesMeta.value });
-                        }
+                    if (fresh.length) {
+                        messages.value = chronological([...messages.value, ...fresh]);
+                        messagesCache.set(conversationId, { messages: messages.value, meta: messagesMeta.value });
                     }
                 }
             }
         } catch {
             // A transient background failure is retried on the next interval.
         } finally { polling = false; }
-    }, POLL_MS);
+    }, MESSAGE_POLL_MS);
+
+    metaPollTimer = window.setInterval(() => {
+        if (!document.hidden) syncConversationMeta();
+    }, META_POLL_MS);
 });
-onBeforeUnmount(() => window.clearInterval(pollTimer));
+onBeforeUnmount(() => {
+    window.clearInterval(messagePollTimer);
+    window.clearInterval(metaPollTimer);
+});
 </script>
 
 <style scoped>
@@ -792,6 +815,10 @@ img.avatar { object-fit: cover; display: block; }
 .chat-title .eyebrow { margin-bottom: 0.05rem; }
 .context-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
 .context-tags span { padding: 0.2rem 0.45rem; border-radius: 999px; background: #f1f5f9; color: #64748b; font-size: 0.68rem; font-weight: 700; }
+.presence-tag { display: inline-flex; align-items: center; gap: 0.3rem; }
+.presence-dot { width: 6px; height: 6px; border-radius: 999px; background: #94a3b8; flex-shrink: 0; }
+.presence-tag.online { background: #dcfce7; color: #15803d; }
+.presence-tag.online .presence-dot { background: #22c55e; }
 .message-body { flex: 1; min-height: 0; overflow-y: auto; padding: 1.5rem; background: #f8fafc; }
 .message-row { display: flex; margin-bottom: 0.65rem; }
 .message-row.mine { justify-content: flex-end; }

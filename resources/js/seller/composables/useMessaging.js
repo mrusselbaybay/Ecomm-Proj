@@ -112,7 +112,10 @@ const VIDEO_ATTACHMENT_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
 const MAX_VIDEO_ATTACHMENT_BYTES = 50 * 1024 * 1024; // 50MB
 const UNREAD_POLL_MS = 30000;
-const MESSAGE_POLL_MS = 15000;
+// Fast enough that a buyer's reply feels close to instant with no realtime
+// infra — the sidebar unread badge above stays slower since it's not what
+// the seller is actively looking at while a thread is open.
+const MESSAGE_POLL_MS = 5000;
 const MESSAGES_PAGE_SIZE = 10;
 
 const conversations = ref([]);
@@ -656,7 +659,11 @@ async function refreshUnreadCount() {
 function startUnreadPolling() {
     if (unreadPollTimer) return;
     refreshUnreadCount();
-    unreadPollTimer = setInterval(refreshUnreadCount, UNREAD_POLL_MS);
+    // Skip ticks while the tab is backgrounded — a sidebar badge nobody can
+    // see doesn't need refreshing every UNREAD_POLL_MS.
+    unreadPollTimer = setInterval(() => {
+        if (!document.hidden) refreshUnreadCount();
+    }, UNREAD_POLL_MS);
 }
 function stopUnreadPolling() {
     clearInterval(unreadPollTimer);

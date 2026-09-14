@@ -108,6 +108,30 @@ class ConversationPolicy
                 && $assignment->rider_profile_id !== null;
         }
 
+        // A logistics company's own thread with one of its employed
+        // couriers — see Logistics\MessageController::ensureRosterConversations().
+        if ($conversation->type === 'roster') {
+            return $conversation->logistics_company_id !== null
+                && $conversation->courier_profile_id !== null;
+        }
+
+        // A courier's direct thread with one delivery's buyer or seller —
+        // see DeliveryConversationService::findOrCreate(). Exactly one of
+        // buyer_id/seller_id is set (whichever contact the courier picked),
+        // and it must actually be that order's own buyer/seller rather than
+        // an id smuggled in some other way.
+        if ($conversation->type === 'delivery') {
+            $order = $conversation->order;
+            $hasBuyer = $conversation->buyer_id !== null;
+            $hasSeller = $conversation->seller_id !== null;
+
+            return $order !== null
+                && $conversation->courier_profile_id !== null
+                && $hasBuyer !== $hasSeller
+                && (! $hasBuyer || $order->buyer_profile_id === $conversation->buyer_id)
+                && (! $hasSeller || $order->seller_id === $conversation->seller_id);
+        }
+
         return false;
     }
 }

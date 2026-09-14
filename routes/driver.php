@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Driver\DriverDeliveryController;
 use App\Http\Controllers\Driver\DriverProfileController;
+use App\Http\Controllers\Driver\MessageController;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -59,4 +60,24 @@ Route::middleware(['supabase.auth', 'driver'])->prefix('driver')->name('api.driv
         ->name('deliveries.deliver');
     Route::get('/deliveries/{parcelAssignment}/photo', [DriverDeliveryController::class, 'photo'])
         ->name('deliveries.photo');
+
+    // "Messages" tab (driver_chat_list_screen.dart / driver_chat_conversation_screen.dart)
+    // — the rider's side of the 'roster' conversation with their employing
+    // logistics company. See Driver\MessageController's docblock.
+    Route::prefix('messages')->name('messages.')->group(function () {
+        Route::get('/conversations', [MessageController::class, 'conversations'])->name('conversations.index');
+        Route::get('/conversations/{id}', [MessageController::class, 'show'])->name('conversations.show');
+        Route::put('/conversations/{id}/status', [MessageController::class, 'setStatus'])->name('conversations.status');
+        Route::delete('/conversations/{id}', [MessageController::class, 'deleteConversation'])->name('conversations.delete');
+        Route::get('/conversations/{id}/messages', [MessageController::class, 'messages'])->name('conversations.messages');
+        Route::post('/conversations/{id}/messages', [MessageController::class, 'send'])->name('conversations.send');
+        Route::put('/conversations/{id}/read', [MessageController::class, 'markRead'])->name('conversations.read');
+        Route::post('/attachments', [MessageController::class, 'uploadAttachment'])->name('attachments.store');
+        // "Message" button next to the call icon on a delivery's Buyer/Seller
+        // contact row (assigned_delivery_detail_screen.dart) — finds or
+        // creates a 'delivery' thread with that contact. See
+        // DeliveryConversationService::findOrCreate().
+        Route::post('/delivery-conversations', [MessageController::class, 'startDeliveryConversation'])->name('delivery-conversations.store');
+        Route::get('/unread-count', [MessageController::class, 'unreadCount'])->name('unread-count');
+    });
 });

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UpdateAccountStatusRequest;
 use App\Mail\AccountStatusChanged;
+use App\Models\CourierApplication;
 use App\Models\Document;
 use App\Models\Profile;
 use App\Models\StatusAuditLog;
@@ -78,7 +79,7 @@ class UserAccountController extends Controller
         $profile->load([
             'address',
             'sellerDetail',
-            'courierDetail.logisticsCompany',
+            'courierDetail',
             'driverDetail.logisticsCompany',
             'documents',
             'statusAuditLogs.changedBy',
@@ -151,6 +152,32 @@ class UserAccountController extends Controller
     }
 
     /**
+     * @return array{id: string, company_name: string, region: ?string, company_email: ?string, company_contact_no: ?string}|null
+     */
+    private function courierEmployer(Profile $profile): ?array
+    {
+        if ($profile->role !== 'courier') {
+            return null;
+        }
+
+        $company = CourierApplication::query()
+            ->where('courier_profile_id', $profile->id)
+            ->where('status', CourierApplication::STATUS_ACCEPTED)
+            ->latest('reviewed_at')
+            ->with('logisticsCompany')
+            ->first()
+            ?->logisticsCompany;
+
+        return $company ? [
+            'id' => $company->id,
+            'company_name' => $company->company_name,
+            'region' => $company->region,
+            'company_email' => $company->company_email,
+            'company_contact_no' => $company->company_contact_no,
+        ] : null;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function accountData(Profile $profile, bool $includeDetails = false): array
@@ -180,6 +207,11 @@ class UserAccountController extends Controller
 
         return [
             ...$account,
+            // 'accepted' CourierApplication is the source of truth for who
+            // employs a courier — courier_details.logistics_company_id is
+            // never kept in sync (see Logistics\MessageController's
+            // ensureRosterConversations() doc comment for the same note).
+            'employer' => $this->courierEmployer($profile),
             'address' => $profile->address ? [
                 ...$profile->address->toArray(),
                 'full_address' => $profile->address->full_address,

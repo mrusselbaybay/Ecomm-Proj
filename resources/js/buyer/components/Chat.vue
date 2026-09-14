@@ -49,6 +49,7 @@ const {
     loadMoreConversations,
     loadOlderMessages,
     sendMessage,
+    retryMessage,
     fetchConversationProducts,
     validateAttachment,
     uploadAttachment,
@@ -495,7 +496,14 @@ watch(isChatOpen, open => {
     }
 
     if (open) {
-        mobileView.value = 'thread';
+        // On mobile (where list/thread are mutually exclusive panes),
+        // defaulting to 'thread' assumed a conversation was always
+        // auto-selected on open — now that it isn't, that would hide the
+        // list behind an empty "Select a conversation" pane with no way
+        // back to it. Only jump straight to the thread pane when a
+        // conversation is already active (e.g. continuing from earlier in
+        // this session).
+        mobileView.value = activeConversationId.value ? 'thread' : 'list';
         window.addEventListener('keydown', handleKeydown);
         scrollThreadToBottom();
         nextTick(() => messageInput.value?.focus());
@@ -658,7 +666,13 @@ onBeforeUnmount(() => {
                                     </span>
                                     <div class="flex-1 min-w-0">
                                         <div class="flex justify-between items-baseline gap-2 mb-0.5">
-                                            <span class="text-[13px] font-bold text-slate-900 truncate">{{ convo.seller }}</span>
+                                            <span class="flex items-center gap-1.5 min-w-0">
+                                                <span class="text-[13px] font-bold text-slate-900 truncate">{{ convo.seller }}</span>
+                                                <span
+                                                    v-if="convo.role === 'courier'"
+                                                    class="shrink-0 text-[9px] font-bold uppercase tracking-wide text-[#0d9488] bg-[#0d9488]/10 px-1.5 py-0.5 rounded"
+                                                >Courier</span>
+                                            </span>
                                             <span
                                                 class="text-[10px] font-medium shrink-0"
                                                 :class="convo.unread ? 'text-[#0d9488]' : 'text-slate-400'"
@@ -732,7 +746,17 @@ onBeforeUnmount(() => {
                                 <div class="min-w-0">
                                     <h3 class="font-bold text-slate-900 leading-tight text-[15px] truncate">{{ activeConversation.seller }}</h3>
                                     <div class="flex items-center gap-1.5 mt-0.5">
-                                        <span class="text-[10px] text-slate-400 font-medium">Seller since {{ activeConversation.memberSince }}</span>
+                                        <span
+                                            class="w-1.5 h-1.5 rounded-full shrink-0"
+                                            :class="activeConversation.sellerOnline ? 'bg-emerald-500' : 'bg-slate-300'"
+                                            aria-hidden="true"
+                                        ></span>
+                                        <span
+                                            class="text-[10px] font-medium"
+                                            :class="activeConversation.sellerOnline ? 'text-emerald-600' : 'text-slate-400'"
+                                        >
+                                            {{ activeConversation.sellerOnline ? 'Online' : 'Offline' }}
+                                        </span>
                                     </div>
                                 </div>
                             </div>
@@ -920,13 +944,13 @@ onBeforeUnmount(() => {
                                 :class="message.from === 'buyer' ? 'flex-row-reverse ml-auto' : ''"
                             >
                                 <img
-                                    v-if="message.from === 'seller' && activeConversation.avatarUrl"
+                                    v-if="message.from !== 'buyer' && message.from !== 'system' && activeConversation.avatarUrl"
                                     :src="activeConversation.avatarUrl"
                                     :alt="activeConversation.seller"
                                     class="w-7 h-7 rounded-lg object-cover self-end shrink-0"
                                 >
                                 <span
-                                    v-else-if="message.from === 'seller'"
+                                    v-else-if="message.from !== 'buyer' && message.from !== 'system'"
                                     class="w-7 h-7 rounded-lg bg-[#0d9488]/10 text-[#0d9488] text-[10px] font-bold flex items-center justify-center self-end shrink-0"
                                 >{{ initials(activeConversation.seller) }}</span>
                                 <div class="space-y-1 min-w-0">
@@ -1011,6 +1035,16 @@ onBeforeUnmount(() => {
                                  it) so the avatar's self-end alignment lines up with the
                                  bubble itself, not with the bubble+timestamp combined. -->
                             <div
+                                v-if="message.status === 'failed'"
+                                class="flex items-center gap-1 text-[9px] font-medium"
+                                :class="message.from === 'buyer' ? 'justify-end ml-auto pr-1' : 'ml-9 pl-1'"
+                            >
+                                <span class="text-red-400">Failed to send</span>
+                                <span class="text-red-400">·</span>
+                                <button type="button" class="text-[#0d9488] hover:underline" @click="retryMessage(message.id)">Retry</button>
+                            </div>
+                            <div
+                                v-else
                                 class="flex items-center gap-1 text-[9px] text-slate-400"
                                 :class="message.from === 'buyer' ? 'justify-end ml-auto pr-1' : 'ml-9 pl-1'"
                             >
@@ -1119,7 +1153,7 @@ onBeforeUnmount(() => {
                                 </button>
                             </div>
 
-                            <div class="flex flex-wrap gap-1.5">
+                            <div v-if="activeConversation?.role !== 'courier'" class="flex flex-wrap gap-1.5">
                                 <button
                                     type="button"
                                     class="rounded-lg border px-2 py-1 text-[11px] font-semibold transition-colors"
