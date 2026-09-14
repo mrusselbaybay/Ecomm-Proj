@@ -1,6 +1,47 @@
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 
-const cart = ref([]);
+/*
+|--------------------------------------------------------------------------
+| Cart Persistence
+|--------------------------------------------------------------------------
+|
+| The cart previously lived only in this module's memory, so it reset on
+| every full page load — including navigating from the marketing
+| homepage (a separate Vue mount/entry) into /buyer/dashboard, or just
+| refreshing the tab. Persisting it to localStorage is additive: the
+| exported shape/behavior of useBuyer() is unchanged, this only survives
+| across mounts now. Guarded with try/catch since some browsers throw on
+| storage access (private mode, disabled storage).
+|
+*/
+
+const CART_STORAGE_KEY = 'buytheway_cart_v1';
+
+function loadStoredCart() {
+    try {
+        const raw = window.localStorage.getItem(CART_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+const cart = ref(loadStoredCart());
+
+watch(
+    cart,
+    (value) => {
+        try {
+            window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(value));
+        } catch {
+            // Storage unavailable — cart still works for this page load,
+            // it just won't survive a refresh/navigation this time.
+        }
+    },
+    { deep: true }
+);
 
 /*
 |--------------------------------------------------------------------------

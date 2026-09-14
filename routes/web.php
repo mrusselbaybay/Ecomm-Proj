@@ -15,9 +15,23 @@ use Illuminate\Support\Facades\Route;
 */
 
 // ---------- Public Routes ----------
-Route::get('/', [AuthController::class, 'index'])->name('home');
+// The marketing/shop homepage (resources/js/home) — separate from the
+// login/signup screen below. Visitors browse categories and products
+// here and use its own Login/Register nav links to reach /login or
+// /signup; those two keep pointing at the existing auth SPA unchanged.
+Route::get('/', function () {
+    return view('home');
+})->name('home');
 Route::get('/login', [AuthController::class, 'index'])->name('login');
 Route::get('/signup', [AuthController::class, 'index'])->name('signup');
+
+// A real destination for the homepage footer's "About Us" link — see
+// the footer note in resources/js/home/components/Home.vue for why
+// Contact/Privacy/Terms aren't linked yet (no real pages exist for
+// those, and this project avoids dead links).
+Route::get('/about', function () {
+    return view('about');
+})->name('about');
 
 // ---------- Admin SPA ----------
 Route::prefix('admin')->name('admin.')->group(function () {
@@ -72,6 +86,9 @@ Route::prefix('api/logistics')->name('api.logistics.')->group(function () {
 
 // ---------- API Routes for Seller (Seller Order Page) ----------
 require __DIR__.'/seller.php';
+
+// ---------- API Routes for the public homepage catalog browse ----------
+require __DIR__.'/catalog.php';
 
 // ---------- Registration (server-side, service-role protected) ----------
 // NOTE: Your project already has /api/signup/send-code, /api/signup/verify-code,

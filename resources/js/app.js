@@ -2587,6 +2587,14 @@ async function handleLogin() {
         onMounted(() => {
             fetchProvinces();
 
+            // /login and /signup both render this same view — open the
+            // matching tab by default instead of always starting on
+            // Login, so the homepage's "Register" nav link (which points
+            // here) actually lands on the sign-up form.
+            if (window.location.pathname.startsWith('/signup')) {
+                switchMode('signup');
+            }
+
             supabase.auth.onAuthStateChange((event) => {
                 if (event === 'PASSWORD_RECOVERY') {
                     mode.value = 'reset';

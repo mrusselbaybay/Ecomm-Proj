@@ -58,6 +58,17 @@ class Product extends Model
     }
 
     /**
+     * Buyer-submitted reviews for this listing. Additive relation (no
+     * existing seller/admin code referenced Product::reviews() before
+     * this) — added for CatalogController's public product feed, which
+     * needs a real average rating/count rather than an invented one.
+     */
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(Review::class, 'product_id');
+    }
+
+    /**
      * Products buyers are allowed to browse/purchase. Sellers can set
      * status to something other than 'active' (e.g. 'disabled') to hide a
      * listing without deleting it — see Seller\ProductController@destroy,
