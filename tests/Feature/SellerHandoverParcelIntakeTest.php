@@ -1,7 +1,7 @@
 <?php
 
+use App\Models\LogisticsBarangayAssignment;
 use App\Models\LogisticsCompany;
-use App\Models\LogisticsDeliveryArea;
 use App\Models\ParcelAssignment;
 use App\Models\Profile;
 use Illuminate\Database\Schema\Blueprint;
@@ -82,7 +82,7 @@ it('puts the parcel in the courier sorting queue the moment the seller confirms 
         ->and($assignment->scanned_at)->toBeNull();
 });
 
-it('sorts the parcel into a matching delivery area automatically', function () {
+it('sorts the parcel into a matching barangay assignment automatically', function () {
     $seller = makeSeller();
     $buyer = makeBuyer();
     [$order] = makeOrder($buyer, $seller, [
@@ -94,13 +94,13 @@ it('sorts the parcel into a matching delivery area automatically', function () {
 
     $company = makeLogisticsCompany(['company_name' => 'Luzon Logistics']);
 
-    $area = LogisticsDeliveryArea::create([
+    LogisticsBarangayAssignment::create([
         'logistics_company_id' => $company->id,
-        'name' => 'Area A',
         'province_name' => 'Laguna',
+        'municipality_name' => 'Santa Cruz',
+        'barangay' => 'Poblacion',
         'is_active' => true,
     ]);
-    $area->municipalities()->create(['municipality_name' => 'Santa Cruz']);
 
     actingAsSeller($seller);
 
@@ -112,7 +112,7 @@ it('sorts the parcel into a matching delivery area automatically', function () {
     $assignment = ParcelAssignment::where('order_id', $order->id)->first();
 
     expect($assignment->status)->toBe(ParcelAssignment::STATUS_SORTED)
-        ->and($assignment->delivery_area_id)->not->toBeNull();
+        ->and($assignment->barangay_assignment_id)->not->toBeNull();
 });
 
 it('does not create a parcel assignment when the carrier text matches no registered company', function () {

@@ -504,6 +504,9 @@
                     it to confirm each hand-off — at pickup, and again on
                     delivery.
                 </p>
+                <p v-if="statusWarning" class="prep-dispatch-warning">
+                    {{ statusWarning }}
+                </p>
 
                 <div ref="qrPosterRef" class="prep-qr-poster">
                     <p class="prep-qr-poster-shop">
@@ -555,6 +558,7 @@ const {
     formatCurrency,
     isUpdatingStatus,
     updateError,
+    statusWarning,
     shipOrder,
     logisticsCompanies,
     isLoadingLogisticsCompanies,

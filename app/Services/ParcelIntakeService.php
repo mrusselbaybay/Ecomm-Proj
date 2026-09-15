@@ -2,11 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\LogisticsBarangayAssignment;
 use App\Models\LogisticsCompany;
-use App\Models\LogisticsDeliveryArea;
 use App\Models\Order;
 use App\Models\ParcelAssignment;
-use Illuminate\Database\Eloquent\Builder;
+use App\Models\Profile;
 
 /**
  * Puts a parcel into a logistics company's sorting queue — the single
@@ -26,6 +26,8 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class ParcelIntakeService
 {
+    public function __construct(private readonly TransferTriggerService $transferTrigger) {}
+
     /**
      * Case-insensitive match against Order::shipping_carrier. Sellers
      * pick a carrier by name (see SellerLogisticsController) — there's
@@ -72,30 +74,29 @@ class ParcelIntakeService
             return $existing;
         }
 
-        $area = $this->matchingArea($company, $order);
+        $assignment = $this->matchingBarangayAssignment($company, $order);
+        $trigger = $this->transferTrigger->evaluate($order);
 
         // Every new parcel starts the same way — waiting for a courier to
-        // pick it up. Whether it can be delivered locally or has to be
-        // transferred to another company isn't decided here: nobody has
-        // physically collected the parcel yet, and that call belongs to
-        // the dispatch step *after* pickup (see
-        // Api\Logistics\ParcelAssignmentController::assign /
-        // ::requestTransfer). `is_transfer` is recorded purely as a hint
-        // for staff — it drives no status of its own.
+        // pick it up. `is_transfer`/`required_vehicle_type` are recorded
+        // purely as hints for staff and for ParcelAutoAssignService's
+        // vehicle filter — they drive no status of their own here.
         return ParcelAssignment::query()->create([
             'order_id' => $order->id,
             'logistics_company_id' => $company->id,
-            'delivery_area_id' => $area?->id,
-            // An area can have several appointed riders now (see
-            // LogisticsDeliveryArea::riders) — only auto-fill when there's
-            // exactly one, so this never guesses between several.
-            'rider_profile_id' => $this->soleRiderOf($area),
-            'is_transfer' => $this->needsTransferFrom($company, $order),
-            'status' => $area ? ParcelAssignment::STATUS_SORTED : ParcelAssignment::STATUS_RECEIVED,
+            'barangay_assignment_id' => $assignment?->id,
+            // A barangay has at most one assigned rider now — only
+            // auto-fill when that rider can actually take it right now
+            // (on shift, under quota), same "never guess" rule as before.
+            'rider_profile_id' => $this->directRiderOf($assignment),
+            'is_transfer' => $trigger['is_transfer'],
+            'transfer_trigger' => $trigger['trigger'],
+            'required_vehicle_type' => $trigger['required_vehicle_type'],
+            'status' => $assignment ? ParcelAssignment::STATUS_SORTED : ParcelAssignment::STATUS_RECEIVED,
             'received_by' => $receivedByProfileId,
             'received_at' => now(),
             'scanned_at' => $receivedByProfileId ? now() : null,
-            'sorted_at' => $area ? now() : null,
+            'sorted_at' => $assignment ? now() : null,
         ]);
     }
 
@@ -109,148 +110,92 @@ class ParcelIntakeService
      * parcel gets. A transferred parcel has already been collected from
      * the seller during the origin company's pickup leg, so there is
      * nothing left to pick up: the receiving company's only outstanding
-     * decision is which delivery area and rider takes it to the buyer,
-     * which is exactly what assign()'s delivery-dispatch branch handles.
+     * decision is which barangay and rider takes it to the buyer, which
+     * is exactly what assign()'s delivery-dispatch branch handles.
      *
-     * The delivery area is pre-matched where one covers the address, but
-     * the rider is deliberately left empty even when an area has a sole
-     * appointed rider — dispatch at the receiving company makes that
-     * call, and auto-filling it here would push the parcel straight to
-     * "out for delivery" without anyone there seeing it.
+     * The barangay assignment is pre-matched where one covers the
+     * address, but the rider is deliberately left empty even when that
+     * barangay has an assigned rider — dispatch at the receiving company
+     * makes that call, and auto-filling it here would push the parcel
+     * straight to "out for delivery" without anyone there seeing it.
      *
-     * The transfer hint is recalculated for the *receiving* company
-     * rather than forced off: normally the whole point of picking that
-     * company was that it covers the buyer's region, so this comes out
-     * false and they simply deliver it. If the parcel was routed
-     * somewhere that still can't reach the buyer, they'll see the same
-     * hint this company did and can pass it on again.
+     * The transfer trigger is re-evaluated here too, but since it's now
+     * purely seller-vs-buyer (not tied to which company currently holds
+     * the parcel), it comes out identically at every hop of a multi-hop
+     * transfer — `is_transfer` stays true all the way to delivery rather
+     * than clearing once a same-region company picks it up. That's
+     * intentional: the hint describes the parcel's fixed origin and
+     * destination, not who currently holds it.
      */
     public function createTransferReceipt(ParcelAssignment $origin, LogisticsCompany $targetCompany): ParcelAssignment
     {
         $order = $origin->order;
-        $area = $this->matchingArea($targetCompany, $order);
+        $assignment = $this->matchingBarangayAssignment($targetCompany, $order);
+        $trigger = $this->transferTrigger->evaluate($order);
 
         return ParcelAssignment::query()->create([
             'order_id' => $order->id,
             'logistics_company_id' => $targetCompany->id,
             'previous_assignment_id' => $origin->id,
-            'delivery_area_id' => $area?->id,
-            'is_transfer' => $this->needsTransferFrom($targetCompany, $order),
+            'barangay_assignment_id' => $assignment?->id,
+            'is_transfer' => $trigger['is_transfer'],
+            'transfer_trigger' => $trigger['trigger'],
+            'required_vehicle_type' => $trigger['required_vehicle_type'],
             'status' => ParcelAssignment::STATUS_HANDED_OFF,
             'received_at' => now(),
-            'sorted_at' => $area ? now() : null,
+            'sorted_at' => $assignment ? now() : null,
             'handed_off_at' => now(),
         ]);
     }
 
     /**
-     * Whether the company holding this parcel operates in a different
-     * island-group region than the buyer — i.e. it probably can't deliver
-     * this itself and the parcel will need handing to a company that can.
-     *
-     * Deliberately compares the *holding company's* region rather than
-     * the seller's: it's the same answer at the seller's own local
-     * company (which is where a parcel starts), but it stays correct
-     * after a transfer, where the seller's region says nothing about
-     * whether the company now holding the parcel can reach the buyer.
-     *
-     * Case-insensitive and blank-safe — if either side has no region on
-     * file the parcel is treated as deliverable rather than flagged,
-     * since guessing "needs a transfer" from missing data would strand it.
-     */
-    private function needsTransferFrom(LogisticsCompany $company, Order $order): bool
-    {
-        $buyerRegion = $order->shipping_region_name;
-        $companyRegion = $company->region;
-
-        if (! filled($buyerRegion) || ! filled($companyRegion)) {
-            return false;
-        }
-
-        return mb_strtolower(trim($companyRegion)) !== mb_strtolower(trim($buyerRegion));
-    }
-
-    /**
-     * The one active area of this company whose province AND one of whose
-     * municipalities exactly matches the order's shipping address.
-     *
-     * Strictly exact (case-insensitive) on both parts — never a nearest
-     * or "close enough" match. An address in a municipality no area
-     * covers returns null and the parcel simply stays unsorted, which is
-     * what both intake and ParcelAutoAssignService rely on.
+     * The one active barangay assignment of this company whose
+     * municipality AND barangay exactly match the order's shipping
+     * address. Strictly exact (case-insensitive) — never a nearest or
+     * "close enough" match. An address in a barangay nobody's assigned
+     * returns null and the parcel simply stays unsorted for its direct
+     * rider, which is what both intake() and ParcelAutoAssignService's
+     * fallback pool rely on.
      *
      * Public because auto-assignment re-runs the same match on demand:
-     * a parcel taken in before its area existed has no area recorded, and
-     * re-matching is exactly how "Auto assign" fills that in.
+     * a parcel taken in before its assignment existed has no assignment
+     * recorded, and re-matching is exactly how "Auto assign" fills that
+     * in.
      */
-    public function matchingArea(LogisticsCompany $company, Order $order): ?LogisticsDeliveryArea
+    public function matchingBarangayAssignment(LogisticsCompany $company, Order $order): ?LogisticsBarangayAssignment
     {
-        if (! filled($order->shipping_province_name) || ! filled($order->shipping_municipality_name)) {
+        if (! filled($order->shipping_municipality_name) || ! filled($order->shipping_barangay)) {
             return null;
         }
 
-        // An area now lists any number of municipalities (see
-        // LogisticsDeliveryArea::municipalities) — match the province on
-        // the area itself, and at least one of its municipalities against
-        // the order's shipping municipality (+ optional barangay, same
-        // "no barangay filter" vs "matches this barangay" choice as
-        // before, just moved one level down).
-        return LogisticsDeliveryArea::query()
+        return LogisticsBarangayAssignment::query()
             ->where('logistics_company_id', $company->id)
             ->where('is_active', true)
-            ->whereRaw('LOWER(province_name) = ?', [mb_strtolower($order->shipping_province_name)])
-            ->whereHas('municipalities', function (Builder $query) use ($order): void {
-                $query->whereRaw('LOWER(municipality_name) = ?', [mb_strtolower($order->shipping_municipality_name)])
-                    ->where(function (Builder $query) use ($order): void {
-                        $query->whereNull('barangay');
-
-                        if (filled($order->shipping_barangay)) {
-                            $query->orWhereRaw('LOWER(barangay) = ?', [mb_strtolower($order->shipping_barangay)]);
-                        }
-                    });
-            })
-            ->with('municipalities')
-            ->get()
-            ->sortBy(function (LogisticsDeliveryArea $area) use ($order): int {
-                // Prefer an area whose matching municipality row is
-                // barangay-specific over one that matches "any barangay".
-                $specific = $area->municipalities->first(function ($m) use ($order): bool {
-                    return $m->barangay !== null
-                        && mb_strtolower($m->municipality_name) === mb_strtolower($order->shipping_municipality_name)
-                        && filled($order->shipping_barangay)
-                        && mb_strtolower($m->barangay) === mb_strtolower($order->shipping_barangay);
-                });
-
-                return $specific ? 0 : 1;
-            })
+            ->whereRaw('LOWER(municipality_name) = ?', [mb_strtolower($order->shipping_municipality_name)])
+            ->whereRaw('LOWER(barangay) = ?', [mb_strtolower($order->shipping_barangay)])
             ->first();
     }
 
     /**
-     * Pre-fills the rider on a freshly sorted parcel ONLY when the area
-     * has exactly one appointed rider AND that rider can actually take it
-     * right now (on shift, under quota). An area with several riders, or
-     * one whose sole rider is off shift / at quota, is left rider-less
-     * for "Auto assign" (App\Services\ParcelAutoAssignService) or manual
-     * assignment to handle — those report an unavailable rider instead of
-     * silently attaching one and stalling the parcel.
+     * Pre-fills the rider on a freshly sorted parcel ONLY when the
+     * matched barangay has an assigned rider AND that rider can actually
+     * take it right now (on shift, under quota). No assignment, or one
+     * whose rider is off shift / at quota / unset, is left rider-less for
+     * "Auto assign" (App\Services\ParcelAutoAssignService) or manual
+     * assignment to handle.
      */
-    private function soleRiderOf(?LogisticsDeliveryArea $area): ?string
+    private function directRiderOf(?LogisticsBarangayAssignment $assignment): ?string
     {
-        if (! $area) {
+        if (! $assignment?->rider_profile_id) {
             return null;
         }
 
-        // Area riders are appointed through a courier application, so
-        // courier_details is the shift flag isAvailableForDelivery() reads
-        // for them — same as ParcelAutoAssignService::eligibleRiders().
-        $riders = $area->riders()->with('courierDetail')->get();
+        $rider = Profile::query()->with('courierDetail')->find($assignment->rider_profile_id);
 
-        if ($riders->count() !== 1) {
+        if (! $rider) {
             return null;
         }
 
-        $rider = $riders->first();
         $withinQuota = ParcelAssignment::activeCountFor($rider->id) < ParcelAssignment::COURIER_QUOTA;
 
         return $rider->isAvailableForDelivery() && $withinQuota

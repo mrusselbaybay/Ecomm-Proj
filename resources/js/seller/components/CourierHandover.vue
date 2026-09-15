@@ -168,6 +168,9 @@
 
                     <p v-if="handoverError" class="save-msg error">{{ handoverError }}</p>
                     <p v-if="handoverSuccess" class="ch-success-note">{{ handoverSuccess }}</p>
+                    <p v-if="handoverSuccess && statusWarning" class="prep-dispatch-warning">
+                        {{ statusWarning }}
+                    </p>
 
                     <button
                         class="btn-primary"
@@ -283,6 +286,7 @@ const {
     loadOrders,
     statusBadgeClass,
     formatCurrency,
+    statusWarning,
     shipOrder,
     logisticsCompanies,
     isLoadingLogisticsCompanies,

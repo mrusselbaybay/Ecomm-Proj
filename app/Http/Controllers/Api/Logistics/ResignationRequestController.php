@@ -134,15 +134,11 @@ class ResignationRequestController extends Controller
 
             $application?->update(['status' => CourierApplication::STATUS_WITHDRAWN]);
 
-            // Pull them off every delivery area owned by this company.
-            DB::table('logistics_delivery_area_riders')
+            // Pull them off every barangay assignment owned by this company.
+            DB::table('logistics_barangay_assignments')
+                ->where('logistics_company_id', $companyId)
                 ->where('rider_profile_id', $resignation->courier_profile_id)
-                ->whereIn('delivery_area_id', function ($query) use ($companyId): void {
-                    $query->select('id')
-                        ->from('logistics_delivery_areas')
-                        ->where('logistics_company_id', $companyId);
-                })
-                ->delete();
+                ->update(['rider_profile_id' => null]);
         });
 
         $resignation->refresh()->load('courier');

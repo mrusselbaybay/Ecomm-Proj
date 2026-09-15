@@ -10,7 +10,7 @@ use App\Http\Resources\Logistics\ParcelAssignmentResource;
 use App\Http\Resources\Logistics\ParcelTransferRequestResource;
 use App\Models\CourierApplication;
 use App\Models\LogisticsCompany;
-use App\Models\LogisticsDeliveryArea;
+use App\Models\LogisticsBarangayAssignment;
 use App\Models\Order;
 use App\Models\ParcelAssignment;
 use App\Models\ParcelTransferRequest;
@@ -49,7 +49,7 @@ class ParcelAssignmentController extends Controller
         ]);
 
         $assignments = ParcelAssignment::query()
-            ->with(['order', 'deliveryArea', 'rider', 'transferToCompany', 'pendingTransferRequest'])
+            ->with(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])
             ->where('logistics_company_id', $company->id)
             ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('status', $status))
             ->orderByDesc('received_at')
@@ -110,14 +110,14 @@ class ParcelAssignmentController extends Controller
 
         if ($alreadyScanned) {
             return response()->json([
-                'data' => new ParcelAssignmentResource($existing->load(['order', 'deliveryArea', 'rider', 'transferToCompany', 'pendingTransferRequest'])),
+                'data' => new ParcelAssignmentResource($existing->load(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])),
                 'message' => 'This parcel is already in your sorting queue.',
             ]);
         }
 
         $assignment = DB::transaction(fn (): ParcelAssignment => $this->parcelIntake->intake($order, $company, $profile->id));
 
-        return (new ParcelAssignmentResource($assignment->load(['order', 'deliveryArea', 'rider', 'transferToCompany', 'pendingTransferRequest'])))
+        return (new ParcelAssignmentResource($assignment->load(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])))
             ->response()
             ->setStatusCode($existing ? 200 : 201);
     }
@@ -147,32 +147,32 @@ class ParcelAssignmentController extends Controller
             ]);
         }
 
-        $areaId = $request->validated('delivery_area_id');
+        $assignmentId = $request->validated('barangay_assignment_id');
 
-        // The delivery area is only meaningful once this is committed to
-        // a local delivery — i.e. the post-pickup dispatch. The first
-        // assignment is just "send a courier to collect this", which
-        // happens before anyone knows whether the parcel is even staying
-        // with this company (see requestTransfer), so an area is optional
-        // there and stays whatever intake matched, if anything.
-        if ($isDeliveryDispatch && ! $areaId) {
+        // The barangay assignment is only meaningful once this is
+        // committed to a local delivery — i.e. the post-pickup dispatch.
+        // The first assignment is just "send a courier to collect this",
+        // which happens before anyone knows whether the parcel is even
+        // staying with this company (see requestTransfer), so it's
+        // optional there and stays whatever intake matched, if anything.
+        if ($isDeliveryDispatch && ! $assignmentId) {
             throw ValidationException::withMessages([
-                'delivery_area_id' => 'Select an active delivery area owned by your company.',
+                'barangay_assignment_id' => 'Select an active barangay assignment owned by your company.',
             ]);
         }
 
-        $area = null;
+        $barangayAssignment = null;
 
-        if ($areaId) {
-            $area = LogisticsDeliveryArea::query()
-                ->whereKey($areaId)
+        if ($assignmentId) {
+            $barangayAssignment = LogisticsBarangayAssignment::query()
+                ->whereKey($assignmentId)
                 ->where('logistics_company_id', $company->id)
                 ->where('is_active', true)
                 ->first();
 
-            if (! $area) {
+            if (! $barangayAssignment) {
                 throw ValidationException::withMessages([
-                    'delivery_area_id' => 'Select an active delivery area owned by your company.',
+                    'barangay_assignment_id' => 'Select an active barangay assignment owned by your company.',
                 ]);
             }
         }
@@ -183,7 +183,7 @@ class ParcelAssignmentController extends Controller
         $profile = $request->user();
 
         $parcelAssignment->update([
-            'delivery_area_id' => $area?->id ?? $parcelAssignment->delivery_area_id,
+            'barangay_assignment_id' => $barangayAssignment?->id ?? $parcelAssignment->barangay_assignment_id,
             'rider_profile_id' => $riderProfileId,
             // Delivery dispatch (parcel already collected) stays 'handed_off';
             // a first-leg pickup assignment moves to 'assigned'.
@@ -196,7 +196,7 @@ class ParcelAssignmentController extends Controller
         ]);
 
         return new ParcelAssignmentResource(
-            $parcelAssignment->refresh()->load(['order', 'deliveryArea', 'rider', 'transferToCompany', 'pendingTransferRequest'])
+            $parcelAssignment->refresh()->load(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])
         );
     }
 
@@ -225,7 +225,7 @@ class ParcelAssignmentController extends Controller
 
         return response()->json([
             'data' => new ParcelAssignmentResource(
-                $result['parcel']->refresh()->load(['order', 'deliveryArea', 'rider', 'transferToCompany', 'pendingTransferRequest'])
+                $result['parcel']->refresh()->load(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])
             ),
             'outcome' => $result['outcome'],
             'message' => $result['message'],
@@ -252,7 +252,7 @@ class ParcelAssignmentController extends Controller
         ]);
 
         return new ParcelAssignmentResource(
-            $parcelAssignment->refresh()->load(['order', 'deliveryArea', 'rider', 'transferToCompany', 'pendingTransferRequest'])
+            $parcelAssignment->refresh()->load(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])
         );
     }
 
@@ -369,7 +369,7 @@ class ParcelAssignmentController extends Controller
         });
 
         return new ParcelAssignmentResource(
-            $parcelAssignment->refresh()->load(['order', 'deliveryArea', 'rider', 'transferToCompany', 'pendingTransferRequest'])
+            $parcelAssignment->refresh()->load(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])
         );
     }
 

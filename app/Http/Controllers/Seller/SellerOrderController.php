@@ -228,8 +228,10 @@ class SellerOrderController extends Controller
             return response()->json(['message' => 'A reason is required to cancel or reject an order.'], 422);
         }
 
+        $carrierUnmatched = false;
+
         try {
-            DB::transaction(function () use ($order, $newStatus, $fromStatus, $isCancelLike, $request, $seller) {
+            DB::transaction(function () use ($order, $newStatus, $fromStatus, $isCancelLike, $request, $seller, &$carrierUnmatched) {
                 // Lock the row so a concurrent change can't race this one.
                 $order = Order::whereKey($order->id)->lockForUpdate()->first();
 
@@ -280,6 +282,13 @@ class SellerOrderController extends Controller
 
                     if ($company) {
                         $parcelIntake->intake($order, $company);
+                    } else {
+                        // Order still moves to "In Transit" (back-compat
+                        // for free-text carriers, see the comment above),
+                        // but nobody's dispatch queue will ever pick this
+                        // parcel up — the seller needs to know that now,
+                        // not discover it when the buyer asks where it is.
+                        $carrierUnmatched = true;
                     }
                 }
             });
@@ -292,7 +301,12 @@ class SellerOrderController extends Controller
         // After the commit only (spec).
         app(SellerNotifier::class)->orderStatusChanged($order, $fromStatus, $newStatus, 'the seller');
 
-        return response()->json(['data' => $this->transformDetail($order)]);
+        return response()->json([
+            'data' => $this->transformDetail($order),
+            'warning' => $carrierUnmatched
+                ? "\"{$order->shipping_carrier}\" isn't a registered logistics partner, so this parcel won't show up in anyone's dispatch queue automatically. Pick a courier from the dropdown, or ask logistics to scan it in manually."
+                : null,
+        ]);
     }
 
     /**

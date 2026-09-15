@@ -19,6 +19,10 @@ const isLoadingOrders = ref(false);
 const loadError = ref('');
 const isUpdatingStatus = ref(false);
 const updateError = ref('');
+// Non-blocking heads-up from the last status update — e.g. the chosen
+// carrier didn't match a registered logistics company, so the order moved
+// to "In Transit" but nobody's dispatch queue will pick it up.
+const statusWarning = ref('');
 
 // Active logistics companies, for the Courier / Carrier dropdown on
 // Prepare Orders / Courier Handover. Module-scoped (like `orders` above)
@@ -65,6 +69,12 @@ async function authHeaders() {
 }
 
 async function apiFetch(path, options = {}) {
+    return (await apiFetchRaw(path, options)).data;
+}
+
+// Same request, but hands back the whole response body instead of just
+// `.data` — for callers that need a top-level field like `warning` too.
+async function apiFetchRaw(path, options = {}) {
     const headers = await authHeaders();
     const response = await fetch(`/api/seller${path}`, { ...options, headers });
     const body = await response.json().catch(() => ({}));
@@ -73,7 +83,7 @@ async function apiFetch(path, options = {}) {
         throw new Error(body.message || 'Request failed.');
     }
 
-    return body.data;
+    return body;
 }
 
 async function loadOrders(params = {}) {
@@ -188,18 +198,20 @@ function replaceInList(updatedOrder) {
 async function updateOrderStatus(id, status, extra = {}) {
     isUpdatingStatus.value = true;
     updateError.value = '';
+    statusWarning.value = '';
 
     try {
-        const updated = await apiFetch(
+        const body = await apiFetchRaw(
             `/orders/${encodeURIComponent(id)}/status`,
             {
                 method: 'PUT',
                 body: JSON.stringify({ status, ...extra }),
             },
         );
-        replaceInList(updated);
+        replaceInList(body.data);
+        statusWarning.value = body.warning || '';
 
-        return updated;
+        return body.data;
     } catch (err) {
         console.error('Error updating order status:', err);
         updateError.value =
@@ -279,6 +291,7 @@ export function useOrders() {
         orders,
         ordersMeta,
         isLoadingOrders,
+        statusWarning,
         loadError,
         isUpdatingStatus,
         updateError,

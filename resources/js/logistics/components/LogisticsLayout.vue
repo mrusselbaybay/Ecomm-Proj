@@ -235,7 +235,9 @@ import PortalPlaceholder from './PortalPlaceholder.vue';
 const ParcelOperations = defineAsyncComponent(
     () => import('./ParcelOperations.vue'),
 );
-const DeliveryAreas = defineAsyncComponent(() => import('./DeliveryAreas.vue'));
+const BarangayAssignments = defineAsyncComponent(
+    () => import('./BarangayAssignments.vue'),
+);
 const Riders = defineAsyncComponent(() => import('./Riders.vue'));
 const Applications = defineAsyncComponent(() => import('./Applications.vue'));
 const AccountSettings = defineAsyncComponent(
@@ -272,7 +274,7 @@ const navGroups = [
         tabs: [
             { key: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
             { key: 'parcels', label: 'Parcel Sorting', icon: 'parcels' },
-            { key: 'areas', label: 'Delivery Areas', icon: 'pin' },
+            { key: 'areas', label: 'Barangay Assignments', icon: 'pin' },
             { key: 'riders', label: 'Riders', icon: 'couriers' },
             {
                 key: 'applications',
@@ -300,7 +302,7 @@ const allTabs = navGroups.flatMap((group) => group.tabs);
 const TAB_COMPONENTS = {
     dashboard: Dashboard,
     parcels: ParcelOperations,
-    areas: DeliveryAreas,
+    areas: BarangayAssignments,
     riders: Riders,
     applications: Applications,
     messages: Messages,

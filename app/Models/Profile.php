@@ -123,6 +123,17 @@ class Profile extends Model
         return $this->deliveryDetail()?->delivery_status === 'available';
     }
 
+    /**
+     * This rider's declared vehicle (free text — see App\Support\
+     * VehicleCategory for the normalizer), read from whichever detail row
+     * backs their role. Same courier-vs-driver dispatch as
+     * isAvailableForDelivery().
+     */
+    public function vehicleLabel(): ?string
+    {
+        return $this->deliveryDetail()?->vehicle;
+    }
+
     // For role = logistics: the company this profile registered as owner.
     public function logisticsCompany(): HasOne
     {

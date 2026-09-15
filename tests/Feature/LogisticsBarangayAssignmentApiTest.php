@@ -49,8 +49,8 @@ beforeEach(function () {
     });
 
     // Supabase-managed table, no Laravel migration — riders.address is
-    // eager-loaded on every area response now, so this just needs to
-    // exist (see App\Models\Profile::address / Address::full_address).
+    // eager-loaded on every assignment response now, so this just needs
+    // to exist (see App\Models\Profile::address / Address::full_address).
     if (! Schema::hasTable('addresses')) {
         Schema::create('addresses', function (Blueprint $table) {
             $table->string('id')->primary();
@@ -131,158 +131,108 @@ beforeEach(function () {
     ]);
 });
 
-it('creates a delivery area with no rider assignment required', function () {
+it('creates a barangay assignment with no rider required', function () {
     $response = $this->withToken('valid-token')
-        ->postJson('/api/logistics/delivery-areas', [
-            'name' => 'Area A',
+        ->postJson('/api/logistics/barangay-assignments', [
             'province_name' => 'Laguna',
-            'municipalities' => [['name' => 'Santa Cruz']],
+            'municipality_name' => 'Santa Cruz',
+            'barangay' => 'Poblacion',
             'is_active' => true,
         ]);
 
     $response->assertCreated()
-        ->assertJsonPath('data.name', 'Area A')
-        ->assertJsonPath('data.riders', []);
+        ->assertJsonPath('data.barangay', 'Poblacion')
+        ->assertJsonPath('data.rider', null);
 
-    $this->assertDatabaseHas('logistics_delivery_areas', [
+    $this->assertDatabaseHas('logistics_barangay_assignments', [
         'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
-        'name' => 'Area A',
+        'municipality_name' => 'Santa Cruz',
+        'barangay' => 'Poblacion',
     ]);
 });
 
-it('rejects a second area with a name the company already uses', function () {
-    DB::table('logistics_delivery_areas')->insert([
+it('rejects a second assignment for a barangay the company already covers', function () {
+    DB::table('logistics_barangay_assignments')->insert([
         'id' => '70000000-0000-0000-0000-000000000007',
         'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
-        'name' => 'Area A',
         'province_name' => 'Laguna',
+        'municipality_name' => 'Santa Cruz',
+        'barangay' => 'Poblacion',
         'is_active' => true,
         'created_at' => now(),
         'updated_at' => now(),
     ]);
 
     $response = $this->withToken('valid-token')
-        ->postJson('/api/logistics/delivery-areas', [
-            // Different casing — still the same name to a person.
-            'name' => 'area a',
+        ->postJson('/api/logistics/barangay-assignments', [
             'province_name' => 'Laguna',
-            'municipalities' => [['name' => 'Los Baños']],
+            // Different casing — still the same barangay to a person.
+            'municipality_name' => 'santa cruz',
+            'barangay' => 'poblacion',
         ]);
 
     $response->assertUnprocessable()
-        ->assertJsonValidationErrors('name');
+        ->assertJsonValidationErrors('barangay');
 
-    expect($response->json('errors.name.0'))->toContain('already have a delivery area');
-    $this->assertDatabaseCount('logistics_delivery_areas', 1);
+    expect($response->json('errors.barangay.0'))->toContain('already has a courier assignment');
+    $this->assertDatabaseCount('logistics_barangay_assignments', 1);
 });
 
-it('rejects a municipality already covered by another area of the same company', function () {
-    DB::table('logistics_delivery_areas')->insert([
+it('lets an assignment update its own municipality and barangay', function () {
+    DB::table('logistics_barangay_assignments')->insert([
         'id' => '70000000-0000-0000-0000-000000000007',
         'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
-        'name' => 'Area A',
         'province_name' => 'Laguna',
-        'is_active' => true,
-        'created_at' => now(),
-        'updated_at' => now(),
-    ]);
-    DB::table('logistics_delivery_area_municipalities')->insert([
-        'id' => '71000000-0000-0000-0000-000000000007',
-        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
         'municipality_name' => 'Santa Cruz',
-        'created_at' => now(),
-        'updated_at' => now(),
-    ]);
-
-    $response = $this->withToken('valid-token')
-        ->postJson('/api/logistics/delivery-areas', [
-            'name' => 'Area B',
-            'province_name' => 'Laguna',
-            'municipalities' => [['name' => 'Santa Cruz']],
-        ]);
-
-    $response->assertUnprocessable()
-        ->assertJsonValidationErrors('municipalities');
-
-    expect($response->json('errors.municipalities.0'))
-        ->toContain('already covered by another area')
-        ->toContain('Area A');
-
-    // Nothing partially written.
-    $this->assertDatabaseMissing('logistics_delivery_areas', ['name' => 'Area B']);
-});
-
-it('lets an area keep its own municipalities on update', function () {
-    DB::table('logistics_delivery_areas')->insert([
-        'id' => '70000000-0000-0000-0000-000000000007',
-        'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
-        'name' => 'Area A',
-        'province_name' => 'Laguna',
+        'barangay' => 'Poblacion',
         'is_active' => true,
-        'created_at' => now(),
-        'updated_at' => now(),
-    ]);
-    DB::table('logistics_delivery_area_municipalities')->insert([
-        'id' => '71000000-0000-0000-0000-000000000007',
-        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
-        'municipality_name' => 'Santa Cruz',
         'created_at' => now(),
         'updated_at' => now(),
     ]);
 
     $this->withToken('valid-token')
-        ->putJson('/api/logistics/delivery-areas/70000000-0000-0000-0000-000000000007', [
-            'name' => 'Area A',
-            'province_name' => 'Laguna',
-            'municipalities' => [
-                ['name' => 'Santa Cruz'],
-                ['name' => 'Pila'],
-            ],
+        ->putJson('/api/logistics/barangay-assignments/70000000-0000-0000-0000-000000000007', [
+            'barangay' => 'Bubukal',
         ])
         ->assertOk()
-        ->assertJsonCount(2, 'data.municipalities');
+        ->assertJsonPath('data.barangay', 'Bubukal')
+        ->assertJsonPath('data.municipality_name', 'Santa Cruz');
 });
 
-it('appoints an accepted rider to an area', function () {
-    DB::table('logistics_delivery_areas')->insert([
+it('assigns an accepted rider to a barangay assignment', function () {
+    DB::table('logistics_barangay_assignments')->insert([
         'id' => '70000000-0000-0000-0000-000000000007',
         'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
-        'name' => 'Area C',
         'province_name' => 'Laguna',
-        'is_active' => true,
-        'created_at' => now(),
-        'updated_at' => now(),
-    ]);
-    DB::table('logistics_delivery_area_municipalities')->insert([
-        'id' => '71000000-0000-0000-0000-000000000007',
-        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
         'municipality_name' => 'Los Baños',
+        'barangay' => 'Batong Malake',
+        'is_active' => true,
         'created_at' => now(),
         'updated_at' => now(),
     ]);
 
     $this->withToken('valid-token')
-        ->postJson('/api/logistics/delivery-areas/70000000-0000-0000-0000-000000000007/riders', [
+        ->putJson('/api/logistics/barangay-assignments/70000000-0000-0000-0000-000000000007/rider', [
             'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
         ])
         ->assertOk()
-        ->assertJsonCount(1, 'data.riders')
-        ->assertJsonPath('data.riders.0.first_name', 'Rider')
-        ->assertJsonPath('data.riders.0.address', 'Santa Cruz, Laguna');
+        ->assertJsonPath('data.rider.first_name', 'Rider')
+        ->assertJsonPath('data.rider.address', 'Santa Cruz, Laguna');
 
-    $this->assertDatabaseHas('logistics_delivery_area_riders', [
-        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
+    $this->assertDatabaseHas('logistics_barangay_assignments', [
+        'id' => '70000000-0000-0000-0000-000000000007',
         'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
     ]);
 });
 
-it('rejects a rider already appointed to another area of the same company', function () {
-    DB::table('logistics_delivery_areas')->insert([
+it('allows the same rider to be assigned to more than one barangay', function () {
+    DB::table('logistics_barangay_assignments')->insert([
         [
             'id' => '70000000-0000-0000-0000-000000000007',
             'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
-            'name' => 'Area C',
             'province_name' => 'Laguna',
+            'municipality_name' => 'Los Baños',
+            'barangay' => 'Batong Malake',
             'is_active' => true,
             'created_at' => now(),
             'updated_at' => now(),
@@ -290,133 +240,112 @@ it('rejects a rider already appointed to another area of the same company', func
         [
             'id' => '70000000-0000-0000-0000-000000000008',
             'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
-            'name' => 'Area D',
             'province_name' => 'Laguna',
+            'municipality_name' => 'Los Baños',
+            'barangay' => 'Anos',
             'is_active' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ],
     ]);
-    DB::table('logistics_delivery_area_riders')->insert([
-        'delivery_area_id' => '70000000-0000-0000-0000-000000000008',
-        'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
-        'created_at' => now(),
-    ]);
+    DB::table('logistics_barangay_assignments')
+        ->where('id', '70000000-0000-0000-0000-000000000007')
+        ->update(['rider_profile_id' => '20000000-0000-0000-0000-000000000002']);
 
+    // Unlike the old one-area-per-rider rule, appointing the same rider to
+    // a second barangay is allowed.
     $this->withToken('valid-token')
-        ->postJson('/api/logistics/delivery-areas/70000000-0000-0000-0000-000000000007/riders', [
+        ->putJson('/api/logistics/barangay-assignments/70000000-0000-0000-0000-000000000008/rider', [
             'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
         ])
-        ->assertUnprocessable()
-        ->assertJsonValidationErrors('rider_profile_id');
+        ->assertOk()
+        ->assertJsonPath('data.rider.id', '20000000-0000-0000-0000-000000000002');
 
-    $this->assertDatabaseMissing('logistics_delivery_area_riders', [
-        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
+    $this->assertDatabaseHas('logistics_barangay_assignments', [
+        'id' => '70000000-0000-0000-0000-000000000007',
+        'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
+    ]);
+    $this->assertDatabaseHas('logistics_barangay_assignments', [
+        'id' => '70000000-0000-0000-0000-000000000008',
         'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
     ]);
 });
 
 it('rejects a rider accepted by another logistics company', function () {
-    DB::table('logistics_delivery_areas')->insert([
+    DB::table('logistics_barangay_assignments')->insert([
         'id' => '70000000-0000-0000-0000-000000000007',
         'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
-        'name' => 'Area C',
         'province_name' => 'Laguna',
-        'is_active' => true,
-        'created_at' => now(),
-        'updated_at' => now(),
-    ]);
-    DB::table('logistics_delivery_area_municipalities')->insert([
-        'id' => '71000000-0000-0000-0000-000000000007',
-        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
         'municipality_name' => 'Los Baños',
+        'barangay' => 'Batong Malake',
+        'is_active' => true,
         'created_at' => now(),
         'updated_at' => now(),
     ]);
 
     $this->withToken('valid-token')
-        ->postJson('/api/logistics/delivery-areas/70000000-0000-0000-0000-000000000007/riders', [
+        ->putJson('/api/logistics/barangay-assignments/70000000-0000-0000-0000-000000000007/rider', [
             'rider_profile_id' => '30000000-0000-0000-0000-000000000003',
         ])
         ->assertUnprocessable()
         ->assertJsonValidationErrors('rider_profile_id');
 });
 
-it('removes an appointed rider from an area', function () {
-    DB::table('logistics_delivery_areas')->insert([
+it('clears the appointed rider from a barangay assignment', function () {
+    DB::table('logistics_barangay_assignments')->insert([
         'id' => '70000000-0000-0000-0000-000000000007',
         'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
-        'name' => 'Area C',
         'province_name' => 'Laguna',
+        'municipality_name' => 'Los Baños',
+        'barangay' => 'Batong Malake',
+        'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
         'is_active' => true,
         'created_at' => now(),
         'updated_at' => now(),
     ]);
-    DB::table('logistics_delivery_area_municipalities')->insert([
-        'id' => '71000000-0000-0000-0000-000000000007',
-        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
-        'municipality_name' => 'Los Baños',
-        'created_at' => now(),
-        'updated_at' => now(),
-    ]);
-    DB::table('logistics_delivery_area_riders')->insert([
-        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
-        'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
-        'created_at' => now(),
-    ]);
 
     $this->withToken('valid-token')
-        ->deleteJson('/api/logistics/delivery-areas/70000000-0000-0000-0000-000000000007/riders/20000000-0000-0000-0000-000000000002')
+        ->putJson('/api/logistics/barangay-assignments/70000000-0000-0000-0000-000000000007/rider', [
+            'rider_profile_id' => null,
+        ])
         ->assertOk()
-        ->assertJsonPath('data.riders', []);
+        ->assertJsonPath('data.rider', null);
 
-    $this->assertDatabaseMissing('logistics_delivery_area_riders', [
-        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
-        'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
+    $this->assertDatabaseHas('logistics_barangay_assignments', [
+        'id' => '70000000-0000-0000-0000-000000000007',
+        'rider_profile_id' => null,
     ]);
 });
 
-it('returns only the owners areas and accepted riders', function () {
-    DB::table('logistics_delivery_areas')->insert([
+it('returns only the owners barangay assignments and accepted riders', function () {
+    DB::table('logistics_barangay_assignments')->insert([
         'id' => '70000000-0000-0000-0000-000000000007',
         'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
-        'name' => 'Area C',
         'province_name' => 'Laguna',
-        'is_active' => true,
-        'created_at' => now(),
-        'updated_at' => now(),
-    ]);
-    DB::table('logistics_delivery_area_municipalities')->insert([
-        'id' => '71000000-0000-0000-0000-000000000007',
-        'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
         'municipality_name' => 'Los Baños',
+        'barangay' => 'Batong Malake',
+        'is_active' => true,
         'created_at' => now(),
         'updated_at' => now(),
     ]);
 
     $this->withToken('valid-token')
-        ->getJson('/api/logistics/delivery-areas')
+        ->getJson('/api/logistics/barangay-assignments')
         ->assertOk()
-        ->assertJsonCount(1, 'areas')
+        ->assertJsonCount(1, 'assignments')
         ->assertJsonCount(1, 'riders')
         ->assertJsonPath('riders.0.id', '20000000-0000-0000-0000-000000000002');
 });
 
-describe('available riders (Add driver panel)', function () {
+describe('available riders (Assign courier panel)', function () {
     beforeEach(function () {
-        DB::table('logistics_delivery_areas')->insert([
+        DB::table('logistics_barangay_assignments')->insert([
             'id' => '70000000-0000-0000-0000-000000000007',
             'logistics_company_id' => '40000000-0000-0000-0000-000000000004',
-            'name' => 'Area C',
             'province_name' => 'Laguna',
-            'is_active' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-        DB::table('logistics_delivery_area_municipalities')->insert([
-            'id' => '71000000-0000-0000-0000-000000000007',
-            'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
             'municipality_name' => 'Los Baños',
+            'barangay' => 'Batong Malake',
+            'is_active' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -447,7 +376,7 @@ describe('available riders (Add driver panel)', function () {
 
     it('paginates 5 riders per page', function () {
         $this->withToken('valid-token')
-            ->getJson('/api/logistics/delivery-areas/70000000-0000-0000-0000-000000000007/available-riders')
+            ->getJson('/api/logistics/barangay-assignments/70000000-0000-0000-0000-000000000007/available-riders')
             ->assertOk()
             ->assertJsonCount(5, 'data')
             ->assertJsonPath('meta.current_page', 1)
@@ -456,32 +385,34 @@ describe('available riders (Add driver panel)', function () {
             ->assertJsonPath('meta.total', 7);
 
         $this->withToken('valid-token')
-            ->getJson('/api/logistics/delivery-areas/70000000-0000-0000-0000-000000000007/available-riders?page=2')
+            ->getJson('/api/logistics/barangay-assignments/70000000-0000-0000-0000-000000000007/available-riders?page=2')
             ->assertOk()
             ->assertJsonCount(2, 'data')
             ->assertJsonPath('meta.current_page', 2);
     });
 
-    it('excludes riders already appointed to the area', function () {
-        DB::table('logistics_delivery_area_riders')->insert([
-            'delivery_area_id' => '70000000-0000-0000-0000-000000000007',
-            'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
-            'created_at' => now(),
-        ]);
+    it('still lists a rider already appointed to this barangay — a rider can cover more than one', function () {
+        DB::table('logistics_barangay_assignments')
+            ->where('id', '70000000-0000-0000-0000-000000000007')
+            ->update(['rider_profile_id' => '20000000-0000-0000-0000-000000000002']);
 
+        // Searched rather than paged through — "Rider One" sorts after the
+        // 6 "Extra Rider" fixtures alphabetically, so an unfiltered page 1
+        // wouldn't include them regardless of the exclusion rule this test
+        // is actually checking.
         $ids = collect(
             $this->withToken('valid-token')
-                ->getJson('/api/logistics/delivery-areas/70000000-0000-0000-0000-000000000007/available-riders')
+                ->getJson('/api/logistics/barangay-assignments/70000000-0000-0000-0000-000000000007/available-riders?search=Rider+One')
                 ->assertOk()
                 ->json('data'),
         )->pluck('id');
 
-        expect($ids)->not->toContain('20000000-0000-0000-0000-000000000002');
+        expect($ids)->toContain('20000000-0000-0000-0000-000000000002');
     });
 
     it('searches riders by name and includes their address', function () {
         $this->withToken('valid-token')
-            ->getJson('/api/logistics/delivery-areas/70000000-0000-0000-0000-000000000007/available-riders?search=Rider+One')
+            ->getJson('/api/logistics/barangay-assignments/70000000-0000-0000-0000-000000000007/available-riders?search=Rider+One')
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', '20000000-0000-0000-0000-000000000002')

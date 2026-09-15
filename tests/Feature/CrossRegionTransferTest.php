@@ -1,15 +1,14 @@
 <?php
 
 use App\Models\CourierApplication;
+use App\Models\LogisticsBarangayAssignment;
 use App\Models\LogisticsCompany;
-use App\Models\LogisticsDeliveryArea;
 use App\Models\ParcelAssignment;
 use App\Models\ParcelTransferRequest;
 use App\Models\Profile;
 use App\Services\SupabaseStorageService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -85,16 +84,6 @@ beforeEach(function () {
     });
 });
 
-function makeSellerAddress(string $profileId, string $regionName): void
-{
-    DB::table('addresses')->insert([
-        'id' => (string) Str::uuid(),
-        'owner_kind' => 'profile',
-        'profile_id' => $profileId,
-        'region_name' => $regionName,
-    ]);
-}
-
 function makeTransferTestCompany(string $region): LogisticsCompany
 {
     return LogisticsCompany::create([
@@ -109,11 +98,11 @@ function makeTransferTestCompany(string $region): LogisticsCompany
 
 it('starts every parcel in the pickup queue, then routes/transfers it end to end once collected', function () {
     $seller = makeSeller();
-    makeSellerAddress($seller->id, 'Luzon');
 
     $buyer = makeBuyer();
     [$order] = makeOrder($buyer, $seller, [
         'status' => 'Processing',
+        'pickup_region_name' => 'Luzon',
         'shipping_region_name' => 'Visayas',
     ]);
 
@@ -249,7 +238,12 @@ it('starts every parcel in the pickup queue, then routes/transfers it end to end
     expect($newAssignment)->not->toBeNull()
         ->and($newAssignment->status)->toBe(ParcelAssignment::STATUS_HANDED_OFF)
         ->and($newAssignment->rider_profile_id)->toBeNull()
-        ->and($newAssignment->is_transfer)->toBeFalse()
+        // is_transfer is purely seller-vs-buyer now (TransferTriggerService),
+        // not tied to which company currently holds the parcel — it stays
+        // true at the target company too, since the seller and buyer are
+        // still in different regions. See ParcelIntakeService::
+        // createTransferReceipt()'s docblock.
+        ->and($newAssignment->is_transfer)->toBeTrue()
         ->and($newAssignment->previous_assignment_id)->toBe($assignment->id);
 
     expect($transferRequest->fresh()->resulting_assignment_id)->toBe($newAssignment->id);
@@ -272,14 +266,14 @@ it('starts every parcel in the pickup queue, then routes/transfers it end to end
         'applied_at' => now(),
     ]);
 
-    $area = LogisticsDeliveryArea::factory()->create([
+    $assignment2 = LogisticsBarangayAssignment::factory()->create([
         'logistics_company_id' => $targetCompany->id,
         'is_active' => true,
     ]);
 
     actingAsTransferCompanyOwner($targetCompany);
     $this->putJson("/api/logistics/parcel-assignments/{$newAssignment->id}/assign", [
-        'delivery_area_id' => $area->id,
+        'barangay_assignment_id' => $assignment2->id,
         'rider_profile_id' => $targetRider->id,
     ])->assertOk()
         ->assertJsonPath('data.status', 'handed_off');
@@ -344,13 +338,13 @@ it('puts the parcel back on the origin desk when the receiving company rejects t
     ])->assertStatus(422);
 });
 
-it('records no transfer hint when the holding company covers the buyer region', function () {
+it('records no transfer hint when the seller and buyer share a region', function () {
     $seller = makeSeller();
-    makeSellerAddress($seller->id, 'Luzon');
 
     $buyer = makeBuyer();
     [$order] = makeOrder($buyer, $seller, [
         'status' => 'Processing',
+        'pickup_region_name' => 'Luzon',
         'shipping_region_name' => 'Luzon',
     ]);
 

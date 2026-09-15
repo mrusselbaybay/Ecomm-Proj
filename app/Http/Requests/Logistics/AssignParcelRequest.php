@@ -23,11 +23,11 @@ class AssignParcelRequest extends FormRequest
     {
         return [
             // Optional on the first assignment ("send a courier to collect
-            // this") — a parcel isn't committed to a delivery area until
-            // after it's been picked up, since it might be routed to
+            // this") — a parcel isn't committed to a barangay assignment
+            // until after it's been picked up, since it might be routed to
             // another company entirely. ParcelAssignmentController::assign
             // enforces it for the post-pickup delivery dispatch.
-            'delivery_area_id' => ['nullable', 'uuid'],
+            'barangay_assignment_id' => ['nullable', 'uuid'],
             'rider_profile_id' => ['required', 'uuid'],
         ];
     }

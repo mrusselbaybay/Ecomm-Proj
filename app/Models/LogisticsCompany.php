@@ -28,6 +28,9 @@ class LogisticsCompany extends Model
         'description',
         'monthly_salary',
         'is_hiring',
+        // Company-wide "Auto assign" rotation cursor — see
+        // App\Services\ParcelAutoAssignService's fallback pool.
+        'last_auto_assigned_rider_profile_id',
     ];
 
     protected $casts = [

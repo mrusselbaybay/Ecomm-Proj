@@ -53,8 +53,8 @@ const applications = ref([]);
 // page and the Rider Applications page never clobber each other's data.
 const acceptedRiders = ref([]);
 const couriers = ref([]);
-const deliveryAreas = ref([]);
-const areaRiders = ref([]);
+const barangayAssignments = ref([]);
+const assignmentRiders = ref([]);
 const parcelAssignments = ref([]);
 const transferRequests = ref([]);
 const transferRequestsMeta = ref({ pendingTotal: 0 });
@@ -81,7 +81,7 @@ export const CACHE_KEYS = {
     applications: 'applications',
     acceptedRiders: 'accepted-riders',
     couriers: 'couriers',
-    deliveryAreas: 'delivery-areas',
+    barangayAssignments: 'barangay-assignments',
     parcels: 'parcel-assignments',
     transferRequests: 'parcel-transfer-requests',
     resignations: 'resignation-requests',
@@ -140,8 +140,8 @@ function resetCache() {
     applications.value = [];
     acceptedRiders.value = [];
     couriers.value = [];
-    deliveryAreas.value = [];
-    areaRiders.value = [];
+    barangayAssignments.value = [];
+    assignmentRiders.value = [];
     parcelAssignments.value = [];
     transferRequests.value = [];
     transferRequestsMeta.value = { pendingTotal: 0 };
@@ -481,11 +481,11 @@ function removeAcceptedRider(id) {
         (item) => item.id !== id,
     );
     // Firing withdraws the application and pulls the rider off every
-    // delivery area — the roster, the accepted-rider pool and the
+    // barangay assignment — the roster, the accepted-rider pool and the
     // applications list all now disagree with the server.
     invalidate(
         CACHE_KEYS.couriers,
-        CACHE_KEYS.deliveryAreas,
+        CACHE_KEYS.barangayAssignments,
         CACHE_KEYS.applications,
     );
 }
@@ -503,7 +503,7 @@ function patchApplication(id, changes) {
     // from this list — an accept/reject here changes what they show.
     invalidate(
         CACHE_KEYS.couriers,
-        CACHE_KEYS.deliveryAreas,
+        CACHE_KEYS.barangayAssignments,
         CACHE_KEYS.acceptedRiders,
     );
 }
@@ -545,23 +545,23 @@ async function loadCouriers({ force = false } = {}) {
     );
 }
 
-// -------------------------------------------------------- delivery areas
+// --------------------------------------------------- barangay assignments
 
-async function loadDeliveryAreas({ force = false } = {}) {
+async function loadBarangayAssignments({ force = false } = {}) {
     return cached(
-        CACHE_KEYS.deliveryAreas,
+        CACHE_KEYS.barangayAssignments,
         'all',
         async () => {
             const response = await logisticsFetch(
-                '/api/logistics/delivery-areas',
+                '/api/logistics/barangay-assignments',
             );
             const payload = await readJson(
                 response,
-                'Failed to load delivery areas.',
+                'Failed to load barangay assignments.',
             );
 
-            deliveryAreas.value = payload.areas || [];
-            areaRiders.value = payload.riders || [];
+            barangayAssignments.value = payload.assignments || [];
+            assignmentRiders.value = payload.riders || [];
 
             return payload;
         },
@@ -569,78 +569,104 @@ async function loadDeliveryAreas({ force = false } = {}) {
     );
 }
 
-async function saveDeliveryArea(area, id = null) {
+async function saveBarangayAssignment(assignment, id = null) {
     const response = await logisticsFetch(
         id
-            ? `/api/logistics/delivery-areas/${id}`
-            : '/api/logistics/delivery-areas',
+            ? `/api/logistics/barangay-assignments/${id}`
+            : '/api/logistics/barangay-assignments',
         {
             method: id ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(area),
+            body: JSON.stringify(assignment),
         },
     );
     const payload = await readJson(
         response,
-        'Failed to save the delivery area.',
+        'Failed to save the barangay assignment.',
     );
 
-    // The endpoint returns the saved area, so patch it in rather than
-    // re-downloading every area and the whole rider roster.
-    upsertRow(deliveryAreas, payload.data);
+    // The endpoint returns the saved row, so patch it in rather than
+    // re-downloading every assignment.
+    upsertRow(barangayAssignments, payload.data);
 
     return payload.data;
 }
 
-async function deleteDeliveryArea(id) {
+// Creates one unassigned assignment per barangay of a municipality in one
+// request — bulk alternative to saveBarangayAssignment for covering a
+// whole city/municipality at once instead of adding barangays one by one.
+async function bulkCreateBarangayAssignments({
+    province_name,
+    municipality_code,
+    municipality_name,
+    barangays,
+}) {
+    const response = await logisticsFetch(
+        '/api/logistics/barangay-assignments/bulk',
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                province_name,
+                municipality_code,
+                municipality_name,
+                barangays,
+            }),
+        },
+    );
+    const payload = await readJson(
+        response,
+        'Failed to auto-create delivery areas.',
+    );
+
+    // The endpoint returns every assignment now covering that municipality
+    // (old + newly created) — merge them all in rather than re-downloading
+    // the whole company roster.
+    (payload.assignments || []).forEach((assignment) =>
+        upsertRow(barangayAssignments, assignment),
+    );
+
+    return payload;
+}
+
+async function deleteBarangayAssignment(id) {
     if (!id) {
-        throw new Error('No delivery area was selected to delete.');
+        throw new Error('No barangay assignment was selected to delete.');
     }
 
     const response = await logisticsFetch(
-        `/api/logistics/delivery-areas/${id}`,
+        `/api/logistics/barangay-assignments/${id}`,
         { method: 'DELETE' },
     );
-    await readJson(response, 'Failed to delete the delivery area.');
+    await readJson(response, 'Failed to delete the barangay assignment.');
 
-    removeRow(deliveryAreas, id);
+    removeRow(barangayAssignments, id);
 }
 
-async function addAreaRider(areaId, riderProfileId) {
+// A barangay has at most one rider — pass null to clear it.
+async function setAssignmentRider(assignmentId, riderProfileId) {
     const response = await logisticsFetch(
-        `/api/logistics/delivery-areas/${areaId}/riders`,
+        `/api/logistics/barangay-assignments/${assignmentId}/rider`,
         {
-            method: 'POST',
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ rider_profile_id: riderProfileId }),
         },
     );
-    const payload = await readJson(response, 'Failed to add the driver.');
+    const payload = await readJson(response, 'Failed to update the driver.');
 
-    upsertRow(deliveryAreas, payload.data);
-
-    return payload.data;
-}
-
-async function removeAreaRider(areaId, riderProfileId) {
-    const response = await logisticsFetch(
-        `/api/logistics/delivery-areas/${areaId}/riders/${riderProfileId}`,
-        { method: 'DELETE' },
-    );
-    const payload = await readJson(response, 'Failed to remove the driver.');
-
-    upsertRow(deliveryAreas, payload.data);
+    upsertRow(barangayAssignments, payload.data);
 
     return payload.data;
 }
 
-// Paginated (5/page), searched server-side — backs the "Add driver" side
-// panel. Deliberately not folded into loadDeliveryAreas()/areaRiders:
-// that's the whole company roster, unpaginated, used for the summary
-// table further down the page — this is scoped to one area, excludes
-// riders already appointed to it, and is fetched only when the panel is
-// actually opened. Not cached: the pool changes as riders are appointed.
-async function loadAvailableRiders(areaId, { search = '', page = 1 } = {}) {
+// Paginated (5/page), searched server-side — backs the rider picker on the
+// assignment form. Deliberately not folded into
+// loadBarangayAssignments()/assignmentRiders: that's the whole company
+// roster, unpaginated, used for the summary table further down the page —
+// this is fetched only when the picker is actually opened. Not cached: the
+// pool changes as riders are accepted/let go.
+async function loadAvailableRiders(assignmentId, { search = '', page = 1 } = {}) {
     const params = new URLSearchParams();
 
     if (search) {
@@ -653,7 +679,7 @@ async function loadAvailableRiders(areaId, { search = '', page = 1 } = {}) {
 
     const query = params.toString();
     const response = await logisticsFetch(
-        `/api/logistics/delivery-areas/${areaId}/available-riders${query ? `?${query}` : ''}`,
+        `/api/logistics/barangay-assignments/${assignmentId}/available-riders${query ? `?${query}` : ''}`,
     );
 
     return readJson(response, 'Failed to load available riders.');
@@ -698,14 +724,14 @@ async function receiveParcel(trackingNumber) {
     return payload.data;
 }
 
-async function assignParcel(id, deliveryAreaId, riderProfileId) {
+async function assignParcel(id, barangayAssignmentId, riderProfileId) {
     const response = await logisticsFetch(
         `/api/logistics/parcel-assignments/${id}/assign`,
         {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                delivery_area_id: deliveryAreaId,
+                barangay_assignment_id: barangayAssignmentId,
                 rider_profile_id: riderProfileId,
             }),
         },
@@ -718,8 +744,9 @@ async function assignParcel(id, deliveryAreaId, riderProfileId) {
 }
 
 /**
- * Auto-routes one parcel: the server matches its address to a delivery
- * area and picks the next available rider in that area's rotation.
+ * Auto-routes one parcel: the server matches its address to a barangay's
+ * assigned rider, falling back to a company-wide rotation when that
+ * barangay has nobody assigned (or they're not available right now).
  *
  * Resolves for every outcome, not just a successful assignment — check
  * `outcome` ('assigned' | 'no_area' | 'no_rider' | 'skipped'). Only a
@@ -929,13 +956,13 @@ const parcelStats = computed(() => {
     return stats;
 });
 
-const areaStats = computed(() => {
-    const active = deliveryAreas.value.filter((area) => area.is_active);
+const assignmentStats = computed(() => {
+    const active = barangayAssignments.value.filter((a) => a.is_active);
 
     return {
         active: active.length,
-        staffed: active.filter((area) => area.riders?.length).length,
-        total: deliveryAreas.value.length,
+        staffed: active.filter((a) => a.rider).length,
+        total: barangayAssignments.value.length,
     };
 });
 
@@ -1013,10 +1040,10 @@ async function reviewResignation(id, action, note = null) {
     // re-fetches the page it's looking at.
     invalidate(CACHE_KEYS.resignations);
 
-    // Approving detaches the rider from every delivery area they served,
-    // so those lists are no longer accurate.
+    // Approving detaches the rider from every barangay they were assigned
+    // to, so those lists are no longer accurate.
     if (action === 'approve') {
-        invalidate(CACHE_KEYS.deliveryAreas, CACHE_KEYS.couriers);
+        invalidate(CACHE_KEYS.barangayAssignments, CACHE_KEYS.couriers);
     }
 
     return payload.data;
@@ -1043,8 +1070,8 @@ export function useLogistics() {
         applications,
         acceptedRiders,
         couriers,
-        deliveryAreas,
-        areaRiders,
+        barangayAssignments,
+        assignmentRiders,
         parcelAssignments,
         transferRequests,
         transferRequestsMeta,
@@ -1054,7 +1081,7 @@ export function useLogistics() {
         pendingResignationCount,
         pendingTransferCount,
         parcelStats,
-        areaStats,
+        assignmentStats,
         loadingCompany,
         isLoading,
         isAuthenticated,
@@ -1069,11 +1096,11 @@ export function useLogistics() {
         loadAcceptedRiders,
         removeAcceptedRider,
         loadCouriers,
-        loadDeliveryAreas,
-        saveDeliveryArea,
-        deleteDeliveryArea,
-        addAreaRider,
-        removeAreaRider,
+        loadBarangayAssignments,
+        saveBarangayAssignment,
+        bulkCreateBarangayAssignments,
+        deleteBarangayAssignment,
+        setAssignmentRider,
         loadAvailableRiders,
         loadParcelAssignments,
         receiveParcel,

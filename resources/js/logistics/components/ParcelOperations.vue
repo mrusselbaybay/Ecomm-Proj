@@ -112,10 +112,11 @@
                 {{ unstaffedAreas }}
                 {{
                     unstaffedAreas === 1
-                        ? 'active area has'
-                        : 'active areas have'
+                        ? 'active barangay has'
+                        : 'active barangays have'
                 }}
-                no appointed rider, so parcels routed there can't be assigned.
+                no appointed rider — parcels routed there fall back to the
+                company-wide rotation.
             </span>
             <button
                 type="button"
@@ -224,8 +225,10 @@
                                 }}</span>
                             </td>
                             <td>
-                                <span v-if="parcel.delivery_area">{{
-                                    parcel.delivery_area.name
+                                <span v-if="parcel.barangay_assignment">{{
+                                    parcel.barangay_assignment.barangay
+                                }}, {{
+                                    parcel.barangay_assignment.municipality_name
                                 }}</span>
                                 <span v-else class="muted-cell"
                                     >Needs sorting</span
@@ -617,6 +620,23 @@
                         </p>
                     </div>
 
+                    <p
+                        v-if="selectedParcel.required_vehicle_type"
+                        class="callout-amber callout-block"
+                    >
+                        <NavIcon name="alert" :size="16" />
+                        <span>
+                            Requires
+                            {{
+                                vehicleRequirementLabel(
+                                    selectedParcel.required_vehicle_type,
+                                )
+                            }}
+                            — this parcel crosses a
+                            {{ selectedParcel.transfer_trigger }} boundary.
+                        </span>
+                    </p>
+
                     <!-- Post-pickup: the parcel is in hand, so this is where
                      "deliver it ourselves or hand it to another company"
                      gets decided. Before pickup there's no choice to make
@@ -721,30 +741,31 @@
                     <div v-else class="area-form-grid">
                         <label class="form-field full-field">
                             <span>
-                                Delivery area
+                                Barangay assignment
                                 <template v-if="!awaitingDispatchDecision">
                                     (optional until pickup)
                                 </template>
                             </span>
                             <select
-                                v-model="assignmentForm.delivery_area_id"
+                                v-model="assignmentForm.barangay_assignment_id"
                                 class="field-input"
                                 :required="awaitingDispatchDecision"
-                                @change="selectAreaRider"
+                                @change="selectAssignmentRider"
                             >
                                 <option value="">
                                     {{
                                         awaitingDispatchDecision
-                                            ? 'Select an active area'
+                                            ? 'Select an active barangay'
                                             : 'Not needed yet — decide after pickup'
                                     }}
                                 </option>
                                 <option
-                                    v-for="area in activeAreas"
-                                    :key="area.id"
-                                    :value="area.id"
+                                    v-for="assignment in activeAssignments"
+                                    :key="assignment.id"
+                                    :value="assignment.id"
                                 >
-                                    {{ area.name }} — {{ formatCoverage(area) }}
+                                    {{ assignment.barangay }},
+                                    {{ assignment.municipality_name }}
                                 </option>
                             </select>
                         </label>
@@ -763,7 +784,7 @@
                                     Select an accepted rider
                                 </option>
                                 <option
-                                    v-for="rider in areaRiders"
+                                    v-for="rider in assignmentRiders"
                                     :key="rider.id"
                                     :value="rider.id"
                                 >
@@ -975,14 +996,14 @@ const emit = defineEmits(['open-section']);
 const {
     parcelAssignments,
     transferRequests,
-    deliveryAreas,
-    areaRiders,
+    barangayAssignments,
+    assignmentRiders,
     parcelStats,
-    areaStats,
+    assignmentStats,
     lastSyncedAt,
     pendingTransferCount,
     loadParcelAssignments,
-    loadDeliveryAreas,
+    loadBarangayAssignments,
     loadTransferRequests,
     receiveParcel,
     assignParcel,
@@ -1008,7 +1029,10 @@ const receiving = ref(false);
 const saving = ref(false);
 const selectedParcel = ref(null);
 const assignmentError = ref('');
-const assignmentForm = reactive({ delivery_area_id: '', rider_profile_id: '' });
+const assignmentForm = reactive({
+    barangay_assignment_id: '',
+    rider_profile_id: '',
+});
 
 // ---- "To Transfer" routing (cross-region parcels this company can't
 // deliver itself — handed straight to a company that covers the buyer's
@@ -1039,11 +1063,11 @@ const stage = ref('actionable');
 const search = ref('');
 const page = ref(1);
 
-const activeAreas = computed(() =>
-    deliveryAreas.value.filter((area) => area.is_active),
+const activeAssignments = computed(() =>
+    barangayAssignments.value.filter((a) => a.is_active),
 );
 const unstaffedAreas = computed(() =>
-    Math.max(areaStats.value.active - areaStats.value.staffed, 0),
+    Math.max(assignmentStats.value.active - assignmentStats.value.staffed, 0),
 );
 
 // The lifecycle is received -> sorted -> assigned -> handed_off, but
@@ -1152,7 +1176,8 @@ const filtered = computed(() => {
             parcel.order?.order_number,
             parcel.order?.recipient_name,
             parcel.order?.address,
-            parcel.delivery_area?.name,
+            parcel.barangay_assignment?.barangay,
+            parcel.barangay_assignment?.municipality_name,
         ]
             .filter(Boolean)
             .some((field) => String(field).toLowerCase().includes(term));
@@ -1233,15 +1258,13 @@ function focusScanner() {
     nextTick(() => scanInput.value?.focus());
 }
 
-function formatCoverage(area) {
-    const municipalities = area.municipalities || [];
-    const names = municipalities.map((m) => m.name);
-    const summary =
-        names.length > 2
-            ? `${names.slice(0, 2).join(', ')} +${names.length - 2}`
-            : names.join(', ');
-
-    return [summary, area.province_name].filter(Boolean).join(', ');
+function vehicleRequirementLabel(requiredVehicleType) {
+    return (
+        {
+            car: 'a Car',
+            van_or_truck: 'a Van or Truck',
+        }[requiredVehicleType] || requiredVehicleType
+    );
 }
 
 function statusLabel(parcel) {
@@ -1301,7 +1324,7 @@ async function openAssignment(parcel) {
     assignmentError.value = '';
     transferOptionsError.value = '';
 
-    assignmentForm.delivery_area_id = parcel.delivery_area?.id || '';
+    assignmentForm.barangay_assignment_id = parcel.barangay_assignment?.id || '';
     assignmentForm.rider_profile_id = parcel.rider?.id || '';
     transferForm.transfer_to_company_id = '';
 
@@ -1361,15 +1384,15 @@ function closeAssignment() {
     focusScanner();
 }
 
-function selectAreaRider() {
-    const area = deliveryAreas.value.find(
-        (item) => item.id === assignmentForm.delivery_area_id,
+function selectAssignmentRider() {
+    const assignment = barangayAssignments.value.find(
+        (item) => item.id === assignmentForm.barangay_assignment_id,
     );
 
-    // Only auto-fill when the area has exactly one appointed rider —
-    // several appointed riders means the staff picks, not a guess.
-    if (area?.riders?.length === 1) {
-        assignmentForm.rider_profile_id = area.riders[0].id;
+    // A barangay has at most one appointed rider — auto-fill it as a
+    // starting point, staff can still override before confirming.
+    if (assignment?.rider) {
+        assignmentForm.rider_profile_id = assignment.rider.id;
     }
 }
 
@@ -1381,9 +1404,9 @@ async function receive() {
     try {
         const parcel = await receiveParcel(trackingNumber.value);
 
-        lookupMessage.value = parcel.delivery_area
-            ? `${parcel.delivery_area.name} matched. Review and confirm the rider.`
-            : 'Parcel received. No delivery area matched; assign it manually.';
+        lookupMessage.value = parcel.barangay_assignment
+            ? `${parcel.barangay_assignment.barangay}, ${parcel.barangay_assignment.municipality_name} matched. Review and confirm the rider.`
+            : 'Parcel received. No barangay assignment matched; assign it manually.';
         trackingNumber.value = '';
         openAssignment(parcel);
     } catch (error) {
@@ -1414,7 +1437,7 @@ async function confirmAssignment() {
         } else {
             await assignParcel(
                 selectedParcel.value.id,
-                assignmentForm.delivery_area_id,
+                assignmentForm.barangay_assignment_id,
                 assignmentForm.rider_profile_id,
             );
             notify(
@@ -1685,7 +1708,7 @@ async function load(force = false) {
     try {
         await Promise.all([
             loadParcelAssignments({ force }),
-            loadDeliveryAreas({ force }),
+            loadBarangayAssignments({ force }),
             loadTransferRequests({ force }).catch(() => {}),
         ]);
     } catch (error) {

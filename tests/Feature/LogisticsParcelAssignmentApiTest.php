@@ -72,31 +72,21 @@ beforeEach(function () {
         'profile_id' => '20000000-0000-0000-0000-000000000002',
         'delivery_status' => 'available',
     ]);
-    DB::table('logistics_delivery_areas')->insert([
+    // A barangay has at most one assigned rider now (see
+    // LogisticsBarangayAssignment) — ParcelIntakeService's "auto-fill the
+    // barangay's assigned rider when they're eligible" rule (see
+    // it_receives_an_in_transit_parcel_and_automatically_matches_...)
+    // applies directly off this one row.
+    DB::table('logistics_barangay_assignments')->insert([
         'id' => '50000000-0000-0000-0000-000000000005',
         'logistics_company_id' => '30000000-0000-0000-0000-000000000003',
-        'name' => 'Area A',
         'province_name' => 'Laguna',
+        'municipality_name' => 'Santa Cruz',
+        'barangay' => 'Poblacion',
+        'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
         'is_active' => true,
         'created_at' => now(),
         'updated_at' => now(),
-    ]);
-    DB::table('logistics_delivery_area_municipalities')->insert([
-        'id' => '51000000-0000-0000-0000-000000000005',
-        'delivery_area_id' => '50000000-0000-0000-0000-000000000005',
-        'municipality_name' => 'Santa Cruz',
-        'created_at' => now(),
-        'updated_at' => now(),
-    ]);
-    // Areas can have several appointed riders now (see
-    // LogisticsDeliveryArea::riders) — a single row here still makes it
-    // the sole rider, so ParcelIntakeService's auto-fill-when-alone rule
-    // (see it_receives_an_in_transit_parcel_and_automatically_matches_...)
-    // still applies.
-    DB::table('logistics_delivery_area_riders')->insert([
-        'delivery_area_id' => '50000000-0000-0000-0000-000000000005',
-        'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
-        'created_at' => now(),
     ]);
     DB::table('orders')->insert([
         'id' => '60000000-0000-0000-0000-000000000006',
@@ -130,11 +120,12 @@ it('receives an in-transit parcel and automatically matches its area and rider',
         ])
         ->assertCreated()
         ->assertJsonPath('data.status', 'sorted')
-        ->assertJsonPath('data.delivery_area.name', 'Area A')
+        ->assertJsonPath('data.barangay_assignment.barangay', 'Poblacion')
+        ->assertJsonPath('data.barangay_assignment.municipality_name', 'Santa Cruz')
         ->assertJsonPath('data.rider.first_name', 'Rider');
 });
 
-it('matches the area but leaves the rider empty when the sole area rider is off shift', function () {
+it('matches the barangay but leaves the rider empty when the assigned rider is off shift', function () {
     DB::table('courier_details')
         ->where('profile_id', '20000000-0000-0000-0000-000000000002')
         ->update(['delivery_status' => 'unavailable']);
@@ -145,7 +136,7 @@ it('matches the area but leaves the rider empty when the sole area rider is off 
         ])
         ->assertCreated()
         ->assertJsonPath('data.status', 'sorted')
-        ->assertJsonPath('data.delivery_area.name', 'Area A')
+        ->assertJsonPath('data.barangay_assignment.barangay', 'Poblacion')
         ->assertJsonPath('data.rider', null);
 });
 
@@ -160,7 +151,7 @@ it('assigns a sorted parcel and confirms rider handoff', function () {
 
     $this->withToken('valid-token')
         ->putJson("/api/logistics/parcel-assignments/{$assignmentId}/assign", [
-            'delivery_area_id' => '50000000-0000-0000-0000-000000000005',
+            'barangay_assignment_id' => '50000000-0000-0000-0000-000000000005',
             'rider_profile_id' => '20000000-0000-0000-0000-000000000002',
         ])
         ->assertOk()

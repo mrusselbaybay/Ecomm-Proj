@@ -4,7 +4,7 @@ namespace App\Http\Requests\Logistics;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class UpdateDeliveryAreaRequest extends FormRequest
+class StoreBarangayAssignmentRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -22,12 +22,11 @@ class UpdateDeliveryAreaRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['sometimes', 'required', 'string', 'max:100'],
-            'province_name' => ['sometimes', 'required', 'string', 'max:150'],
-            'municipalities' => ['sometimes', 'required', 'array', 'min:1'],
-            'municipalities.*.name' => ['required', 'string', 'max:150'],
-            'municipalities.*.code' => ['nullable', 'string', 'max:20'],
-            'municipalities.*.barangay' => ['nullable', 'string', 'max:150'],
+            'province_name' => ['required', 'string', 'max:150'],
+            'municipality_code' => ['nullable', 'string', 'max:20'],
+            'municipality_name' => ['required', 'string', 'max:150'],
+            'barangay' => ['required', 'string', 'max:150'],
+            'rider_profile_id' => ['nullable', 'uuid'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

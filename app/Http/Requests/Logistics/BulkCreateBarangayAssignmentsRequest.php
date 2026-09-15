@@ -4,7 +4,7 @@ namespace App\Http\Requests\Logistics;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class StoreDeliveryAreaRequest extends FormRequest
+class BulkCreateBarangayAssignmentsRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -22,13 +22,11 @@ class StoreDeliveryAreaRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:100'],
             'province_name' => ['required', 'string', 'max:150'],
-            'municipalities' => ['required', 'array', 'min:1'],
-            'municipalities.*.name' => ['required', 'string', 'max:150'],
-            'municipalities.*.code' => ['nullable', 'string', 'max:20'],
-            'municipalities.*.barangay' => ['nullable', 'string', 'max:150'],
-            'is_active' => ['sometimes', 'boolean'],
+            'municipality_code' => ['nullable', 'string', 'max:20'],
+            'municipality_name' => ['required', 'string', 'max:150'],
+            'barangays' => ['required', 'array', 'min:1', 'max:1000'],
+            'barangays.*' => ['required', 'string', 'max:150'],
         ];
     }
 }

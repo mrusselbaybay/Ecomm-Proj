@@ -284,11 +284,11 @@ it('does not withdraw a reviewed courier application', function () {
     ]);
 });
 
-it('fires an accepted courier: withdraws the application, clears area appointments and emails them', function () {
+it('fires an accepted courier: withdraws the application, clears barangay appointments and emails them', function () {
     Mail::fake();
 
     $applicationId = 'e3b0c442-98fc-4c14-9afb-000000000101';
-    $areaId = 'e3b0c442-98fc-4c14-9afb-000000000201';
+    $assignmentId = 'e3b0c442-98fc-4c14-9afb-000000000201';
 
     DB::table('logistics_companies')->insert([
         'id' => 'company-a',
@@ -312,23 +312,16 @@ it('fires an accepted courier: withdraws the application, clears area appointmen
         'status' => 'accepted',
         'applied_at' => now(),
     ]);
-    DB::table('logistics_delivery_areas')->insert([
-        'id' => $areaId,
+    DB::table('logistics_barangay_assignments')->insert([
+        'id' => $assignmentId,
         'logistics_company_id' => 'company-a',
-        'name' => 'Area A',
         'province_name' => 'Metro Manila',
-        'is_active' => true,
-    ]);
-    DB::table('logistics_delivery_area_municipalities')->insert([
-        'id' => (string) Str::uuid(),
-        'delivery_area_id' => $areaId,
         'municipality_name' => 'Quezon City',
+        'barangay' => 'Diliman',
+        'rider_profile_id' => 'courier-a',
+        'is_active' => true,
         'created_at' => now(),
         'updated_at' => now(),
-    ]);
-    DB::table('logistics_delivery_area_riders')->insert([
-        'delivery_area_id' => $areaId,
-        'rider_profile_id' => 'courier-a',
     ]);
 
     $response = $this->withToken('valid-access-token')
@@ -346,9 +339,9 @@ it('fires an accepted courier: withdraws the application, clears area appointmen
         'rejection_reason' => 'Repeated missed pickups',
         'reviewed_by' => 'logistics-owner',
     ]);
-    $this->assertDatabaseMissing('logistics_delivery_area_riders', [
-        'delivery_area_id' => $areaId,
-        'rider_profile_id' => 'courier-a',
+    $this->assertDatabaseHas('logistics_barangay_assignments', [
+        'id' => $assignmentId,
+        'rider_profile_id' => null,
     ]);
     Mail::assertSent(ApplicationTerminated::class);
 });

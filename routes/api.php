@@ -15,7 +15,7 @@ use App\Http\Controllers\Api\Courier\CourierApplicationController;
 use App\Http\Controllers\Api\Courier\CourierProfileController;
 use App\Http\Controllers\Api\Courier\LogisticsCompanyController;
 use App\Http\Controllers\Api\Courier\ResignationRequestController as CourierResignationRequestController;
-use App\Http\Controllers\Api\Logistics\DeliveryAreaController;
+use App\Http\Controllers\Api\Logistics\LogisticsBarangayAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
 use App\Http\Controllers\Api\Logistics\ParcelAssignmentController;
 use App\Http\Controllers\Api\Logistics\ResignationRequestController as LogisticsResignationRequestController;
@@ -205,14 +205,14 @@ Route::middleware(['supabase.auth', 'logistics'])
     ->prefix('logistics')
     ->name('logistics.')
     ->group(function () {
-        Route::apiResource('delivery-areas', DeliveryAreaController::class)
+        Route::apiResource('barangay-assignments', LogisticsBarangayAssignmentController::class)
             ->except('show');
-        Route::post('/delivery-areas/{deliveryArea}/riders', [DeliveryAreaController::class, 'addRider'])
-            ->name('delivery-areas.riders.store');
-        Route::delete('/delivery-areas/{deliveryArea}/riders/{riderProfileId}', [DeliveryAreaController::class, 'removeRider'])
-            ->name('delivery-areas.riders.destroy');
-        Route::get('/delivery-areas/{deliveryArea}/available-riders', [DeliveryAreaController::class, 'availableRiders'])
-            ->name('delivery-areas.available-riders');
+        Route::post('/barangay-assignments/bulk', [LogisticsBarangayAssignmentController::class, 'bulkCreate'])
+            ->name('barangay-assignments.bulk-create');
+        Route::put('/barangay-assignments/{barangayAssignment}/rider', [LogisticsBarangayAssignmentController::class, 'assignRider'])
+            ->name('barangay-assignments.rider.update');
+        Route::get('/barangay-assignments/{barangayAssignment}/available-riders', [LogisticsBarangayAssignmentController::class, 'availableRiders'])
+            ->name('barangay-assignments.available-riders');
         Route::get('/parcel-assignments', [ParcelAssignmentController::class, 'index'])
             ->name('parcel-assignments.index');
         Route::post('/parcel-assignments/receive', [ParcelAssignmentController::class, 'receive'])

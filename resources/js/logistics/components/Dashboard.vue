@@ -90,17 +90,18 @@
                 </div>
                 <dl v-else class="metric-list">
                     <div>
-                        <dt>Active delivery areas</dt>
-                        <dd>{{ areaStats.active }}</dd>
+                        <dt>Active barangay assignments</dt>
+                        <dd>{{ assignmentStats.active }}</dd>
                     </div>
                     <div>
-                        <dt>Areas with an appointed rider</dt>
+                        <dt>Barangays with an appointed rider</dt>
                         <dd
                             :class="{
                                 'metric-warn': unstaffedAreas > 0,
                             }"
                         >
-                            {{ areaStats.staffed }} / {{ areaStats.active }}
+                            {{ assignmentStats.staffed }} /
+                            {{ assignmentStats.active }}
                         </dd>
                     </div>
                     <div>
@@ -188,14 +189,14 @@ const emit = defineEmits(['open-section']);
 const {
     companyName,
     applications,
-    areaRiders,
+    assignmentRiders,
     pendingCount,
     parcelStats,
-    areaStats,
+    assignmentStats,
     lastSyncedAt,
     loadApplications,
     loadParcelAssignments,
-    loadDeliveryAreas,
+    loadBarangayAssignments,
 } = useLogistics();
 const {
     notifyError,
@@ -250,9 +251,9 @@ const parcelCards = computed(() => [
 ]);
 
 const unstaffedAreas = computed(() =>
-    Math.max(areaStats.value.active - areaStats.value.staffed, 0),
+    Math.max(assignmentStats.value.active - assignmentStats.value.staffed, 0),
 );
-const rosterSize = computed(() => areaRiders.value.length);
+const rosterSize = computed(() => assignmentRiders.value.length);
 const recentApplications = computed(() => applications.value.slice(0, 5));
 
 /**
@@ -270,7 +271,7 @@ async function load(force = false) {
         await Promise.all([
             loadApplications({}, { force }),
             loadParcelAssignments({ force }),
-            loadDeliveryAreas({ force }),
+            loadBarangayAssignments({ force }),
         ]);
     } catch (error) {
         loadError.value =

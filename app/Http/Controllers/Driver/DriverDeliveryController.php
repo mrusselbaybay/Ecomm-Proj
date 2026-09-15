@@ -49,7 +49,7 @@ class DriverDeliveryController extends Controller
         $profile = $request->user();
 
         $assignments = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'deliveryArea', 'logisticsCompany'])
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany'])
             // Rows currently dispatched to this rider (assigned / out for
             // delivery), PLUS rows they ran the pickup leg on and have
             // since handed back to logistics — those stay on their list
@@ -110,7 +110,7 @@ class DriverDeliveryController extends Controller
         }
 
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'deliveryArea', 'logisticsCompany'])
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany'])
             ->where('order_id', $order->id)
             ->where('rider_profile_id', $profile->id)
             ->first();
@@ -168,7 +168,7 @@ class DriverDeliveryController extends Controller
         ]);
 
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'deliveryArea', 'logisticsCompany'])
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany'])
             ->where('rider_profile_id', $profile->id)
             ->whereKey($parcelAssignment)
             ->first();
@@ -227,15 +227,16 @@ class DriverDeliveryController extends Controller
                 'handed_off_at' => now(),
                 'pickup_photo_path' => $photoPath,
                 // Hand the parcel back to logistics for delivery dispatch —
-                // it's no longer this (pickup) courier's job. delivery_area_id
-                // is kept so dispatch only has to pick the delivery rider;
-                // picked_up_by keeps a read-only trace on the courier's list.
+                // it's no longer this (pickup) courier's job.
+                // barangay_assignment_id is kept so dispatch only has to
+                // pick the delivery rider; picked_up_by keeps a read-only
+                // trace on the courier's list.
                 'rider_profile_id' => null,
                 'picked_up_by' => $profile->id,
             ]);
         });
 
-        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'deliveryArea', 'logisticsCompany']);
+        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany']);
 
         return response()->json(['data' => $this->present($assignment, $profile)]);
     }
@@ -265,7 +266,7 @@ class DriverDeliveryController extends Controller
         ]);
 
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'deliveryArea', 'logisticsCompany'])
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany'])
             ->where('rider_profile_id', $profile->id)
             ->whereKey($parcelAssignment)
             ->first();
@@ -341,7 +342,7 @@ class DriverDeliveryController extends Controller
             ]);
         });
 
-        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'deliveryArea', 'logisticsCompany']);
+        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany']);
 
         // Best-effort: let the seller know their order was delivered. No
         // BuyerNotifier exists in this project yet (see SellerNotifier's
@@ -457,7 +458,10 @@ class DriverDeliveryController extends Controller
                 $order?->shipping_municipality_name,
                 $order?->shipping_province_name,
             ])->filter()->implode(', ') ?: null,
-            'delivery_area' => $assignment->deliveryArea?->name,
+            'delivery_area' => collect([
+                $assignment->barangayAssignment?->barangay,
+                $assignment->barangayAssignment?->municipality_name,
+            ])->filter()->implode(', ') ?: null,
             'parcels' => (int) ($order?->items->sum('quantity') ?? 0),
             'assigned_at' => $assignment->assigned_at?->toISOString(),
             'handed_off_at' => $assignment->handed_off_at?->toISOString(),

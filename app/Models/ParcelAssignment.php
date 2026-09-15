@@ -61,11 +61,13 @@ class ParcelAssignment extends Model
     protected $fillable = [
         'order_id',
         'logistics_company_id',
-        'delivery_area_id',
+        'barangay_assignment_id',
         'rider_profile_id',
         'picked_up_by',
         'status',
         'is_transfer',
+        'transfer_trigger',
+        'required_vehicle_type',
         'transfer_to_company_id',
         'previous_assignment_id',
         'received_by',
@@ -112,9 +114,9 @@ class ParcelAssignment extends Model
         return $this->belongsTo(LogisticsCompany::class);
     }
 
-    public function deliveryArea(): BelongsTo
+    public function barangayAssignment(): BelongsTo
     {
-        return $this->belongsTo(LogisticsDeliveryArea::class);
+        return $this->belongsTo(LogisticsBarangayAssignment::class);
     }
 
     public function pickedUpBy(): BelongsTo
@@ -196,6 +198,30 @@ class ParcelAssignment extends Model
             ->groupBy('rider_profile_id')
             ->selectRaw('rider_profile_id, count(*) as aggregate')
             ->pluck('aggregate', 'rider_profile_id')
+            ->map(fn ($count): int => (int) $count)
+            ->all();
+    }
+
+    /**
+     * Completed-delivery counts for a set of barangay assignments, in one
+     * grouped query — same batching rationale as activeCountsFor(). Rows
+     * missing from the result had zero deliveries; read with `?? 0`.
+     *
+     * @param  list<string>  $barangayAssignmentIds
+     * @return array<string, int>
+     */
+    public static function deliveredCountsFor(array $barangayAssignmentIds): array
+    {
+        if ($barangayAssignmentIds === []) {
+            return [];
+        }
+
+        return static::query()
+            ->whereIn('barangay_assignment_id', $barangayAssignmentIds)
+            ->whereNotNull('delivered_at')
+            ->groupBy('barangay_assignment_id')
+            ->selectRaw('barangay_assignment_id, count(*) as aggregate')
+            ->pluck('aggregate', 'barangay_assignment_id')
             ->map(fn ($count): int => (int) $count)
             ->all();
     }

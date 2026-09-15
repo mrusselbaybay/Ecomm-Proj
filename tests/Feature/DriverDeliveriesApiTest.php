@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\LogisticsDeliveryArea;
+use App\Models\LogisticsBarangayAssignment;
 use App\Models\ParcelAssignment;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -33,9 +33,10 @@ it('lists a parcel the logistics team has assigned to the signed-in rider', func
     $seller = makeSeller();
     $courier = makeCourier(['first_name' => 'Marco', 'last_name' => 'Rivera']);
     $company = makeLogisticsCompany(['company_name' => 'BuyTheWay Logistics']);
-    $area = LogisticsDeliveryArea::factory()->create([
+    $assignment_area = LogisticsBarangayAssignment::factory()->create([
         'logistics_company_id' => $company->id,
-        'name' => 'Area B',
+        'municipality_name' => 'Quezon City',
+        'barangay' => 'Sikatuna Village',
     ]);
 
     [$order] = makeOrder($buyer, $seller, [
@@ -51,7 +52,7 @@ it('lists a parcel the logistics team has assigned to the signed-in rider', func
     $assignment = ParcelAssignment::create([
         'order_id' => $order->id,
         'logistics_company_id' => $company->id,
-        'delivery_area_id' => $area->id,
+        'barangay_assignment_id' => $assignment_area->id,
         'rider_profile_id' => $courier->id,
         'status' => ParcelAssignment::STATUS_ASSIGNED,
         'received_by' => $seller->id,
@@ -69,7 +70,7 @@ it('lists a parcel the logistics team has assigned to the signed-in rider', func
         ->assertJsonPath('data.0.id', $assignment->id)
         ->assertJsonPath('data.0.order_number', $order->order_number)
         ->assertJsonPath('data.0.customer_name', 'Liza Cruz')
-        ->assertJsonPath('data.0.delivery_area', 'Area B')
+        ->assertJsonPath('data.0.delivery_area', 'Sikatuna Village, Quezon City')
         ->assertJsonPath('data.0.dropoff_label', '14, Maple St, Sikatuna Village, Quezon City, Metro Manila')
         ->assertJsonPath('data.0.pickup_label', 'BuyTheWay Logistics — Sorting Hub')
         ->assertJsonPath('data.0.parcels', 1)

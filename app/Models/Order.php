@@ -29,6 +29,7 @@ class Order extends Model
         'recipient_name', 'recipient_contact_no',
         'shipping_region_name', 'shipping_province_name', 'shipping_municipality_name',
         'shipping_barangay', 'shipping_street', 'shipping_house_no',
+        'pickup_region_name', 'pickup_province_name', 'pickup_municipality_name', 'pickup_barangay',
         'status', 'payment_method', 'payment_status',
         'subtotal', 'shipping_fee', 'tax', 'discount', 'total',
         'shipping_carrier', 'shipping_service', 'tracking_number',

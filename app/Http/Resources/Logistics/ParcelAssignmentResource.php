@@ -21,6 +21,14 @@ class ParcelAssignmentResource extends JsonResource
             // deliver it, only offer it to a company that can. See
             // Api\Logistics\ParcelAssignmentController::requestTransfer.
             'is_transfer' => (bool) $this->is_transfer,
+            // Which seller-vs-buyer boundary this parcel crosses
+            // ('municipality'|'province'|'region'|null) and the vehicle
+            // class that implies ('car'|'van_or_truck'|null) — see
+            // App\Services\TransferTriggerService. Only 'region' also
+            // sets is_transfer above; the other two are normal in-company
+            // deliveries that just need a bigger vehicle.
+            'transfer_trigger' => $this->transfer_trigger,
+            'required_vehicle_type' => $this->required_vehicle_type,
             'transfer_to_company' => $this->whenLoaded('transferToCompany', fn (): ?array => $this->transferToCompany ? [
                 'id' => $this->transferToCompany->id,
                 'company_name' => $this->transferToCompany->company_name,
@@ -61,9 +69,10 @@ class ParcelAssignmentResource extends JsonResource
                 'municipality_name' => $this->order?->shipping_municipality_name,
                 'barangay' => $this->order?->shipping_barangay,
             ],
-            'delivery_area' => $this->whenLoaded('deliveryArea', fn (): ?array => $this->deliveryArea ? [
-                'id' => $this->deliveryArea->id,
-                'name' => $this->deliveryArea->name,
+            'barangay_assignment' => $this->whenLoaded('barangayAssignment', fn (): ?array => $this->barangayAssignment ? [
+                'id' => $this->barangayAssignment->id,
+                'municipality_name' => $this->barangayAssignment->municipality_name,
+                'barangay' => $this->barangayAssignment->barangay,
             ] : null),
             'rider' => $this->whenLoaded('rider', fn (): ?array => $this->rider ? [
                 'id' => $this->rider->id,

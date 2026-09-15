@@ -592,10 +592,10 @@ const {
     supabase,
     companyName,
     acceptedRiders,
-    deliveryAreas,
+    barangayAssignments,
     loadAcceptedRiders,
     removeAcceptedRider,
-    loadDeliveryAreas,
+    loadBarangayAssignments,
     logisticsFetch,
 } = useLogistics();
 const {
@@ -635,24 +635,29 @@ function clearSearch() {
     load(true);
 }
 
-// courier_profile_id -> [area name, …] the rider currently handles, built
-// once per roster/area change instead of re-filtering every area for every
-// table row on each render.
-const areaNamesByRider = computed(() => {
+// courier_profile_id -> [ "Barangay, Municipality", … ] the rider is
+// currently assigned to, built once per roster/assignment change instead
+// of re-filtering every assignment for every table row on each render.
+const barangaysByRider = computed(() => {
     const map = new Map();
 
-    for (const area of deliveryAreas.value) {
-        for (const rider of area.riders || []) {
-            const list = map.get(rider.id);
-            list ? list.push(area.name) : map.set(rider.id, [area.name]);
+    for (const assignment of barangayAssignments.value) {
+        const rider = assignment.rider;
+
+        if (!rider) {
+            continue;
         }
+
+        const label = `${assignment.barangay}, ${assignment.municipality_name}`;
+        const list = map.get(rider.id);
+        list ? list.push(label) : map.set(rider.id, [label]);
     }
 
     return map;
 });
 
 function assignedAreasFor(courierId) {
-    return areaNamesByRider.value.get(courierId) || [];
+    return barangaysByRider.value.get(courierId) || [];
 }
 
 // Backed by courier_details.delivery_status in Supabase — the flag behind
@@ -849,7 +854,7 @@ async function load(force = false) {
         await Promise.all([
             loadAcceptedRiders({ search: search.value.trim() }, { force }),
             // Cached app-wide — only powers the "Assigned areas" column.
-            loadDeliveryAreas({ force }).catch(() => {}),
+            loadBarangayAssignments({ force }).catch(() => {}),
         ]);
     } catch (e) {
         notifyError(e, 'Could not load the rider roster.');

@@ -138,11 +138,22 @@ class CheckoutService
                 })
                 ->groupBy(fn (array $line) => $line['product']->seller_id);
 
+            // Loaded once for every seller in this checkout rather than
+            // re-queried per order line — createOrderForSeller() needs
+            // each seller's structured address to snapshot the parcel's
+            // pickup location (see below).
+            $sellers = Profile::query()
+                ->with('address')
+                ->whereIn('id', $itemsBySeller->keys())
+                ->get()
+                ->keyBy('id');
+
             $orders = collect();
 
             foreach ($itemsBySeller as $sellerId => $lines) {
                 $order = $this->createOrderForSeller(
                     $buyer,
+                    $sellers->get((string) $sellerId),
                     (string) $sellerId,
                     $lines,
                     $address,
@@ -160,6 +171,7 @@ class CheckoutService
 
     private function createOrderForSeller(
         Profile $buyer,
+        ?Profile $seller,
         string $sellerId,
         Collection $lines,
         array $address,
@@ -193,6 +205,14 @@ class CheckoutService
             'shipping_province_name' => $buyer->address?->province_name,
             'shipping_municipality_name' => $buyer->address?->municipality_name,
             'shipping_barangay' => $buyer->address?->barangay,
+            // The seller's own structured address, same source shape as
+            // the buyer's above — App\Services\TransferTriggerService
+            // compares this against shipping_* to decide whether the
+            // parcel crosses a municipality/province/region boundary.
+            'pickup_region_name' => $seller?->address?->region_name,
+            'pickup_province_name' => $seller?->address?->province_name,
+            'pickup_municipality_name' => $seller?->address?->municipality_name,
+            'pickup_barangay' => $seller?->address?->barangay,
             'status' => 'New',
             'payment_method' => $paymentMethod,
             'payment_status' => 'Unpaid',
