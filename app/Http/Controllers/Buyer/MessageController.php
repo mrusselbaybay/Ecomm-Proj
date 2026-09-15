@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Buyer;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Buyer\SendMessageRequest;
 use App\Http\Requests\Buyer\StartConversationRequest;
+use App\Http\Requests\Buyer\StartCourierConversationRequest;
 use App\Http\Requests\Buyer\UpdateConversationStatusRequest;
 use App\Http\Requests\Messaging\UploadMessageAttachmentRequest;
 use App\Models\Conversation;
@@ -14,6 +15,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Profile;
 use App\Policies\ConversationPolicy;
+use App\Services\DeliveryConversationService;
 use App\Services\DirectConversationService;
 use App\Services\MessageAttachmentService;
 use Illuminate\Http\JsonResponse;
@@ -41,6 +43,7 @@ class MessageController extends Controller
 
     public function __construct(
         private DirectConversationService $directConversationService,
+        private DeliveryConversationService $deliveryConversationService,
         private ConversationPolicy $conversationPolicy,
         private MessageAttachmentService $messageAttachmentService,
     ) {}
@@ -116,7 +119,9 @@ class MessageController extends Controller
         $buyer = $request->user();
         $data = $request->validated();
 
-        $conversation = DB::transaction(function () use ($buyer, $data) {
+        $body = trim((string) ($data['body'] ?? ''));
+
+        $conversation = DB::transaction(function () use ($buyer, $data, $body) {
             $result = $this->directConversationService->findOrCreateBuyerSeller(
                 $buyer,
                 $data['seller_id'],
@@ -125,14 +130,20 @@ class MessageController extends Controller
                 $data['subject'] ?? null,
             );
 
-            $this->appendMessage(
-                $result['conversation'],
-                $buyer,
-                'buyer',
-                $data['body'],
-                orderId: $result['order']?->id,
-                productId: $result['product']?->id,
-            );
+            // No body: this is the "Message Seller" button opening straight
+            // into the conversation screen, not an actual send — just
+            // find/create the thread (and its participant rows, so it shows
+            // up in both inboxes) without appending an empty message.
+            if ($body !== '') {
+                $this->appendMessage(
+                    $result['conversation'],
+                    $buyer,
+                    'buyer',
+                    $body,
+                    orderId: $result['order']?->id,
+                    productId: $result['product']?->id,
+                );
+            }
 
             return $result['conversation'];
         });
@@ -140,6 +151,42 @@ class MessageController extends Controller
         return response()->json([
             'data' => $this->transformConversation(
                 $conversation->fresh(['seller.sellerDetail', 'product', 'participantRecords', 'messages.order.items.product:id,images', 'messages.product']),
+                withMessages: true,
+            ),
+        ], 201);
+    }
+
+    /**
+     * POST /api/buyer/messages/courier-conversations
+     *
+     * The buyer-side "Message Courier" button on Order Details — finds or
+     * reuses this buyer's 'delivery' thread with the order's assigned
+     * rider (see DeliveryConversationService::findOrCreateForBuyer()) and
+     * sends the buyer's typed message as its first message, in one round
+     * trip — mirrors startConversation() above.
+     */
+    public function startCourierConversation(StartCourierConversationRequest $request): JsonResponse
+    {
+        $buyer = $request->user();
+        $data = $request->validated();
+
+        $body = trim((string) ($data['body'] ?? ''));
+
+        $conversation = DB::transaction(function () use ($buyer, $data, $body) {
+            $conversation = $this->deliveryConversationService->findOrCreateForBuyer($buyer, $data['order_number']);
+
+            // No body: "Message Courier" opening straight into the
+            // conversation screen — just find/create the thread.
+            if ($body !== '') {
+                $this->appendMessage($conversation, $buyer, 'buyer', $body);
+            }
+
+            return $conversation;
+        });
+
+        return response()->json([
+            'data' => $this->transformConversation(
+                $conversation->fresh(['courier', 'participantRecords', 'messages']),
                 withMessages: true,
             ),
         ], 201);
@@ -198,11 +245,16 @@ class MessageController extends Controller
     /**
      * GET /api/buyer/messages/conversations/{id}/products
      *
-     * Backs the "Inquire about a certain product" picker in a buyer<->
-     * seller conversation — this buyer's own orders with THIS seller,
-     * newest first, 4 per page (mirrors Seller\MessageController::parcels()).
-     * Each entry carries order_id/product_id ready to attach to a message
-     * (see appendMessage()'s order_id/product_id params).
+     * Backs the "Inquire about a certain product" picker. For an ordinary
+     * buyer<->seller conversation: this buyer's own orders with THIS
+     * seller, newest first, 4 per page (mirrors
+     * Seller\MessageController::parcels()). For a 'delivery' (courier)
+     * conversation: this buyer's own orders assigned to THIS SAME courier
+     * that are not yet delivered — a courier thread is per-order, but the
+     * same rider can be assigned several of this buyer's parcels over
+     * time, so the picker still needs to span across orders. Each entry
+     * carries order_id/product_id ready to attach to a message (see
+     * appendMessage()'s order_id/product_id params).
      */
     public function products(Request $request, string $id): JsonResponse
     {
@@ -213,12 +265,18 @@ class MessageController extends Controller
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        $paginated = Order::query()
+        $query = Order::query()
             ->where('buyer_profile_id', $buyer->id)
-            ->where('seller_id', $conversation->seller_id)
-            ->with('items.product:id,images')
-            ->orderByDesc('placed_at')
-            ->paginate(4);
+            ->with('items.product:id,images');
+
+        if ($conversation->type === 'delivery') {
+            $query->whereHas('parcelAssignment', fn ($q) => $q->where('rider_profile_id', $conversation->courier_profile_id))
+                ->where('status', '!=', 'Delivered');
+        } else {
+            $query->where('seller_id', $conversation->seller_id);
+        }
+
+        $paginated = $query->orderByDesc('placed_at')->paginate(4);
 
         return response()->json([
             'data' => $paginated->getCollection()->map(fn (Order $order) => $this->transformOrderPreview($order))->all(),
@@ -428,13 +486,29 @@ class MessageController extends Controller
         // Never trust a client-sent order/product id at face value (same
         // rule as attachment_ids) — this backs the "Inquire about a
         // certain product" card, so both must actually belong to this
-        // buyer<->seller pair.
-        if ($orderId && ! Order::where('id', $orderId)->where('buyer_profile_id', $buyer->id)->where('seller_id', $conversation->seller_id)->exists()) {
-            throw ValidationException::withMessages(['order_id' => 'That order does not belong to you.']);
+        // buyer<->seller (or buyer<->courier) pair.
+        $isDelivery = $conversation->type === 'delivery';
+
+        if ($orderId) {
+            $orderQuery = Order::where('id', $orderId)->where('buyer_profile_id', $buyer->id);
+            $orderQuery = $isDelivery
+                ? $orderQuery->whereHas('parcelAssignment', fn ($q) => $q->where('rider_profile_id', $conversation->courier_profile_id))
+                : $orderQuery->where('seller_id', $conversation->seller_id);
+
+            if (! $orderQuery->exists()) {
+                throw ValidationException::withMessages(['order_id' => 'That order does not belong to you.']);
+            }
         }
 
-        if ($productId && ! Product::where('id', $productId)->where('seller_id', $conversation->seller_id)->exists()) {
-            throw ValidationException::withMessages(['product_id' => 'That product does not belong to this seller.']);
+        if ($productId) {
+            $productBelongsToOrder = $orderId && Order::where('id', $orderId)->whereHas('items', fn ($q) => $q->where('product_id', $productId))->exists();
+            $productOk = $isDelivery
+                ? $productBelongsToOrder
+                : Product::where('id', $productId)->where('seller_id', $conversation->seller_id)->exists();
+
+            if (! $productOk) {
+                throw ValidationException::withMessages(['product_id' => 'That product does not belong to this order.']);
+            }
         }
 
         $message = DB::transaction(function () use ($attachmentIds, $body, $conversation, $request, $orderId, $productId) {
@@ -763,6 +837,10 @@ class MessageController extends Controller
                 'quantity' => ($m->order_id && $m->product_id)
                     ? $m->order?->items?->firstWhere('product_id', $m->product_id)?->quantity
                     : null,
+                // Also from the already eager-loaded order — lets the card
+                // show which shipment this inquiry is about, same as the
+                // picker itself.
+                'trackingNumber' => $m->order?->tracking_number,
             ] : null,
             'at' => optional($m->created_at)->toIso8601String(),
             'readAt' => optional($m->read_at)->toIso8601String(),

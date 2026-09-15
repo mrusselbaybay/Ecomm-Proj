@@ -82,6 +82,7 @@ Route::middleware(['supabase.auth', 'buyer'])->prefix('api/buyer')->name('api.bu
     Route::get('/messages/unread-count', [MessageController::class, 'unreadCount'])->name('messages.unread-count');
     Route::get('/messages/conversations', [MessageController::class, 'conversations'])->name('messages.conversations');
     Route::post('/messages/conversations', [MessageController::class, 'startConversation'])->name('messages.conversations.start');
+    Route::post('/messages/courier-conversations', [MessageController::class, 'startCourierConversation'])->name('messages.courier-conversations.start');
     Route::post('/messages/attachments', [MessageController::class, 'uploadAttachment'])
         ->middleware('throttle:20,1')
         ->name('messages.attachments.store');

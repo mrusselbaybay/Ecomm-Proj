@@ -52,6 +52,13 @@ const MAX_VIDEO_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
 const isChatOpen = ref(false);
 
+// Bumped whenever a message is APPENDED to the active thread's end (a real
+// new message via realtime/poll delta) — never for messages PREPENDED via
+// loadOlderMessages() (scroll-up history). Chat.vue watches this to decide
+// whether to auto-scroll, without needing this composable to know anything
+// about DOM/scroll state itself.
+const messagesAppendedTick = ref(0);
+
 const conversations = ref([]);
 const isLoading = ref(false);
 const isLoadingMoreConversations = ref(false);
@@ -459,6 +466,7 @@ async function refreshActiveConversation() {
 
         if (fresh.length) {
             target.messages = [...target.messages, ...fresh];
+            messagesAppendedTick.value++;
         }
     } catch (err) {
         // Leave the thread as-is on a transient miss.
@@ -936,7 +944,8 @@ function retryMessage(localId) {
         const payload = pendingStartPayloads.get(convo.id);
 
         if (payload) {
-            startConversation(payload, convo.id).catch(() => {});
+            const retry = payload.kind === 'courier' ? startCourierConversation : startConversation;
+            retry(payload, convo.id).catch(() => {});
         }
 
         return;
@@ -996,11 +1005,14 @@ const pendingStartPayloads = new Map();
 
 /**
  * Start (or reuse) a thread with a seller and send the first message.
- * `payload` = { sellerId, orderNumber?, productId?, subject?, body,
+ * `payload` = { sellerId, orderNumber?, productId?, subject?, body?,
  * sellerName?, preview?: { name, price, image } } (orderNumber is the
  * display id, e.g. "#SN-40412" — the leading "#" is stripped here;
  * sellerName/preview are only used for the optimistic placeholder below,
- * the server response is always authoritative).
+ * the server response is always authoritative). `body` is optional — the
+ * "Message Seller" button calls this with no body at all, to open (or
+ * create) the thread straight into the conversation screen instead of a
+ * separate compose form; the buyer then types into the thread itself.
  *
  * Opens the popup on this thread IMMEDIATELY — either an already-known
  * conversation with this seller (existing.id, via the normal optimistic
@@ -1014,27 +1026,44 @@ const pendingStartPayloads = new Map();
  * back in so a retry updates the same row instead of creating another one.
  */
 async function startConversation(payload, reuseId = null) {
+    const body = (payload.body || '').trim();
     const existing = !reuseId && conversations.value.find(c => c.sellerId === payload.sellerId);
 
-    // Already chatting with this seller — just send into that thread the
-    // normal (already-optimistic, already-incremental) way instead of
-    // going through findOrCreate + a fresh conversation fetch.
+    // Already chatting with this seller — just open that thread (and send
+    // into it, normal optimistic path, if a body was actually given)
+    // instead of going through findOrCreate + a fresh conversation fetch.
+    // `existing` may only have come from the conversations LIST endpoint
+    // though (it deliberately never embeds messages — see conversations()'s
+    // own docblock), so its history might not actually be loaded yet:
+    // route through openConversation() in that case instead of leaving the
+    // thread showing an empty "No messages yet" over real history.
     if (existing) {
         activeConversationId.value = existing.id;
         isChatOpen.value = true;
-        sendMessage(payload.body, [], [], payload.productId ? { productId: payload.productId, preview: payload.preview || null } : {});
+
+        const sendIfNeeded = () => {
+            if (body) {
+                sendMessage(body, [], [], payload.productId ? { productId: payload.productId, preview: payload.preview || null } : {});
+            }
+        };
+
+        if (existing.messagesLoaded) {
+            sendIfNeeded();
+        } else {
+            openConversation(existing.id).then(sendIfNeeded);
+        }
 
         return existing;
     }
 
     const pendingId = reuseId || `pending-${Date.now()}-${++localIdSequence}`;
     const localId = `local-${Date.now()}-${++localIdSequence}`;
-    pendingStartPayloads.set(pendingId, payload);
+    pendingStartPayloads.set(pendingId, { ...payload, kind: 'seller' });
 
-    const optimisticMessage = {
+    const optimisticMessage = body ? {
         id: localId,
         from: 'buyer',
-        text: payload.body,
+        text: body,
         attachments: [],
         productContext: payload.productId ? {
             id: payload.productId,
@@ -1045,13 +1074,13 @@ async function startConversation(payload, reuseId = null) {
         } : null,
         at: timeOfDay(new Date()),
         status: null,
-    };
+    } : null;
 
     const existingPendingIndex = conversations.value.findIndex(c => c.id === pendingId);
 
     if (existingPendingIndex !== -1) {
-        // Retry: same placeholder row, fresh optimistic message.
-        conversations.value[existingPendingIndex].messages = [optimisticMessage];
+        // Retry: same placeholder row, fresh optimistic message (if any).
+        conversations.value[existingPendingIndex].messages = optimisticMessage ? [optimisticMessage] : [];
     } else {
         conversations.value.unshift({
             id: pendingId,
@@ -1064,9 +1093,9 @@ async function startConversation(payload, reuseId = null) {
             sellerOnline: false,
             unread: 0,
             updatedAt: timeOfDay(new Date()),
-            lastMessagePreview: payload.body,
+            lastMessagePreview: body || null,
             product: payload.preview ? { name: payload.preview.name, price: payload.preview.price, oldPrice: null } : null,
-            messages: [optimisticMessage],
+            messages: optimisticMessage ? [optimisticMessage] : [],
             messagesMeta: { hasMore: false, nextCursor: null },
             isLoadingOlderMessages: false,
             messagesLoaded: true,
@@ -1086,7 +1115,7 @@ async function startConversation(payload, reuseId = null) {
                 order_number: payload.orderNumber ? String(payload.orderNumber).replace(/^#/, '') : null,
                 product_id: payload.productId || null,
                 subject: payload.subject || null,
-                body: payload.body,
+                body: body || null,
             }),
         });
 
@@ -1134,6 +1163,142 @@ async function startConversation(payload, reuseId = null) {
     }
 }
 
+/**
+ * Start (or reuse) a thread with the courier assigned to an order and send
+ * the first message — the "Message Courier" button on Order Details.
+ * `payload` = { orderNumber, courierId, body?, courierName?, courierAvatarUrl? }
+ * (orderNumber is the display id, e.g. "#SN-40412" — the leading "#" is
+ * stripped server-side, same convention as startConversation() above).
+ * (courierName/courierAvatarUrl are only used for the optimistic
+ * placeholder below; the server response is always authoritative). `body`
+ * is optional — the "Message Courier" button calls this with no body, to
+ * open (or create) the thread straight into the conversation screen.
+ *
+ * Mirrors startConversation() above exactly (same immediate-open,
+ * optimistic-placeholder, pending-retry shape) — kept as its own function
+ * rather than folding a seller/courier branch into startConversation()
+ * since the two hit different endpoints with different payloads and
+ * matching keys; both share the same `pendingStartPayloads` map and
+ * `retryMessage()` dispatch (tagged by `kind`) so a failed send retries
+ * correctly regardless of which one created the pending row.
+ */
+async function startCourierConversation(payload, reuseId = null) {
+    const body = (payload.body || '').trim();
+    const existing = !reuseId && conversations.value.find(c => c.role === 'courier' && c.sellerId === payload.courierId);
+
+    // Same caveat as startConversation() above: `existing` may only have
+    // come from the conversations LIST endpoint (no messages embedded), so
+    // load its history via openConversation() before relying on it being
+    // there — otherwise a thread with real history can show blank.
+    if (existing) {
+        activeConversationId.value = existing.id;
+        isChatOpen.value = true;
+
+        const sendIfNeeded = () => {
+            if (body) {
+                sendMessage(body);
+            }
+        };
+
+        if (existing.messagesLoaded) {
+            sendIfNeeded();
+        } else {
+            openConversation(existing.id).then(sendIfNeeded);
+        }
+
+        return existing;
+    }
+
+    const pendingId = reuseId || `pending-${Date.now()}-${++localIdSequence}`;
+    const localId = `local-${Date.now()}-${++localIdSequence}`;
+    pendingStartPayloads.set(pendingId, { ...payload, kind: 'courier' });
+
+    const optimisticMessage = body ? {
+        id: localId,
+        from: 'buyer',
+        text: body,
+        attachments: [],
+        productContext: null,
+        at: timeOfDay(new Date()),
+        status: null,
+    } : null;
+
+    const existingPendingIndex = conversations.value.findIndex(c => c.id === pendingId);
+
+    if (existingPendingIndex !== -1) {
+        conversations.value[existingPendingIndex].messages = optimisticMessage ? [optimisticMessage] : [];
+    } else {
+        conversations.value.unshift({
+            id: pendingId,
+            seller: payload.courierName || 'Courier',
+            sellerId: payload.courierId,
+            avatarUrl: payload.courierAvatarUrl || null,
+            role: 'courier',
+            status: 'open',
+            archived: false,
+            sellerOnline: false,
+            unread: 0,
+            updatedAt: timeOfDay(new Date()),
+            lastMessagePreview: body || null,
+            product: null,
+            messages: optimisticMessage ? [optimisticMessage] : [],
+            messagesMeta: { hasMore: false, nextCursor: null },
+            isLoadingOlderMessages: false,
+            messagesLoaded: true,
+            isLoadingMessages: false,
+        });
+    }
+
+    loadedOnce = true;
+    activeConversationId.value = pendingId;
+    isChatOpen.value = true;
+
+    try {
+        const data = await buyerApi('/buyer/messages/courier-conversations', {
+            method: 'POST',
+            body: JSON.stringify({
+                order_number: payload.orderNumber ? String(payload.orderNumber).replace(/^#/, '') : null,
+                body: body || null,
+            }),
+        });
+
+        const mapped = mapConversation(data);
+        pendingStartPayloads.delete(pendingId);
+
+        const pendingIndex = conversations.value.findIndex(c => c.id === pendingId);
+        const existingRealIndex = conversations.value.findIndex(c => c.id === mapped.id);
+
+        if (existingRealIndex !== -1 && existingRealIndex !== pendingIndex) {
+            conversations.value.splice(pendingIndex, 1);
+            conversations.value[conversations.value.findIndex(c => c.id === mapped.id)] = mapped;
+        } else if (pendingIndex !== -1) {
+            conversations.value[pendingIndex] = mapped;
+        } else {
+            conversations.value.unshift(mapped);
+        }
+
+        if (activeConversationId.value === pendingId) {
+            activeConversationId.value = mapped.id;
+        }
+
+        return mapped;
+    } catch (err) {
+        console.error('Error starting courier conversation:', err);
+
+        const pending = conversations.value.find(c => c.id === pendingId);
+
+        if (pending) {
+            const msgIdx = pending.messages.findIndex(m => m.id === localId);
+
+            if (msgIdx !== -1) {
+                pending.messages[msgIdx] = { ...pending.messages[msgIdx], status: 'failed' };
+            }
+        }
+
+        throw err;
+    }
+}
+
 export function useBuyerChat() {
     // Prime the header's unread badge once per page load. Silently no-ops
     // for a signed-out visitor (the request 401s and is swallowed).
@@ -1165,6 +1330,7 @@ export function useBuyerChat() {
         conversationsMeta,
         loadError,
         activeConversationId,
+        messagesAppendedTick,
         activeConversation,
         totalUnread,
         isViewingArchived,
@@ -1188,5 +1354,6 @@ export function useBuyerChat() {
         uploadAttachment,
         MAX_ATTACHMENT_BYTES,
         startConversation,
+        startCourierConversation,
     };
 }

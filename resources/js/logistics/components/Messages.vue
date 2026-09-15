@@ -338,6 +338,10 @@ const loadingMessages = ref(false);
 const sending = ref(false);
 const error = ref('');
 const messageBody = ref(null);
+// Whether the thread is scrolled near its bottom — gates whether an
+// incoming (realtime) message auto-scrolls the view or leaves it alone so
+// reading older history isn't interrupted.
+const isAtBottom = ref(true);
 const pendingDeleteId = ref(null);
 const isDeletingConversation = ref(false);
 const deleteError = ref('');
@@ -549,6 +553,14 @@ async function fetchNewMessages() {
                 if (fresh.length) {
                     messages.value = chronological([...messages.value, ...fresh]);
                     messagesCache.set(conversationId, { messages: messages.value, meta: messagesMeta.value });
+
+                    // Only auto-scroll if already near the bottom — otherwise
+                    // leave the rider's scroll position alone so reading
+                    // older messages isn't interrupted by an incoming one.
+                    if (isAtBottom.value) {
+                        await nextTick();
+                        if (messageBody.value) messageBody.value.scrollTop = messageBody.value.scrollHeight;
+                    }
                 }
             }
         }
@@ -575,6 +587,7 @@ async function openConversation(id) {
     const requestVersion = ++messageRequestVersion;
     activeId.value = id;
     error.value = '';
+    isAtBottom.value = true;
     subscribeActiveConversation(id);
 
     const cached = messagesCache.get(id);
@@ -655,7 +668,11 @@ async function loadOlderMessages() {
 }
 function onMessageBodyScroll() {
     const el = messageBody.value;
-    if (!el || el.scrollTop >= 60) return;
+    if (!el) return;
+
+    isAtBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+
+    if (el.scrollTop >= 60) return;
 
     const prevHeight = el.scrollHeight;
     loadOlderMessages().then(() => {
@@ -966,7 +983,10 @@ img.avatar.loaded { opacity: 1; }
 .presence-dot { width: 6px; height: 6px; border-radius: 999px; background: #94a3b8; flex-shrink: 0; }
 .presence-tag.online { background: #dcfce7; color: #15803d; }
 .presence-tag.online .presence-dot { background: #22c55e; }
-.message-body { flex: 1; min-height: 0; overflow-y: auto; padding: 1.5rem; background: #f8fafc; }
+/* display:flex + justify-content:flex-end anchors a short/empty
+   conversation to the bottom of the viewport (like a real chat thread)
+   instead of letting messages stack from the top with empty space below. */
+.message-body { flex: 1; min-height: 0; overflow-y: auto; padding: 1.5rem; background: #f8fafc; display: flex; flex-direction: column; justify-content: flex-end; }
 .message-row { display: flex; margin-bottom: 0.65rem; }
 .message-row.mine { justify-content: flex-end; }
 .bubble { max-width: min(72%, 38rem); padding: 0.65rem 0.85rem; border: 1px solid #e2e8f0; border-radius: 1rem 1rem 1rem 0.3rem; background: #fff; color: #1e293b; box-shadow: 0 2px 4px rgba(15, 23, 42, 0.03); }

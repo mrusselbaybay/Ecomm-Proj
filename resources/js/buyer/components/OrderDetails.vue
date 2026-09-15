@@ -27,7 +27,7 @@
 |     there's no stored card/payment-method vault to draw that from.
 |
 */
-import { computed, nextTick, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerChat } from '../composables/useBuyerChat';
 import { metaFor } from '../composables/useCategoryMeta';
@@ -361,50 +361,55 @@ const needHelpMailtoHref = computed(() => {
 
 /*
 |--------------------------------------------------------------------------
-| Message Seller
+| Message Seller / Message Courier
 |--------------------------------------------------------------------------
 |
-| Opens (or reuses) the buyer<->seller thread for this order's seller via
-| useBuyerChat.startConversation(), which pops the messaging popup open on
-| it. The order id is attached so the seller sees which order it's about.
+| Both buttons jump straight into the messaging popup's conversation screen
+| instead of an inline compose form — useBuyerChat.startConversation() /
+| startCourierConversation() open (or create) the thread and pop the popup
+| open on it immediately, adding the seller/courier to the inbox as a side
+| effect of finding-or-creating the conversation server-side even before
+| any message is actually typed. The buyer then types into the thread
+| itself, same as any other open conversation.
 */
 
-const { startConversation } = useBuyerChat();
+const { startConversation, startCourierConversation } = useBuyerChat();
 
-const messageOpen = ref(false);
-const messageDraft = ref('');
-const messageInput = ref(null);
+// The rider actually assigned to this order's delivery — see
+// Buyer\OrderController::transform()'s `parcel.courier` (distinct from
+// `parcel.riderAssigned`, which can be true briefly with no rider yet).
+// Only truthy once a specific courier is on it, which is exactly when the
+// "Message Courier" button should exist.
+const assignedCourier = computed(() => props.order?.parcel?.courier || null);
 
-function toggleMessageComposer() {
-    messageOpen.value = !messageOpen.value;
-
-    if (messageOpen.value) {
-        nextTick(() => messageInput.value?.focus());
-    }
-}
-
-// Opens the chat popup immediately (see useBuyerChat.js's startConversation()
-// docblock) instead of waiting for the network round trip — the composer
-// closes right away and the popup shows the message being sent, with the
-// actual create-thread request running in the background. A failure surfaces
-// there (a "Failed · Retry" bubble), not back on this page.
-function sendSellerMessage() {
-    const body = messageDraft.value.trim();
-
-    if (!body || !props.order?.seller_id) {
+function openSellerConversation() {
+    if (!props.order?.seller_id) {
         return;
     }
-
-    messageDraft.value = '';
-    messageOpen.value = false;
 
     startConversation({
         sellerId: props.order.seller_id,
         orderNumber: props.order.orderId,
         subject: `Order ${props.order.orderId}`,
-        body
     }).catch(err => {
-        console.error('Error starting conversation:', err);
+        console.error('Error opening seller conversation:', err);
+        toastError('We couldn\'t open this conversation right now. Please try again.');
+    });
+}
+
+function openCourierConversation() {
+    if (!assignedCourier.value) {
+        return;
+    }
+
+    startCourierConversation({
+        orderNumber: props.order.orderId,
+        courierId: assignedCourier.value.id,
+        courierName: assignedCourier.value.name,
+        courierAvatarUrl: assignedCourier.value.avatarUrl,
+    }).catch(err => {
+        console.error('Error opening courier conversation:', err);
+        toastError('We couldn\'t open this conversation right now. Please try again.');
     });
 }
 
@@ -579,12 +584,24 @@ function handleHeaderSelectCategory(category) {
                                 type="button"
                                 class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#0d9488] hover:bg-slate-50 transition-all flex items-center gap-2"
                                 style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
-                                @click="toggleMessageComposer"
+                                @click="openSellerConversation"
                             >
                                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
                                 </svg>
-                                {{ messageOpen ? 'Cancel' : 'Message Seller' }}
+                                Message Seller
+                            </button>
+                            <button
+                                v-if="assignedCourier"
+                                type="button"
+                                class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#0d9488] hover:bg-slate-50 transition-all flex items-center gap-2"
+                                style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                                @click="openCourierConversation"
+                            >
+                                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                                </svg>
+                                Message Courier
                             </button>
                             <a
                                 :href="needHelpMailtoHref"
@@ -605,32 +622,6 @@ function handleHeaderSelectCategory(category) {
                                     <circle cx="17" cy="18" r="2" /><circle cx="7" cy="18" r="2" />
                                 </svg>
                                 Track Package
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Message Seller composer -->
-                    <div
-                        v-if="messageOpen"
-                        class="bg-white rounded-3xl p-6 border border-slate-100"
-                        style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
-                    >
-                        <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Message the seller about this order</label>
-                        <textarea
-                            ref="messageInput"
-                            v-model="messageDraft"
-                            rows="3"
-                            placeholder="Type your message…"
-                            class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all resize-y"
-                        ></textarea>
-                        <div class="mt-3 flex justify-end">
-                            <button
-                                type="button"
-                                class="px-6 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                :disabled="!messageDraft.trim()"
-                                @click="sendSellerMessage"
-                            >
-                                Send Message
                             </button>
                         </div>
                     </div>
@@ -908,8 +899,22 @@ function handleHeaderSelectCategory(category) {
                                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Shipping Information</h3>
                                     <div class="space-y-2">
                                         <div class="flex justify-between">
-                                            <span class="text-sm text-slate-500">Courier</span>
+                                            <span class="text-sm text-slate-500">Carrier</span>
                                             <span class="text-sm font-bold text-slate-900">{{ order.shipping_carrier || 'Not yet assigned' }}</span>
+                                        </div>
+                                        <div class="flex justify-between items-center">
+                                            <span class="text-sm text-slate-500">Courier</span>
+                                            <span class="flex items-center gap-2">
+                                                <img
+                                                    v-if="assignedCourier?.avatarUrl"
+                                                    :src="assignedCourier.avatarUrl"
+                                                    :alt="assignedCourier.name"
+                                                    loading="lazy"
+                                                    decoding="async"
+                                                    class="h-5 w-5 rounded-full object-cover"
+                                                >
+                                                <span class="text-sm font-bold text-slate-900">{{ assignedCourier?.name || 'Not yet assigned' }}</span>
+                                            </span>
                                         </div>
                                         <div class="flex justify-between items-center">
                                             <span class="text-sm text-slate-500">Tracking No.</span>

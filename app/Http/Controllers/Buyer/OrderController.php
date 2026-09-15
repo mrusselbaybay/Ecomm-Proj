@@ -13,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
-    private const WITH = ['items.review', 'items.returnRequests', 'seller.sellerDetail', 'statusHistory', 'parcelAssignment'];
+    private const WITH = ['items.review', 'items.returnRequests', 'seller.sellerDetail', 'statusHistory', 'parcelAssignment.rider'];
 
     /**
      * GET /api/buyer/orders
@@ -148,6 +148,17 @@ class OrderController extends Controller
                     || $order->parcelAssignment->status === ParcelAssignment::STATUS_HANDED_OFF,
                 'receivedAt' => optional($order->parcelAssignment->received_at)->toIso8601String(),
                 'assignedAt' => optional($order->parcelAssignment->assigned_at)->toIso8601String(),
+                // The actual rider assigned to this delivery — distinct
+                // from riderAssigned above (which can be true briefly with
+                // no rider yet, right after pickup handoff). Only set once
+                // a specific courier is on it, which is the one thing the
+                // "Message Courier" button and the Shipping Information
+                // panel need to know who to show/message.
+                'courier' => $order->parcelAssignment->rider ? [
+                    'id' => $order->parcelAssignment->rider->id,
+                    'name' => $order->parcelAssignment->rider->full_name,
+                    'avatarUrl' => $order->parcelAssignment->rider->avatar_url,
+                ] : null,
             ] : null,
             'items' => $order->items->map(fn ($item) => [
                 'id' => $item->id,

@@ -5897,6 +5897,10 @@ img.msg-convo-avatar.loaded {
     padding: 1.25rem 1.5rem;
     display: flex;
     flex-direction: column;
+    /* Anchors a short/empty conversation to the bottom of the viewport
+       (like a real chat thread) instead of letting messages stack from
+       the top with empty space below — the default flex-start behavior. */
+    justify-content: flex-end;
     background: #fbfcfe;
 }
 .msg-loading-older {

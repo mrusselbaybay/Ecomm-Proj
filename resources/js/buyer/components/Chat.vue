@@ -38,6 +38,7 @@ const {
     isLoadingMoreConversations,
     activeConversationId,
     activeConversation,
+    messagesAppendedTick,
     isViewingArchived,
     conversationsMeta,
     closeChat,
@@ -57,6 +58,10 @@ const {
 
 const search = ref('');
 const draft = ref('');
+// Whether the thread is scrolled near its bottom — gates whether an
+// incoming (realtime/poll) message auto-scrolls the view or leaves it
+// alone so a buyer reading older history isn't yanked back down.
+const isAtBottom = ref(true);
 const stagedAttachments = ref([]);
 const attachmentError = ref('');
 const previewMedia = ref(null);
@@ -174,6 +179,7 @@ async function selectConversation(id) {
     __convTiming('shell-visible (sync)');
     isProductPickerOpen.value = false;
     productPickerItems.value = [];
+    isAtBottom.value = true;
     // Awaited so the bottom-scroll happens once the messages have actually
     // rendered — firing it immediately raced the fetch and could leave the
     // thread scrolled to wherever it happened to be mid-load (looking like
@@ -288,12 +294,20 @@ function onListScroll(event) {
 
 // Older-history pagination: scrolling near the top of the open thread
 // loads the previous page of messages, preserving scroll position so the
-// view doesn't jump once the older messages are prepended.
+// view doesn't jump once the older messages are prepended. Also tracks
+// whether the buyer is near the bottom, so an incoming message knows
+// whether to auto-scroll (see the messagesAppendedTick watcher below).
 function onThreadScroll() {
     const el = threadBody.value;
     const convo = activeConversation.value;
 
-    if (!el || !convo || el.scrollTop >= 60 || !convo.messagesMeta?.hasMore || convo.isLoadingOlderMessages) {
+    if (!el) {
+        return;
+    }
+
+    isAtBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+
+    if (!convo || el.scrollTop >= 60 || !convo.messagesMeta?.hasMore || convo.isLoadingOlderMessages) {
         return;
     }
 
@@ -305,6 +319,17 @@ function onThreadScroll() {
         });
     });
 }
+
+// A message was appended to the active thread's end via realtime/poll
+// delta (never for prepended older history — see messagesAppendedTick's
+// docblock). Only auto-scroll if the buyer was already near the bottom;
+// otherwise leave their scroll position alone so reading older messages
+// isn't interrupted by an incoming message elsewhere in the thread.
+watch(messagesAppendedTick, () => {
+    if (isAtBottom.value) {
+        scrollThreadToBottom();
+    }
+});
 
 function handleSend() {
     const uploadedAttachments = stagedAttachments.value
@@ -827,10 +852,13 @@ onBeforeUnmount(() => {
                             </div>
                         </div>
 
-                        <!-- Thread body -->
+                        <!-- Thread body — flex-col + justify-end anchors a
+                             short/empty conversation to the bottom (like a
+                             real chat thread) instead of letting messages
+                             stack from the top with empty space below. -->
                         <div
                             ref="threadBody"
-                            class="flex-1 overflow-y-auto p-5 space-y-5 bg-slate-50/30"
+                            class="flex-1 overflow-y-auto p-5 space-y-5 bg-slate-50/30 flex flex-col justify-end"
                             @scroll="onThreadScroll"
                         >
                             <div v-if="activeConversation.isLoadingOlderMessages" class="flex justify-center" aria-hidden="true">
@@ -917,6 +945,9 @@ onBeforeUnmount(() => {
                                         <p class="mt-0.5 text-[13px] text-slate-500">
                                             Qty: {{ message.productContext.quantity ?? 1 }} · {{ formatPrice(message.productContext.price) }}
                                         </p>
+                                        <p v-if="message.productContext.trackingNumber" class="mt-0.5 truncate text-[11px] text-slate-400">
+                                            TN: {{ message.productContext.trackingNumber }}
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -959,6 +990,7 @@ onBeforeUnmount(() => {
                                         <span v-if="message.productContext" class="block truncate text-xs font-bold text-slate-900">{{ message.productContext.name }}</span>
                                         <span v-else class="block truncate text-xs font-bold text-slate-900">Order #{{ message.orderContext.orderNumber }}</span>
                                         <span v-if="message.productContext" class="block text-[11px] font-bold text-[#0d9488]">{{ formatPrice(message.productContext.price) }}</span>
+                                        <span v-if="message.productContext?.trackingNumber" class="block truncate text-[10px] text-slate-400">TN: {{ message.productContext.trackingNumber }}</span>
                                     </span>
                                 </div>
                             </div>
@@ -1169,7 +1201,7 @@ onBeforeUnmount(() => {
                                         </button>
                                     </template>
                                     <p v-else class="col-span-4 py-2 text-center text-[11px] text-slate-400">
-                                        {{ productPickerError || "You haven't ordered from this seller yet." }}
+                                        {{ productPickerError || (activeConversation?.role === 'courier' ? "This courier has no active parcels for you yet." : "You haven't ordered from this seller yet.") }}
                                     </p>
                                 </div>
 
@@ -1184,7 +1216,7 @@ onBeforeUnmount(() => {
                                 </button>
                             </div>
 
-                            <div v-if="activeConversation?.role !== 'courier'" class="flex flex-wrap gap-1.5">
+                            <div class="flex flex-wrap gap-1.5">
                                 <button
                                     type="button"
                                     class="rounded-lg border px-2 py-1 text-[11px] font-semibold transition-colors"
@@ -1193,7 +1225,7 @@ onBeforeUnmount(() => {
                                         : 'border-[#0d9488]/25 bg-[#0d9488]/[0.06] text-[#0d9488] hover:bg-[#0d9488]/[0.12]'"
                                     @click="toggleProductPicker"
                                 >
-                                    Inquire about a certain product
+                                    {{ activeConversation?.role === 'courier' ? 'Inquire about a certain parcel' : 'Inquire about a certain product' }}
                                 </button>
                             </div>
 
@@ -1400,7 +1432,7 @@ onBeforeUnmount(() => {
                 @click.self="pendingProductInquiry = null"
             >
                 <div class="w-full max-w-sm rounded-3xl bg-white p-6 shadow-xl">
-                    <h3 class="text-base font-bold text-slate-900">Inquire about this product?</h3>
+                    <h3 class="text-base font-bold text-slate-900">{{ activeConversation?.role === 'courier' ? 'Inquire about this parcel?' : 'Inquire about this product?' }}</h3>
                     <div class="mt-3 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
                         <span v-if="pendingProductInquiry.previewImage" class="h-12 w-12 shrink-0 overflow-hidden rounded-xl img-skeleton">
                             <img
@@ -1418,9 +1450,14 @@ onBeforeUnmount(() => {
                         <div class="min-w-0">
                             <p class="truncate text-sm font-bold text-slate-900">{{ pendingProductInquiry.previewName }}</p>
                             <p class="text-[12px] text-slate-500">Order #{{ pendingProductInquiry.orderNumber }} · Qty: {{ pendingProductInquiry.quantity ?? 1 }} · {{ formatPrice(pendingProductInquiry.total) }}</p>
+                            <p v-if="pendingProductInquiry.trackingNumber" class="text-[12px] text-slate-500">TN: {{ pendingProductInquiry.trackingNumber }}</p>
                         </div>
                     </div>
-                    <p class="mt-3 text-[13px] text-slate-500">This sends a message to the seller asking about this specific product.</p>
+                    <p class="mt-3 text-[13px] text-slate-500">
+                        {{ activeConversation?.role === 'courier'
+                            ? 'This sends a message to the courier asking about this specific parcel.'
+                            : 'This sends a message to the seller asking about this specific product.' }}
+                    </p>
                     <p v-if="productInquiryError" class="mt-2 text-xs text-red-600">{{ productInquiryError }}</p>
                     <div class="mt-5 flex gap-2.5">
                         <button

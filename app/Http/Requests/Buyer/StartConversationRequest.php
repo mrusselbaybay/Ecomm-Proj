@@ -24,7 +24,11 @@ class StartConversationRequest extends FormRequest
             'order_number' => ['nullable', 'string', 'max:64'],
             'product_id' => ['nullable', 'uuid', 'exists:products,id'],
             'subject' => ['nullable', 'string', 'max:200'],
-            'body' => ['required', 'string', 'max:4000'],
+            // Nullable: clicking "Message Seller" now opens/creates the
+            // thread straight into the conversation screen with no typed
+            // message required — the buyer types their first message once
+            // the thread is already open, same as any existing thread.
+            'body' => ['nullable', 'string', 'max:4000'],
         ];
     }
 }
