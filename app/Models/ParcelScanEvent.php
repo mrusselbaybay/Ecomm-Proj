@@ -22,6 +22,8 @@ class ParcelScanEvent extends Model
 
     public const CHECKPOINT_DELIVERY = 'delivery';
 
+    public const CHECKPOINT_TRANSFER = 'transfer';
+
     public $incrementing = false;
 
     protected $keyType = 'string';

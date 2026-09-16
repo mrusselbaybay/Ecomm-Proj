@@ -274,7 +274,7 @@ const navGroups = [
         tabs: [
             { key: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
             { key: 'parcels', label: 'Parcel Sorting', icon: 'parcels' },
-            { key: 'areas', label: 'Barangay Assignments', icon: 'pin' },
+            { key: 'areas', label: 'Delivery Areas', icon: 'pin' },
             { key: 'riders', label: 'Riders', icon: 'couriers' },
             {
                 key: 'applications',

@@ -60,6 +60,15 @@ Route::middleware(['supabase.auth', 'driver'])->prefix('driver')->name('api.driv
         ->name('deliveries.deliver');
     Route::get('/deliveries/{parcelAssignment}/photo', [DriverDeliveryController::class, 'photo'])
         ->name('deliveries.photo');
+    // Cross-region-transfer counterpart to /deliver: confirms this rider
+    // reached the target logistics company's hub instead of a buyer's
+    // doorstep (DriverDeliveryController::confirmTransfer). The transfer
+    // leg's own "I have it" step reuses /pickup above — same self-serve
+    // photo/QR confirmation as a local pickup, just moving
+    // transfer_assigned -> ready_to_transfer instead of assigned ->
+    // handed_off (see DriverDeliveryController::pickup's docblock).
+    Route::post('/deliveries/{parcelAssignment}/confirm-transfer', [DriverDeliveryController::class, 'confirmTransfer'])
+        ->name('deliveries.confirm-transfer');
 
     // "Messages" tab (driver_chat_list_screen.dart / driver_chat_conversation_screen.dart)
     // — the rider's side of the 'roster' conversation with their employing

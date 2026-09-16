@@ -6,7 +6,6 @@ use App\Models\LogisticsBarangayAssignment;
 use App\Models\LogisticsCompany;
 use App\Models\Order;
 use App\Models\ParcelAssignment;
-use App\Models\Profile;
 
 /**
  * Puts a parcel into a logistics company's sorting queue — the single
@@ -74,29 +73,30 @@ class ParcelIntakeService
             return $existing;
         }
 
-        $assignment = $this->matchingBarangayAssignment($company, $order);
         $trigger = $this->transferTrigger->evaluate($order);
 
-        // Every new parcel starts the same way — waiting for a courier to
-        // pick it up. `is_transfer`/`required_vehicle_type` are recorded
-        // purely as hints for staff and for ParcelAutoAssignService's
-        // vehicle filter — they drive no status of their own here.
+        // No manual "Auto assign" step any more — every tier that applies
+        // at this phase is tried right here, same "never guess, just fall
+        // through" rule as before. A freshly-intaken parcel always starts
+        // in the pickup phase (nobody's collected it from the seller
+        // yet), so this matches the SELLER's address, not the buyer's —
+        // see ParcelAutoAssignService::matchRider() for the full rule.
+        $match = app(ParcelAutoAssignService::class)->matchRider($order, $company, $trigger['required_vehicle_type'], true);
+        $hasRoute = $match['barangayAssignment'] !== null || $match['rider'] !== null;
+
         return ParcelAssignment::query()->create([
             'order_id' => $order->id,
             'logistics_company_id' => $company->id,
-            'barangay_assignment_id' => $assignment?->id,
-            // A barangay has at most one assigned rider now — only
-            // auto-fill when that rider can actually take it right now
-            // (on shift, under quota), same "never guess" rule as before.
-            'rider_profile_id' => $this->directRiderOf($assignment),
+            'barangay_assignment_id' => $match['barangayAssignment']?->id,
+            'rider_profile_id' => $match['rider']?->id,
             'is_transfer' => $trigger['is_transfer'],
             'transfer_trigger' => $trigger['trigger'],
             'required_vehicle_type' => $trigger['required_vehicle_type'],
-            'status' => $assignment ? ParcelAssignment::STATUS_SORTED : ParcelAssignment::STATUS_RECEIVED,
+            'status' => $hasRoute ? ParcelAssignment::STATUS_SORTED : ParcelAssignment::STATUS_RECEIVED,
             'received_by' => $receivedByProfileId,
             'received_at' => now(),
             'scanned_at' => $receivedByProfileId ? now() : null,
-            'sorted_at' => $assignment ? now() : null,
+            'sorted_at' => $hasRoute ? now() : null,
         ]);
     }
 
@@ -130,7 +130,10 @@ class ParcelIntakeService
     public function createTransferReceipt(ParcelAssignment $origin, LogisticsCompany $targetCompany): ParcelAssignment
     {
         $order = $origin->order;
-        $assignment = $this->matchingBarangayAssignment($targetCompany, $order);
+        // A transfer receipt is always post-pickup (see the docblock
+        // above) — matched against the BUYER's address, same as any
+        // other delivery-phase match.
+        $assignment = $this->matchingBarangayAssignmentFor($targetCompany, $order->shipping_municipality_name, $order->shipping_barangay);
         $trigger = $this->transferTrigger->evaluate($order);
 
         return ParcelAssignment::query()->create([
@@ -150,56 +153,29 @@ class ParcelIntakeService
 
     /**
      * The one active barangay assignment of this company whose
-     * municipality AND barangay exactly match the order's shipping
-     * address. Strictly exact (case-insensitive) — never a nearest or
-     * "close enough" match. An address in a barangay nobody's assigned
-     * returns null and the parcel simply stays unsorted for its direct
-     * rider, which is what both intake() and ParcelAutoAssignService's
-     * fallback pool rely on.
+     * municipality AND barangay exactly match the given address.
+     * Strictly exact (case-insensitive) — never a nearest or "close
+     * enough" match. Nothing assigned to that barangay returns null and
+     * the parcel simply stays unsorted for its direct rider, which is
+     * what both intake() and ParcelAutoAssignService's fallback tiers
+     * rely on.
      *
-     * Public because auto-assignment re-runs the same match on demand:
-     * a parcel taken in before its assignment existed has no assignment
-     * recorded, and re-matching is exactly how "Auto assign" fills that
-     * in.
+     * Public because auto-assignment re-runs the same match on demand —
+     * see ParcelAutoAssignService::matchRider(), which calls this with
+     * either the seller's or the buyer's address depending on whether
+     * the parcel is still awaiting pickup or already out for delivery.
      */
-    public function matchingBarangayAssignment(LogisticsCompany $company, Order $order): ?LogisticsBarangayAssignment
+    public function matchingBarangayAssignmentFor(LogisticsCompany $company, ?string $municipality, ?string $barangay): ?LogisticsBarangayAssignment
     {
-        if (! filled($order->shipping_municipality_name) || ! filled($order->shipping_barangay)) {
+        if (! filled($municipality) || ! filled($barangay)) {
             return null;
         }
 
         return LogisticsBarangayAssignment::query()
             ->where('logistics_company_id', $company->id)
             ->where('is_active', true)
-            ->whereRaw('LOWER(municipality_name) = ?', [mb_strtolower($order->shipping_municipality_name)])
-            ->whereRaw('LOWER(barangay) = ?', [mb_strtolower($order->shipping_barangay)])
+            ->whereRaw('LOWER(municipality_name) = ?', [mb_strtolower($municipality)])
+            ->whereRaw('LOWER(barangay) = ?', [mb_strtolower($barangay)])
             ->first();
-    }
-
-    /**
-     * Pre-fills the rider on a freshly sorted parcel ONLY when the
-     * matched barangay has an assigned rider AND that rider can actually
-     * take it right now (on shift, under quota). No assignment, or one
-     * whose rider is off shift / at quota / unset, is left rider-less for
-     * "Auto assign" (App\Services\ParcelAutoAssignService) or manual
-     * assignment to handle.
-     */
-    private function directRiderOf(?LogisticsBarangayAssignment $assignment): ?string
-    {
-        if (! $assignment?->rider_profile_id) {
-            return null;
-        }
-
-        $rider = Profile::query()->with('courierDetail')->find($assignment->rider_profile_id);
-
-        if (! $rider) {
-            return null;
-        }
-
-        $withinQuota = ParcelAssignment::activeCountFor($rider->id) < ParcelAssignment::COURIER_QUOTA;
-
-        return $rider->isAvailableForDelivery() && $withinQuota
-            ? $rider->id
-            : null;
     }
 }

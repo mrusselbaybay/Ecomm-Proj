@@ -2,24 +2,22 @@
 
 namespace App\Models;
 
-use Database\Factories\LogisticsBarangayAssignmentFactory;
+use Database\Factories\LogisticsRegionalAssignmentFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Str;
 
 /**
- * One barangay a logistics company covers, with at most one assigned
- * courier — replaces LogisticsDeliveryArea (which spanned several
- * municipalities and a rider roster with a round-robin rotation). A rider
- * may be assigned to several of these rows; see
- * App\Services\ParcelIntakeService::matchingBarangayAssignmentFor() and
- * App\Services\ParcelAutoAssignService for how parcels are routed against
- * this table.
+ * A company's region-wide fallback rider pool (van riders only) — see the
+ * migration docblock and App\Services\ParcelAutoAssignService. At most one
+ * per company (its own region), auto-provisioned rather than created by
+ * hand.
  */
-class LogisticsBarangayAssignment extends Model
+class LogisticsRegionalAssignment extends Model
 {
-    /** @use HasFactory<LogisticsBarangayAssignmentFactory> */
+    /** @use HasFactory<LogisticsRegionalAssignmentFactory> */
     use HasFactory;
 
     public $incrementing = false;
@@ -28,12 +26,9 @@ class LogisticsBarangayAssignment extends Model
 
     protected $fillable = [
         'logistics_company_id',
-        'province_name',
-        'municipality_code',
-        'municipality_name',
-        'barangay',
-        'rider_profile_id',
+        'region_name',
         'is_active',
+        'last_auto_assigned_rider_profile_id',
     ];
 
     protected $casts = [
@@ -54,8 +49,13 @@ class LogisticsBarangayAssignment extends Model
         return $this->belongsTo(LogisticsCompany::class);
     }
 
-    public function rider(): BelongsTo
+    public function riders(): BelongsToMany
     {
-        return $this->belongsTo(Profile::class, 'rider_profile_id');
+        return $this->belongsToMany(
+            Profile::class,
+            'logistics_regional_assignment_riders',
+            'regional_assignment_id',
+            'rider_profile_id',
+        )->withPivot('created_at');
     }
 }

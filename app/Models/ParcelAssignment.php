@@ -26,10 +26,33 @@ class ParcelAssignment extends Model
     // A picked-up parcel this company has asked another company to take
     // over (a pending row in parcel_transfer_requests). It sits here —
     // out of the local dispatch flow — until the receiving company
-    // accepts (this row then closes as STATUS_TRANSFERRED) or rejects /
+    // accepts (this row then moves to STATUS_TRANSFER_ONGOING) or rejects /
     // the request is cancelled (this row drops back to STATUS_HANDED_OFF
     // with no rider). See Api\Logistics\ParcelAssignmentController.
     public const STATUS_TRANSFER_PENDING = 'transfer_pending';
+
+    // The receiving company has accepted, but custody hasn't moved yet —
+    // this is deliberately NOT automatic. The origin company still has to
+    // send a courier to physically carry the parcel to the target
+    // company's hub, the same way any other handoff needs a courier and a
+    // scan, not a paperwork decision. Parked here until dispatch assigns
+    // one (assignTransferCourier() -> STATUS_TRANSFER_ASSIGNED).
+    public const STATUS_TRANSFER_ONGOING = 'transfer_ongoing';
+
+    // A transfer courier has been picked (assignTransferCourier()) but
+    // hasn't confirmed the parcel is physically in hand yet. Mirrors
+    // STATUS_ASSIGNED, including the same rider self-serve pickup path
+    // (Driver\DriverDeliveryController::pickup) alongside staff's own
+    // handoff() at the counter — whichever happens first.
+    public const STATUS_TRANSFER_ASSIGNED = 'transfer_assigned';
+
+    // The transfer courier has the parcel in hand (handoff() confirmed by
+    // staff) and is on their way to the target company's hub. Mirrors
+    // STATUS_HANDED_OFF; the courier's only action left is confirming
+    // arrival (Driver\DriverDeliveryController::confirmTransfer), which
+    // only then closes this row as STATUS_TRANSFERRED and opens the fresh
+    // "to be delivered" row at the target company.
+    public const STATUS_READY_TO_TRANSFER = 'ready_to_transfer';
 
     // Terminal state for a parcel this company handed to another one.
     // Every parcel starts life the same way — received/sorted, waiting on
@@ -37,19 +60,23 @@ class ParcelAssignment extends Model
     // (handed_off, rider released) does dispatch decide between a local
     // delivery (assign()) and offering it to another company
     // (requestTransfer()). The offer is a transfer *request*: this row
-    // parks at STATUS_TRANSFER_PENDING and only reaches STATUS_TRANSFERRED
-    // once the receiving company accepts, at which point a fresh
-    // handed_off row opens at that company, which delivers it from there.
-    // No courier is involved in the handover itself.
+    // parks at STATUS_TRANSFER_PENDING, moves to STATUS_TRANSFER_ONGOING
+    // once accepted, then STATUS_TRANSFER_ASSIGNED / STATUS_READY_TO_TRANSFER
+    // as a courier carries it over, and only reaches STATUS_TRANSFERRED
+    // once that courier confirms arrival — the same point a fresh
+    // handed_off row opens at the target company.
     public const STATUS_TRANSFERRED = 'transferred';
 
     // "Currently in this rider's hands" for the quota counter — assigned
     // (dispatched, not yet physically with them) plus handed_off (they
-    // have it, en route). Display-only (see Couriers.vue /
-    // LogisticsApplicationResource) — never enforced as a hard cap.
+    // have it, en route). A transfer courier's two legs count the same
+    // way. Display-only (see Couriers.vue / LogisticsApplicationResource)
+    // — never enforced as a hard cap.
     public const ACTIVE_STATUSES_FOR_QUOTA = [
         self::STATUS_ASSIGNED,
         self::STATUS_HANDED_OFF,
+        self::STATUS_TRANSFER_ASSIGNED,
+        self::STATUS_READY_TO_TRANSFER,
     ];
 
     public const COURIER_QUOTA = 20;

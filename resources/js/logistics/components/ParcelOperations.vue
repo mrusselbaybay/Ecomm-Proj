@@ -34,28 +34,6 @@
                 </button>
                 <button
                     type="button"
-                    class="btn-primary btn-icon"
-                    :disabled="
-                        autoAssignCandidates.length === 0 ||
-                        autoRun.phase === 'running'
-                    "
-                    :title="
-                        autoAssignCandidates.length === 0
-                            ? 'Every parcel on this desk already has a rider'
-                            : 'Match each parcel to its area and rider automatically'
-                    "
-                    @click="openAutoAssign"
-                >
-                    <NavIcon name="truck" :size="15" />
-                    Auto assign
-                    <span
-                        v-if="autoAssignCandidates.length"
-                        class="count-pill count-pill-teal"
-                        >{{ autoAssignCandidates.length }}</span
-                    >
-                </button>
-                <button
-                    type="button"
                     class="btn-outline btn-icon"
                     :disabled="refreshing"
                     @click="refresh"
@@ -167,7 +145,7 @@
                     <thead>
                         <tr>
                             <th>Parcel</th>
-                            <th>Delivery address</th>
+                            <th>Address</th>
                             <th>Area</th>
                             <th>Rider</th>
                             <th>Stage</th>
@@ -220,6 +198,14 @@
                                 >
                             </td>
                             <td>
+                                <span
+                                    class="badge badge-slate address-phase-badge"
+                                    >{{
+                                        parcel.phase === 'pickup'
+                                            ? 'Pick up from seller'
+                                            : 'Deliver to buyer'
+                                    }}</span
+                                >
                                 <span class="address-cell">{{
                                     parcel.order.address || 'Address incomplete'
                                 }}</span>
@@ -230,6 +216,16 @@
                                 }}, {{
                                     parcel.barangay_assignment.municipality_name
                                 }}</span>
+                                <span
+                                    v-else-if="parcel.area_fallback_tier"
+                                    class="badge badge-indigo"
+                                    >{{
+                                        parcel.area_fallback_tier ===
+                                        'provincial'
+                                            ? 'Provincial'
+                                            : 'Regional'
+                                    }}</span
+                                >
                                 <span v-else class="muted-cell"
                                     >Needs sorting</span
                                 >
@@ -257,10 +253,10 @@
                             <td class="text-right">
                                 <button
                                     v-if="isParcelActionable(parcel)"
-                                    class="btn-sm-primary"
+                                    class="btn-sm-primary parcel-manage-btn"
                                     @click="openAssignment(parcel)"
                                 >
-                                    {{ actionLabel(parcel) }}
+                                    {{ actionLabel() }}
                                 </button>
                                 <span
                                     v-else-if="
@@ -286,9 +282,18 @@
                                     </button>
                                 </span>
                                 <span
+                                    v-else-if="parcel.status === 'ready_to_transfer'"
+                                    class="handoff-time"
+                                    >With courier, headed to
+                                    {{
+                                        parcel.transfer_to_company
+                                            ?.company_name || 'the other company'
+                                    }}</span
+                                >
+                                <span
                                     v-else-if="parcel.status === 'transferred'"
                                     class="handoff-time"
-                                    >Transferred
+                                    >Delivered
                                     {{
                                         formatDate(parcel.transferred_at)
                                     }}</span
@@ -340,243 +345,6 @@
              transform, so it would otherwise be the containing block for
              the fixed overlay and let the dim backdrop scroll away). -->
         <Teleport to=".logistics-shell">
-            <!-- ---------------- Auto assign ----------------
-             One modal, three phases: confirm what's about to happen,
-             show live progress while the queue is swept a parcel at a
-             time, then report what each parcel actually did. -->
-            <div
-                v-if="autoRun.open"
-                class="modal-overlay"
-                @click.self="autoRun.phase === 'running' || closeAutoAssign()"
-            >
-                <div
-                    class="modal-panel auto-assign-modal"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby="auto-assign-title"
-                >
-                    <div class="modal-header">
-                        <div>
-                            <p class="eyebrow">Automatic routing</p>
-                            <h3 id="auto-assign-title">
-                                {{
-                                    autoRun.phase === 'done'
-                                        ? 'Auto assign finished'
-                                        : 'Auto assign'
-                                }}
-                            </h3>
-                        </div>
-                        <button
-                            v-if="autoRun.phase !== 'running'"
-                            type="button"
-                            class="modal-close"
-                            aria-label="Close"
-                            @click="closeAutoAssign"
-                        >
-                            <NavIcon name="close" :size="15" />
-                        </button>
-                    </div>
-
-                    <!-- Phase 1 — confirm -->
-                    <template v-if="autoRun.phase === 'confirm'">
-                        <p class="panel-copy">
-                            <strong
-                                >{{ autoAssignCandidates.length }}
-                                {{
-                                    autoAssignCandidates.length === 1
-                                        ? 'parcel'
-                                        : 'parcels'
-                                }}</strong
-                            >
-                            on this desk still need a rider. Each one will be
-                            matched to a delivery area by its address, then
-                            handed to the next available rider in that area.
-                        </p>
-                        <ul class="auto-assign-rules">
-                            <li>
-                                The area must match the parcel's province
-                                <em>and</em> municipality exactly — no nearby or
-                                approximate areas.
-                            </li>
-                            <li>
-                                Riders take turns in rotation, so the work is
-                                spread evenly across each area.
-                            </li>
-                            <li>
-                                Riders who are off shift or already at their
-                                parcel quota are skipped.
-                            </li>
-                            <li>
-                                A parcel with no matching area, or no available
-                                rider, is left untouched for you to handle by
-                                hand.
-                            </li>
-                        </ul>
-                        <p class="parcel-meta">
-                            Parcels are routed one at a time, so this can take a
-                            moment. You can stop it partway — anything already
-                            assigned stays assigned.
-                        </p>
-                        <div class="modal-actions">
-                            <button
-                                type="button"
-                                class="btn-outline"
-                                @click="closeAutoAssign"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                class="btn-primary"
-                                @click="runAutoAssign"
-                            >
-                                Auto assign
-                                {{ autoAssignCandidates.length }}
-                                {{
-                                    autoAssignCandidates.length === 1
-                                        ? 'parcel'
-                                        : 'parcels'
-                                }}
-                            </button>
-                        </div>
-                    </template>
-
-                    <!-- Phase 2 — running -->
-                    <template v-else-if="autoRun.phase === 'running'">
-                        <div class="auto-assign-progress">
-                            <div
-                                class="loading-spinner"
-                                role="status"
-                                aria-label="Assigning parcels"
-                            ></div>
-                            <p class="auto-assign-count" aria-live="polite">
-                                {{ autoRun.processed }} of {{ autoRun.total }}
-                                {{ autoRun.total === 1 ? 'parcel' : 'parcels' }}
-                                processed
-                            </p>
-                            <div
-                                class="auto-assign-bar"
-                                role="progressbar"
-                                :aria-valuenow="autoRun.processed"
-                                aria-valuemin="0"
-                                :aria-valuemax="autoRun.total"
-                            >
-                                <span
-                                    class="auto-assign-bar-fill"
-                                    :style="{
-                                        width: `${autoProgressPercent}%`,
-                                    }"
-                                ></span>
-                            </div>
-                            <p class="auto-assign-tally">
-                                <span class="badge badge-teal"
-                                    >{{ autoRun.assigned }} assigned</span
-                                >
-                                <span
-                                    v-if="autoUnrouted"
-                                    class="badge badge-amber"
-                                    >{{ autoUnrouted }} need attention</span
-                                >
-                                <span
-                                    v-if="autoRun.failed"
-                                    class="badge badge-red"
-                                    >{{ autoRun.failed }} failed</span
-                                >
-                            </p>
-                            <p v-if="autoRun.current" class="parcel-meta">
-                                Working on {{ autoRun.current }}…
-                            </p>
-                        </div>
-                        <div class="modal-actions">
-                            <button
-                                type="button"
-                                class="btn-outline"
-                                :disabled="autoRun.stopping"
-                                @click="stopAutoAssign"
-                            >
-                                {{ autoRun.stopping ? 'Stopping…' : 'Stop' }}
-                            </button>
-                        </div>
-                    </template>
-
-                    <!-- Phase 3 — summary -->
-                    <template v-else>
-                        <p class="panel-copy">
-                            {{ autoSummary }}
-                        </p>
-
-                        <ul class="auto-assign-outcomes">
-                            <li>
-                                <strong>{{ autoRun.assigned }}</strong>
-                                <span>assigned to a rider</span>
-                            </li>
-                            <li v-if="autoRun.noArea">
-                                <strong>{{ autoRun.noArea }}</strong>
-                                <span>no matching delivery area</span>
-                            </li>
-                            <li v-if="autoRun.noRider">
-                                <strong>{{ autoRun.noRider }}</strong>
-                                <span
-                                    >area matched, but no rider available</span
-                                >
-                            </li>
-                            <li v-if="autoRun.skipped">
-                                <strong>{{ autoRun.skipped }}</strong>
-                                <span>already routed</span>
-                            </li>
-                            <li v-if="autoRun.failed">
-                                <strong>{{ autoRun.failed }}</strong>
-                                <span>failed</span>
-                            </li>
-                        </ul>
-
-                        <template v-if="autoRun.problems.length">
-                            <p class="field-label auto-assign-problems-label">
-                                Left for you to handle
-                            </p>
-                            <ul class="auto-assign-problems">
-                                <li
-                                    v-for="problem in autoRun.problems"
-                                    :key="problem.id"
-                                >
-                                    <strong>{{ problem.tracking }}</strong>
-                                    <span>{{ problem.message }}</span>
-                                </li>
-                            </ul>
-                            <p
-                                v-if="autoRun.noArea"
-                                class="callout-amber callout-block"
-                            >
-                                <NavIcon name="alert" :size="16" />
-                                <span>
-                                    Parcels with no matching area need a
-                                    delivery area covering that province and
-                                    municipality before they can be routed
-                                    automatically.
-                                </span>
-                                <button
-                                    type="button"
-                                    class="btn-link"
-                                    @click="goToAreas"
-                                >
-                                    Manage areas
-                                </button>
-                            </p>
-                        </template>
-
-                        <div class="modal-actions">
-                            <button
-                                type="button"
-                                class="btn-primary"
-                                @click="closeAutoAssign"
-                            >
-                                Done
-                            </button>
-                        </div>
-                    </template>
-                </div>
-            </div>
-
             <!-- ---------------- Routing modal ---------------- -->
             <div
                 v-if="selectedParcel"
@@ -608,7 +376,11 @@
                     </div>
 
                     <div class="parcel-address-card">
-                        <span>Deliver to</span>
+                        <span>{{
+                            selectedParcel.phase === 'pickup'
+                                ? 'Pick up from'
+                                : 'Deliver to'
+                        }}</span>
                         <strong>{{
                             selectedParcel.order.recipient_name
                         }}</strong>
@@ -725,10 +497,11 @@
                                 </select>
                             </label>
                             <p class="parcel-meta full-field">
-                                No courier is needed. The parcel stays with you,
-                                marked "Awaiting acceptance", until the chosen
-                                company accepts the request — only then does it
-                                move to their queue. They can also reject it.
+                                The parcel stays with you, marked "Awaiting
+                                acceptance", until the chosen company accepts or
+                                rejects the request. Once accepted it moves to
+                                "Transfer ongoing" — you'll then assign one of
+                                your own couriers to carry it over.
                             </p>
                             <p
                                 v-if="transferOptionsError"
@@ -739,7 +512,10 @@
                         </div>
                     </template>
                     <div v-else class="area-form-grid">
-                        <label class="form-field full-field">
+                        <label
+                            v-if="!isTransferCourierLeg"
+                            class="form-field full-field"
+                        >
                             <span>
                                 Barangay assignment
                                 <template v-if="!awaitingDispatchDecision">
@@ -769,11 +545,20 @@
                                 </option>
                             </select>
                         </label>
+                        <p v-else class="parcel-meta full-field">
+                            No barangay is needed — this parcel is headed to
+                            {{
+                                selectedParcel.transfer_to_company
+                                    ?.company_name || 'the other company'
+                            }}'s sorting hub, not a buyer's address.
+                        </p>
                         <label class="form-field full-field">
                             <span>{{
-                                awaitingDispatchDecision
-                                    ? 'Delivery rider'
-                                    : 'Pickup courier'
+                                isTransferCourierLeg
+                                    ? 'Transfer courier'
+                                    : awaitingDispatchDecision
+                                      ? 'Delivery rider'
+                                      : 'Pickup courier'
                             }}</span>
                             <select
                                 v-model="assignmentForm.rider_profile_id"
@@ -807,14 +592,22 @@
                             Cancel
                         </button>
                         <button
-                            v-if="selectedParcel.status === 'assigned'"
+                            v-if="
+                                selectedParcel.status === 'assigned' ||
+                                selectedParcel.status === 'transfer_assigned'
+                            "
                             type="button"
                             class="btn-primary"
                             :disabled="saving"
                             @click="handoff"
                         >
                             {{
-                                saving ? 'Confirming…' : 'Confirm rider handoff'
+                                saving
+                                    ? 'Confirming…'
+                                    : selectedParcel.status ===
+                                        'transfer_assigned'
+                                      ? 'Confirm courier handoff'
+                                      : 'Confirm rider handoff'
                             }}
                         </button>
                         <button
@@ -828,9 +621,11 @@
                             {{
                                 saving
                                     ? 'Assigning…'
-                                    : awaitingDispatchDecision
-                                      ? 'Assign delivery'
-                                      : 'Assign pickup courier'
+                                    : isTransferCourierAssignment
+                                      ? 'Assign transfer courier'
+                                      : awaitingDispatchDecision
+                                        ? 'Assign delivery'
+                                        : 'Assign pickup courier'
                             }}
                         </button>
                     </div>
@@ -1007,8 +802,8 @@ const {
     loadTransferRequests,
     receiveParcel,
     assignParcel,
-    autoAssignParcel,
     handoffParcel,
+    assignTransferCourier,
     fetchTransferOptions,
     requestParcelTransfer,
     respondToTransferRequest,
@@ -1082,8 +877,9 @@ const unstaffedAreas = computed(() =>
 // Every parcel starts in "To pick up" regardless of where it's headed —
 // whether it can be delivered locally or has to go to another company is
 // only decided at the "To be delivered" step, once a courier has
-// actually collected it. Handing it to another company takes effect
-// immediately, so it goes straight from this desk to "Transferred".
+// actually collected it. Handing it to another company is now its own
+// multi-step courier leg (see the transfer_ongoing/transfer_assigned/
+// ready_to_transfer cases below) rather than taking effect immediately.
 function stageOf(parcel) {
     if (parcel.status === 'transferred') {
         return 'transferred';
@@ -1094,8 +890,29 @@ function stageOf(parcel) {
         return 'transferPending';
     }
 
+    // Accepted — grouped as one "Transfer ongoing" stage/tab even though
+    // it covers three sub-states (needs a courier, needs that courier
+    // handed the parcel, or already with them en route); the row's own
+    // status badge and action column (see statusLabel/the queue template)
+    // distinguish which.
+    if (
+        parcel.status === 'transfer_ongoing' ||
+        parcel.status === 'transfer_assigned' ||
+        parcel.status === 'ready_to_transfer'
+    ) {
+        return 'transferOngoing';
+    }
+
     if (parcel.status !== 'handed_off') {
         return 'toPickUp';
+    }
+
+    // Regional-tier deliveries (buyer outside this company's own region —
+    // see Delivery Areas' Regional pool) are always framed as a transfer
+    // job, whether or not a regional rider has already been auto-assigned
+    // to it. Provincial-tier stays an ordinary delivery either way.
+    if (parcel.area_fallback_tier === 'regional') {
+        return 'toTransfer';
     }
 
     if (parcel.rider) {
@@ -1105,8 +922,13 @@ function stageOf(parcel) {
     // Picked up and back on this desk. If this company doesn't cover the
     // buyer's region (is_transfer, set at intake) it can't deliver this
     // itself, so surface it as needing a transfer rather than leaving
-    // staff to notice — they can still override and deliver it.
-    return parcel.is_transfer ? 'toTransfer' : 'toDeliver';
+    // staff to notice — they can still override and deliver it. A row
+    // that arrived AS a transfer (is_transfer_receipt) skips this: the
+    // receiving company was chosen because it covers the buyer's region,
+    // so it just needs an ordinary local delivery, not another transfer.
+    return parcel.is_transfer && !parcel.is_transfer_receipt
+        ? 'toTransfer'
+        : 'toDeliver';
 }
 
 const stageOptions = computed(() => [
@@ -1139,13 +961,18 @@ const stageOptions = computed(() => [
         count: parcelStats.value.transferPending,
     },
     {
+        value: 'transferOngoing',
+        label: 'To be delivered (transfer)',
+        count: parcelStats.value.transferOngoing,
+    },
+    {
         value: 'outForDelivery',
         label: 'Out for delivery',
         count: parcelStats.value.outForDelivery,
     },
     {
         value: 'transferred',
-        label: 'Transferred',
+        label: 'Delivered',
         count: parcelStats.value.transferred,
     },
     { value: 'all', label: 'All', count: parcelStats.value.total },
@@ -1209,6 +1036,7 @@ const emptyTitle = computed(() => {
             toDeliver: 'No parcels waiting for a delivery rider',
             toTransfer: 'No parcels waiting to be transferred',
             transferPending: 'No transfer requests awaiting acceptance',
+            transferOngoing: 'No accepted transfers in progress',
             outForDelivery: 'No parcels out for delivery',
             transferred: 'No parcels handed to another company',
             all: 'No parcels in the sorting queue',
@@ -1267,15 +1095,29 @@ function vehicleRequirementLabel(requiredVehicleType) {
     );
 }
 
+// Status column text within the combined 'transferOngoing' tab (see
+// stageOf) — accepted and on its way to the other company, no matter
+// which of the three internal steps it's actually on (the action column
+// already spells that out, e.g. "With courier, headed to X").
+function transferOngoingLabel() {
+    return 'To be delivered';
+}
+
 function statusLabel(parcel) {
+    const stage = stageOf(parcel);
+
+    if (stage === 'transferOngoing') {
+        return transferOngoingLabel();
+    }
+
     return {
         toPickUp: 'To pick up',
         toDeliver: 'To be delivered',
         toTransfer: 'To transfer',
         transferPending: 'Awaiting acceptance',
         outForDelivery: 'Out for delivery',
-        transferred: 'Transferred',
-    }[stageOf(parcel)];
+        transferred: 'Delivered',
+    }[stage];
 }
 
 function statusClass(parcel) {
@@ -1285,25 +1127,18 @@ function statusClass(parcel) {
         return 'badge-teal';
     }
 
-    return stage === 'toTransfer' || stage === 'transferPending'
+    return stage === 'toTransfer' ||
+        stage === 'transferPending' ||
+        stage === 'transferOngoing'
         ? 'badge-indigo'
         : 'badge-amber';
 }
 
-function actionLabel(parcel) {
-    const stage = stageOf(parcel);
-
-    if (stage === 'toTransfer') {
-        return 'Request transfer';
-    }
-
-    // Post-pickup: this is where "deliver locally or hand to another
-    // company" gets decided, so the button opens that choice.
-    if (stage === 'toDeliver') {
-        return 'Assign delivery';
-    }
-
-    return parcel.status === 'assigned' ? 'Review' : 'Assign pickup';
+// One label for every stage — what happens when it's clicked still
+// depends on the parcel (see openAssignment/stageOf), but the button
+// itself no longer changes width row to row as text length varies.
+function actionLabel() {
+    return 'Manage';
 }
 
 // Which side of the post-pickup decision the routing modal is showing.
@@ -1313,10 +1148,33 @@ const dispatchMode = ref('deliver'); // 'deliver' | 'transfer'
 
 // True once a courier has picked the parcel up and handed it back — the
 // point where staff choose between a local delivery and a transfer.
+// Normally that means no rider yet, but a regional-tier match (buyer
+// outside this company's own region) auto-assigns a regional rider
+// immediately — staff still need the option to hand it to another
+// company instead, so this stays true for that case too. Mirrors
+// Api\Logistics\ParcelAssignmentController::awaitingDispatchDecision.
 const awaitingDispatchDecision = computed(
     () =>
         selectedParcel.value?.status === 'handed_off' &&
-        !selectedParcel.value?.rider,
+        (!selectedParcel.value?.rider ||
+            selectedParcel.value?.area_fallback_tier === 'regional'),
+);
+
+// An accepted transfer, whether or not a courier has been picked yet —
+// the routing modal skips the barangay picker entirely for both: there's
+// no buyer address involved, only which of this company's own riders
+// carries it to the target company's hub.
+const isTransferCourierLeg = computed(
+    () =>
+        selectedParcel.value?.status === 'transfer_ongoing' ||
+        selectedParcel.value?.status === 'transfer_assigned',
+);
+
+// Narrower than isTransferCourierLeg: only 'transfer_ongoing' still has an
+// assign action to submit — 'transfer_assigned' only has the handoff
+// button below (see the modal-actions button chain).
+const isTransferCourierAssignment = computed(
+    () => selectedParcel.value?.status === 'transfer_ongoing',
 );
 
 async function openAssignment(parcel) {
@@ -1432,8 +1290,14 @@ async function confirmAssignment() {
                 transferForm.transfer_to_company_id,
             );
             notify(
-                'Transfer request sent. The parcel moves once the other company accepts.',
+                'Transfer request sent. The parcel moves once the other company accepts and a courier carries it over.',
             );
+        } else if (isTransferCourierAssignment.value) {
+            await assignTransferCourier(
+                selectedParcel.value.id,
+                assignmentForm.rider_profile_id,
+            );
+            notify('Transfer courier assigned.');
         } else {
             await assignParcel(
                 selectedParcel.value.id,
@@ -1460,167 +1324,18 @@ async function handoff() {
     assignmentError.value = '';
 
     try {
+        const isTransferHandoff = selectedParcel.value?.status === 'transfer_assigned';
         await handoffParcel(selectedParcel.value.id);
-        notify('Rider handoff confirmed.');
+        notify(
+            isTransferHandoff
+                ? 'Courier handoff confirmed. They can now confirm the transfer from their app.'
+                : 'Rider handoff confirmed.',
+        );
         closeAssignment();
     } catch (error) {
         assignmentError.value = error.message;
     } finally {
         saving.value = false;
-    }
-}
-
-// ---- Auto assign ----
-//
-// Sweeps the queue a parcel at a time, letting the server match each
-// one's address to a delivery area and pick the next rider in that
-// area's rotation (App\Services\ParcelAutoAssignService).
-//
-// Sequential rather than parallel on purpose: the round-robin cursor is
-// read and written per parcel, so firing them at once would hand several
-// parcels to the same rider. It's also what makes a real progress count
-// possible, which matters because a full queue takes a while.
-
-const autoRun = reactive({
-    open: false,
-    phase: 'confirm', // 'confirm' | 'running' | 'done'
-    total: 0,
-    processed: 0,
-    assigned: 0,
-    noArea: 0,
-    noRider: 0,
-    skipped: 0,
-    failed: 0,
-    current: '', // tracking number currently in flight
-    stopping: false,
-    problems: [],
-});
-
-// Parcels auto-assign will act on: still on this desk, and with nobody
-// on them yet. The "no rider" half is what stops a second click from
-// re-routing parcels the first click already assigned.
-const autoAssignCandidates = computed(() =>
-    parcelAssignments.value.filter(
-        (parcel) => isParcelActionable(parcel) && !parcel.rider,
-    ),
-);
-
-const autoProgressPercent = computed(() =>
-    autoRun.total ? Math.round((autoRun.processed / autoRun.total) * 100) : 0,
-);
-
-// Routed nowhere, but for an ordinary reason staff can act on — as
-// opposed to `failed`, which means the request itself broke.
-const autoUnrouted = computed(() => autoRun.noArea + autoRun.noRider);
-
-const autoSummary = computed(() => {
-    if (autoRun.assigned === 0) {
-        return 'No parcels could be routed automatically. The ones below need a delivery area or an available rider first.';
-    }
-
-    const assigned = `${autoRun.assigned} of ${autoRun.total} ${
-        autoRun.total === 1 ? 'parcel' : 'parcels'
-    } assigned to a rider.`;
-
-    return autoUnrouted.value + autoRun.failed > 0
-        ? `${assigned} The rest were left untouched.`
-        : assigned;
-});
-
-function openAutoAssign() {
-    Object.assign(autoRun, {
-        open: true,
-        phase: 'confirm',
-        total: 0,
-        processed: 0,
-        assigned: 0,
-        noArea: 0,
-        noRider: 0,
-        skipped: 0,
-        failed: 0,
-        current: '',
-        stopping: false,
-        problems: [],
-    });
-}
-
-function closeAutoAssign() {
-    autoRun.open = false;
-    focusScanner();
-}
-
-function stopAutoAssign() {
-    autoRun.stopping = true;
-}
-
-function goToAreas() {
-    closeAutoAssign();
-    emit('open-section', 'areas');
-}
-
-function parcelLabel(parcel) {
-    return (
-        parcel.order?.tracking_number || parcel.order?.order_number || 'Parcel'
-    );
-}
-
-async function runAutoAssign() {
-    // Snapshotted up front: every assignment replaces rows in
-    // `parcelAssignments`, so iterating the live computed list would
-    // shrink out from under the loop.
-    const queue = autoAssignCandidates.value.map((parcel) => ({
-        id: parcel.id,
-        tracking: parcelLabel(parcel),
-    }));
-
-    autoRun.phase = 'running';
-    autoRun.total = queue.length;
-
-    for (const item of queue) {
-        if (autoRun.stopping) {
-            break;
-        }
-
-        autoRun.current = item.tracking;
-
-        try {
-            const { outcome, message } = await autoAssignParcel(item.id);
-
-            if (outcome === 'assigned') {
-                autoRun.assigned += 1;
-            } else if (outcome === 'skipped') {
-                autoRun.skipped += 1;
-            } else {
-                // 'no_area' / 'no_rider' — the parcel is untouched and
-                // needs a person, so it's named in the summary.
-                autoRun[outcome === 'no_area' ? 'noArea' : 'noRider'] += 1;
-                autoRun.problems.push({
-                    id: item.id,
-                    tracking: item.tracking,
-                    message,
-                });
-            }
-        } catch (error) {
-            autoRun.failed += 1;
-            autoRun.problems.push({
-                id: item.id,
-                tracking: item.tracking,
-                message: error.message,
-            });
-        }
-
-        autoRun.processed += 1;
-    }
-
-    autoRun.current = '';
-    autoRun.phase = 'done';
-
-    if (autoRun.assigned > 0) {
-        notify(
-            `${autoRun.assigned} ${
-                autoRun.assigned === 1 ? 'parcel' : 'parcels'
-            } assigned automatically.`,
-        );
     }
 }
 

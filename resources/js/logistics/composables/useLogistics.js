@@ -431,10 +431,16 @@ async function loadApplications(filters = {}, { force = false } = {}) {
 
 // -------------------------------------------------- accepted rider roster
 
+// Page metadata for the (paginated) accepted-rider roster — read by
+// Riders.vue to render Prev/Next controls.
+const acceptedRidersMeta = ref({ currentPage: 1, lastPage: 1, total: 0 });
+
 /**
  * The accepted riders only — backs the Riders page. Separate list and
  * cache entry from loadApplications() so the two pages don't overwrite
- * each other under <KeepAlive>. `search` is the only server-side filter.
+ * each other under <KeepAlive>. `search` is the only server-side filter,
+ * `page` paginates server-side (10/page) via the endpoint's opt-in
+ * `per_page` param.
  */
 async function loadAcceptedRiders(filters = {}, { force = false } = {}) {
     if (!companyId.value) {
@@ -447,10 +453,14 @@ async function loadAcceptedRiders(filters = {}, { force = false } = {}) {
         return [];
     }
 
-    const params = new URLSearchParams({ status: 'accepted' });
+    const params = new URLSearchParams({ status: 'accepted', per_page: '10' });
 
     if (filters.search) {
         params.set('search', filters.search);
+    }
+
+    if (filters.page && filters.page > 1) {
+        params.set('page', String(filters.page));
     }
 
     const query = params.toString();
@@ -468,6 +478,11 @@ async function loadAcceptedRiders(filters = {}, { force = false } = {}) {
             );
 
             acceptedRiders.value = payload.data || [];
+            acceptedRidersMeta.value = {
+                currentPage: payload.meta?.current_page ?? 1,
+                lastPage: payload.meta?.last_page ?? 1,
+                total: payload.meta?.total ?? acceptedRiders.value.length,
+            };
 
             return acceptedRiders.value;
         },
@@ -685,6 +700,91 @@ async function loadAvailableRiders(assignmentId, { search = '', page = 1 } = {})
     return readJson(response, 'Failed to load available riders.');
 }
 
+// ------------------------------------------- provincial / regional pools
+//
+// One tier-agnostic set of calls — both pools share the exact same shape
+// (a single area + a rider roster + a paginated "available riders" picker
+// gated by vehicle type server-side), just different endpoints.
+
+const provincialAssignment = ref(null);
+const regionalAssignment = ref(null);
+
+const TIER_BASE_PATH = {
+    provincial: '/api/logistics/provincial-assignment',
+    regional: '/api/logistics/regional-assignment',
+};
+const TIER_STATE = {
+    get provincial() {
+        return provincialAssignment;
+    },
+    get regional() {
+        return regionalAssignment;
+    },
+};
+
+async function loadTierAssignment(tier, { force = false } = {}) {
+    return cached(
+        tier === 'provincial' ? 'provincial-assignment' : 'regional-assignment',
+        'all',
+        async () => {
+            const response = await logisticsFetch(TIER_BASE_PATH[tier]);
+            const payload = await readJson(
+                response,
+                `Failed to load the ${tier} pool.`,
+            );
+
+            TIER_STATE[tier].value = payload.assignment || null;
+
+            return payload;
+        },
+        { force },
+    );
+}
+
+async function loadTierAvailableRiders(tier, { search = '', page = 1 } = {}) {
+    const params = new URLSearchParams();
+
+    if (search) {
+        params.set('search', search);
+    }
+
+    if (page > 1) {
+        params.set('page', String(page));
+    }
+
+    const query = params.toString();
+    const response = await logisticsFetch(
+        `${TIER_BASE_PATH[tier]}/available-riders${query ? `?${query}` : ''}`,
+    );
+
+    return readJson(response, `Failed to load available ${tier} riders.`);
+}
+
+async function addTierRiders(tier, riderProfileIds) {
+    const response = await logisticsFetch(`${TIER_BASE_PATH[tier]}/riders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rider_profile_ids: riderProfileIds }),
+    });
+    const payload = await readJson(response, `Failed to add riders to the ${tier} pool.`);
+
+    TIER_STATE[tier].value = payload.assignment || null;
+
+    return payload.assignment;
+}
+
+async function removeTierRider(tier, riderProfileId) {
+    const response = await logisticsFetch(
+        `${TIER_BASE_PATH[tier]}/riders/${riderProfileId}`,
+        { method: 'DELETE' },
+    );
+    const payload = await readJson(response, `Failed to remove that rider from the ${tier} pool.`);
+
+    TIER_STATE[tier].value = payload.assignment || null;
+
+    return payload.assignment;
+}
+
 // ----------------------------------------------------- parcel assignments
 
 async function loadParcelAssignments({ force = false } = {}) {
@@ -774,6 +874,29 @@ async function handoffParcel(id) {
         { method: 'PUT' },
     );
     const payload = await readJson(response, 'Failed to hand off the parcel.');
+
+    upsertRow(parcelAssignments, payload.data);
+
+    return payload.data;
+}
+
+// Dispatch picks who carries an accepted transfer to the target company's
+// hub ('transfer_ongoing' -> 'transfer_assigned'). The courier still has
+// to be physically handed the parcel (handoffParcel, same as a local
+// rider) before they can confirm the transfer from their app.
+async function assignTransferCourier(id, riderProfileId) {
+    const response = await logisticsFetch(
+        `/api/logistics/parcel-assignments/${id}/assign-transfer-courier`,
+        {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rider_profile_id: riderProfileId }),
+        },
+    );
+    const payload = await readJson(
+        response,
+        'Failed to assign a transfer courier.',
+    );
 
     upsertRow(parcelAssignments, payload.data);
 
@@ -903,8 +1026,19 @@ const pendingTransferCount = computed(
  * Not handed off yet (needs a pickup courier), or handed off but back in
  * the pool with no rider (the pickup courier confirmed collection — now
  * it needs the deliver-or-transfer call). A handed-off parcel that
- * already has a rider is out for delivery and off this desk, and one
- * given to another company ('transferred') is gone for good.
+ * already has a rider is normally out for delivery and off this desk —
+ * except a regional-tier match (buyer outside this company's own
+ * region), which stays actionable even once a regional rider is
+ * auto-assigned, so staff can still choose to hand it to another company
+ * instead of using the in-house regional pool. One already given to
+ * another company ('transferred') is gone for good.
+ *
+ * An accepted transfer runs its own two-step desk work before it's off
+ * this queue too: 'transfer_ongoing' needs a courier assigned, and
+ * 'transfer_assigned' needs that courier physically handed the parcel
+ * (there's no self-serve pickup for a transfer leg — see
+ * Driver\DriverDeliveryController's docblock). 'ready_to_transfer' is
+ * with the courier already, nothing left for this desk to do.
  */
 function isParcelActionable(parcel) {
     // 'transferred' is gone for good; 'transfer_pending' is parked
@@ -912,9 +1046,21 @@ function isParcelActionable(parcel) {
     // request" affordance, not a routing decision.
     if (
         parcel.status === 'transferred' ||
-        parcel.status === 'transfer_pending'
+        parcel.status === 'transfer_pending' ||
+        parcel.status === 'ready_to_transfer'
     ) {
         return false;
+    }
+
+    if (
+        parcel.status === 'transfer_ongoing' ||
+        parcel.status === 'transfer_assigned'
+    ) {
+        return true;
+    }
+
+    if (parcel.status === 'handed_off' && parcel.area_fallback_tier === 'regional') {
+        return true;
     }
 
     return parcel.status !== 'handed_off' || !parcel.rider;
@@ -927,6 +1073,7 @@ const parcelStats = computed(() => {
         outForDelivery: 0,
         toTransfer: 0,
         transferPending: 0,
+        transferOngoing: 0,
         transferred: 0,
         total: 0,
     };
@@ -939,6 +1086,15 @@ const parcelStats = computed(() => {
         } else if (parcel.status === 'transfer_pending') {
             // Offered to another company, waiting on their answer.
             stats.transferPending += 1;
+        } else if (
+            parcel.status === 'transfer_ongoing' ||
+            parcel.status === 'transfer_assigned' ||
+            parcel.status === 'ready_to_transfer'
+        ) {
+            // Accepted — a courier now has to carry it to the target
+            // company before it counts as 'transferred'. See stageOf() in
+            // ParcelOperations.vue for the same grouping.
+            stats.transferOngoing += 1;
         } else if (parcel.status !== 'handed_off') {
             stats.toPickUp += 1;
         } else if (parcel.rider) {
@@ -1069,6 +1225,7 @@ export function useLogistics() {
         companyName,
         applications,
         acceptedRiders,
+        acceptedRidersMeta,
         couriers,
         barangayAssignments,
         assignmentRiders,
@@ -1102,11 +1259,18 @@ export function useLogistics() {
         deleteBarangayAssignment,
         setAssignmentRider,
         loadAvailableRiders,
+        provincialAssignment,
+        regionalAssignment,
+        loadTierAssignment,
+        loadTierAvailableRiders,
+        addTierRiders,
+        removeTierRider,
         loadParcelAssignments,
         receiveParcel,
         assignParcel,
         autoAssignParcel,
         handoffParcel,
+        assignTransferCourier,
         fetchTransferOptions,
         requestParcelTransfer,
         loadTransferRequests,

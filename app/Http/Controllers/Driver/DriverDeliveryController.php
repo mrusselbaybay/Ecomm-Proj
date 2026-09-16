@@ -7,7 +7,10 @@ use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use App\Models\ParcelAssignment;
 use App\Models\ParcelScanEvent;
+use App\Models\ParcelTransferRequest;
 use App\Models\Profile;
+use App\Services\ParcelAutoAssignService;
+use App\Services\ParcelIntakeService;
 use App\Services\SellerNotifier;
 use App\Services\SupabaseStorageService;
 use Illuminate\Database\Eloquent\Builder;
@@ -38,10 +41,30 @@ use Illuminate\Support\Str;
  * same `parcel_assignments` row, so whichever happens first wins (the
  * other is rejected as no-longer-assigned) and the change is visible
  * immediately on the logistics dashboard's sorting queue either way.
+ *
+ * A cross-region transfer between two logistics companies runs its own
+ * parallel leg, invisible on this list until dispatch has physically
+ * confirmed the handoff — see Api\Logistics\
+ * ParcelAssignmentController::acceptTransferRequest (which auto-assigns
+ * the courier, often the same one who ran the pickup leg, but always
+ * lands on "transfer_assigned" first) and ::handoff (dispatch's counter
+ * confirmation, "transfer_assigned" -> "ready_to_transfer"). Unlike the
+ * assigned -> handed_off leg above, there is no rider self-serve
+ * equivalent for that step — a cross-company handoff always needs
+ * dispatch's own confirmation, never a tap from the app — so
+ * "transfer_assigned" rows are filtered out of [index]/[verifyQr]
+ * entirely and only appear here once they're already "ready_to_transfer"
+ * (has it, en route to the target company's hub). From there
+ * [confirmTransfer] (photo + QR, same shape as [deliver]) closes it out
+ * as "transferred" and opens the receiving company's own "to be
+ * delivered" row.
  */
 class DriverDeliveryController extends Controller
 {
-    public function __construct(private readonly SupabaseStorageService $supabaseStorage) {}
+    public function __construct(
+        private readonly SupabaseStorageService $supabaseStorage,
+        private readonly ParcelIntakeService $parcelIntake,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -49,19 +72,60 @@ class DriverDeliveryController extends Controller
         $profile = $request->user();
 
         $assignments = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany'])
-            // Rows currently dispatched to this rider (assigned / out for
-            // delivery), PLUS rows they ran the pickup leg on and have
-            // since handed back to logistics — those stay on their list
-            // as a read-only record (picked_up_by), never actionable.
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany'])
+            // Rows currently dispatched to this rider — assigned, out for
+            // delivery, or carrying a cross-region transfer — PLUS rows
+            // they ran the pickup leg on and have since handed back to
+            // logistics with nobody dispatched yet, which stay on their
+            // list purely as a read-only record (picked_up_by), never
+            // actionable. The picked_up_by branch is deliberately scoped
+            // to STATUS_HANDED_OFF only: once that row moves on to a
+            // transfer leg it belongs to whichever rider is carrying it
+            // now, not this rider's history, even if they're the one who
+            // originally picked it up (rider_profile_id already covers
+            // that case if it's still them).
+            //
+            // STATUS_TRANSFER_ASSIGNED deliberately excluded even when
+            // rider_profile_id is already this rider (e.g. the same
+            // courier who ran the pickup leg, auto-reused on accept — see
+            // Api\Logistics\ParcelAssignmentController::acceptTransferRequest):
+            // a transfer leg only appears here once dispatch has
+            // physically confirmed the handoff (handoff() ->
+            // STATUS_READY_TO_TRANSFER), never before, so this list can't
+            // be used to jump the gun on that confirmation. See [pickup]'s
+            // docblock for the other half of this.
+            //
+            // A HANDED_OFF row also stays hidden while it's still an open
+            // "local delivery or transfer?" question with no local
+            // delivery committed yet (is_transfer, no barangay_assignment_id
+            // — see Api\Logistics\ParcelAssignmentController::
+            // awaitingDispatchDecision): a regional-pool rider can be
+            // pre-matched here before that's decided, but is_transfer means
+            // this company can't actually deliver it, so it shouldn't read
+            // as a real job on the rider's phone until either dispatch
+            // commits it to a local delivery (barangay_assignment_id gets
+            // set) or it's handed off for the transfer leg instead
+            // (STATUS_READY_TO_TRANSFER, above).
             ->where(function (Builder $query) use ($profile): void {
-                $query->where('rider_profile_id', $profile->id)
-                    ->orWhere('picked_up_by', $profile->id);
+                $query->where(function (Builder $q) use ($profile): void {
+                    $q->where('rider_profile_id', $profile->id)
+                        ->where(function (Builder $qq): void {
+                            $qq->whereIn('status', [
+                                ParcelAssignment::STATUS_ASSIGNED,
+                                ParcelAssignment::STATUS_READY_TO_TRANSFER,
+                            ])->orWhere(function (Builder $qqq): void {
+                                $qqq->where('status', ParcelAssignment::STATUS_HANDED_OFF)
+                                    ->where(function (Builder $q4): void {
+                                        $q4->where('is_transfer', false)
+                                            ->orWhereNotNull('barangay_assignment_id');
+                                    });
+                            });
+                        });
+                })->orWhere(function (Builder $q) use ($profile): void {
+                    $q->where('picked_up_by', $profile->id)
+                        ->where('status', ParcelAssignment::STATUS_HANDED_OFF);
+                });
             })
-            ->whereIn('status', [
-                ParcelAssignment::STATUS_ASSIGNED,
-                ParcelAssignment::STATUS_HANDED_OFF,
-            ])
             ->orderByDesc('assigned_at')
             ->get();
 
@@ -110,9 +174,19 @@ class DriverDeliveryController extends Controller
         }
 
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany'])
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany'])
             ->where('order_id', $order->id)
             ->where('rider_profile_id', $profile->id)
+            // Same exclusions as [index] — a transfer leg a scan can't
+            // surface until dispatch has confirmed the handoff, and a
+            // still-undecided "local delivery or transfer?" row can't be
+            // scanned as a real job either.
+            ->where('status', '!=', ParcelAssignment::STATUS_TRANSFER_ASSIGNED)
+            ->where(function (Builder $q): void {
+                $q->where('status', '!=', ParcelAssignment::STATUS_HANDED_OFF)
+                    ->orWhere('is_transfer', false)
+                    ->orWhereNotNull('barangay_assignment_id');
+            })
             ->first();
 
         if (! $assignment) {
@@ -128,16 +202,25 @@ class DriverDeliveryController extends Controller
     }
 
     /**
-     * Rider-initiated pickup confirmation: moves an assignment from
-     * 'assigned' ("To pick up") to 'handed_off' and *releases the rider*
-     * (rider_profile_id -> null). Pickup and delivery are two separate
-     * legs run by two different people: once the pickup courier has the
-     * parcel and has confirmed it, the parcel goes back to the logistics
-     * sorting queue tagged "To be delivered", where dispatch assigns a
-     * delivery rider (Api\Logistics\ParcelAssignmentController::assign,
-     * which keeps it 'handed_off' — the delivery rider goes straight to
-     * "mark delivered", not through pickup again). It does NOT stay on the
-     * pickup courier's plate as their delivery.
+     * Rider-initiated pickup confirmation. Handles two different legs that
+     * share the same "I now physically have this parcel" shape:
+     *
+     * - 'assigned' -> 'handed_off', *releasing the rider*
+     *   (rider_profile_id -> null). Pickup and delivery are two separate
+     *   legs run by two different people: once the pickup courier has the
+     *   parcel and has confirmed it, the parcel goes back to the logistics
+     *   sorting queue tagged "To be delivered", where dispatch assigns a
+     *   delivery rider (Api\Logistics\ParcelAssignmentController::assign,
+     *   which keeps it 'handed_off' — the delivery rider goes straight to
+     *   "mark delivered", not through pickup again). It does NOT stay on
+     *   the pickup courier's plate as their delivery.
+     * A transfer leg's 'transfer_assigned' -> 'ready_to_transfer' step is
+     * deliberately NOT handled here, unlike the local leg above — a
+     * cross-company handoff always needs dispatch's own counter
+     * confirmation (Api\Logistics\ParcelAssignmentController::handoff),
+     * never a rider self-serve tap, so that row stays out of this rider's
+     * list entirely (see [index]) until dispatch has confirmed it and it
+     * lands on 'ready_to_transfer'.
      *
      * Requires a photo of the parcel at the point of pickup, same proof
      * requirement as [deliver] on the drop-off end.
@@ -167,9 +250,18 @@ class DriverDeliveryController extends Controller
             'photo.max' => 'Photo must not be larger than 10MB.',
         ]);
 
+        // Excludes STATUS_TRANSFER_ASSIGNED on purpose — that leg is
+        // staff-confirm-only now (see this method's docblock), so it's
+        // invisible here even to the rider it's earmarked for, the same
+        // way [index] hides it from their list.
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany'])
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany'])
             ->where('rider_profile_id', $profile->id)
+            ->whereIn('status', [
+                ParcelAssignment::STATUS_ASSIGNED,
+                ParcelAssignment::STATUS_HANDED_OFF,
+                ParcelAssignment::STATUS_READY_TO_TRANSFER,
+            ])
             ->whereKey($parcelAssignment)
             ->first();
 
@@ -188,10 +280,11 @@ class DriverDeliveryController extends Controller
             $this->recordScan($assignment, ParcelScanEvent::CHECKPOINT_PICKUP, $profile);
         }
 
-        // Idempotent: already handed off (e.g. dispatch beat the rider to
+        // Idempotent: already moved on (e.g. dispatch beat the rider to
         // it, or a retried request) -> just return the current state
         // instead of erroring.
-        if ($assignment->status === ParcelAssignment::STATUS_HANDED_OFF) {
+        if ($assignment->status === ParcelAssignment::STATUS_HANDED_OFF
+            || $assignment->status === ParcelAssignment::STATUS_READY_TO_TRANSFER) {
             return response()->json(['data' => $this->present($assignment, $profile)]);
         }
 
@@ -222,21 +315,42 @@ class DriverDeliveryController extends Controller
                 return;
             }
 
+            // The parcel is now in this company's hands, not the
+            // seller's — every match from here on is against the BUYER's
+            // address instead, same tiered rule intake() used for the
+            // seller's (see ParcelAutoAssignService::matchRider's
+            // $isPickupPhase). No manual "Auto assign" step any more, so
+            // this has to land on the right delivery rider right here —
+            // stamping the *seller's* barangay_assignment_id here would
+            // silently leave the parcel routed by the wrong address.
+            $order = $lockedAssignment->order;
+            $company = $lockedAssignment->logisticsCompany;
+            $match = $order && $company
+                ? app(ParcelAutoAssignService::class)->matchRider(
+                    $order,
+                    $company,
+                    $lockedAssignment->required_vehicle_type,
+                    false,
+                )
+                : ['rider' => null, 'barangayAssignment' => null];
+
             $lockedAssignment->update([
                 'status' => ParcelAssignment::STATUS_HANDED_OFF,
                 'handed_off_at' => now(),
                 'pickup_photo_path' => $photoPath,
-                // Hand the parcel back to logistics for delivery dispatch —
-                // it's no longer this (pickup) courier's job.
-                // barangay_assignment_id is kept so dispatch only has to
-                // pick the delivery rider; picked_up_by keeps a read-only
-                // trace on the courier's list.
-                'rider_profile_id' => null,
+                'barangay_assignment_id' => $match['barangayAssignment']?->id,
+                // Set only when a delivery rider was actually matched —
+                // null means "handed off, still needs a delivery rider",
+                // the same "awaiting dispatch decision" state the rest of
+                // the app already checks for (see
+                // Api\Logistics\ParcelAssignmentController::awaitingDispatchDecision).
+                'rider_profile_id' => $match['rider']?->id,
+                'assigned_at' => $match['rider'] ? now() : null,
                 'picked_up_by' => $profile->id,
             ]);
         });
 
-        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany']);
+        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany']);
 
         return response()->json(['data' => $this->present($assignment, $profile)]);
     }
@@ -266,7 +380,7 @@ class DriverDeliveryController extends Controller
         ]);
 
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany'])
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany'])
             ->where('rider_profile_id', $profile->id)
             ->whereKey($parcelAssignment)
             ->first();
@@ -342,7 +456,7 @@ class DriverDeliveryController extends Controller
             ]);
         });
 
-        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany']);
+        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany']);
 
         // Best-effort: let the seller know their order was delivered. No
         // BuyerNotifier exists in this project yet (see SellerNotifier's
@@ -352,6 +466,110 @@ class DriverDeliveryController extends Controller
         } catch (\Throwable $e) {
             Log::warning('Seller notification for delivered order failed: '.$e->getMessage());
         }
+
+        return response()->json(['data' => $this->present($assignment, $profile)]);
+    }
+
+    /**
+     * Cross-region-transfer counterpart to [deliver]: confirms this rider
+     * reached the target logistics company's hub instead of a buyer's
+     * doorstep. Requires the same photo proof (and optional QR scan) as
+     * [deliver] — moves STATUS_READY_TO_TRANSFER -> STATUS_TRANSFERRED and,
+     * unlike a same-company delivery, this is also the point where the
+     * receiving company's own "to be delivered" row finally opens
+     * (ParcelIntakeService::createTransferReceipt) and the accepted
+     * parcel_transfer_requests row gets its `resulting_assignment_id`.
+     * Nothing on the target company's side existed before this call — see
+     * Api\Logistics\ParcelAssignmentController::acceptTransferRequest's
+     * docblock for why custody doesn't move on accept.
+     */
+    public function confirmTransfer(Request $request, string $parcelAssignment): JsonResponse
+    {
+        /** @var Profile $profile */
+        $profile = $request->user();
+
+        $request->validate([
+            'photo' => ['required', 'file', 'mimes:jpg,jpeg,png', 'max:10240'],
+            'confirmation_token' => ['nullable', 'string', 'max:128'],
+        ], [
+            'photo.required' => 'Please attach a photo of the parcel before confirming this transfer.',
+            'photo.mimes' => 'Photo must be a JPG or PNG image.',
+            'photo.max' => 'Photo must not be larger than 10MB.',
+        ]);
+
+        $assignment = ParcelAssignment::query()
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany'])
+            ->where('rider_profile_id', $profile->id)
+            ->whereKey($parcelAssignment)
+            ->first();
+
+        if (! $assignment) {
+            return response()->json(['message' => 'Delivery not found.'], 404);
+        }
+
+        if ($scanError = $this->guardScannedToken($request, $assignment)) {
+            return $scanError;
+        }
+
+        if ($request->filled('confirmation_token')) {
+            $this->recordScan($assignment, ParcelScanEvent::CHECKPOINT_TRANSFER, $profile);
+        }
+
+        // Idempotent: already transferred (e.g. a retried request) -> just
+        // return the current state instead of erroring.
+        if ($assignment->status === ParcelAssignment::STATUS_TRANSFERRED) {
+            return response()->json(['data' => $this->present($assignment, $profile)]);
+        }
+
+        if ($assignment->status !== ParcelAssignment::STATUS_READY_TO_TRANSFER) {
+            return response()->json([
+                'message' => "This parcel isn't ready to be transferred yet.",
+            ], 422);
+        }
+
+        $targetCompany = $assignment->transferToCompany;
+        if (! $targetCompany) {
+            return response()->json(['message' => 'No destination company is set on this transfer.'], 422);
+        }
+
+        $file = $request->file('photo');
+        $extension = $file->getClientOriginalExtension() ?: $file->extension();
+        $photoPath = "profile/{$profile->id}/transfers/{$assignment->id}/".(string) Str::uuid().'.'.$extension;
+
+        try {
+            $this->supabaseStorage->upload($file, $photoPath);
+        } catch (\Throwable $e) {
+            Log::error('Transfer photo upload to Supabase failed: '.$e->getMessage());
+
+            return response()->json(['message' => 'Failed to upload the transfer photo. Please try again.'], 500);
+        }
+
+        DB::transaction(function () use ($assignment, $targetCompany, $photoPath): void {
+            // Lock the row so a concurrent change can't race this one —
+            // same pattern used by pickup()/deliver().
+            $lockedAssignment = ParcelAssignment::whereKey($assignment->id)->lockForUpdate()->first();
+
+            if ($lockedAssignment->status !== ParcelAssignment::STATUS_READY_TO_TRANSFER) {
+                return;
+            }
+
+            $lockedAssignment->update([
+                'status' => ParcelAssignment::STATUS_TRANSFERRED,
+                'transferred_at' => now(),
+                'transfer_photo_path' => $photoPath,
+            ]);
+
+            $receipt = $this->parcelIntake->createTransferReceipt($lockedAssignment, $targetCompany);
+
+            ParcelTransferRequest::query()
+                ->where('parcel_assignment_id', $lockedAssignment->id)
+                ->where('status', ParcelTransferRequest::STATUS_ACCEPTED)
+                ->latest('requested_at')
+                ->first()
+                ?->update(['resulting_assignment_id' => $receipt->id]);
+        });
+
+        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany']);
 
         return response()->json(['data' => $this->present($assignment, $profile)]);
     }
@@ -451,13 +669,19 @@ class DriverDeliveryController extends Controller
             // separate "pickup address" field on Order, only the buyer's
             // shipping (dropoff) address.
             'pickup_label' => trim(($assignment->logisticsCompany?->company_name ?: 'Logistics').' — Sorting Hub'),
-            'dropoff_label' => collect([
-                $order?->shipping_house_no,
-                $order?->shipping_street,
-                $order?->shipping_barangay,
-                $order?->shipping_municipality_name,
-                $order?->shipping_province_name,
-            ])->filter()->implode(', ') ?: null,
+            // A transfer leg's destination is another logistics company's
+            // hub, not the buyer's doorstep — same "{company} — Sorting
+            // Hub" shape as pickup_label above, just for the target
+            // company instead of this one.
+            'dropoff_label' => $assignment->transferToCompany
+                ? trim($assignment->transferToCompany->company_name.' — Sorting Hub')
+                : (collect([
+                    $order?->shipping_house_no,
+                    $order?->shipping_street,
+                    $order?->shipping_barangay,
+                    $order?->shipping_municipality_name,
+                    $order?->shipping_province_name,
+                ])->filter()->implode(', ') ?: null),
             'delivery_area' => collect([
                 $assignment->barangayAssignment?->barangay,
                 $assignment->barangayAssignment?->municipality_name,
@@ -473,6 +697,10 @@ class DriverDeliveryController extends Controller
             // fallback when the camera scan won't cooperate.
             'confirmation_token' => $order?->confirmation_token,
             'has_confirmation_qr' => filled($order?->confirmation_token),
+            // True for a cross-region transfer leg — this parcel is being
+            // ferried to another logistics company's hub, not delivered to
+            // the buyer. Drives the app's transfer-specific copy/sections.
+            'is_transfer' => (bool) $assignment->is_transfer,
             'status' => $this->deliveryStatus($assignment, $order, $viewer),
         ];
     }
@@ -531,8 +759,12 @@ class DriverDeliveryController extends Controller
     private function nextAction(ParcelAssignment $assignment, ?Order $order, ?Profile $viewer = null): string
     {
         return match ($this->deliveryStatus($assignment, $order, $viewer)) {
+            // 'transfer_assigned' deliberately has no self-serve action —
+            // that leg is staff-confirm-only now (see [pickup]'s docblock)
+            // — so it falls through to 'none' here too.
             'assigned' => 'pickup',
             'picked_up' => 'deliver',
+            'ready_to_transfer' => 'confirm_transfer',
             default => 'none',
         };
     }
@@ -548,14 +780,26 @@ class DriverDeliveryController extends Controller
      * ParcelAssignment itself has no "delivered" status of its own;
      * 'handed_off' is terminal on that side.
      *
-     * Transfers between logistics companies never appear here at all —
-     * they are a paperwork handover with no courier leg (see
-     * Api\Logistics\ParcelAssignmentController::requestTransfer and
-     * ::acceptTransferRequest), so a transferred row leaves this rider's
-     * list rather than becoming a job of its own.
+     * A cross-region transfer leg maps onto its own parallel states —
+     * transfer_assigned, ready_to_transfer, transferred — once dispatch has
+     * accepted the request and picked a courier (see this controller's
+     * class docblock and [confirmTransfer]); checked first since none of
+     * them overlap the plain-delivery states above.
      */
     private function deliveryStatus(ParcelAssignment $assignment, ?Order $order, ?Profile $viewer = null): string
     {
+        if ($assignment->status === ParcelAssignment::STATUS_TRANSFER_ASSIGNED) {
+            return 'transfer_assigned';
+        }
+
+        if ($assignment->status === ParcelAssignment::STATUS_READY_TO_TRANSFER) {
+            return 'ready_to_transfer';
+        }
+
+        if ($assignment->status === ParcelAssignment::STATUS_TRANSFERRED) {
+            return 'transferred';
+        }
+
         // The pickup courier's read-only view of a parcel they've already
         // handed back: it's handed_off, they're the one who picked it up,
         // and it's no longer dispatched to them (rider cleared, or a

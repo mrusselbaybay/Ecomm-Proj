@@ -4,13 +4,14 @@ namespace App\Http\Controllers\Api\Logistics;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Logistics\AssignParcelRequest;
+use App\Http\Requests\Logistics\AssignTransferCourierRequest;
 use App\Http\Requests\Logistics\AssignTransferRequest;
 use App\Http\Requests\Logistics\ReceiveParcelRequest;
 use App\Http\Resources\Logistics\ParcelAssignmentResource;
 use App\Http\Resources\Logistics\ParcelTransferRequestResource;
 use App\Models\CourierApplication;
-use App\Models\LogisticsCompany;
 use App\Models\LogisticsBarangayAssignment;
+use App\Models\LogisticsCompany;
 use App\Models\Order;
 use App\Models\ParcelAssignment;
 use App\Models\ParcelTransferRequest;
@@ -32,6 +33,28 @@ class ParcelAssignmentController extends Controller
     ) {}
 
     /**
+     * Stamps area_fallback_tier onto a single parcel before it's wrapped
+     * in a resource — every action endpoint below patches the frontend's
+     * row straight from its response (see useLogistics.js's caching
+     * philosophy) rather than forcing a full queue reload, so this has to
+     * run here too, not just in index()'s loop, or the Area column goes
+     * stale (still showing "Needs sorting"/the old barangay) the moment
+     * an action — receive, assign, handoff, auto-assign — changes which
+     * tier applies without a page refresh to fall back on.
+     */
+    private function withAreaFallbackTier(ParcelAssignment $assignment, LogisticsCompany $company): ParcelAssignment
+    {
+        if (! $assignment->barangay_assignment_id && $assignment->order) {
+            $assignment->setAttribute(
+                'area_fallback_tier',
+                $this->autoAssign->expectedTierFor($company, $assignment->order, ! $assignment->handed_off_at),
+            );
+        }
+
+        return $assignment;
+    }
+
+    /**
      * Display a listing of the resource.
      */
     public function index(Request $request): JsonResponse
@@ -44,16 +67,21 @@ class ParcelAssignmentController extends Controller
                 ParcelAssignment::STATUS_ASSIGNED,
                 ParcelAssignment::STATUS_HANDED_OFF,
                 ParcelAssignment::STATUS_TRANSFER_PENDING,
+                ParcelAssignment::STATUS_TRANSFER_ONGOING,
+                ParcelAssignment::STATUS_TRANSFER_ASSIGNED,
+                ParcelAssignment::STATUS_READY_TO_TRANSFER,
                 ParcelAssignment::STATUS_TRANSFERRED,
             ])],
         ]);
 
         $assignments = ParcelAssignment::query()
-            ->with(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])
+            ->with(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])
             ->where('logistics_company_id', $company->id)
             ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('status', $status))
             ->orderByDesc('received_at')
             ->get();
+
+        $assignments->each(fn (ParcelAssignment $assignment) => $this->withAreaFallbackTier($assignment, $company));
 
         return response()->json([
             'data' => ParcelAssignmentResource::collection($assignments),
@@ -110,14 +138,14 @@ class ParcelAssignmentController extends Controller
 
         if ($alreadyScanned) {
             return response()->json([
-                'data' => new ParcelAssignmentResource($existing->load(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])),
+                'data' => new ParcelAssignmentResource($this->withAreaFallbackTier($existing->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)),
                 'message' => 'This parcel is already in your sorting queue.',
             ]);
         }
 
         $assignment = DB::transaction(fn (): ParcelAssignment => $this->parcelIntake->intake($order, $company, $profile->id));
 
-        return (new ParcelAssignmentResource($assignment->load(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])))
+        return (new ParcelAssignmentResource($this->withAreaFallbackTier($assignment->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)))
             ->response()
             ->setStatusCode($existing ? 200 : 201);
     }
@@ -196,7 +224,7 @@ class ParcelAssignmentController extends Controller
         ]);
 
         return new ParcelAssignmentResource(
-            $parcelAssignment->refresh()->load(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])
+            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)
         );
     }
 
@@ -225,7 +253,7 @@ class ParcelAssignmentController extends Controller
 
         return response()->json([
             'data' => new ParcelAssignmentResource(
-                $result['parcel']->refresh()->load(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])
+                $this->withAreaFallbackTier($result['parcel']->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)
             ),
             'outcome' => $result['outcome'],
             'message' => $result['message'],
@@ -234,25 +262,113 @@ class ParcelAssignmentController extends Controller
 
     /**
      * Remove the specified resource from storage.
+     *
+     * Staff-side counterpart to Driver\DriverDeliveryController::pickup()
+     * — dispatch confirming a parcel was physically handed to the pickup
+     * rider at the counter, rather than the rider confirming it
+     * themselves from the app. Same transition, so it does the same
+     * thing: release the rider and re-match against the BUYER's address
+     * now that the parcel is in hand — see
+     * ParcelAutoAssignService::matchRider's $isPickupPhase.
+     *
+     * Also doubles as the transfer courier's counter handoff
+     * (STATUS_TRANSFER_ASSIGNED -> STATUS_READY_TO_TRANSFER) — the ONLY
+     * way that leg moves on, unlike the local leg above. A cross-company
+     * handoff always needs dispatch's own confirmation here; there's no
+     * rider self-serve equivalent (Driver\DriverDeliveryController::pickup
+     * refuses it outright, and the row stays off that rider's app
+     * entirely until this runs — see that controller's class docblock).
+     * That leg keeps the rider attached (unlike the local-delivery
+     * branch, which re-matches a fresh rider against the buyer's address)
+     * and leaves the barangay match alone, since a transfer leg has none.
      */
     public function handoff(Request $request, ParcelAssignment $parcelAssignment): ParcelAssignmentResource
     {
         $company = $this->companyFor($request);
         $this->ensureAssignmentBelongsToCompany($parcelAssignment, $company);
 
-        if ($parcelAssignment->status !== ParcelAssignment::STATUS_ASSIGNED) {
+        $isTransferLeg = $parcelAssignment->status === ParcelAssignment::STATUS_TRANSFER_ASSIGNED;
+
+        if (! $isTransferLeg && $parcelAssignment->status !== ParcelAssignment::STATUS_ASSIGNED) {
             throw ValidationException::withMessages([
                 'parcel' => 'Only an assigned parcel can be handed to a rider.',
             ]);
         }
 
+        DB::transaction(function () use ($parcelAssignment, $company, $isTransferLeg): void {
+            $locked = ParcelAssignment::whereKey($parcelAssignment->id)->lockForUpdate()->first();
+
+            if ($isTransferLeg) {
+                $locked->update(['status' => ParcelAssignment::STATUS_READY_TO_TRANSFER]);
+
+                return;
+            }
+
+            $order = $locked->order;
+            $match = $order
+                ? $this->autoAssign->matchRider($order, $company, $locked->required_vehicle_type, false)
+                : ['rider' => null, 'barangayAssignment' => null];
+
+            $locked->update([
+                'status' => ParcelAssignment::STATUS_HANDED_OFF,
+                'handed_off_at' => now(),
+                'barangay_assignment_id' => $match['barangayAssignment']?->id,
+                'rider_profile_id' => $match['rider']?->id,
+                'assigned_at' => $match['rider'] ? now() : null,
+                // Recorded before it's overwritten above — same permanent
+                // "who actually collected it" record Driver\
+                // DriverDeliveryController::pickup() keeps, so a later
+                // transfer can still reuse this courier even once
+                // rider_profile_id has moved on to a delivery match (see
+                // acceptTransferRequest).
+                'picked_up_by' => $locked->rider_profile_id,
+            ]);
+        });
+
+        return new ParcelAssignmentResource(
+            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)
+        );
+    }
+
+    /**
+     * Dispatch picks the courier who will physically carry an accepted
+     * transfer to the target company's hub (STATUS_TRANSFER_ONGOING ->
+     * STATUS_TRANSFER_ASSIGNED). Only reached when the parcel had no rider
+     * already on it when the transfer was requested — acceptTransferRequest
+     * skips straight to STATUS_TRANSFER_ASSIGNED and reuses that rider
+     * when one exists. No barangay is involved — this is a
+     * company-to-company handoff, not a delivery — so it's a narrower
+     * sibling of assign() rather than a shared code path. The courier
+     * still has to confirm the parcel is physically in hand — either
+     * themselves from the app (Driver\DriverDeliveryController::pickup) or
+     * via dispatch's own handoff(), same as a local rider — before they
+     * can confirm the transfer.
+     */
+    public function assignTransferCourier(AssignTransferCourierRequest $request, ParcelAssignment $parcelAssignment): ParcelAssignmentResource
+    {
+        $company = $this->companyFor($request);
+        $this->ensureAssignmentBelongsToCompany($parcelAssignment, $company);
+
+        if ($parcelAssignment->status !== ParcelAssignment::STATUS_TRANSFER_ONGOING) {
+            throw ValidationException::withMessages([
+                'parcel' => 'This parcel is not waiting on a transfer courier.',
+            ]);
+        }
+
+        $riderProfileId = $request->validated('rider_profile_id');
+        $this->ensureRiderIsAccepted($company, $riderProfileId);
+        /** @var Profile $profile */
+        $profile = $request->user();
+
         $parcelAssignment->update([
-            'status' => ParcelAssignment::STATUS_HANDED_OFF,
-            'handed_off_at' => now(),
+            'rider_profile_id' => $riderProfileId,
+            'status' => ParcelAssignment::STATUS_TRANSFER_ASSIGNED,
+            'assigned_by' => $profile->id,
+            'assigned_at' => now(),
         ]);
 
         return new ParcelAssignmentResource(
-            $parcelAssignment->refresh()->load(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])
+            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)
         );
     }
 
@@ -274,7 +390,7 @@ class ParcelAssignmentController extends Controller
         $company = $this->companyFor($request);
         $this->ensureAssignmentBelongsToCompany($parcelAssignment, $company);
 
-        if (! $this->awaitingDispatchDecision($parcelAssignment)) {
+        if (! $this->awaitingDispatchDecision($parcelAssignment, $company)) {
             return response()->json([
                 'message' => 'This parcel has to be picked up by a courier before it can be routed.',
             ], 422);
@@ -306,10 +422,9 @@ class ParcelAssignmentController extends Controller
      * parcel_transfer_requests and this parcel_assignments row parks at
      * STATUS_TRANSFER_PENDING, out of the local dispatch flow, until the
      * receiving company accepts (acceptTransferRequest) or rejects
-     * (rejectTransferRequest). Only on accept does a fresh "to be
-     * delivered" row open at the target
-     * (ParcelIntakeService::createTransferReceipt) and this row close as
-     * STATUS_TRANSFERRED.
+     * (rejectTransferRequest). Accepting still doesn't move custody — see
+     * acceptTransferRequest's docblock for the courier leg that has to run
+     * first.
      *
      * The request is deliberately raised only here, after pickup: until a
      * courier has actually collected the parcel there's nothing to route,
@@ -325,7 +440,7 @@ class ParcelAssignmentController extends Controller
         $company = $this->companyFor($request);
         $this->ensureAssignmentBelongsToCompany($parcelAssignment, $company);
 
-        if (! $this->awaitingDispatchDecision($parcelAssignment)) {
+        if (! $this->awaitingDispatchDecision($parcelAssignment, $company)) {
             throw ValidationException::withMessages([
                 'parcel' => 'This parcel has to be picked up by a courier before it can be routed to another company.',
             ]);
@@ -355,6 +470,11 @@ class ParcelAssignmentController extends Controller
                 'is_transfer' => true,
                 'status' => ParcelAssignment::STATUS_TRANSFER_PENDING,
                 'assigned_by' => $profile->id,
+                // A regional-pool rider already auto-assigned (see
+                // awaitingDispatchDecision()) stays attached — if this
+                // request is accepted, that's the courier who carries the
+                // parcel on to the other company (see
+                // acceptTransferRequest).
             ]);
 
             ParcelTransferRequest::query()->create([
@@ -369,7 +489,7 @@ class ParcelAssignmentController extends Controller
         });
 
         return new ParcelAssignmentResource(
-            $parcelAssignment->refresh()->load(['order', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])
+            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)
         );
     }
 
@@ -404,10 +524,27 @@ class ParcelAssignmentController extends Controller
     }
 
     /**
-     * Receiving company accepts: custody moves now. The origin row closes
-     * as STATUS_TRANSFERRED and a fresh "to be delivered" row opens here
-     * (ParcelIntakeService::createTransferReceipt), linked back to the
-     * request through `resulting_assignment_id`.
+     * Receiving company accepts — but custody does NOT move yet. The same
+     * courier who already has the parcel carries it on to the other
+     * company: if a rider is on the row (the regional-pool auto-assign —
+     * see requestTransfer) that's them, otherwise it's whoever originally
+     * collected the parcel from the seller (`picked_up_by` — see
+     * handoff()/Driver\DriverDeliveryController::pickup()). Either way the
+     * origin row goes straight to STATUS_TRANSFER_ASSIGNED, skipping the
+     * manual assignTransferCourier() step — but dispatch still has to
+     * physically hand the parcel to that courier at the counter
+     * (handoff()) before it counts as ready; the courier's own app has no
+     * self-serve equivalent for that step (see Driver\
+     * DriverDeliveryController's class docblock) and won't even show this
+     * leg until dispatch confirms it. Only when no reusable courier is
+     * available (or that courier is no longer accepted by this company)
+     * does it park at STATUS_TRANSFER_ONGOING for dispatch to pick one via
+     * assignTransferCourier() instead — same handoff() step either way
+     * after that. From there the courier has to confirm arrival at this
+     * company's hub (Driver\DriverDeliveryController::confirmTransfer);
+     * only that step opens the fresh "to be delivered" row here
+     * (ParcelIntakeService::createTransferReceipt) and sets
+     * `resulting_assignment_id` on this request.
      */
     public function acceptTransferRequest(Request $request, ParcelTransferRequest $parcelTransferRequest): ParcelTransferRequestResource
     {
@@ -425,19 +562,28 @@ class ParcelAssignmentController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($origin, $company, $parcelTransferRequest, $profile): void {
-            $origin->update([
-                'status' => ParcelAssignment::STATUS_TRANSFERRED,
-                'transferred_at' => now(),
-            ]);
+        DB::transaction(function () use ($origin, $parcelTransferRequest, $profile): void {
+            $courierId = $origin->rider_profile_id ?? $origin->picked_up_by;
 
-            $receipt = $this->parcelIntake->createTransferReceipt($origin, $company);
+            $reuseCourier = $courierId && CourierApplication::query()
+                ->where('logistics_company_id', $origin->logistics_company_id)
+                ->where('courier_profile_id', $courierId)
+                ->where('status', CourierApplication::STATUS_ACCEPTED)
+                ->exists();
+
+            $origin->update([
+                'status' => $reuseCourier
+                    ? ParcelAssignment::STATUS_TRANSFER_ASSIGNED
+                    : ParcelAssignment::STATUS_TRANSFER_ONGOING,
+                'rider_profile_id' => $reuseCourier ? $courierId : $origin->rider_profile_id,
+                'assigned_by' => $reuseCourier ? $profile->id : $origin->assigned_by,
+                'assigned_at' => $reuseCourier ? now() : $origin->assigned_at,
+            ]);
 
             $parcelTransferRequest->update([
                 'status' => ParcelTransferRequest::STATUS_ACCEPTED,
                 'reviewed_by' => $profile->id,
                 'reviewed_at' => now(),
-                'resulting_assignment_id' => $receipt->id,
             ]);
         });
 
@@ -519,8 +665,9 @@ class ParcelAssignmentController extends Controller
 
     /**
      * Put the origin parcel back on its own company's desk after a
-     * transfer request is rejected or cancelled: handed off, no rider,
-     * no target — exactly where it sat before the request was raised.
+     * transfer request is rejected or cancelled: handed off, no target —
+     * exactly where it sat before the request was raised. Any rider that
+     * was already on it (see requestTransfer) is left untouched.
      * `is_transfer` is left as-is: the region mismatch that prompted the
      * request is still true, so staff should still see the hint.
      */
@@ -550,14 +697,32 @@ class ParcelAssignmentController extends Controller
     /**
      * True once a courier has collected the parcel and handed it back to
      * this desk — the point where "deliver it locally or transfer it to
-     * another company" is finally an answerable question. Mirrors the
-     * `$isDeliveryDispatch` condition in assign(): handed off, with the
-     * pickup courier already released.
+     * another company" is finally an answerable question.
+     *
+     * Normally that means no rider yet (mirrors the $isDeliveryDispatch
+     * condition in assign(): handed off, pickup courier released). But a
+     * regional-tier match (buyer outside this company's own region — see
+     * ParcelAutoAssignService::expectedTierFor) auto-assigns a regional
+     * rider immediately, and staff still need the option to send it to
+     * another company instead of using that in-house regional pool — so
+     * this stays true for a regional match even with a rider already on
+     * it.
      */
-    private function awaitingDispatchDecision(ParcelAssignment $parcelAssignment): bool
+    private function awaitingDispatchDecision(ParcelAssignment $parcelAssignment, LogisticsCompany $company): bool
     {
-        return $parcelAssignment->status === ParcelAssignment::STATUS_HANDED_OFF
-            && $parcelAssignment->rider_profile_id === null;
+        if ($parcelAssignment->status !== ParcelAssignment::STATUS_HANDED_OFF) {
+            return false;
+        }
+
+        if ($parcelAssignment->rider_profile_id === null) {
+            return true;
+        }
+
+        if ($parcelAssignment->barangay_assignment_id || ! $parcelAssignment->order) {
+            return false;
+        }
+
+        return $this->autoAssign->expectedTierFor($company, $parcelAssignment->order, false) === 'regional';
     }
 
     private function companyFor(Request $request): LogisticsCompany

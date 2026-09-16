@@ -29,6 +29,14 @@ class ParcelAssignmentResource extends JsonResource
             // deliveries that just need a bigger vehicle.
             'transfer_trigger' => $this->transfer_trigger,
             'required_vehicle_type' => $this->required_vehicle_type,
+            // True for the fresh row a transfer opens at the receiving
+            // company (see ParcelIntakeService::createTransferReceipt).
+            // `is_transfer` above stays true here too (it's purely
+            // seller-vs-buyer, not which company currently holds the
+            // parcel), so the frontend needs this to tell "still needs a
+            // transfer" apart from "just arrived, needs local delivery" —
+            // see ParcelOperations.vue's stageOf().
+            'is_transfer_receipt' => (bool) $this->previous_assignment_id,
             'transfer_to_company' => $this->whenLoaded('transferToCompany', fn (): ?array => $this->transferToCompany ? [
                 'id' => $this->transferToCompany->id,
                 'company_name' => $this->transferToCompany->company_name,
@@ -51,7 +59,16 @@ class ParcelAssignmentResource extends JsonResource
             // hasn't been physically scanned in at the sorting center
             // yet — see App\Services\ParcelIntakeService.
             'is_scanned' => (bool) $this->scanned_at,
-            'order' => [
+            // Not yet collected from the seller: this rider (if any) is
+            // the pickup courier, and every address on the card below
+            // should be the SELLER's, not the buyer's. Once
+            // handed_off_at is set the parcel is physically in hand and
+            // everything switches to the buyer's shipping address — see
+            // Api\Logistics\ParcelAssignmentController::assign's
+            // $isDeliveryDispatch, the same "has it actually been
+            // collected yet" check.
+            'phase' => $this->handed_off_at ? 'delivery' : 'pickup',
+            'order' => $this->handed_off_at ? [
                 'id' => $this->order?->id,
                 'order_number' => $this->order?->order_number,
                 'tracking_number' => $this->order?->tracking_number,
@@ -68,12 +85,37 @@ class ParcelAssignmentResource extends JsonResource
                 'province_name' => $this->order?->shipping_province_name,
                 'municipality_name' => $this->order?->shipping_municipality_name,
                 'barangay' => $this->order?->shipping_barangay,
+            ] : [
+                'id' => $this->order?->id,
+                'order_number' => $this->order?->order_number,
+                'tracking_number' => $this->order?->tracking_number,
+                'recipient_name' => $this->order?->seller
+                    ? ($this->order->seller->sellerDetail?->business_name
+                        ?: trim("{$this->order->seller->first_name} {$this->order->seller->last_name}"))
+                    : null,
+                'recipient_contact_no' => $this->order?->seller?->contact_no,
+                'address' => collect([
+                    $this->order?->pickup_barangay,
+                    $this->order?->pickup_municipality_name,
+                    $this->order?->pickup_province_name,
+                ])->filter()->implode(', '),
+                'region_name' => $this->order?->pickup_region_name,
+                'province_name' => $this->order?->pickup_province_name,
+                'municipality_name' => $this->order?->pickup_municipality_name,
+                'barangay' => $this->order?->pickup_barangay,
             ],
             'barangay_assignment' => $this->whenLoaded('barangayAssignment', fn (): ?array => $this->barangayAssignment ? [
                 'id' => $this->barangayAssignment->id,
                 'municipality_name' => $this->barangayAssignment->municipality_name,
                 'barangay' => $this->barangayAssignment->barangay,
             ] : null),
+            // Set only when there's no barangay_assignment above — which
+            // fallback pool this address would route through
+            // ('provincial'|'regional'|null for "not in this company's
+            // reach at all"). See
+            // Api\Logistics\ParcelAssignmentController::index and
+            // ParcelAutoAssignService::expectedTierFor.
+            'area_fallback_tier' => $this->area_fallback_tier ?? null,
             'rider' => $this->whenLoaded('rider', fn (): ?array => $this->rider ? [
                 'id' => $this->rider->id,
                 'first_name' => $this->rider->first_name,

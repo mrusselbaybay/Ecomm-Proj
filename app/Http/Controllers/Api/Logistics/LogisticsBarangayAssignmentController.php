@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Logistics;
 
+use App\Http\Controllers\Api\Logistics\Concerns\ChecksRiderCoverage;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Logistics\BulkCreateBarangayAssignmentsRequest;
 use App\Http\Requests\Logistics\StoreBarangayAssignmentRequest;
@@ -12,6 +13,7 @@ use App\Models\LogisticsBarangayAssignment;
 use App\Models\LogisticsCompany;
 use App\Models\ParcelAssignment;
 use App\Models\Profile;
+use App\Services\ServiceAreaProvisioner;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -22,6 +24,8 @@ use Illuminate\Validation\ValidationException;
 
 class LogisticsBarangayAssignmentController extends Controller
 {
+    use ChecksRiderCoverage;
+
     /**
      * Display a listing of the resource.
      */
@@ -89,7 +93,7 @@ class LogisticsBarangayAssignmentController extends Controller
 
         if (! empty($validated['rider_profile_id'])) {
             $this->ensureRiderIsAccepted($company, $validated['rider_profile_id']);
-            $this->ensureRiderNotAlreadyAssigned($company, $validated['rider_profile_id']);
+            $this->assertRiderIsFreeToAssign($company, $validated['rider_profile_id']);
         }
 
         try {
@@ -100,6 +104,8 @@ class LogisticsBarangayAssignmentController extends Controller
         } catch (QueryException $exception) {
             throw $this->duplicateAssignmentException($exception);
         }
+
+        app(ServiceAreaProvisioner::class)->ensureForCompany($company);
 
         return (new BarangayAssignmentResource($assignment->load(['rider.courierDetail', 'rider.address'])))
             ->response()
@@ -151,6 +157,8 @@ class LogisticsBarangayAssignmentController extends Controller
             LogisticsBarangayAssignment::query()->insert($rows);
         }
 
+        app(ServiceAreaProvisioner::class)->ensureForCompany($company);
+
         $assignments = LogisticsBarangayAssignment::query()
             ->where('logistics_company_id', $company->id)
             ->whereRaw('LOWER(municipality_name) = ?', [mb_strtolower(trim($validated['municipality_name']))])
@@ -189,7 +197,7 @@ class LogisticsBarangayAssignmentController extends Controller
 
         if (array_key_exists('rider_profile_id', $validated) && $validated['rider_profile_id']) {
             $this->ensureRiderIsAccepted($company, $validated['rider_profile_id']);
-            $this->ensureRiderNotAlreadyAssigned($company, $validated['rider_profile_id'], $barangayAssignment->id);
+            $this->assertRiderIsFreeToAssign($company, $validated['rider_profile_id'], $barangayAssignment->id);
         }
 
         try {
@@ -215,7 +223,7 @@ class LogisticsBarangayAssignmentController extends Controller
 
         if ($riderProfileId) {
             $this->ensureRiderIsAccepted($company, $riderProfileId);
-            $this->ensureRiderNotAlreadyAssigned($company, $riderProfileId, $barangayAssignment->id);
+            $this->assertRiderIsFreeToAssign($company, $riderProfileId, $barangayAssignment->id);
         }
 
         $barangayAssignment->update(['rider_profile_id' => $riderProfileId]);
@@ -237,10 +245,10 @@ class LogisticsBarangayAssignmentController extends Controller
 
     /**
      * Accepted riders of this company, searchable — backs the rider picker
-     * on the barangay assignment form. A rider covers at most one barangay
-     * (see ensureRiderNotAlreadyAssigned()), so anyone already on another
-     * one of this company's barangays is excluded outright rather than
-     * shown disabled.
+     * on the barangay assignment form. A rider covers at most one area,
+     * company-wide (see ChecksRiderCoverage), so anyone already on a
+     * barangay, in the provincial pool, or in the regional pool is
+     * excluded outright rather than shown disabled.
      */
     public function availableRiders(Request $request, LogisticsBarangayAssignment $barangayAssignment): JsonResponse
     {
@@ -260,6 +268,20 @@ class LogisticsBarangayAssignmentController extends Controller
                     ->from('logistics_barangay_assignments')
                     ->whereColumn('logistics_barangay_assignments.rider_profile_id', 'profiles.id')
                     ->where('logistics_barangay_assignments.logistics_company_id', $company->id);
+            })
+            ->whereNotExists(function ($query) use ($company): void {
+                $query->select(DB::raw('1'))
+                    ->from('logistics_provincial_assignment_riders as par')
+                    ->join('logistics_provincial_assignments as pa', 'pa.id', '=', 'par.provincial_assignment_id')
+                    ->whereColumn('par.rider_profile_id', 'profiles.id')
+                    ->where('pa.logistics_company_id', $company->id);
+            })
+            ->whereNotExists(function ($query) use ($company): void {
+                $query->select(DB::raw('1'))
+                    ->from('logistics_regional_assignment_riders as rar')
+                    ->join('logistics_regional_assignments as ra', 'ra.id', '=', 'rar.regional_assignment_id')
+                    ->whereColumn('rar.rider_profile_id', 'profiles.id')
+                    ->where('ra.logistics_company_id', $company->id);
             })
             ->when($search !== '', function (Builder $query) use ($search): void {
                 $needle = '%'.mb_strtolower($search).'%';
@@ -371,26 +393,4 @@ class LogisticsBarangayAssignmentController extends Controller
         }
     }
 
-    /**
-     * A rider covers at most one barangay at a time — assigning them here
-     * while they're still on another of this company's barangays is
-     * rejected rather than silently double-booking them.
-     */
-    private function ensureRiderNotAlreadyAssigned(
-        LogisticsCompany $company,
-        string $riderProfileId,
-        ?string $exceptAssignmentId = null,
-    ): void {
-        $existing = LogisticsBarangayAssignment::query()
-            ->where('logistics_company_id', $company->id)
-            ->where('rider_profile_id', $riderProfileId)
-            ->when($exceptAssignmentId, fn (Builder $query, string $id) => $query->where('id', '!=', $id))
-            ->first();
-
-        if ($existing) {
-            throw ValidationException::withMessages([
-                'rider_profile_id' => "This rider is already assigned to {$existing->barangay}, {$existing->municipality_name}. Remove them from that barangay first.",
-            ]);
-        }
-    }
 }

@@ -36,8 +36,8 @@
 
         <div class="queue-toolbar">
             <span class="badge badge-slate"
-                >{{ acceptedRiders.length }}
-                {{ acceptedRiders.length === 1 ? 'rider' : 'riders' }}</span
+                >{{ acceptedRidersMeta.total }}
+                {{ acceptedRidersMeta.total === 1 ? 'rider' : 'riders' }}</span
             >
             <div class="search-input queue-search">
                 <NavIcon name="search" :size="15" class="icon" />
@@ -189,6 +189,32 @@
                     </tbody>
                 </table>
             </div>
+        </div>
+
+        <div
+            v-if="!loading && acceptedRidersMeta.lastPage > 1"
+            class="driver-pagination"
+        >
+            <button
+                type="button"
+                class="btn-sm-outline"
+                :disabled="page <= 1 || refreshing"
+                @click="changePage(page - 1)"
+            >
+                Prev
+            </button>
+            <span
+                >Page {{ acceptedRidersMeta.currentPage }} of
+                {{ acceptedRidersMeta.lastPage }}</span
+            >
+            <button
+                type="button"
+                class="btn-sm-outline"
+                :disabled="page >= acceptedRidersMeta.lastPage || refreshing"
+                @click="changePage(page + 1)"
+            >
+                Next
+            </button>
         </div>
 
         <Teleport to=".logistics-shell">
@@ -592,6 +618,7 @@ const {
     supabase,
     companyName,
     acceptedRiders,
+    acceptedRidersMeta,
     barangayAssignments,
     loadAcceptedRiders,
     removeAcceptedRider,
@@ -610,6 +637,7 @@ const {
 } = useLogisticsUi();
 
 const search = ref('');
+const page = ref(1);
 const loading = ref(true); // first-load skeleton gate; never re-armed for refreshes
 const refreshing = ref(false);
 
@@ -627,11 +655,24 @@ const emptyHint = computed(() =>
 let searchDebounce = null;
 function debouncedLoad() {
     clearTimeout(searchDebounce);
-    searchDebounce = setTimeout(() => load(true), 350);
+    searchDebounce = setTimeout(() => {
+        page.value = 1;
+        load(true);
+    }, 350);
 }
 
 function clearSearch() {
     search.value = '';
+    page.value = 1;
+    load(true);
+}
+
+function changePage(next) {
+    if (next < 1 || next > acceptedRidersMeta.value.lastPage || refreshing.value) {
+        return;
+    }
+
+    page.value = next;
     load(true);
 }
 
@@ -852,7 +893,10 @@ async function load(force = false) {
 
     try {
         await Promise.all([
-            loadAcceptedRiders({ search: search.value.trim() }, { force }),
+            loadAcceptedRiders(
+                { search: search.value.trim(), page: page.value },
+                { force },
+            ),
             // Cached app-wide — only powers the "Assigned areas" column.
             loadBarangayAssignments({ force }).catch(() => {}),
         ]);

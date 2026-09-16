@@ -107,9 +107,15 @@ class LogisticsApplicationController extends Controller
         $filters = $request->validate([
             'status' => ['nullable', 'in:pending,accepted,rejected,withdrawn'],
             'search' => ['nullable', 'string', 'max:100'],
+            // Opt-in: passing this switches the response to a paginated
+            // one (adds `links`/`meta`). Omitted, this keeps returning the
+            // full plain array every existing caller (Applications.vue,
+            // Dashboard.vue's pending-count badge) already relies on.
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $applications = CourierApplication::query()
+        $query = CourierApplication::query()
             ->with(['courier.courierDetail', 'courier.address'])
             ->where('logistics_company_id', $companyId)
             ->when($filters['status'] ?? null, function (Builder $query, string $status): void {
@@ -124,8 +130,11 @@ class LogisticsApplicationController extends Controller
                     });
                 });
             })
-            ->orderByDesc('applied_at')
-            ->get();
+            ->orderByDesc('applied_at');
+
+        $applications = $filters['per_page'] ?? null
+            ? $query->paginate($filters['per_page'])
+            : $query->get();
 
         return LogisticsApplicationResource::collection($applications);
     }

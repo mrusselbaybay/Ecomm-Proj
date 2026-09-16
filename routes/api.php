@@ -16,6 +16,8 @@ use App\Http\Controllers\Api\Courier\CourierProfileController;
 use App\Http\Controllers\Api\Courier\LogisticsCompanyController;
 use App\Http\Controllers\Api\Courier\ResignationRequestController as CourierResignationRequestController;
 use App\Http\Controllers\Api\Logistics\LogisticsBarangayAssignmentController;
+use App\Http\Controllers\Api\Logistics\LogisticsProvincialAssignmentController;
+use App\Http\Controllers\Api\Logistics\LogisticsRegionalAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
 use App\Http\Controllers\Api\Logistics\ParcelAssignmentController;
 use App\Http\Controllers\Api\Logistics\ResignationRequestController as LogisticsResignationRequestController;
@@ -213,6 +215,25 @@ Route::middleware(['supabase.auth', 'logistics'])
             ->name('barangay-assignments.rider.update');
         Route::get('/barangay-assignments/{barangayAssignment}/available-riders', [LogisticsBarangayAssignmentController::class, 'availableRiders'])
             ->name('barangay-assignments.available-riders');
+
+        Route::get('/provincial-assignment', [LogisticsProvincialAssignmentController::class, 'show'])
+            ->name('provincial-assignment.show');
+        Route::get('/provincial-assignment/available-riders', [LogisticsProvincialAssignmentController::class, 'availableRiders'])
+            ->name('provincial-assignment.available-riders');
+        Route::post('/provincial-assignment/riders', [LogisticsProvincialAssignmentController::class, 'addRiders'])
+            ->name('provincial-assignment.riders.add');
+        Route::delete('/provincial-assignment/riders/{riderProfileId}', [LogisticsProvincialAssignmentController::class, 'removeRider'])
+            ->name('provincial-assignment.riders.remove');
+
+        Route::get('/regional-assignment', [LogisticsRegionalAssignmentController::class, 'show'])
+            ->name('regional-assignment.show');
+        Route::get('/regional-assignment/available-riders', [LogisticsRegionalAssignmentController::class, 'availableRiders'])
+            ->name('regional-assignment.available-riders');
+        Route::post('/regional-assignment/riders', [LogisticsRegionalAssignmentController::class, 'addRiders'])
+            ->name('regional-assignment.riders.add');
+        Route::delete('/regional-assignment/riders/{riderProfileId}', [LogisticsRegionalAssignmentController::class, 'removeRider'])
+            ->name('regional-assignment.riders.remove');
+
         Route::get('/parcel-assignments', [ParcelAssignmentController::class, 'index'])
             ->name('parcel-assignments.index');
         Route::post('/parcel-assignments/receive', [ParcelAssignmentController::class, 'receive'])
@@ -225,6 +246,10 @@ Route::middleware(['supabase.auth', 'logistics'])
             ->name('parcel-assignments.auto-assign');
         Route::put('/parcel-assignments/{parcelAssignment}/handoff', [ParcelAssignmentController::class, 'handoff'])
             ->name('parcel-assignments.handoff');
+        // Dispatch picks who carries an accepted transfer to the target
+        // company's hub — see ParcelAssignmentController::assignTransferCourier.
+        Route::put('/parcel-assignments/{parcelAssignment}/assign-transfer-courier', [ParcelAssignmentController::class, 'assignTransferCourier'])
+            ->name('parcel-assignments.assign-transfer-courier');
         Route::get('/parcel-assignments/{parcelAssignment}/transfer-options', [ParcelAssignmentController::class, 'transferOptions'])
             ->name('parcel-assignments.transfer-options');
         // Raises a transfer *request* — custody only moves once the

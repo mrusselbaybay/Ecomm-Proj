@@ -9,33 +9,74 @@
         <!-- Toasts render once, in LogisticsLayout, for the whole portal. -->
         <header class="page-header">
             <div>
-                <h2 class="page-title">Barangay assignments</h2>
+                <h2 class="page-title">Delivery Areas</h2>
                 <p class="page-subtitle">
-                    Appoint one courier per barangay. Parcels route straight
-                    to them; unassigned barangays fall back to the
-                    company-wide rotation.
+                    <template v-if="activeTab === 'barangay'"
+                        >Appoint one courier per barangay. Parcels route
+                        straight to them; unassigned barangays fall back to
+                        the provincial pool, then the regional pool, then
+                        the company-wide rotation.</template
+                    >
+                    <template v-else-if="activeTab === 'provincial'"
+                        >Car, van, or truck riders who cover any barangay in
+                        your province that isn't individually
+                        assigned.</template
+                    >
+                    <template v-else
+                        >Van or truck riders who cover deliveries outside
+                        your own region.</template
+                    >
                 </p>
             </div>
             <div class="page-header-actions">
+                <template v-if="activeTab === 'barangay'">
+                    <button class="btn-outline" @click="openBulkModal">
+                        Auto-create delivery areas
+                    </button>
+                    <button
+                        class="btn-primary"
+                        @click="openAssignmentModal()"
+                    >
+                        Add delivery area
+                    </button>
+                </template>
                 <button
-                    type="button"
-                    class="btn-outline btn-icon"
-                    :disabled="refreshing"
-                    @click="refresh"
+                    v-else-if="currentTierAssignment"
+                    class="btn-primary"
+                    @click="openAddRidersPanel(activeTab)"
                 >
-                    <NavIcon name="refresh" :size="15" />
-                    Refresh
+                    + Add couriers
                 </button>
-                <button class="btn-outline" @click="openBulkModal">
-                    Auto-create delivery areas
-                </button>
-                <button class="btn-primary" @click="openAssignmentModal()">
-                    Add delivery area
-                </button>
+                <div class="area-tab-group">
+                    <button
+                        type="button"
+                        class="area-tab-btn"
+                        :class="{ 'is-active': activeTab === 'barangay' }"
+                        @click="switchTab('barangay')"
+                    >
+                        Barangay
+                    </button>
+                    <button
+                        type="button"
+                        class="area-tab-btn"
+                        :class="{ 'is-active': activeTab === 'provincial' }"
+                        @click="switchTab('provincial')"
+                    >
+                        Provincial
+                    </button>
+                    <button
+                        type="button"
+                        class="area-tab-btn"
+                        :class="{ 'is-active': activeTab === 'regional' }"
+                        @click="switchTab('regional')"
+                    >
+                        Regional
+                    </button>
+                </div>
             </div>
         </header>
 
-        <div class="area-summary-grid">
+        <div v-if="activeTab === 'barangay'" class="area-summary-grid">
             <div class="stat-card accent-total">
                 <p class="field-label">Barangays covered</p>
                 <p class="stat-total text-2xl font-bold">
@@ -56,7 +97,7 @@
             </div>
         </div>
 
-        <section class="management-section">
+        <section v-if="activeTab === 'barangay'" class="management-section">
             <div class="section-heading">
                 <div>
                     <h3>Barangay coverage</h3>
@@ -232,6 +273,135 @@
                     class="btn-sm-outline"
                     :disabled="clampedCoveragePage >= coverageTotalPages"
                     @click="changeCoveragePage(clampedCoveragePage + 1)"
+                >
+                    Next
+                </button>
+            </div>
+        </section>
+
+        <section
+            v-else-if="activeTab === 'provincial' || activeTab === 'regional'"
+            class="management-section"
+        >
+            <div class="section-heading">
+                <div>
+                    <h3>
+                        {{
+                            activeTab === 'provincial'
+                                ? 'Provincial rider pool'
+                                : 'Regional rider pool'
+                        }}
+                    </h3>
+                    <p v-if="currentTierAssignment">
+                        {{
+                            activeTab === 'provincial'
+                                ? currentTierAssignment.province_name
+                                : currentTierAssignment.region_name
+                        }}
+                        · {{ currentTierAssignment.riders.length }}
+                        {{
+                            currentTierAssignment.riders.length === 1
+                                ? 'rider'
+                                : 'riders'
+                        }}
+                    </p>
+                </div>
+            </div>
+
+            <div v-if="loadingTierAssignment" class="card empty-state">
+                <div class="loading-spinner"></div>
+            </div>
+            <div v-else-if="!currentTierAssignment" class="card empty-state">
+                <div class="empty-box">{{ activeTab === 'provincial' ? 'P' : 'R' }}</div>
+                <strong>Not set up yet</strong>
+                <p>
+                    Add a business address in Account Settings, or create
+                    your first barangay assignment — this pool is
+                    provisioned automatically from there.
+                </p>
+            </div>
+            <div
+                v-else-if="currentTierAssignment.riders.length === 0"
+                class="card empty-state"
+            >
+                <div class="empty-box">{{ activeTab === 'provincial' ? 'P' : 'R' }}</div>
+                <strong>No riders in this pool yet</strong>
+                <p>
+                    {{
+                        activeTab === 'provincial'
+                            ? 'Add car, van, or truck riders so parcels outside your barangay coverage (but still in your province) have somewhere to go.'
+                            : 'Add van or truck riders so parcels bound outside your region have somewhere to go.'
+                    }}
+                </p>
+                <button
+                    class="btn-primary empty-action"
+                    @click="openAddRidersPanel(activeTab)"
+                >
+                    Add couriers
+                </button>
+            </div>
+            <div v-else class="area-card-grid">
+                <article
+                    v-for="rider in paginatedTierRiders"
+                    :key="rider.id"
+                    class="card area-card"
+                >
+                    <div class="area-card-head">
+                        <div>
+                            <span class="badge badge-teal">{{
+                                rider.vehicle || 'No vehicle on file'
+                            }}</span>
+                            <h4>{{ riderName(rider) }}</h4>
+                        </div>
+                        <button
+                            class="area-menu-button"
+                            title="Remove from pool"
+                            @click="removeFromTierPool(activeTab, rider)"
+                        >
+                            Remove
+                        </button>
+                    </div>
+                    <p class="area-address">
+                        {{ rider.address || 'No address on file' }}
+                    </p>
+                    <div class="assigned-rider">
+                        <div class="avatar">{{ initials(rider) }}</div>
+                        <div>
+                            <strong>{{ riderQuotaLabel(rider) }}</strong>
+                            <span>{{
+                                rider.contact_no || 'No contact number'
+                            }}</span>
+                        </div>
+                    </div>
+                </article>
+            </div>
+            <div
+                v-if="
+                    currentTierAssignment &&
+                    currentTierAssignment.riders.length >
+                        TIER_ROSTER_PAGE_SIZE
+                "
+                class="driver-pagination"
+            >
+                <button
+                    type="button"
+                    class="btn-sm-outline"
+                    :disabled="clampedTierRosterPage <= 1"
+                    @click="changeTierRosterPage(clampedTierRosterPage - 1)"
+                >
+                    Prev
+                </button>
+                <span
+                    >Page {{ clampedTierRosterPage }} of
+                    {{ tierRosterTotalPages }}</span
+                >
+                <button
+                    type="button"
+                    class="btn-sm-outline"
+                    :disabled="
+                        clampedTierRosterPage >= tierRosterTotalPages
+                    "
+                    @click="changeTierRosterPage(clampedTierRosterPage + 1)"
                 >
                     Next
                 </button>
@@ -910,6 +1080,287 @@
                 </div>
             </div>
         </Teleport>
+
+        <!-- Provincial/regional "Add couriers" picker — multi-select, with
+             a confirmation step before actually adding anyone. -->
+        <Teleport to=".logistics-shell">
+            <div
+                v-if="showAddRidersPanel"
+                class="modal-overlay"
+                @click.self="closeAddRidersPanel"
+            >
+                <div class="modal-panel add-driver-panel tier-add-panel">
+                    <div class="modal-header">
+                        <div>
+                            <p class="eyebrow">
+                                {{
+                                    addRidersTier === 'provincial'
+                                        ? 'Provincial pool'
+                                        : 'Regional pool'
+                                }}
+                            </p>
+                            <h3>Add couriers</h3>
+                        </div>
+                        <button
+                            type="button"
+                            class="modal-close"
+                            @click="closeAddRidersPanel"
+                        >
+                            &times;
+                        </button>
+                    </div>
+
+                    <div class="tier-search-row">
+                        <div class="search-input driver-search rounded">
+                            <svg
+                                class="icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                aria-hidden="true"
+                            >
+                                <circle
+                                    cx="11"
+                                    cy="11"
+                                    r="7"
+                                    stroke="currentColor"
+                                    stroke-width="1.8"
+                                />
+                                <path
+                                    d="m20 20-3.5-3.5"
+                                    stroke="currentColor"
+                                    stroke-width="1.8"
+                                    stroke-linecap="round"
+                                />
+                            </svg>
+                            <label for="tier-rider-search" class="sr-only"
+                                >Search eligible riders</label
+                            >
+                            <input
+                                id="tier-rider-search"
+                                v-model.trim="tierRiderSearch"
+                                type="text"
+                                placeholder="Search riders by name…"
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            class="btn-sm-outline"
+                            :class="{ 'is-active': tierSelectMode }"
+                            @click="toggleTierSelectMode"
+                        >
+                            {{ tierSelectMode ? 'Cancel select' : 'Select' }}
+                        </button>
+                    </div>
+
+                    <div class="driver-list courier-card-list">
+                        <template v-if="loadingTierRiders">
+                            <div
+                                v-for="n in 3"
+                                :key="n"
+                                class="courier-card"
+                                aria-hidden="true"
+                            >
+                                <div class="courier-card-head">
+                                    <div
+                                        class="skeleton skeleton-circle"
+                                        style="
+                                            width: 38px;
+                                            height: 38px;
+                                            flex-shrink: 0;
+                                        "
+                                    ></div>
+                                    <div class="driver-row-info">
+                                        <div
+                                            class="skeleton skeleton-text"
+                                            style="width: 70%"
+                                        ></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        <template v-else>
+                            <p
+                                v-if="tierAvailableRiders.length === 0"
+                                class="driver-empty-hint"
+                            >
+                                {{
+                                    tierRiderSearch
+                                        ? 'No matching riders.'
+                                        : addRidersTier === 'provincial'
+                                          ? 'No eligible car/van/truck riders right now — everyone is either already on an area or driving something else.'
+                                          : 'No eligible van/truck riders right now — everyone is either already on an area or driving something else.'
+                                }}
+                            </p>
+                            <label
+                                v-for="rider in tierAvailableRiders"
+                                :key="rider.id"
+                                class="courier-card tier-rider-card"
+                                :class="{
+                                    'is-selected': isTierRiderSelected(
+                                        rider.id,
+                                    ),
+                                }"
+                            >
+                                <input
+                                    v-if="tierSelectMode"
+                                    type="checkbox"
+                                    class="tier-rider-checkbox"
+                                    :checked="isTierRiderSelected(rider.id)"
+                                    @change="toggleTierRiderSelected(rider)"
+                                />
+                                <div class="courier-card-head">
+                                    <div class="avatar">
+                                        {{ initials(rider) }}
+                                    </div>
+                                    <strong class="courier-card-name">{{
+                                        riderName(rider)
+                                    }}</strong>
+                                    <div class="driver-row-actions">
+                                        <span class="rider-quota-badge">{{
+                                            rider.vehicle || 'No vehicle'
+                                        }}</span>
+                                        <button
+                                            v-if="!tierSelectMode"
+                                            type="button"
+                                            class="btn-sm-primary"
+                                            :disabled="addingRiders"
+                                            @click.prevent="
+                                                confirmAddSingle(rider)
+                                            "
+                                        >
+                                            Add
+                                        </button>
+                                    </div>
+                                </div>
+                            </label>
+                        </template>
+                    </div>
+
+                    <div
+                        v-if="tierMeta.lastPage > 1"
+                        class="driver-pagination"
+                    >
+                        <button
+                            type="button"
+                            class="btn-sm-outline"
+                            :disabled="
+                                tierPage <= 1 || loadingTierRiders
+                            "
+                            @click="changeTierPage(tierPage - 1)"
+                        >
+                            Prev
+                        </button>
+                        <span
+                            >Page {{ tierPage }} of
+                            {{ tierMeta.lastPage }}</span
+                        >
+                        <button
+                            type="button"
+                            class="btn-sm-outline"
+                            :disabled="
+                                tierPage >= tierMeta.lastPage ||
+                                loadingTierRiders
+                            "
+                            @click="changeTierPage(tierPage + 1)"
+                        >
+                            Next
+                        </button>
+                    </div>
+
+                    <p v-if="tierRiderError" class="callout-red">
+                        {{ tierRiderError }}
+                    </p>
+
+                    <div v-if="tierSelectMode" class="tier-select-bar">
+                        <span
+                            >{{ selectedTierRiders.length }} selected</span
+                        >
+                        <button
+                            type="button"
+                            class="btn-primary"
+                            :disabled="selectedTierRiders.length === 0"
+                            @click="showConfirmAddModal = true"
+                        >
+                            Add selected
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
+
+        <!-- Confirm-before-adding modal — lists exactly who's about to be
+             added, for both the multi-select flow and a single "Add". -->
+        <Teleport to=".logistics-shell">
+            <div
+                v-if="showConfirmAddModal"
+                class="modal-overlay"
+                @click.self="
+                    addingRiders || (showConfirmAddModal = false)
+                "
+            >
+                <div class="modal-panel modal-sm">
+                    <div class="modal-header">
+                        <h3>Confirm add</h3>
+                        <button
+                            type="button"
+                            class="modal-close"
+                            :disabled="addingRiders"
+                            @click="showConfirmAddModal = false"
+                        >
+                            &times;
+                        </button>
+                    </div>
+                    <p class="modal-desc">
+                        Add
+                        {{
+                            selectedTierRiders.length === 1
+                                ? 'this rider'
+                                : `these ${selectedTierRiders.length} riders`
+                        }}
+                        to the
+                        {{
+                            addRidersTier === 'provincial'
+                                ? 'provincial'
+                                : 'regional'
+                        }}
+                        pool?
+                    </p>
+                    <ul class="tier-confirm-list">
+                        <li
+                            v-for="rider in selectedTierRiders"
+                            :key="rider.id"
+                        >
+                            <div class="avatar">{{ initials(rider) }}</div>
+                            <span>{{ riderName(rider) }}</span>
+                            <span class="rider-quota-badge">{{
+                                rider.vehicle || 'No vehicle'
+                            }}</span>
+                        </li>
+                    </ul>
+                    <p v-if="tierRiderError" class="callout-red">
+                        {{ tierRiderError }}
+                    </p>
+                    <div class="modal-actions">
+                        <button
+                            type="button"
+                            class="btn-outline"
+                            :disabled="addingRiders"
+                            @click="showConfirmAddModal = false"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            class="btn-primary"
+                            :disabled="addingRiders"
+                            @click="confirmAddRiders"
+                        >
+                            {{ addingRiders ? 'Adding…' : 'Confirm' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
     </div>
 </template>
 
@@ -932,6 +1383,12 @@ const {
     deleteBarangayAssignment,
     setAssignmentRider,
     loadAvailableRiders,
+    provincialAssignment,
+    regionalAssignment,
+    loadTierAssignment,
+    loadTierAvailableRiders,
+    addTierRiders,
+    removeTierRider,
 } = useLogistics();
 const { notify, notifyError, askConfirm, personName, initials } =
     useLogisticsUi();
@@ -1744,8 +2201,6 @@ async function load(force = false) {
     }
 }
 
-const refresh = () => load(true);
-
 onActivated(() => load());
 
 onMounted(() => {
@@ -1755,4 +2210,215 @@ onMounted(() => {
     fetchProvinces();
     load();
 });
+
+// ---- Barangay / Provincial / Regional tabs ----
+const activeTab = ref('barangay');
+const loadingTierAssignment = ref(false);
+
+const currentTierAssignment = computed(() =>
+    activeTab.value === 'provincial'
+        ? provincialAssignment.value
+        : activeTab.value === 'regional'
+          ? regionalAssignment.value
+          : null,
+);
+
+async function switchTab(tab) {
+    activeTab.value = tab;
+    tierRosterPage.value = 1;
+
+    if (tab === 'barangay') {
+        return;
+    }
+
+    loadingTierAssignment.value = true;
+
+    try {
+        await loadTierAssignment(tab);
+    } catch (error) {
+        notifyError(error, `Could not load the ${tab} pool.`);
+    } finally {
+        loadingTierAssignment.value = false;
+    }
+}
+
+// ---- Provincial/regional rider-roster pagination (the "who's in this
+// pool" grid — separate from the "available riders" picker, which is
+// already paginated server-side). ----
+const TIER_ROSTER_PAGE_SIZE = 6;
+const tierRosterPage = ref(1);
+const tierRosterTotalPages = computed(() =>
+    Math.max(
+        1,
+        Math.ceil(
+            (currentTierAssignment.value?.riders.length || 0) /
+                TIER_ROSTER_PAGE_SIZE,
+        ),
+    ),
+);
+const clampedTierRosterPage = computed(() =>
+    Math.min(tierRosterPage.value, tierRosterTotalPages.value),
+);
+const paginatedTierRiders = computed(() => {
+    if (!currentTierAssignment.value) {
+        return [];
+    }
+
+    const start = (clampedTierRosterPage.value - 1) * TIER_ROSTER_PAGE_SIZE;
+
+    return currentTierAssignment.value.riders.slice(
+        start,
+        start + TIER_ROSTER_PAGE_SIZE,
+    );
+});
+
+function changeTierRosterPage(page) {
+    if (page < 1 || page > tierRosterTotalPages.value) {
+        return;
+    }
+
+    tierRosterPage.value = page;
+}
+
+// ---- "Add couriers" multi-select picker (provincial/regional) ----
+const showAddRidersPanel = ref(false);
+const addRidersTier = ref('provincial');
+const tierRiderSearch = ref('');
+const tierSelectMode = ref(false);
+const selectedTierRiders = ref([]); // full rider objects, not just ids — survives paging
+const tierAvailableRiders = ref([]);
+const tierMeta = reactive({ lastPage: 1, total: 0 });
+const tierPage = ref(1);
+const loadingTierRiders = ref(false);
+const tierRiderError = ref('');
+const showConfirmAddModal = ref(false);
+const addingRiders = ref(false);
+let tierSearchDebounce = null;
+
+function isTierRiderSelected(riderId) {
+    return selectedTierRiders.value.some((r) => r.id === riderId);
+}
+
+function toggleTierRiderSelected(rider) {
+    const idx = selectedTierRiders.value.findIndex((r) => r.id === rider.id);
+
+    if (idx === -1) {
+        selectedTierRiders.value.push(rider);
+    } else {
+        selectedTierRiders.value.splice(idx, 1);
+    }
+}
+
+function toggleTierSelectMode() {
+    tierSelectMode.value = !tierSelectMode.value;
+
+    if (!tierSelectMode.value) {
+        selectedTierRiders.value = [];
+    }
+}
+
+function openAddRidersPanel(tier) {
+    addRidersTier.value = tier;
+    showAddRidersPanel.value = true;
+    tierRiderSearch.value = '';
+    tierSelectMode.value = false;
+    selectedTierRiders.value = [];
+    tierPage.value = 1;
+    tierRiderError.value = '';
+    fetchTierRiders();
+}
+
+function closeAddRidersPanel() {
+    showAddRidersPanel.value = false;
+    clearTimeout(tierSearchDebounce);
+}
+
+async function fetchTierRiders() {
+    loadingTierRiders.value = true;
+    tierRiderError.value = '';
+
+    try {
+        const payload = await loadTierAvailableRiders(addRidersTier.value, {
+            search: tierRiderSearch.value.trim(),
+            page: tierPage.value,
+        });
+        tierAvailableRiders.value = payload.data || [];
+        tierMeta.lastPage = payload.meta?.last_page || 1;
+        tierMeta.total = payload.meta?.total || 0;
+    } catch (error) {
+        tierRiderError.value = error.message;
+        tierAvailableRiders.value = [];
+    } finally {
+        loadingTierRiders.value = false;
+    }
+}
+
+function changeTierPage(page) {
+    if (page < 1 || page > tierMeta.lastPage || loadingTierRiders.value) {
+        return;
+    }
+
+    tierPage.value = page;
+    fetchTierRiders();
+}
+
+watch(tierRiderSearch, () => {
+    clearTimeout(tierSearchDebounce);
+    tierSearchDebounce = setTimeout(() => {
+        tierPage.value = 1;
+        fetchTierRiders();
+    }, 350);
+});
+
+// Single "Add" from the (non-select-mode) list — reuses the same
+// confirmation modal as the multi-select flow, just pre-seeded with one.
+function confirmAddSingle(rider) {
+    selectedTierRiders.value = [rider];
+    showConfirmAddModal.value = true;
+}
+
+async function confirmAddRiders() {
+    if (selectedTierRiders.value.length === 0) {
+        return;
+    }
+
+    addingRiders.value = true;
+    tierRiderError.value = '';
+
+    try {
+        await addTierRiders(
+            addRidersTier.value,
+            selectedTierRiders.value.map((r) => r.id),
+        );
+        notify(
+            `${selectedTierRiders.value.length} rider${selectedTierRiders.value.length === 1 ? '' : 's'} added to the ${addRidersTier.value} pool.`,
+        );
+        showConfirmAddModal.value = false;
+        closeAddRidersPanel();
+    } catch (error) {
+        tierRiderError.value = error.message;
+    } finally {
+        addingRiders.value = false;
+    }
+}
+
+async function removeFromTierPool(tier, rider) {
+    const ok = await askConfirm({
+        title: 'Remove courier',
+        message: `Remove ${riderName(rider)} from the ${tier} pool?`,
+        confirmLabel: 'Remove',
+        tone: 'danger',
+    });
+
+    if (!ok) {
+        return;
+    }
+
+    try {
+        await removeTierRider(tier, rider.id);
+        notify(`${riderName(rider)} removed from the ${tier} pool.`);
+    } catch (error) {
+        notifyError(error, 'Failed to remove that rider.');
+    }
+}
 </script>

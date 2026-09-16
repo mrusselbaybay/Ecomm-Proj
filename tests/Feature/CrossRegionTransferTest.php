@@ -18,13 +18,19 @@ use Illuminate\Support\Str;
  * seller in one island-group region shipping to a buyer in another can't
  * be routed within the company that first received the parcel, so once a
  * courier has collected it that company raises a transfer *request* to a
- * second company. Nothing moves until the receiving company accepts —
- * only then does the origin row close as 'transferred' and a "to be
- * delivered" row open at the target (no transfer courier involved). A
- * rejection drops the parcel back on the origin desk. See
- * App\Services\ParcelIntakeService and Api\Logistics\
- * ParcelAssignmentController (requestTransfer / acceptTransferRequest /
- * rejectTransferRequest).
+ * second company. Nothing moves until the receiving company accepts, and
+ * accepting still doesn't move custody by itself — it does, however,
+ * automatically reuse the courier who originally collected the parcel
+ * (`picked_up_by`) as the one who carries it over, skipping the manual
+ * assignTransferCourier step. The origin company still has to hand it to
+ * them at the counter (handoff), and that courier has to confirm arrival
+ * at the target company's hub (Driver\DriverDeliveryController::
+ * confirmTransfer, photo + QR, same shape as a normal delivery). Only
+ * that last step closes the origin row as 'transferred' and opens a "to
+ * be delivered" row at the target. A rejection drops the parcel back on
+ * the origin desk. See App\Services\ParcelIntakeService and Api\
+ * Logistics\ParcelAssignmentController (requestTransfer /
+ * acceptTransferRequest / assignTransferCourier / rejectTransferRequest).
  */
 beforeEach(function () {
     if (! Schema::hasTable('addresses')) {
@@ -32,7 +38,13 @@ beforeEach(function () {
             $table->string('id')->primary();
             $table->string('owner_kind');
             $table->string('profile_id')->nullable();
+            // ParcelAutoAssignService::expectedTierFor() reads
+            // LogisticsCompany::address() (owner_kind 'logistics_company')
+            // to work out the provincial/regional fallback tier — reached
+            // from the same matchRider() call as courier_details above.
+            $table->string('logistics_company_id')->nullable();
             $table->string('region_name')->nullable();
+            $table->string('province_name')->nullable();
         });
     }
 
@@ -55,6 +67,25 @@ beforeEach(function () {
             $table->string('logistics_company_id');
             $table->string('status');
             $table->timestamp('applied_at')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    // ParcelIntakeService::intake() and DriverDeliveryController::pickup()
+    // both call ParcelAutoAssignService::matchRider() unconditionally now,
+    // which eager-loads Profile::courierDetail() for every accepted rider
+    // in the company (App\Services\ParcelAutoAssignService::
+    // eligibleCompanyRiders) — needed here so that query has a table to
+    // hit. Left empty on purpose: with no row, Profile::
+    // isAvailableForDelivery() reads as "off shift" (see its docblock), so
+    // riders stay un-auto-matched exactly as this suite already expects.
+    if (! Schema::hasTable('courier_details')) {
+        Schema::create('courier_details', function (Blueprint $table) {
+            $table->string('profile_id')->primary();
+            $table->string('vehicle')->nullable();
+            $table->string('plate_number')->nullable();
+            $table->string('logistics_company_id')->nullable();
+            $table->string('delivery_status')->default('unavailable');
             $table->timestamps();
         });
     }
@@ -210,9 +241,12 @@ it('starts every parcel in the pickup queue, then routes/transfers it end to end
         ->and($transferRequest->status)->toBe(ParcelTransferRequest::STATUS_PENDING)
         ->and($transferRequest->to_company_id)->toBe($targetCompany->id);
 
-    // 5) The receiving company sees it in its inbox and accepts. Only now
-    // does custody move: the origin row closes as 'transferred' and a
-    // fresh "to be delivered" row opens at the target.
+    // 5) The receiving company sees it in its inbox and accepts. Custody
+    // still hasn't moved — the origin row goes straight to
+    // 'transfer_assigned', reusing the same courier who originally picked
+    // the parcel up from the seller (picked_up_by), no manual dispatch
+    // step needed. Dispatch still has to physically confirm the handoff
+    // before that courier is on the hook for it, though.
     actingAsTransferCompanyOwner($targetCompany);
 
     $this->getJson('/api/logistics/parcel-transfer-requests')
@@ -227,9 +261,76 @@ it('starts every parcel in the pickup queue, then routes/transfers it end to end
         ->assertJsonPath('data.status', 'accepted');
 
     $assignment->refresh();
+    expect($assignment->status)->toBe(ParcelAssignment::STATUS_TRANSFER_ASSIGNED)
+        ->and($assignment->transferred_at)->toBeNull()
+        ->and($assignment->rider_profile_id)->toBe($courier->id);
+
+    // Nothing has opened at the target company yet — accepting is not the
+    // same as receiving.
+    expect(ParcelAssignment::where('order_id', $order->id)
+        ->where('logistics_company_id', $targetCompany->id)
+        ->exists())->toBeFalse();
+
+    // Already assigned (automatically) — a manual assign-transfer-courier
+    // attempt is refused, since the parcel is no longer 'transfer_ongoing'.
+    actingAsTransferCompanyOwner($originCompany);
+
+    $otherCourier = makeCourier();
+    CourierApplication::create([
+        'id' => (string) Str::uuid(),
+        'courier_profile_id' => $otherCourier->id,
+        'logistics_company_id' => $originCompany->id,
+        'status' => CourierApplication::STATUS_ACCEPTED,
+        'applied_at' => now(),
+    ]);
+
+    $this->putJson("/api/logistics/parcel-assignments/{$assignment->id}/assign-transfer-courier", [
+        'rider_profile_id' => $otherCourier->id,
+    ])->assertStatus(422);
+
+    // 6) Even though it's the same courier who ran the pickup leg, the
+    // transfer leg has no self-serve confirmation — it stays off their
+    // Deliveries list entirely until dispatch physically confirms the
+    // handoff.
+    actingAsDriver($courier);
+    $this->getJson('/api/driver/deliveries')
+        ->assertOk()
+        ->assertJsonCount(0, 'data');
+
+    // 7) Dispatch physically hands the parcel to the courier at the
+    // counter — the only way this leg can move on.
+    actingAsTransferCompanyOwner($originCompany);
+    $this->putJson("/api/logistics/parcel-assignments/{$assignment->id}/handoff")
+        ->assertOk()
+        ->assertJsonPath('data.status', 'ready_to_transfer');
+
+    $assignment->refresh();
+    expect($assignment->status)->toBe(ParcelAssignment::STATUS_READY_TO_TRANSFER)
+        ->and($assignment->rider_profile_id)->toBe($courier->id);
+
+    // Only now does it show up on the courier's list, framed as a
+    // transfer rather than an ordinary drop-off.
+    actingAsDriver($courier);
+    $this->getJson('/api/driver/deliveries')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.status', 'ready_to_transfer')
+        ->assertJsonPath('data.0.is_transfer', true)
+        ->assertJsonPath('data.0.dropoff_label', $targetCompany->company_name.' — Sorting Hub');
+
+    // 8) The courier confirms arrival at the target company's hub — same
+    // photo-gated shape as an ordinary delivery. Only now does custody
+    // actually move.
+    $this->post("/api/driver/deliveries/{$assignment->id}/confirm-transfer", [
+        'photo' => UploadedFile::fake()->create('transfer.jpg', 40, 'image/jpeg'),
+    ])->assertOk()
+        ->assertJsonPath('data.status', 'transferred');
+
+    $assignment->refresh();
     expect($assignment->status)->toBe(ParcelAssignment::STATUS_TRANSFERRED)
         ->and($assignment->transferred_at)->not->toBeNull()
-        ->and($assignment->rider_profile_id)->toBeNull();
+        ->and($assignment->transfer_photo_path)->not->toBeNull()
+        ->and($assignment->rider_profile_id)->toBe($courier->id);
 
     $newAssignment = ParcelAssignment::where('order_id', $order->id)
         ->where('logistics_company_id', $targetCompany->id)
@@ -248,14 +349,13 @@ it('starts every parcel in the pickup queue, then routes/transfers it end to end
 
     expect($transferRequest->fresh()->resulting_assignment_id)->toBe($newAssignment->id);
 
-    // The transfer leaves no work on any courier's plate — the origin
-    // courier's list keeps only their read-only record of the pickup.
-    actingAsDriver($courier);
+    // Now that the transfer is done, it drops off the courier's active
+    // list — nothing left for them to do on it.
     $this->getJson('/api/driver/deliveries')
         ->assertOk()
         ->assertJsonCount(0, 'data');
 
-    // 6) The target company dispatches it straight to a delivery rider,
+    // 9) The target company dispatches it straight to a delivery rider,
     // with no second pickup leg.
     $targetRider = makeCourier();
     CourierApplication::create([
@@ -336,6 +436,76 @@ it('puts the parcel back on the origin desk when the receiving company rejects t
     $this->postJson("/api/logistics/parcel-transfer-requests/{$request->id}/reject", [
         'note' => 'again',
     ])->assertStatus(422);
+});
+
+it('keeps the transfer leg off the courier app until dispatch confirms the handoff, unlike a local pickup', function () {
+    $seller = makeSeller();
+    $buyer = makeBuyer();
+    [$order] = makeOrder($buyer, $seller, [
+        'status' => 'In Transit',
+        'shipping_region_name' => 'Visayas',
+    ]);
+
+    $originCompany = makeTransferTestCompany('Luzon');
+    $targetCompany = makeTransferTestCompany('Visayas');
+    $courier = makeCourier();
+    CourierApplication::create([
+        'id' => (string) Str::uuid(),
+        'courier_profile_id' => $courier->id,
+        'logistics_company_id' => $originCompany->id,
+        'status' => CourierApplication::STATUS_ACCEPTED,
+        'applied_at' => now(),
+    ]);
+
+    // A transfer courier has already been picked (assignTransferCourier /
+    // acceptTransferRequest) but dispatch hasn't handed them the parcel at
+    // the counter yet.
+    $assignment = ParcelAssignment::create([
+        'order_id' => $order->id,
+        'logistics_company_id' => $originCompany->id,
+        'rider_profile_id' => $courier->id,
+        'status' => ParcelAssignment::STATUS_TRANSFER_ASSIGNED,
+        'is_transfer' => true,
+        'transfer_to_company_id' => $targetCompany->id,
+        'received_at' => now(),
+        'assigned_at' => now(),
+    ]);
+
+    actingAsDriver($courier);
+
+    // Not on the list at all — unlike a local pickup, there's no
+    // self-serve confirmation for a cross-company handoff.
+    $this->getJson('/api/driver/deliveries')
+        ->assertOk()
+        ->assertJsonCount(0, 'data');
+
+    // Same self-serve endpoint a local pickup courier uses, but it
+    // refuses this leg outright — dispatch's own handoff() is the only
+    // way to move it on.
+    $this->post("/api/driver/deliveries/{$assignment->id}/pickup", [
+        'photo' => UploadedFile::fake()->create('pickup.jpg', 40, 'image/jpeg'),
+    ])->assertStatus(404);
+
+    $assignment->refresh();
+    expect($assignment->status)->toBe(ParcelAssignment::STATUS_TRANSFER_ASSIGNED)
+        ->and($assignment->pickup_photo_path)->toBeNull();
+
+    // Dispatch's counter handoff is the only way this leg moves on.
+    actingAsTransferCompanyOwner($originCompany);
+    $this->putJson("/api/logistics/parcel-assignments/{$assignment->id}/handoff")
+        ->assertOk()
+        ->assertJsonPath('data.status', 'ready_to_transfer');
+
+    $assignment->refresh();
+    expect($assignment->status)->toBe(ParcelAssignment::STATUS_READY_TO_TRANSFER)
+        ->and($assignment->rider_profile_id)->toBe($courier->id);
+
+    // Now it appears on the courier's list, ready to confirm arrival.
+    actingAsDriver($courier);
+    $this->getJson('/api/driver/deliveries')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.status', 'ready_to_transfer');
 });
 
 it('records no transfer hint when the seller and buyer share a region', function () {
