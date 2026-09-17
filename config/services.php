@@ -50,6 +50,12 @@ return [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect' => env('GOOGLE_REDIRECT_URI'),
+        // Local-dev-only workaround: Google's OAuth policy rejects Herd's
+        // .test domain, so set this (and GOOGLE_REDIRECT_URI, and Google
+        // Console's authorized redirect URI) to http://localhost:8000 to
+        // run the handshake via `php artisan serve` instead. Leave unset
+        // in production/staging.
+        'oauth_base' => env('GOOGLE_OAUTH_BASE', ''),
     ],
 
 ];

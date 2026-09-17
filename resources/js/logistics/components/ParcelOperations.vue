@@ -456,11 +456,32 @@
                                 to a company that operates there.
                             </span>
                         </p>
+                        <p
+                            v-else-if="
+                                selectedParcel.area_fallback_tier ===
+                                'provincial'
+                            "
+                            class="callout-amber callout-block"
+                        >
+                            <NavIcon name="alert" :size="16" />
+                            <span>
+                                This parcel is going to
+                                {{
+                                    selectedParcel.order.municipality_name ||
+                                    'a municipality'
+                                }}, which none of your barangay assignments
+                                cover — hand it to a company that operates
+                                there directly.
+                            </span>
+                        </p>
                         <div class="area-form-grid">
                             <label class="form-field full-field">
                                 <span>
                                     Transfer to company
-                                    <template v-if="transferRegion">
+                                    <template v-if="transferMatchedBy === 'municipality' && transferMunicipality">
+                                        (covering {{ transferMunicipality }})
+                                    </template>
+                                    <template v-else-if="transferRegion">
                                         (operating in {{ transferRegion }})
                                     </template>
                                 </span>
@@ -481,7 +502,11 @@
                                                 ? 'Loading companies…'
                                                 : transferCompanies.length
                                                   ? 'Select a logistics company'
-                                                  : 'No companies available in that region'
+                                                  : transferMatchedBy ===
+                                                        'municipality' &&
+                                                      transferMunicipality
+                                                    ? `No companies cover ${transferMunicipality}`
+                                                    : 'No companies available in that region'
                                         }}
                                     </option>
                                     <option
@@ -836,9 +861,14 @@ const transferForm = reactive({ transfer_to_company_id: '' });
 const transferCompanies = ref([]);
 const loadingTransferCompanies = ref(false);
 const transferOptionsError = ref('');
-// The buyer's region the company list is scoped to, echoed back by the
-// transfer-options endpoint so the picker can say what it's filtering on.
+// What the company list is scoped to, echoed back by the transfer-options
+// endpoint so the picker can say what it's filtering on — the buyer's
+// region for a regional-tier parcel, or their exact municipality for a
+// provincial-tier one (see Api\Logistics\ParcelAssignmentController::
+// transferOptions).
 const transferRegion = ref('');
+const transferMunicipality = ref('');
+const transferMatchedBy = ref('region');
 
 // ---- Transfer requests inbox (incoming — other companies asking this
 // company to take custody of a parcel they picked up but can't deliver;
@@ -907,11 +937,20 @@ function stageOf(parcel) {
         return 'toPickUp';
     }
 
-    // Regional-tier deliveries (buyer outside this company's own region —
-    // see Delivery Areas' Regional pool) are always framed as a transfer
-    // job, whether or not a regional rider has already been auto-assigned
-    // to it. Provincial-tier stays an ordinary delivery either way.
-    if (parcel.area_fallback_tier === 'regional') {
+    // Regional- and provincial-tier deliveries (buyer outside this
+    // company's own region, or in-province but outside any barangay it
+    // directly covers — see Delivery Areas' Regional/Provincial pools)
+    // are always framed as a transfer job, whether or not a pool rider
+    // has already been auto-assigned to it. Skipped for a transfer
+    // receipt (is_transfer_receipt): the receiving company was CHOSEN
+    // for covering this area, so its own regional/provincial pool is a
+    // real, ordinary way to deliver it here — not a sign it needs yet
+    // another transfer.
+    if (
+        !parcel.is_transfer_receipt &&
+        (parcel.area_fallback_tier === 'regional' ||
+            parcel.area_fallback_tier === 'provincial')
+    ) {
         return 'toTransfer';
     }
 
@@ -1148,16 +1187,24 @@ const dispatchMode = ref('deliver'); // 'deliver' | 'transfer'
 
 // True once a courier has picked the parcel up and handed it back — the
 // point where staff choose between a local delivery and a transfer.
-// Normally that means no rider yet, but a regional-tier match (buyer
-// outside this company's own region) auto-assigns a regional rider
+// Normally that means no rider yet, but a regional- or provincial-tier
+// match (buyer outside this company's own region, or in-province but
+// outside any barangay it directly covers) auto-assigns a pool rider
 // immediately — staff still need the option to hand it to another
-// company instead, so this stays true for that case too. Mirrors
-// Api\Logistics\ParcelAssignmentController::awaitingDispatchDecision.
+// company instead, so this stays true for either case too. Skipped for
+// a transfer receipt once it has a rider (is_transfer_receipt): the
+// receiving company was chosen for covering this area, so its own
+// regional/provincial pool is an ordinary way to deliver it, not
+// something to keep re-offering a transfer for. Mirrors Api\Logistics\
+// ParcelAssignmentController::awaitingDispatchDecision.
 const awaitingDispatchDecision = computed(
     () =>
         selectedParcel.value?.status === 'handed_off' &&
         (!selectedParcel.value?.rider ||
-            selectedParcel.value?.area_fallback_tier === 'regional'),
+            (!selectedParcel.value?.is_transfer_receipt &&
+                (selectedParcel.value?.area_fallback_tier === 'regional' ||
+                    selectedParcel.value?.area_fallback_tier ===
+                        'provincial'))),
 );
 
 // An accepted transfer, whether or not a courier has been picked yet —
@@ -1223,10 +1270,13 @@ async function loadTransferCompanies(parcelId) {
         const payload = await fetchTransferOptions(parcelId);
         transferCompanies.value = payload.data || [];
         transferRegion.value = payload.meta?.buyer_region || '';
+        transferMunicipality.value = payload.meta?.buyer_municipality || '';
+        transferMatchedBy.value = payload.meta?.matched_by || 'region';
     } catch (error) {
         transferOptionsError.value = error.message;
         transferCompanies.value = [];
         transferRegion.value = '';
+        transferMunicipality.value = '';
     } finally {
         loadingTransferCompanies.value = false;
     }
@@ -1239,6 +1289,7 @@ function closeAssignment() {
     // the next parcel opened must fetch its own.
     transferCompanies.value = [];
     transferRegion.value = '';
+    transferMunicipality.value = '';
     focusScanner();
 }
 

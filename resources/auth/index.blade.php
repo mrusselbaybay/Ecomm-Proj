@@ -20,6 +20,7 @@
         window.CONFIG = {
             SUPABASE_URL: '{{ $config['supabase_url'] }}',
             SUPABASE_ANON_KEY: '{{ $config['supabase_anon_key'] }}',
+            GOOGLE_OAUTH_BASE: '{{ $config['google_oauth_base'] }}',
         };
     </script>
 </head>

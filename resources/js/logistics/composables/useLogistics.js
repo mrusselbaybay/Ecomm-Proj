@@ -1059,7 +1059,11 @@ function isParcelActionable(parcel) {
         return true;
     }
 
-    if (parcel.status === 'handed_off' && parcel.area_fallback_tier === 'regional') {
+    if (
+        parcel.status === 'handed_off' &&
+        (parcel.area_fallback_tier === 'regional' ||
+            parcel.area_fallback_tier === 'provincial')
+    ) {
         return true;
     }
 

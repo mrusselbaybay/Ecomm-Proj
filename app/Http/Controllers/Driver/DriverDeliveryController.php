@@ -64,7 +64,39 @@ class DriverDeliveryController extends Controller
     public function __construct(
         private readonly SupabaseStorageService $supabaseStorage,
         private readonly ParcelIntakeService $parcelIntake,
+        private readonly ParcelAutoAssignService $autoAssign,
     ) {}
+
+    /**
+     * True for a HANDED_OFF row that's still an open "local delivery or
+     * transfer?" question — no barangay committed yet, and either already
+     * flagged is_transfer or auto-matched from the regional/provincial
+     * pool (which, unlike is_transfer, isn't set until a transfer is
+     * actually requested — see Api\Logistics\
+     * ParcelAssignmentController::awaitingDispatchDecision, the staff-side
+     * mirror of this same rule). A row like that shouldn't read as a real
+     * job on a rider's phone yet.
+     */
+    private function awaitingDispatchDecision(ParcelAssignment $assignment): bool
+    {
+        if ($assignment->status !== ParcelAssignment::STATUS_HANDED_OFF || $assignment->barangay_assignment_id) {
+            return false;
+        }
+
+        if ($assignment->is_transfer) {
+            return true;
+        }
+
+        if (! $assignment->order || ! $assignment->logisticsCompany) {
+            return false;
+        }
+
+        return in_array(
+            $this->autoAssign->expectedTierFor($assignment->logisticsCompany, $assignment->order, false),
+            ['regional', 'provincial'],
+            true,
+        );
+    }
 
     public function index(Request $request): JsonResponse
     {
@@ -95,39 +127,28 @@ class DriverDeliveryController extends Controller
             // be used to jump the gun on that confirmation. See [pickup]'s
             // docblock for the other half of this.
             //
-            // A HANDED_OFF row also stays hidden while it's still an open
-            // "local delivery or transfer?" question with no local
-            // delivery committed yet (is_transfer, no barangay_assignment_id
-            // — see Api\Logistics\ParcelAssignmentController::
-            // awaitingDispatchDecision): a regional-pool rider can be
-            // pre-matched here before that's decided, but is_transfer means
-            // this company can't actually deliver it, so it shouldn't read
-            // as a real job on the rider's phone until either dispatch
-            // commits it to a local delivery (barangay_assignment_id gets
-            // set) or it's handed off for the transfer leg instead
-            // (STATUS_READY_TO_TRANSFER, above).
+            // A HANDED_OFF row also stays hidden while awaitingDispatchDecision()
+            // above says it's still an open "local delivery or transfer?"
+            // question — filtered in PHP after the query below rather than
+            // in SQL, since a regional/provincial pool match (unlike
+            // is_transfer) needs comparing the company's own address
+            // against the order's, not just a column check.
             ->where(function (Builder $query) use ($profile): void {
-                $query->where(function (Builder $q) use ($profile): void {
-                    $q->where('rider_profile_id', $profile->id)
-                        ->where(function (Builder $qq): void {
-                            $qq->whereIn('status', [
-                                ParcelAssignment::STATUS_ASSIGNED,
-                                ParcelAssignment::STATUS_READY_TO_TRANSFER,
-                            ])->orWhere(function (Builder $qqq): void {
-                                $qqq->where('status', ParcelAssignment::STATUS_HANDED_OFF)
-                                    ->where(function (Builder $q4): void {
-                                        $q4->where('is_transfer', false)
-                                            ->orWhereNotNull('barangay_assignment_id');
-                                    });
-                            });
-                        });
-                })->orWhere(function (Builder $q) use ($profile): void {
-                    $q->where('picked_up_by', $profile->id)
-                        ->where('status', ParcelAssignment::STATUS_HANDED_OFF);
-                });
+                $query->where('rider_profile_id', $profile->id)
+                    ->whereIn('status', [
+                        ParcelAssignment::STATUS_ASSIGNED,
+                        ParcelAssignment::STATUS_HANDED_OFF,
+                        ParcelAssignment::STATUS_READY_TO_TRANSFER,
+                    ]);
+            })->orWhere(function (Builder $q) use ($profile): void {
+                $q->where('picked_up_by', $profile->id)
+                    ->where('status', ParcelAssignment::STATUS_HANDED_OFF);
             })
             ->orderByDesc('assigned_at')
-            ->get();
+            ->get()
+            ->reject(fn (ParcelAssignment $assignment): bool => $assignment->rider_profile_id === $profile->id
+                && $this->awaitingDispatchDecision($assignment))
+            ->values();
 
         return response()->json([
             'data' => $assignments->map(fn (ParcelAssignment $assignment): array => $this->present($assignment, $profile))->values(),
@@ -177,19 +198,15 @@ class DriverDeliveryController extends Controller
             ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany'])
             ->where('order_id', $order->id)
             ->where('rider_profile_id', $profile->id)
-            // Same exclusions as [index] — a transfer leg a scan can't
-            // surface until dispatch has confirmed the handoff, and a
-            // still-undecided "local delivery or transfer?" row can't be
-            // scanned as a real job either.
+            // Same exclusion as [index] — a transfer leg a scan can't
+            // surface until dispatch has confirmed the handoff.
             ->where('status', '!=', ParcelAssignment::STATUS_TRANSFER_ASSIGNED)
-            ->where(function (Builder $q): void {
-                $q->where('status', '!=', ParcelAssignment::STATUS_HANDED_OFF)
-                    ->orWhere('is_transfer', false)
-                    ->orWhereNotNull('barangay_assignment_id');
-            })
             ->first();
 
-        if (! $assignment) {
+        // Same "still an open local-delivery-or-transfer decision" check
+        // as [index] — needs the company relation, so it runs after the
+        // fetch rather than as a SQL condition above.
+        if (! $assignment || $this->awaitingDispatchDecision($assignment)) {
             return $notFound;
         }
 

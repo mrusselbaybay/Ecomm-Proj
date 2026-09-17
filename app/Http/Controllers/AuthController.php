@@ -45,6 +45,7 @@ class AuthController extends Controller
             'config' => [
                 'supabase_url' => config('services.supabase.url'),
                 'supabase_anon_key' => config('services.supabase.anon_key'),
+                'google_oauth_base' => config('services.google.oauth_base'),
             ],
         ]);
     }
@@ -93,7 +94,7 @@ class AuthController extends Controller
         if (empty($state) || ! hash_equals((string) $state, (string) $request->input('state', ''))) {
             Log::warning('Google callback state mismatch');
 
-            return redirect()->route('login', ['google_error' => 1]);
+            return $this->redirectToLogin(['google_error' => 1]);
         }
 
         try {
@@ -102,7 +103,7 @@ class AuthController extends Controller
         } catch (\Throwable $e) {
             Log::error('Google Socialite callback failed', ['error' => $e->getMessage()]);
 
-            return redirect()->route('login', ['google_error' => 1]);
+            return $this->redirectToLogin(['google_error' => 1]);
         }
 
         $idToken = $tokenResponse['id_token'] ?? null;
@@ -110,7 +111,7 @@ class AuthController extends Controller
         if (! $idToken) {
             Log::error('Google callback missing id_token', ['response_keys' => array_keys($tokenResponse ?? [])]);
 
-            return redirect()->route('login', ['google_error' => 1]);
+            return $this->redirectToLogin(['google_error' => 1]);
         }
 
         $response = Http::withHeaders([
@@ -124,7 +125,7 @@ class AuthController extends Controller
         if (! $response->successful()) {
             Log::error('Supabase id_token exchange failed', ['body' => $response->body()]);
 
-            return redirect()->route('login', ['google_error' => 1]);
+            return $this->redirectToLogin(['google_error' => 1]);
         }
 
         $session = $response->json();
@@ -136,7 +137,34 @@ class AuthController extends Controller
             'token_type' => $session['token_type'] ?? 'bearer',
         ]);
 
-        return redirect()->to(route('login').'#'.$fragment);
+        return $this->redirectToLogin([], $fragment);
+    }
+
+    /**
+     * Builds the final redirect back to the login page off `app.url`
+     * rather than route()/redirect()->route(), which resolve against the
+     * *current* request's host. That distinction matters because of a
+     * workaround for Google's OAuth policy rejecting Herd's local `.test`
+     * domain: the Google handshake (redirectToGoogle + this callback) runs
+     * against `http://localhost:8000` (`php artisan serve`, with
+     * GOOGLE_REDIRECT_URI and the Google Console authorized redirect URI
+     * both pointed at it), while `app.url` stays the Herd domain — so the
+     * browser always lands back on Herd once Google's part is done,
+     * regardless of which host handled the callback.
+     */
+    private function redirectToLogin(array $query = [], ?string $fragment = null)
+    {
+        $url = rtrim(config('app.url'), '/').'/login';
+
+        if ($query) {
+            $url .= '?'.http_build_query($query);
+        }
+
+        if ($fragment) {
+            $url .= '#'.$fragment;
+        }
+
+        return redirect()->to($url);
     }
 
     /**

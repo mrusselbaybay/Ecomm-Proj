@@ -150,9 +150,8 @@ class ParcelAutoAssignService
      * before a ParcelAssignment row even exists (ParcelIntakeService), as
      * well as from assign() above once one does.
      *
-     * $isPickupPhase decides which address is matched, whether the
-     * provincial/regional pools are even in play, AND whether the
-     * vehicle-category gate applies:
+     * $isPickupPhase decides which address is matched and whether the
+     * provincial/regional pools are even in play:
      *
      *   - Pickup (not yet collected from the seller): matched against the
      *     SELLER's (pickup_*) address, barangay tier only. A courier is
@@ -160,37 +159,42 @@ class ParcelAutoAssignService
      *     already have direct coverage for — provincial/regional's "any
      *     barangay in the province/region" reach doesn't apply to finding
      *     one exact address, so an unmatched pickup falls straight to the
-     *     company-wide pool instead. $requiredVehicleType describes the
-     *     seller-to-BUYER haul (TransferTriggerService), not this local
-     *     hop to the seller's own doorstep, so it's ignored here — a
-     *     motorcycle courier collecting from their own barangay shouldn't
-     *     lose the pickup to a car/van rider from the general pool just
-     *     because the *buyer* happens to live somewhere that'll need a
-     *     bigger vehicle later.
+     *     company-wide pool instead.
      *   - Delivery (already collected): matched against the BUYER's
-     *     (shipping_*) address, and this IS the leg $requiredVehicleType
-     *     describes, so it's enforced at every tier. Barangay first; then
-     *     provincial (buyer's in this company's own province, just not a
-     *     municipality it has a barangay rider for) and regional (buyer's
-     *     outside this company's own region) — decided purely by the
-     *     buyer's address vs. the company's own, independent of
-     *     $requiredVehicleType (that describes the seller-to-buyer trip,
-     *     not "is this within the company's reach" — a same-municipality
-     *     seller/buyer pair still needs the provincial pool if that
-     *     shared municipality isn't one the company has a barangay rider
-     *     in). A buyer outside both — a different province AND the same
-     *     region — falls to the company-wide pool, same as pickup.
+     *     (shipping_*) address. Barangay first; then provincial (buyer's
+     *     in this company's own province, just not a municipality it has
+     *     a barangay rider for) and regional (buyer's outside this
+     *     company's own region) — decided purely by the buyer's address
+     *     vs. the company's own. A buyer outside both — a different
+     *     province AND the same region — falls to the company-wide pool,
+     *     same as pickup.
+     *
+     * The vehicle-category gate is derived from *how far this leg
+     * actually travels*, not from $requiredVehicleType (TransferTriggerService's
+     * seller-to-buyer haul, which only ever gates the company-wide pool
+     * fallback below): a barangay-tier match — this company directly
+     * covers that exact address, at either end of the trip — is always a
+     * short local hop, so any vehicle (a motorcycle) can take it; the
+     * provincial pool needs at least a Car; the regional pool needs a
+     * Van or Truck. That's true independent of $requiredVehicleType,
+     * which can be a bigger vehicle than the CURRENT leg needs once a
+     * transfer has already covered the long haul (see
+     * ParcelIntakeService::createTransferReceipt) — the receiving
+     * company's own barangay/provincial reach shouldn't be gated by a
+     * requirement that described the *original* seller-to-buyer
+     * distance, not this company's remaining hop.
      *
      * @return array{rider: ?Profile, tier: ?string, barangayAssignment: ?LogisticsBarangayAssignment}
      */
     public function matchRider(Order $order, LogisticsCompany $company, ?string $requiredVehicleType, bool $isPickupPhase): array
     {
-        $vehicleGate = $isPickupPhase ? null : $requiredVehicleType;
-
         $assignment = $isPickupPhase
             ? $this->parcelIntake->matchingBarangayAssignmentFor($company, $order->pickup_municipality_name, $order->pickup_barangay)
             : $this->parcelIntake->matchingBarangayAssignmentFor($company, $order->shipping_municipality_name, $order->shipping_barangay);
-        $rider = $assignment ? $this->eligibleDirectRider($assignment, $company, $vehicleGate) : null;
+        // No vehicle gate: within the delivery area this company directly
+        // covers, a motorcycle is fine regardless of the parcel's overall
+        // seller-to-buyer distance.
+        $rider = $assignment ? $this->eligibleDirectRider($assignment, $company, null) : null;
 
         if ($rider) {
             return ['rider' => $rider, 'tier' => 'barangay', 'barangayAssignment' => $assignment];
@@ -205,7 +209,7 @@ class ParcelAutoAssignService
 
             if ($address && $this->sameProvince($address->province_name, $order->shipping_province_name)) {
                 $provincial = $this->lockedProvincialAssignment($company);
-                $rider = $provincial ? $this->eligibleProvincialRider($provincial, $requiredVehicleType) : null;
+                $rider = $provincial ? $this->eligibleProvincialRider($provincial, VehicleCategory::CAR) : null;
 
                 if ($rider) {
                     $provincial->update(['last_auto_assigned_rider_profile_id' => $rider->id]);
@@ -216,7 +220,7 @@ class ParcelAutoAssignService
 
             if ($region && ! $this->sameRegion($region, $order->shipping_region_name)) {
                 $regional = $this->lockedRegionalAssignment($company);
-                $rider = $regional ? $this->eligibleRegionalRider($regional, $requiredVehicleType) : null;
+                $rider = $regional ? $this->eligibleRegionalRider($regional, 'van_or_truck') : null;
 
                 if ($rider) {
                     $regional->update(['last_auto_assigned_rider_profile_id' => $rider->id]);
@@ -228,10 +232,15 @@ class ParcelAutoAssignService
 
         // Locked for the same reason a pool row is above: the rotation
         // cursor is read and written here, and two concurrent callers
-        // reading the same cursor would both pick the same rider.
+        // reading the same cursor would both pick the same rider. This is
+        // the one tier still gated by $requiredVehicleType (the seller-
+        // to-buyer haul) rather than a derived tier distance — it's the
+        // fallback for "nothing about this company's own address tells us
+        // how far this leg is," so the parcel's overall requirement is
+        // the best signal left.
         /** @var LogisticsCompany $lockedCompany */
         $lockedCompany = LogisticsCompany::query()->whereKey($company->id)->lockForUpdate()->firstOrFail();
-        $pool = $this->eligibleCompanyRiders($lockedCompany, $vehicleGate);
+        $pool = $this->eligibleCompanyRiders($lockedCompany, $isPickupPhase ? null : $requiredVehicleType);
 
         if ($pool->isEmpty()) {
             return ['rider' => null, 'tier' => null, 'barangayAssignment' => $assignment];

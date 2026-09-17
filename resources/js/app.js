@@ -2789,7 +2789,15 @@ const App = {
             // browser back here with a Supabase session already attached
             // (or a ?google_error=1 flag on failure, read in onMounted()),
             // so this is a plain navigation, not an async Supabase call.
-            window.location.href = '/auth/google/redirect';
+            //
+            // GOOGLE_OAUTH_BASE lets local dev run the handshake itself
+            // against http://localhost:8000 (php artisan serve) instead of
+            // Herd's .test domain, which Google's OAuth policy rejects —
+            // AuthController::redirectToLogin() bounces back to Herd once
+            // Google's part is done. Leave GOOGLE_OAUTH_BASE unset in
+            // production so this stays a same-origin relative redirect.
+            const base = window.CONFIG?.GOOGLE_OAUTH_BASE || '';
+            window.location.href = base + '/auth/google/redirect';
         }
 
         // ---------- Password Reset Functions ----------

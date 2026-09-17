@@ -374,12 +374,25 @@ class ParcelAssignmentController extends Controller
 
     /**
      * Logistics companies eligible to receive a transfer of this parcel.
-     * Scoped to companies operating in the *buyer's* region — the whole
-     * point of transferring is to hand the parcel to someone who can
-     * actually reach the destination, so a company in the same region
-     * this one already couldn't deliver to is no use. Falls back to every
-     * other active company when the order has no region recorded, rather
-     * than showing an empty picker.
+     *
+     * A regional-tier parcel (buyer outside this company's own region —
+     * see ParcelAutoAssignService::expectedTierFor) is scoped to companies
+     * operating in the buyer's *region* — coarse-grained on purpose, since
+     * the mismatch itself is region-level and a narrower match could rule
+     * out a company that would sort it out fine once it's in their own
+     * region/provincial pool.
+     *
+     * A provincial-tier parcel (buyer in-province but outside any barangay
+     * this company directly covers) is scoped instead to companies that
+     * can actually reach the buyer's exact *municipality* — either a
+     * direct active barangay assignment there, or a company whose own
+     * address is in the same *province* (their provincial pool, the same
+     * reach ParcelAutoAssignService::matchRider grants a company for its
+     * own province, covers any municipality in it — including one it's
+     * headquartered in but has no barangay rider for yet).
+     *
+     * Either way, falls back to every other active company when the
+     * relevant field is missing, rather than showing an empty picker.
      *
      * Backs the target-company picker in ParcelOperations.vue's routing
      * modal, offered alongside "assign a delivery rider" once a parcel
@@ -396,22 +409,50 @@ class ParcelAssignmentController extends Controller
             ], 422);
         }
 
-        $buyerRegion = $parcelAssignment->order?->shipping_region_name;
+        $order = $parcelAssignment->order;
+        $tier = $order ? $this->autoAssign->expectedTierFor($company, $order, false) : null;
+        $matchByMunicipality = $tier === 'provincial';
+
+        $buyerRegion = $order?->shipping_region_name;
+        $buyerProvince = $order?->shipping_province_name;
+        $buyerMunicipality = $order?->shipping_municipality_name;
 
         $companies = LogisticsCompany::query()
             ->where('status', 'approved')
             ->where('account_status', 'active')
             ->whereKeyNot($company->id)
-            ->when(filled($buyerRegion), fn (Builder $query) => $query->whereRaw(
-                'LOWER(TRIM(region)) = ?',
-                [mb_strtolower(trim($buyerRegion))],
-            ))
+            ->when(
+                $matchByMunicipality && filled($buyerMunicipality),
+                fn (Builder $query) => $query->where(function (Builder $q) use ($buyerMunicipality, $buyerProvince): void {
+                    $q->whereExists(function ($sub) use ($buyerMunicipality): void {
+                        $sub->select(DB::raw('1'))
+                            ->from('logistics_barangay_assignments')
+                            ->whereColumn('logistics_barangay_assignments.logistics_company_id', 'logistics_companies.id')
+                            ->where('logistics_barangay_assignments.is_active', true)
+                            ->whereRaw('LOWER(TRIM(municipality_name)) = ?', [mb_strtolower(trim($buyerMunicipality))]);
+                    })->when(filled($buyerProvince), fn (Builder $qq) => $qq->orWhereExists(function ($sub) use ($buyerProvince): void {
+                        $sub->select(DB::raw('1'))
+                            ->from('addresses')
+                            ->whereColumn('addresses.logistics_company_id', 'logistics_companies.id')
+                            ->where('addresses.owner_kind', 'logistics_company')
+                            ->whereRaw('LOWER(TRIM(province_name)) = ?', [mb_strtolower(trim($buyerProvince))]);
+                    }));
+                }),
+                fn (Builder $query) => $query->when(filled($buyerRegion), fn (Builder $q) => $q->whereRaw(
+                    'LOWER(TRIM(region)) = ?',
+                    [mb_strtolower(trim($buyerRegion))],
+                )),
+            )
             ->orderBy('company_name')
             ->get(['id', 'company_name', 'region']);
 
         return response()->json([
             'data' => $companies,
-            'meta' => ['buyer_region' => $buyerRegion],
+            'meta' => [
+                'buyer_region' => $buyerRegion,
+                'buyer_municipality' => $buyerMunicipality,
+                'matched_by' => $matchByMunicipality ? 'municipality' : 'region',
+            ],
         ]);
     }
 
@@ -701,12 +742,16 @@ class ParcelAssignmentController extends Controller
      *
      * Normally that means no rider yet (mirrors the $isDeliveryDispatch
      * condition in assign(): handed off, pickup courier released). But a
-     * regional-tier match (buyer outside this company's own region — see
-     * ParcelAutoAssignService::expectedTierFor) auto-assigns a regional
-     * rider immediately, and staff still need the option to send it to
-     * another company instead of using that in-house regional pool — so
-     * this stays true for a regional match even with a rider already on
-     * it.
+     * regional- or provincial-tier match (buyer outside this company's own
+     * region, or in-province but outside any barangay it directly covers —
+     * see ParcelAutoAssignService::expectedTierFor) auto-assigns a
+     * regional/provincial pool rider immediately, and staff still need the
+     * option to send it to another company instead of using that in-house
+     * pool — so this stays true for either match even with a rider already
+     * on it. Except on a transfer receipt (previous_assignment_id set):
+     * that company was already chosen for covering this area, so its own
+     * pool is an ordinary way to deliver it, not a reason to keep
+     * offering yet another transfer once it has a rider.
      */
     private function awaitingDispatchDecision(ParcelAssignment $parcelAssignment, LogisticsCompany $company): bool
     {
@@ -718,11 +763,15 @@ class ParcelAssignmentController extends Controller
             return true;
         }
 
-        if ($parcelAssignment->barangay_assignment_id || ! $parcelAssignment->order) {
+        if ($parcelAssignment->barangay_assignment_id || ! $parcelAssignment->order || $parcelAssignment->previous_assignment_id) {
             return false;
         }
 
-        return $this->autoAssign->expectedTierFor($company, $parcelAssignment->order, false) === 'regional';
+        return in_array(
+            $this->autoAssign->expectedTierFor($company, $parcelAssignment->order, false),
+            ['regional', 'provincial'],
+            true,
+        );
     }
 
     private function companyFor(Request $request): LogisticsCompany

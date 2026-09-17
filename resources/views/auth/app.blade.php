@@ -15,6 +15,15 @@
          window.supabase is guaranteed ready when app.js needs it. -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
 
+    <!-- Pass config from Laravel -->
+    <script>
+        window.CONFIG = {
+            SUPABASE_URL: '{{ $config['supabase_url'] }}',
+            SUPABASE_ANON_KEY: '{{ $config['supabase_anon_key'] }}',
+            GOOGLE_OAUTH_BASE: '{{ $config['google_oauth_base'] }}',
+        };
+    </script>
+
     <!-- Tailwind and Vue are bundled through Vite (see resources/css/app.css
          and the "vue" import in app.js) — no separate CDN scripts needed
          for either; loading them again here would just duplicate work and
