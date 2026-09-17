@@ -884,7 +884,7 @@ const pendingTransferRequests = computed(() =>
     transferRequests.value.filter((req) => req.status === 'pending'),
 );
 
-const stage = ref('actionable');
+const stage = ref('all');
 const search = ref('');
 const page = ref(1);
 
@@ -895,42 +895,41 @@ const unstaffedAreas = computed(() =>
     Math.max(assignmentStats.value.active - assignmentStats.value.staffed, 0),
 );
 
-// The lifecycle is received -> sorted -> assigned -> handed_off, but
-// pickup and delivery are two legs run by two people, so there are three
-// "what's left to do" stages:
-//   - not handed off yet ......... "To pick up" (needs a pickup rider)
-//   - handed off, no rider ....... "To be delivered" (the pickup courier
-//     confirmed collection; the parcel is back here and needs a delivery
-//     rider — see Driver\DriverDeliveryController::pickup)
-//   - handed off, has a rider .... "Out for delivery" (done at this desk)
+// Four stages, deliberately coarser than the underlying status machine
+// (assigned/handed_off/transfer_pending/transfer_ongoing/transfer_assigned/
+// ready_to_transfer/transferred) — the row's own status badge and action
+// column (see statusLabel/the queue template) still show the granular
+// detail, this just decides which tab a row filters into:
+//   - toPickUp ....... not yet collected from the seller.
+//   - toTransfer ..... needs a transfer decision, or already made one and
+//     is waiting on the other company's answer (transfer_pending).
+//   - toDeliver ...... needs delivering — an ordinary local delivery
+//     (with or without a rider yet) or an accepted transfer already in
+//     a courier's hands, on the way to the other company.
+//   - transferred .... terminal: handed off to the other company for
+//     good.
 //
-// Every parcel starts in "To pick up" regardless of where it's headed —
-// whether it can be delivered locally or has to go to another company is
-// only decided at the "To be delivered" step, once a courier has
-// actually collected it. Handing it to another company is now its own
-// multi-step courier leg (see the transfer_ongoing/transfer_assigned/
-// ready_to_transfer cases below) rather than taking effect immediately.
+// Kept in sync with useLogistics.js's parcelStats, which mirrors this
+// exact branching for the tab counts.
 function stageOf(parcel) {
     if (parcel.status === 'transferred') {
         return 'transferred';
     }
 
-    // Offered to another company, waiting on their accept/reject.
+    // Offered to another company, waiting on their accept/reject — folded
+    // into "To transfer" alongside a parcel that hasn't been offered yet.
     if (parcel.status === 'transfer_pending') {
-        return 'transferPending';
+        return 'toTransfer';
     }
 
-    // Accepted — grouped as one "Transfer ongoing" stage/tab even though
-    // it covers three sub-states (needs a courier, needs that courier
-    // handed the parcel, or already with them en route); the row's own
-    // status badge and action column (see statusLabel/the queue template)
-    // distinguish which.
+    // Accepted — a courier is carrying it to the other company. Folded
+    // into "To be delivered" alongside an ordinary local delivery.
     if (
         parcel.status === 'transfer_ongoing' ||
         parcel.status === 'transfer_assigned' ||
         parcel.status === 'ready_to_transfer'
     ) {
-        return 'transferOngoing';
+        return 'toDeliver';
     }
 
     if (parcel.status !== 'handed_off') {
@@ -954,31 +953,21 @@ function stageOf(parcel) {
         return 'toTransfer';
     }
 
-    if (parcel.rider) {
-        return 'outForDelivery';
-    }
-
-    // Picked up and back on this desk. If this company doesn't cover the
-    // buyer's region (is_transfer, set at intake) it can't deliver this
-    // itself, so surface it as needing a transfer rather than leaving
-    // staff to notice — they can still override and deliver it. A row
-    // that arrived AS a transfer (is_transfer_receipt) skips this: the
-    // receiving company was chosen because it covers the buyer's region,
-    // so it just needs an ordinary local delivery, not another transfer.
+    // Picked up and back on this desk, whether or not a delivery rider
+    // is already on it — both read as "To be delivered" now. If this
+    // company doesn't cover the buyer's region (is_transfer, set at
+    // intake) it can't deliver this itself, so surface it as needing a
+    // transfer rather than leaving staff to notice — they can still
+    // override and deliver it. A row that arrived AS a transfer
+    // (is_transfer_receipt) skips this: the receiving company was chosen
+    // because it covers the buyer's region, so it just needs an ordinary
+    // local delivery, not another transfer.
     return parcel.is_transfer && !parcel.is_transfer_receipt
         ? 'toTransfer'
         : 'toDeliver';
 }
 
 const stageOptions = computed(() => [
-    {
-        value: 'actionable',
-        label: 'Needs action',
-        count:
-            parcelStats.value.toPickUp +
-            parcelStats.value.toDeliver +
-            parcelStats.value.toTransfer,
-    },
     {
         value: 'toPickUp',
         label: 'To pick up',
@@ -995,21 +984,6 @@ const stageOptions = computed(() => [
         count: parcelStats.value.toTransfer,
     },
     {
-        value: 'transferPending',
-        label: 'Awaiting acceptance',
-        count: parcelStats.value.transferPending,
-    },
-    {
-        value: 'transferOngoing',
-        label: 'To be delivered (transfer)',
-        count: parcelStats.value.transferOngoing,
-    },
-    {
-        value: 'outForDelivery',
-        label: 'Out for delivery',
-        count: parcelStats.value.outForDelivery,
-    },
-    {
         value: 'transferred',
         label: 'Delivered',
         count: parcelStats.value.transferred,
@@ -1021,15 +995,7 @@ const filtered = computed(() => {
     const term = search.value.toLowerCase();
 
     return parcelAssignments.value.filter((parcel) => {
-        if (stage.value === 'actionable' && !isParcelActionable(parcel)) {
-            return false;
-        }
-
-        if (
-            stage.value !== 'all' &&
-            stage.value !== 'actionable' &&
-            stageOf(parcel) !== stage.value
-        ) {
+        if (stage.value !== 'all' && stageOf(parcel) !== stage.value) {
             return false;
         }
 
@@ -1070,13 +1036,9 @@ const emptyTitle = computed(() => {
 
     return (
         {
-            actionable: 'Nothing needs action',
             toPickUp: 'No parcels waiting for pickup',
-            toDeliver: 'No parcels waiting for a delivery rider',
+            toDeliver: 'No parcels waiting to be delivered',
             toTransfer: 'No parcels waiting to be transferred',
-            transferPending: 'No transfer requests awaiting acceptance',
-            transferOngoing: 'No accepted transfers in progress',
-            outForDelivery: 'No parcels out for delivery',
             transferred: 'No parcels handed to another company',
             all: 'No parcels in the sorting queue',
         }[stage.value] || 'No parcels here'
@@ -1134,43 +1096,26 @@ function vehicleRequirementLabel(requiredVehicleType) {
     );
 }
 
-// Status column text within the combined 'transferOngoing' tab (see
-// stageOf) — accepted and on its way to the other company, no matter
-// which of the three internal steps it's actually on (the action column
-// already spells that out, e.g. "With courier, headed to X").
-function transferOngoingLabel() {
-    return 'To be delivered';
-}
-
+// One label per stage (see stageOf) — the action column next to it
+// already spells out finer detail where it matters (e.g. "With courier,
+// headed to X", "Requested X ago").
 function statusLabel(parcel) {
-    const stage = stageOf(parcel);
-
-    if (stage === 'transferOngoing') {
-        return transferOngoingLabel();
-    }
-
     return {
         toPickUp: 'To pick up',
         toDeliver: 'To be delivered',
         toTransfer: 'To transfer',
-        transferPending: 'Awaiting acceptance',
-        outForDelivery: 'Out for delivery',
         transferred: 'Delivered',
-    }[stage];
+    }[stageOf(parcel)];
 }
 
 function statusClass(parcel) {
     const stage = stageOf(parcel);
 
-    if (stage === 'outForDelivery' || stage === 'transferred') {
+    if (stage === 'transferred') {
         return 'badge-teal';
     }
 
-    return stage === 'toTransfer' ||
-        stage === 'transferPending' ||
-        stage === 'transferOngoing'
-        ? 'badge-indigo'
-        : 'badge-amber';
+    return stage === 'toTransfer' ? 'badge-indigo' : 'badge-amber';
 }
 
 // One label for every stage — what happens when it's clicked still

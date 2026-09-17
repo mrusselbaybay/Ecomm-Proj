@@ -1070,14 +1070,15 @@ function isParcelActionable(parcel) {
     return parcel.status !== 'handed_off' || !parcel.rider;
 }
 
+// Mirrors ParcelOperations.vue's stageOf() exactly — four tab counts,
+// kept in sync by hand since the two files don't share a composable
+// export for it. If stageOf() ever changes its branching, update this
+// the same way.
 const parcelStats = computed(() => {
     const stats = {
         toPickUp: 0,
         toDeliver: 0,
-        outForDelivery: 0,
         toTransfer: 0,
-        transferPending: 0,
-        transferOngoing: 0,
         transferred: 0,
         total: 0,
     };
@@ -1089,24 +1090,28 @@ const parcelStats = computed(() => {
             stats.transferred += 1;
         } else if (parcel.status === 'transfer_pending') {
             // Offered to another company, waiting on their answer.
-            stats.transferPending += 1;
+            stats.toTransfer += 1;
         } else if (
             parcel.status === 'transfer_ongoing' ||
             parcel.status === 'transfer_assigned' ||
             parcel.status === 'ready_to_transfer'
         ) {
-            // Accepted — a courier now has to carry it to the target
-            // company before it counts as 'transferred'. See stageOf() in
-            // ParcelOperations.vue for the same grouping.
-            stats.transferOngoing += 1;
+            // Accepted — a courier is carrying it to the target company.
+            stats.toDeliver += 1;
         } else if (parcel.status !== 'handed_off') {
             stats.toPickUp += 1;
-        } else if (parcel.rider) {
-            stats.outForDelivery += 1;
-        } else if (parcel.is_transfer) {
+        } else if (
+            !parcel.is_transfer_receipt &&
+            (parcel.area_fallback_tier === 'regional' ||
+                parcel.area_fallback_tier === 'provincial')
+        ) {
+            // Regional/provincial pool pre-match, still an open "local
+            // delivery or transfer?" decision — not for a transfer
+            // receipt, which was chosen specifically to cover this area.
+            stats.toTransfer += 1;
+        } else if (parcel.is_transfer && !parcel.is_transfer_receipt) {
             // Picked up, but this company doesn't cover the buyer's
-            // region — it needs handing to one that does. Mirrors
-            // stageOf() in ParcelOperations.vue.
+            // region — it needs handing to one that does.
             stats.toTransfer += 1;
         } else {
             stats.toDeliver += 1;
