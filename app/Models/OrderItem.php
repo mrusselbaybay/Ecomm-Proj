@@ -54,7 +54,10 @@ class OrderItem extends Model
     // (see the 2026_08_23_000008 migration). Eloquent can't resolve a
     // relation and an attribute off the same name, so callers that need
     // the live ProductVariant row (e.g. for its current image) must eager
-    // load/access this instead of `variant`.
+    // load/access this instead of `variant`. (feature/seller's copy of
+    // this model named the relation `variant()` instead, which collided
+    // with the column and made it permanently unreachable — this name
+    // is the fix, not just a style choice.)
     public function productVariant(): BelongsTo
     {
         return $this->belongsTo(ProductVariant::class, 'variant_id');

@@ -1,0 +1,1233 @@
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Inter:wght@400;500;600;700&family=Caveat+Brush&display=swap');
+@import 'tailwindcss';
+
+/*
+|--------------------------------------------------------------------------
+| BuyTheWay guest-preview homepage — Didone scroll choreography
+|--------------------------------------------------------------------------
+|
+| Three tall pinned stages (hero 300svh, image reveal 320svh, cumulative
+| rows 360svh) interleaved with normal-flow bands on alternating
+| backgrounds. Bodoni Moda is the primary interface voice (headings,
+| nav, buttons, product rows, FAQ); Inter is reserved for small tracked
+| decorative metadata (hero straps, row action labels, index numerals)
+| per the brief's own "reserve the 10.5px tracked styling for
+| nonessential decorative metadata" instruction. No cart, no search, no
+| product-detail links anywhere — this is a guest preview only.
+*/
+
+:root {
+    /*
+     * Deep-teal / warm off-white palette (replaces the earlier pink/
+     * blush scheme). --blush-1/--blush-2/--paper previously held three
+     * distinct near-white shades for alternating light bands; the new
+     * palette specifies one "alternate section bands" color, so all
+     * three now share the same pale-sage value — kept as three
+     * variables rather than merged into one, so no usage site needs
+     * touching, but note they're intentionally identical now.
+     */
+    --plaster: #f7f7f4;
+    --blush-1: #e3ece7;
+    --blush-2: #e3ece7;
+    --paper: #e3ece7;
+    /* "Main text and dark sections" is one shared role in the new
+       palette, exactly like the old --ink already was (general text
+       color AND the reveal/spotlight stage backgrounds) — repointing
+       this single token correctly recolors both at once. */
+    --ink: #142521;
+    --ink-soft: #58655f;
+    --muted: #58655f;
+    /* Unused leftover from an earlier draft palette — no rule in this
+       file references --sage, so it's dropped instead of repointed. */
+    /*
+     * Deep teal is dark enough to work directly as text/border color on
+     * every light background here, so — unlike the old pink scheme —
+     * there's no separate "safe for light backgrounds" variant needed.
+     * --accent is the general-purpose accent (script accents, index
+     * numerals, prices, links, focus rings, outlined-button borders/
+     * text on light sections). --accent-hover is the dedicated darker
+     * shade for filled/hover states specifically (the palette gives
+     * this its own distinct value rather than deriving it). --accent-
+     * dark is the OPPOSITE case — light sage, for the same categories
+     * of accent but WHEN the surrounding background is the dark
+     * charcoal-green stage, where deep teal itself would be too close
+     * in value to read (dark teal must never sit on the dark stage —
+     * see the near-black-stage rules further down).
+     */
+    --accent: #205c50;
+    --accent-hover: #164238;
+    --accent-dark: #b9d7c8;
+    --hairline: #cfdad3;
+    --hairline-on-dark: rgba(255, 255, 255, 0.22);
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --font-display: 'Bodoni Moda', 'Times New Roman', serif;
+    --font-label: 'Inter', system-ui, sans-serif;
+    --font-script: 'Caveat Brush', cursive;
+}
+
+.btw-home {
+    background: var(--plaster);
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+}
+
+.btw-home * {
+    box-sizing: border-box;
+}
+
+.btw-home img {
+    display: block;
+    max-width: 100%;
+}
+
+.btw-home a {
+    text-decoration: none;
+}
+
+.btw-home button {
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.btw-home em,
+.btw-home i {
+    font-style: italic;
+}
+
+/* ---------- Skip link ---------- */
+.btw-skip-link {
+    position: absolute;
+    left: 0.75rem;
+    top: -3rem;
+    z-index: 400;
+    background: var(--ink);
+    color: var(--plaster);
+    font-family: var(--font-label);
+    font-size: 0.8rem;
+    padding: 0.65rem 1.1rem;
+    transition: top 0.15s var(--ease);
+}
+
+.btw-skip-link:focus {
+    top: 0.75rem;
+}
+
+/* ---------- Focus visibility ---------- */
+.btw-home a:focus-visible,
+.btw-home button:focus-visible,
+.btw-home summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+}
+
+.btw-spotlight :is(a, button):focus-visible {
+    outline-color: var(--accent-dark);
+}
+
+/* ---------- Script accents (exactly three) ---------- */
+.btw-script {
+    display: inline-block;
+    font-family: var(--font-script);
+    color: var(--accent);
+    font-size: clamp(1.35rem, 3vw, 1.9rem);
+    line-height: 1;
+    transform: rotate(-2deg);
+}
+
+/* The hero sits on a light (plaster + multiply-blended photo)
+   background, so its script accent already gets the right color from
+   the base .btw-script rule above (--accent, deep teal) — only the
+   spotlight stage needs the dark-background override here. */
+.btw-spotlight .btw-script {
+    color: var(--accent-dark);
+}
+
+/* ---------- Word-reveal + generic reveal ---------- */
+.btw-word {
+    display: inline-block;
+    opacity: 0;
+    transform: translateY(0.4em);
+    transition: opacity 0.6s var(--ease) calc(var(--i, 0) * 38ms), transform 0.6s var(--ease) calc(var(--i, 0) * 38ms);
+    will-change: transform, opacity;
+}
+
+.btw-words.is-in .btw-word {
+    opacity: 1;
+    transform: none;
+}
+
+[data-rev] {
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity 0.55s var(--ease) var(--d, 0ms), transform 0.55s var(--ease) var(--d, 0ms);
+}
+
+[data-rev].is-in {
+    opacity: 1;
+    transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .btw-home * {
+        animation-duration: 0.001ms !important;
+        transition-duration: 0.001ms !important;
+    }
+
+    .btw-word,
+    [data-rev] {
+        opacity: 1 !important;
+        transform: none !important;
+        transition: none !important;
+    }
+}
+
+/* ---------- Decorative tracked label (the "10.5px" metadata voice) ---------- */
+.btw-label {
+    font-family: var(--font-label);
+    font-weight: 600;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.17em;
+    color: var(--muted);
+}
+
+/* ============================================================ */
+/* NAV                                                              */
+/* ============================================================ */
+
+.btw-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 200;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 1rem;
+    /* 6–8vw horizontal, ~20–24px top — a printed-on-the-photo strip,
+       not a bar: no background, border, or fixed height of its own. */
+    padding: 22px clamp(1.25rem, 7vw, 4rem) 0;
+    background: transparent;
+    pointer-events: none;
+}
+
+.btw-nav > * {
+    pointer-events: auto;
+}
+
+.btw-nav-logo {
+    grid-column: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    justify-self: start;
+}
+
+.btw-nav-logo img {
+    height: 24px;
+    width: auto;
+    transition: filter 0.2s var(--ease);
+}
+
+.btw-nav-wordmark {
+    font-weight: 500;
+    font-size: 1.35rem;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    transition: color 0.2s var(--ease);
+}
+
+.btw-nav-center {
+    grid-column: 2;
+    display: flex;
+    align-items: center;
+    gap: 2.5rem;
+    justify-self: center;
+}
+
+.btw-nav-actions {
+    grid-column: 3;
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    justify-self: end;
+}
+
+/* Below 640px the center links give way first — Preview and Questions
+   stay reachable from the hamburger menu. Below 420px Log In gives way
+   too, since by then even Sign Up alone is a tight fit beside the logo
+   and menu button. */
+@media (max-width: 640px) {
+    .btw-nav-center {
+        display: none;
+    }
+}
+
+@media (max-width: 420px) {
+    .btw-nav-login {
+        display: none;
+    }
+}
+
+.btw-link-quiet {
+    position: relative;
+    font-weight: 500;
+    font-size: 0.9rem;
+    color: var(--ink-soft);
+    padding-bottom: 3px;
+    transition: color 0.2s var(--ease);
+}
+
+/* Nav links sit directly on the hero photo with no background box, so
+   their hit area is enlarged with an invisible pseudo-element rather
+   than visible padding — keeps a >=24px touch target without making
+   the compact text look bulky. */
+.btw-nav .btw-link-quiet::before {
+    content: '';
+    position: absolute;
+    inset: -14px;
+}
+
+.btw-link-quiet::after {
+    /* currentColor rather than a fixed token — this class is also used
+       for the "Log In" link inside the dark spotlight stage (see
+       .btw-spotlight-actions below), where --accent would be nearly
+       invisible against the charcoal-green background. It always
+       matches whatever hover color is active in that context instead. */
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 100%;
+    bottom: 0;
+    height: 1px;
+    background: currentColor;
+    transition: right 0.25s var(--ease);
+}
+
+.btw-link-quiet:hover {
+    color: var(--ink);
+}
+
+.btw-link-quiet:hover::after {
+    right: 0;
+}
+
+a.btw-nav-signup {
+    font-weight: 700;
+}
+
+/* ---------- Nav tone: adapts to whatever's scrolled beneath it ---------- */
+/* Default ("is-light"-equivalent — no modifier needed): the reveal
+   photo, statement band, preview table, FAQ, and footer are all
+   verified flat/light at the header's overlap band, so --ink text
+   already has strong contrast with no extra treatment. */
+
+.btw-nav.is-hero .btw-nav-wordmark,
+.btw-nav.is-hero .btw-link-quiet,
+.btw-nav.is-hero a.btw-nav-signup {
+    /* The hero photo's top strip measured as a genuinely mixed
+       light/dark collage — neither flat dark nor flat light text
+       clears normal-text AA everywhere across it — so light text is
+       paired here with a soft shadow to hold up over its darker
+       patches (leaves, the sneaker) without needing a background box. */
+    color: var(--plaster);
+    text-shadow: 0 1px 3px rgba(20, 37, 33, 0.55);
+}
+
+.btw-nav.is-hero .btw-nav-logo img {
+    filter: brightness(0) invert(1) drop-shadow(0 1px 2px rgba(20, 37, 33, 0.45));
+}
+
+.btw-nav.is-hero .btw-nav-menu-toggle {
+    color: var(--plaster);
+    border-color: rgba(247, 247, 244, 0.55);
+    filter: drop-shadow(0 1px 2px rgba(20, 37, 33, 0.45));
+}
+
+.btw-nav.is-dark .btw-nav-wordmark {
+    color: var(--plaster);
+}
+
+.btw-nav.is-dark .btw-link-quiet {
+    color: rgba(247, 247, 244, 0.8);
+}
+
+.btw-nav.is-dark .btw-link-quiet:hover {
+    color: var(--plaster);
+}
+
+.btw-nav.is-dark a.btw-nav-signup {
+    color: var(--accent-dark);
+}
+
+.btw-nav.is-dark .btw-nav-logo img {
+    filter: brightness(0) invert(1);
+}
+
+.btw-nav.is-dark .btw-nav-menu-toggle {
+    color: var(--plaster);
+    border-color: var(--hairline-on-dark);
+}
+
+.btw-nav.is-hero :is(a, button):focus-visible,
+.btw-nav.is-dark :is(a, button):focus-visible {
+    outline-color: var(--accent-dark);
+}
+
+.btw-btn-outline {
+    display: inline-flex;
+    align-items: center;
+    font-weight: 600;
+    font-size: 0.9rem;
+    padding: 0.85rem 1.9rem;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid var(--accent);
+    transition: color 0.2s var(--ease), background-color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+
+.btw-btn-outline:hover {
+    background: var(--accent-hover);
+    color: var(--plaster);
+    border-color: var(--accent-hover);
+}
+
+.btw-nav-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: none;
+    border: 1px solid var(--hairline);
+    color: var(--ink);
+}
+
+@media (min-width: 640px) {
+    .btw-nav-menu-toggle {
+        display: none;
+    }
+}
+
+.btw-nav-menu-toggle svg {
+    width: 19px;
+    height: 19px;
+}
+
+.btw-mobile-menu {
+    position: fixed;
+    inset: 0;
+    z-index: 250;
+    background: var(--plaster);
+    padding: 6rem 1.5rem 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.btw-mobile-menu a,
+.btw-mobile-menu button {
+    font-size: 1.4rem;
+    font-weight: 500;
+    color: var(--ink);
+    background: none;
+    border: none;
+    text-align: left;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--hairline);
+}
+
+.btw-mobile-close {
+    position: absolute;
+    top: 1.1rem;
+    right: 1.25rem;
+    width: 40px;
+    height: 40px;
+    background: none;
+    border: 1px solid var(--hairline);
+    color: var(--ink);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ---------- Account dropdown ---------- */
+.btw-account-menu {
+    position: absolute;
+    top: 3rem;
+    right: -0.5rem;
+    z-index: 210;
+    width: 14.5rem;
+    background: var(--plaster);
+    border: 1px solid var(--hairline);
+    padding: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.btw-account-menu .email {
+    font-family: var(--font-label);
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin: 0 0 0.3rem;
+    word-break: break-all;
+}
+
+.btw-account-menu a,
+.btw-account-menu button {
+    font-size: 0.88rem;
+    color: var(--ink);
+    background: none;
+    border: none;
+    text-align: left;
+    padding: 0.45rem 0;
+    border-top: 1px solid var(--hairline);
+}
+
+.btw-account-menu a:hover,
+.btw-account-menu button:hover {
+    color: var(--accent);
+}
+
+/* ---------- Progress rail ---------- */
+.btw-progress-rail {
+    position: fixed;
+    right: 0.65rem;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 150;
+    width: 2px;
+    height: 140px;
+    background: var(--hairline);
+    pointer-events: none;
+}
+
+.btw-progress-rail .fill {
+    /* The rail is a fixed, persistent element that stays on screen
+       across every section (light and the charcoal-green stage alike),
+       so it uses the general accent rather than the dark-section-only
+       light sage. */
+    width: 100%;
+    background: var(--accent);
+    height: calc(var(--rail, 0) * 100%);
+    transition: height 0.1s linear;
+}
+
+@media (max-width: 900px) {
+    .btw-progress-rail {
+        display: none;
+    }
+}
+
+/* ============================================================ */
+/* HERO — STAGE 1 (300svh)                                          */
+/* ============================================================ */
+
+.btw-hero-wrap {
+    position: relative;
+    height: 300svh;
+}
+
+@media (prefers-reduced-motion: reduce), (max-width: 760px) {
+    .btw-hero-wrap {
+        height: auto;
+    }
+}
+
+.btw-hero {
+    position: sticky;
+    top: 0;
+    height: 100svh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 6rem 1.25rem 5rem;
+    background: var(--plaster);
+}
+
+@media (prefers-reduced-motion: reduce), (max-width: 760px) {
+    .btw-hero {
+        position: relative;
+        height: auto;
+        min-height: 100svh;
+    }
+}
+
+.btw-hero-photo {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+}
+
+.btw-hero-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    mix-blend-mode: multiply;
+    transform: scale(calc(1.04 + var(--p, 0) * 0.07)) translateY(calc(var(--p, 0) * -3%));
+    will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .btw-hero-photo img {
+        transform: none;
+    }
+}
+
+.btw-hero-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.1rem;
+    transform: translateY(calc(var(--p, 0) * -46px));
+    opacity: calc(1 - var(--p, 0) * 1.6);
+    max-width: 60rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .btw-hero-content {
+        transform: none;
+        opacity: 1;
+    }
+}
+
+.btw-hero-overline {
+    margin: 0 0 0.15rem;
+}
+
+.btw-hero-wordmark {
+    font-weight: 500;
+    font-style: italic;
+    color: var(--ink);
+    letter-spacing: -0.05em;
+    line-height: 0.8;
+    white-space: nowrap;
+    margin: 0;
+    padding-bottom: 0.4em;
+    --chars: 9;
+    font-size: min(clamp(3.5rem, 34vw, 20rem), calc(88vw / (var(--chars) * 0.6)));
+}
+
+.btw-hero-sub {
+    font-family: var(--font-label);
+    font-size: clamp(0.95rem, 2vw, 1.1rem);
+    color: var(--ink-soft);
+    max-width: 32rem;
+    margin: 0;
+}
+
+.btw-hero-straps {
+    position: absolute;
+    z-index: 1;
+    left: 0;
+    right: 0;
+    bottom: 1.75rem;
+    display: flex;
+    justify-content: center;
+    gap: 2.5rem;
+    flex-wrap: wrap;
+    padding: 0 1.5rem;
+}
+
+.btw-hero-straps span {
+    font-family: var(--font-label);
+    font-weight: 600;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink);
+}
+
+/* ============================================================ */
+/* BLUSH STATEMENT BAND                                             */
+/* ============================================================ */
+
+.btw-statement {
+    background: var(--blush-1);
+    padding: 5.5rem 1.5rem;
+}
+
+.btw-statement-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.btw-statement-heading {
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    line-height: 1.08;
+    font-size: clamp(2rem, 5vw, 3.4rem);
+    max-width: 44rem;
+    margin: 0;
+}
+
+.btw-statement-script {
+    margin-top: 1rem;
+}
+
+.btw-statement-cols {
+    margin-top: 3.5rem;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+    border-top: 1px solid var(--hairline);
+    padding-top: 2.5rem;
+}
+
+@media (min-width: 800px) {
+    .btw-statement-cols {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+.btw-statement-col h3 {
+    font-style: italic;
+    font-weight: 500;
+    font-size: 1.4rem;
+    margin: 0 0 0.6rem;
+}
+
+.btw-statement-col p {
+    font-family: var(--font-label);
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 0.94rem;
+    max-width: 26rem;
+}
+
+/* ============================================================ */
+/* IMAGE REVEAL — STAGE 2 (320svh)                                  */
+/* ============================================================ */
+
+.btw-reveal-wrap {
+    position: relative;
+    height: 320svh;
+}
+
+@media (prefers-reduced-motion: reduce), (max-width: 760px) {
+    .btw-reveal-wrap {
+        height: auto;
+    }
+}
+
+.btw-reveal {
+    position: sticky;
+    top: 0;
+    height: 100svh;
+    overflow: hidden;
+    background: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce), (max-width: 760px) {
+    .btw-reveal {
+        position: relative;
+        height: 70svh;
+        min-height: 420px;
+    }
+}
+
+.btw-reveal-photo {
+    position: absolute;
+    inset: 0;
+    /* Bottom-up reveal: as --p rises 0→1, the TOP inset shrinks from
+       100% (fully clipped away) to 0 (fully visible), so the visible
+       area grows upward from the bottom edge. */
+    clip-path: inset(calc((1 - var(--p, 0)) * 100%) 0 0 0);
+}
+
+@media (prefers-reduced-motion: reduce), (max-width: 760px) {
+    .btw-reveal-photo {
+        clip-path: none;
+    }
+}
+
+.btw-reveal-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.btw-reveal-heading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0 1.5rem;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.btw-reveal-heading h2 {
+    font-weight: 500;
+    color: #fff;
+    mix-blend-mode: difference;
+    font-size: clamp(2.1rem, 6.5vw, 5rem);
+    letter-spacing: -0.04em;
+    line-height: 1;
+    margin: 0;
+    opacity: calc(1 - var(--p, 0) * 1.3);
+}
+
+@media (prefers-reduced-motion: reduce), (max-width: 760px) {
+    .btw-reveal-heading h2 {
+        opacity: 1;
+        mix-blend-mode: normal;
+        color: var(--ink);
+    }
+
+    .btw-reveal-heading {
+        position: relative;
+        background: rgba(247, 247, 244, 0.9);
+        padding: 3rem 1.5rem;
+    }
+}
+
+.btw-reveal-caption {
+    position: absolute;
+    left: 1.75rem;
+    bottom: 1.75rem;
+    right: 1.75rem;
+    z-index: 3;
+    max-width: 28rem;
+    color: #fff;
+    /* The photo underneath varies in tone by crop/viewport, so a soft
+       shadow (same technique as the transparent nav over the hero
+       photo) keeps this legible without a solid scrim behind it. */
+    text-shadow: 0 1px 4px rgba(20, 37, 33, 0.6);
+    opacity: clamp(0, calc((var(--p, 0) - 0.45) / 0.35), 1);
+}
+
+@media (prefers-reduced-motion: reduce), (max-width: 760px) {
+    .btw-reveal-caption {
+        position: relative;
+        left: auto;
+        bottom: auto;
+        right: auto;
+        opacity: 1;
+        color: var(--ink);
+        text-shadow: none;
+        /* Same backdrop as .btw-reveal-heading directly above it, and no
+           gap between them, so the two elements read as one continuous
+           panel instead of the caption floating unstyled over the photo. */
+        background: rgba(247, 247, 244, 0.9);
+        padding: 0 1.5rem 2rem;
+        max-width: 34rem;
+        margin: 0 auto;
+    }
+}
+
+.btw-reveal-caption p {
+    font-style: italic;
+    font-size: clamp(1.05rem, 2.4vw, 1.4rem);
+    margin: 0;
+    line-height: 1.35;
+}
+
+/* ============================================================ */
+/* RULED PRODUCT PREVIEW                                            */
+/* ============================================================ */
+
+.btw-preview {
+    background: var(--paper);
+    padding: 5.5rem 1.5rem;
+}
+
+.btw-preview-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.btw-preview-eyebrow {
+    text-align: center;
+    margin-bottom: 2.5rem;
+}
+
+.btw-preview-list {
+    border-top: 1px solid var(--hairline);
+}
+
+.btw-preview-row {
+    display: grid;
+    grid-template-columns: 1.3fr 1.6fr auto;
+    align-items: baseline;
+    gap: 1.5rem;
+    padding: 1.75rem 0;
+    border-bottom: 1px solid var(--hairline);
+}
+
+@media (max-width: 700px) {
+    .btw-preview-row {
+        grid-template-columns: 1fr auto;
+        row-gap: 0.4rem;
+    }
+
+    .btw-preview-row .btw-preview-desc {
+        grid-column: 1 / -1;
+        order: 3;
+    }
+}
+
+.btw-preview-name-wrap {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.btw-preview-name {
+    font-weight: 600;
+    font-size: clamp(1.15rem, 2.6vw, 1.5rem);
+    letter-spacing: -0.015em;
+    margin: 0;
+}
+
+.btw-sample-tag {
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 0.22rem 0.4rem;
+    border: 1px solid var(--muted);
+    color: var(--muted);
+}
+
+.btw-preview-desc {
+    font-style: italic;
+    color: var(--ink-soft);
+    font-size: 0.95rem;
+    margin: 0;
+}
+
+.btw-preview-price {
+    font-weight: 600;
+    font-size: 1.15rem;
+    color: var(--accent);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.btw-preview-empty {
+    text-align: center;
+    padding: 2.5rem 1.5rem;
+    color: var(--muted);
+    font-family: var(--font-label);
+    border: 1px dashed var(--hairline);
+}
+
+/* ============================================================ */
+/* NEAR-BLACK CUMULATIVE ROWS — STAGE 3 (360svh)                    */
+/* ============================================================ */
+
+.btw-spotlight-wrap {
+    position: relative;
+    height: 360svh;
+}
+
+@media (prefers-reduced-motion: reduce), (max-width: 900px) {
+    .btw-spotlight-wrap {
+        height: auto;
+    }
+}
+
+.btw-spotlight {
+    position: sticky;
+    top: 0;
+    height: 100svh;
+    overflow: hidden;
+    background: var(--ink);
+    color: var(--plaster);
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: center;
+    padding: 6rem 1.5rem 2.5rem;
+    gap: 2.5rem;
+}
+
+@media (min-width: 900px) {
+    .btw-spotlight {
+        grid-template-columns: 1.15fr 0.85fr;
+        padding: 0 3rem;
+        gap: 4rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce), (max-width: 900px) {
+    .btw-spotlight {
+        position: relative;
+        height: auto;
+        min-height: 0;
+        padding: 5rem 1.5rem;
+    }
+}
+
+.btw-spotlight-heading {
+    font-weight: 500;
+    color: var(--plaster);
+    font-size: clamp(1.9rem, 4.4vw, 3rem);
+    letter-spacing: -0.03em;
+    line-height: 1.08;
+    margin: 0 0 2rem;
+    max-width: 20ch;
+}
+
+.btw-spotlight-rows {
+    border-top: 1px solid var(--hairline-on-dark);
+}
+
+.btw-spotlight-row {
+    display: flex;
+    align-items: baseline;
+    gap: 1.1rem;
+    padding: 1.15rem 0;
+    border-bottom: 1px solid var(--hairline-on-dark);
+    transition: opacity 0.35s ease;
+}
+
+.btw-spotlight-row .idx {
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--accent-dark);
+    min-width: 2.2ch;
+}
+
+.btw-spotlight-row .name {
+    font-weight: 600;
+    font-size: clamp(1.05rem, 2vw, 1.3rem);
+    flex: 1;
+    color: var(--plaster);
+    transition: color 0.35s ease;
+}
+
+.btw-spotlight-row.is-muted {
+    opacity: 0.72;
+}
+
+.btw-spotlight-row .meta {
+    font-family: var(--font-label);
+    font-weight: 600;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: rgba(247, 247, 244, 0.7);
+    white-space: nowrap;
+}
+
+.btw-spotlight-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.25rem;
+    margin-top: 2rem;
+}
+
+.btw-spotlight-actions .btw-btn-outline {
+    color: var(--plaster);
+    border-color: var(--plaster);
+}
+
+.btw-spotlight-actions .btw-btn-outline:hover {
+    background: var(--plaster);
+    color: var(--ink);
+}
+
+.btw-spotlight-actions a.btw-link-quiet {
+    color: rgba(247, 247, 244, 0.8);
+}
+
+.btw-spotlight-actions a.btw-link-quiet:hover {
+    color: var(--accent-dark);
+}
+
+.btw-spotlight-still {
+    position: relative;
+    aspect-ratio: 4 / 5;
+    max-width: 26rem;
+    margin: 0 auto;
+    overflow: hidden;
+}
+
+.btw-spotlight-still img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scale(calc(1.08 - var(--p, 0) * 0.08));
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .btw-spotlight-still img {
+        transform: none;
+    }
+}
+
+.btw-spotlight-tag {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    background: var(--accent-dark);
+    color: var(--ink);
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 0.6rem 1rem;
+}
+
+/* ============================================================ */
+/* FAQ                                                              */
+/* ============================================================ */
+
+.btw-faq {
+    background: var(--blush-2);
+    padding: 5rem 1.5rem;
+}
+
+.btw-faq-inner {
+    max-width: 760px;
+    margin: 0 auto;
+}
+
+.btw-faq-list {
+    border-top: 1px solid var(--hairline);
+    margin-top: 2rem;
+}
+
+.btw-faq-item {
+    border-bottom: 1px solid var(--hairline);
+}
+
+.btw-faq-item summary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.4rem 0.1rem;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: clamp(1.02rem, 2.2vw, 1.25rem);
+    letter-spacing: -0.01em;
+}
+
+.btw-faq-item summary::-webkit-details-marker {
+    display: none;
+}
+
+.btw-faq-indicator {
+    flex-shrink: 0;
+    position: relative;
+    width: 20px;
+    height: 20px;
+}
+
+.btw-faq-indicator::before,
+.btw-faq-indicator::after {
+    content: '';
+    position: absolute;
+    background: var(--ink);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.btw-faq-indicator::before {
+    width: 16px;
+    height: 1.5px;
+}
+
+.btw-faq-indicator::after {
+    width: 1.5px;
+    height: 16px;
+    transition: transform 0.2s ease;
+}
+
+.btw-faq-item[open] .btw-faq-indicator::after {
+    transform: translate(-50%, -50%) rotate(90deg) scaleY(0);
+}
+
+.btw-faq-answer {
+    padding: 0 0.1rem 1.5rem;
+    font-family: var(--font-label);
+    max-width: 60ch;
+    color: var(--ink-soft);
+    font-size: 0.95rem;
+}
+
+/* ============================================================ */
+/* FOOTER                                                           */
+/* ============================================================ */
+
+.btw-footer {
+    background: var(--plaster);
+    border-top: 1px solid var(--hairline);
+    padding: 2.75rem 1.5rem;
+}
+
+.btw-footer-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+}
+
+.btw-footer-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.btw-footer-brand img {
+    height: 26px;
+    width: auto;
+}
+
+.btw-footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+}
+
+.btw-footer-links a {
+    font-family: var(--font-label);
+    font-size: 0.88rem;
+    color: var(--muted);
+}
+
+.btw-footer-links a:hover {
+    color: var(--accent);
+}
+
+.btw-footer-bottom {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-top: 1.5rem;
+    margin-top: 0.5rem;
+    border-top: 1px solid var(--hairline);
+}
+
+.btw-footer-copy {
+    font-family: var(--font-label);
+    font-size: 0.8rem;
+    color: var(--muted);
+}

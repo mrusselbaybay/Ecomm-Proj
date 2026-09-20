@@ -96,6 +96,7 @@ class InventoryService
                 );
 
                 $this->syncProductStock($product);
+                $this->syncProductPrice($product);
 
                 return $movement;
             }
@@ -152,12 +153,13 @@ class InventoryService
     }
 
     /**
-     * Log (only) a simple product's stock being changed through the
-     * product edit form. The form has already written the new value; this
-     * keeps the audit trail complete. The dedicated adjust endpoint is
-     * still the preferred path — see SellerProductService::update().
+     * Log (only) a product's or a kept variant's stock being changed
+     * through the product edit form. The form has already written the new
+     * value; this keeps the audit trail complete. The dedicated adjust
+     * endpoint is still the preferred path — see
+     * SellerProductService::update()/syncOptionsAndVariants().
      */
-    public function recordFormStockEdit(Product $product, int $before, int $after, ?string $actorId): void
+    public function recordFormStockEdit(Product $product, int $before, int $after, ?string $actorId, ?ProductVariant $variant = null): void
     {
         if ($before === $after) {
             return;
@@ -166,7 +168,7 @@ class InventoryService
         InventoryMovement::create([
             'seller_id' => $product->seller_id,
             'product_id' => $product->id,
-            'variant_id' => null,
+            'variant_id' => $variant?->id,
             'order_id' => null,
             'movement_type' => 'form_edit',
             'reason' => 'incorrect_count',
@@ -207,6 +209,7 @@ class InventoryService
 
                     $this->applyToVariant($variant, -$qty, 'sale', null, null, null, 'system', $order->id);
                     $this->syncProductStock($variant->product);
+                    $this->syncProductPrice($variant->product);
 
                     continue;
                 }
@@ -262,6 +265,7 @@ class InventoryService
                         if ($variant) {
                             $this->applyToVariant($variant, $qty, $type, null, null, $actorId, $actorId ? 'seller' : 'system', $order->id);
                             $this->syncProductStock($variant->product);
+                            $this->syncProductPrice($variant->product);
                         }
 
                         continue;
@@ -307,6 +311,7 @@ class InventoryService
 
                     $this->applyToVariant($variant, $qty, $type, null, null, $actorId, $actorId ? 'seller' : 'system', $order->id);
                     $this->syncProductStock($variant->product);
+                    $this->syncProductPrice($variant->product);
 
                     continue;
                 }
@@ -342,6 +347,51 @@ class InventoryService
             // not a seller edit.
             Product::whereKey($product->id)->update(['stock' => $sum]);
             $product->setAttribute('stock', $sum);
+        }
+    }
+
+    /**
+     * Re-derive products.price for a variant product as the lowest price
+     * among its currently purchasable (active, in-stock) variants — the
+     * price a buyer could actually pay right now, same idea as a "Chicken
+     * flavor, ₱120" card falling back to "Beef, ₱135" once Chicken sells
+     * out. If nothing is purchasable (every active variant is out of
+     * stock), falls back to the lowest price among all active variants,
+     * so the storefront still shows a sensible number alongside the
+     * out-of-stock state instead of a stale one. No-op for a simple
+     * product, and a no-op if the product has variant ROWS but none are
+     * 'active' (leaves products.price alone rather than zeroing it).
+     *
+     * Called alongside syncProductStock() everywhere a variant's stock or
+     * status could change which variant is cheapest-and-available: seller
+     * create/update (SellerProductService) and every stock-affecting path
+     * here (sale, cancellation/return restock, manual adjustment).
+     */
+    public function syncProductPrice(Product $product): void
+    {
+        if (! $product->has_variants) {
+            return;
+        }
+
+        $variants = ProductVariant::where('product_id', $product->id)
+            ->where('status', 'active')
+            ->get(['price', 'stock']);
+
+        if ($variants->isEmpty()) {
+            return;
+        }
+
+        $basePrice = (float) $product->price;
+        $effectivePrice = fn (ProductVariant $v) => (float) ($v->price ?? $basePrice);
+
+        $purchasable = $variants->filter(fn (ProductVariant $v) => (int) $v->stock > 0);
+        $pool = $purchasable->isNotEmpty() ? $purchasable : $variants;
+
+        $lowest = $pool->map($effectivePrice)->min();
+
+        if ($lowest !== null && round((float) $product->price, 2) !== round($lowest, 2)) {
+            Product::whereKey($product->id)->update(['price' => $lowest]);
+            $product->setAttribute('price', $lowest);
         }
     }
 

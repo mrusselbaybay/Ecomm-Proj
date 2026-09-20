@@ -1,16 +1,14 @@
 // resources/js/seller/composables/useMessaging.js
 //
 // ---------------------------------------------------------------
-// STATUS: UI-only. No backend exists for this yet — no `conversations`
-// or `messages` table, no Laravel routes/controllers. Per the seller's
-// explicit choice, this composable is written against the DOCUMENTED
-// API CONTRACT below and calls it for real, exactly the way
-// useOrders.js/useFeedback.js call their (real, already-built)
-// endpoints. Every call below will currently 404, and every function
-// here treats a 404 on one of these specific routes as "not deployed
-// yet" (see `backendMissing`) rather than a generic error — see
-// apiFetch(). The moment a Laravel implementation matching this
-// contract exists, this file and Messages.vue need zero changes.
+// The Laravel backend for this (App\Http\Controllers\Seller\MessageController)
+// now exists and implements the API CONTRACT below. `backendMissing` is
+// kept only as a guard on the base GET /messages/conversations list call
+// (loadConversations()) — a 404 there would mean the route itself is
+// gone. A 404 on any single conversation's own endpoints (detail/
+// messages/send/report) means that specific conversation is no longer
+// accessible, not that the API is missing, and is handled per-call
+// instead (see openConversation()'s detailDone catch).
 //
 // Auth: same pattern as every other seller composable — the current
 // Supabase access token is forwarded as `Authorization: Bearer <token>`
@@ -446,7 +444,6 @@ async function openConversation(id) {
         .catch(err => {
             if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== id) return;
             console.error('Error loading messages:', err);
-            if (err.status === 404) backendMissing.value = true;
             isLoadingMessages.value = false;
         });
 
@@ -462,8 +459,16 @@ async function openConversation(id) {
             if (requestSequence !== activeConversationRequestSequence || activeConversationId.value !== id) return;
             console.error('Error opening conversation:', err);
             if (err.status === 404) {
-                backendMissing.value = true;
-            } else if (!cached) {
+                // This specific conversation is gone (deleted/reassigned/not
+                // theirs) — not the same thing as the messaging API itself
+                // being missing, so `backendMissing` (which blanks the whole
+                // list + chat panel) must stay untouched here. Just drop the
+                // stale card and back out to the "select a conversation" state.
+                conversations.value = conversations.value.filter((c) => c.id !== id);
+                closeActiveConversation();
+                return;
+            }
+            if (!cached) {
                 // A cached thread stays showing what it already had rather than
                 // being replaced with an error banner over a background refresh miss.
                 activeConversationError.value = err?.message || "Couldn't load this conversation.";
@@ -628,8 +633,9 @@ async function sendMessage(conversationId, body, attachmentIds = [], context = {
         return res.data;
     } catch (err) {
         console.error('Error sending message:', err);
-        if (err.status === 404) backendMissing.value = true;
-        sendError.value = err?.message || 'Message failed to send.';
+        sendError.value = err.status === 404
+            ? 'This conversation is no longer available.'
+            : err?.message || 'Message failed to send.';
         const idx = messages.value.findIndex((m) => m.id === localId);
         if (idx !== -1) messages.value[idx] = { ...messages.value[idx], status: 'failed' };
         return null;
@@ -694,7 +700,6 @@ async function reportBuyer(id, reason) {
         return true;
     } catch (err) {
         console.error('Error reporting buyer:', err);
-        if (err.status === 404) backendMissing.value = true;
         return false;
     }
 }

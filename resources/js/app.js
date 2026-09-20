@@ -3106,6 +3106,12 @@ const App = {
                         (cleanQuery ? `?${cleanQuery}` : '') +
                         window.location.hash,
                 );
+            } else if (window.location.pathname.startsWith('/signup')) {
+                // /login and /signup both render this same view — open
+                // the matching tab by default instead of always starting
+                // on Login, so the homepage's "Register" nav link (which
+                // points here) actually lands on the sign-up form.
+                switchMode('signup');
             }
 
             supabase.auth.onAuthStateChange((event, session) => {

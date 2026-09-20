@@ -1,56 +1,26 @@
 <!-- resources/js/seller/components/PrepareOrders.vue -->
 <template>
-    <div v-if="isLoading" class="prep-skeleton" aria-busy="true" aria-label="Loading order">
-        <header class="prep-skeleton-header">
-            <div style="flex: 1">
-                <div class="prep-skeleton-line" style="width: 40%; height: 1.1rem; margin-bottom: 0.6rem"></div>
-                <div class="prep-skeleton-line" style="width: 25%; height: 0.7rem"></div>
-            </div>
-            <div class="prep-skeleton-block" style="width: 150px; height: 2.5rem"></div>
-        </header>
-
-        <div class="prep-grid">
-            <div class="prep-col">
-                <div class="card">
-                    <div class="prep-skeleton-line" style="width: 35%; height: 1rem; margin-bottom: 1.25rem"></div>
-                    <div v-for="n in 3" :key="n" class="prep-skeleton-item-row">
-                        <div class="prep-skeleton-block" style="width: 20px; height: 20px; flex-shrink: 0"></div>
-                        <div style="flex: 1">
-                            <div class="prep-skeleton-line" style="width: 60%; margin-bottom: 0.5rem"></div>
-                            <div class="prep-skeleton-line" style="width: 30%; height: 0.6rem"></div>
-                        </div>
-                        <div class="prep-skeleton-block" style="width: 70px; height: 1.5rem"></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="prep-col">
-                <div class="card">
-                    <div class="prep-skeleton-line" style="width: 55%; height: 1rem; margin-bottom: 1.25rem"></div>
-                    <div class="prep-skeleton-block" style="height: 2.5rem; margin-bottom: 1rem"></div>
-                    <div class="prep-skeleton-block" style="height: 2.5rem; margin-bottom: 1rem"></div>
-                    <div class="prep-skeleton-block" style="height: 2.5rem"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div v-else-if="!props.orderId" class="card">
-        <div class="prep-card-head" style="border-bottom: none">
+    <!-- ================================================================
+     QUEUE — always the backdrop page now (see the action modal below).
+     Landing here without a specific order shows this list; picking one
+     opens the modal on top of it instead of replacing it, so Cancel/
+     Mark Ready for Pickup always return to a real, current list instead
+     of a full-page dead end.
+     ================================================================ -->
+    <div class="prep-picker" :aria-hidden="modalOpen">
+        <div class="topbar">
             <div>
-                <h3>Prepare Shipment</h3>
-                <p class="prep-card-sub">
-                    Choose an order to pack and dispatch.
-                </p>
+                <h1 class="page-title">Prepare Orders</h1>
+                <p class="page-sub">Pack and dispatch every order you have accepted.</p>
             </div>
         </div>
 
-        <div v-if="isLoadingOrders" class="placeholder-page">
+        <div v-if="isLoadingOrders && prepQueueOrders.length === 0" class="placeholder-page">
             <div class="loading-spinner"></div>
             <p style="margin-top: 1rem">Loading your orders…</p>
         </div>
 
-        <div v-else-if="preparableOrders.length === 0" class="placeholder-page">
+        <div v-else-if="prepQueueOrders.length === 0" class="placeholder-page">
             <div class="icon-wrap">
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Z" />
@@ -67,478 +37,568 @@
             </button>
         </div>
 
-        <div v-else class="prep-picker-list">
-            <button
-                v-for="o in preparableOrders"
-                :key="o.id"
-                class="prep-picker-row"
-                @click="selectOrder(o.id)"
+        <template v-else>
+            <div class="controls-row">
+                <div class="po-tabs">
+                    <button
+                        v-for="tab in STAGE_TABS"
+                        :key="tab.key"
+                        type="button"
+                        class="po-tab"
+                        :class="{ active: activeStage === tab.key }"
+                        @click="activeStage = tab.key"
+                    >
+                        {{ tab.label }}
+                    </button>
+                </div>
+                <div class="ctrl-right">
+                    <div class="search">
+                        <span class="ic">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.35-4.35" /></svg>
+                        </span>
+                        <input type="text" v-model="pickerSearch" placeholder="Search orders…" />
+                    </div>
+                </div>
+            </div>
+
+            <p v-if="!filteredPickerOrders.length" class="prep-picker-empty">
+                No orders in this view.
+            </p>
+
+            <div v-else class="po-grid">
+                <div v-for="o in pagedPickerOrders" :key="o.id" class="po-card">
+                    <div class="po-card-top">
+                        <div class="po-cust">
+                            <span class="po-cust-avatar">{{ customerInitials(o.customer) }}</span>
+                            <div>
+                                <p class="po-cust-name">{{ o.customer || 'Unknown buyer' }}</p>
+                                <p class="po-cust-meta">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5" /></svg>
+                                    Placed {{ placedAgo(o.placedAt) }}
+                                </p>
+                            </div>
+                        </div>
+                        <span class="po-status-pill" :class="STAGE_PILL[o._stage].cls">
+                            <span class="dot"></span>{{ STAGE_PILL[o._stage].label }}
+                        </span>
+                    </div>
+
+                    <div class="po-meta-row">
+                        <span>Order <span class="val">{{ o.id }}</span></span>
+                        <span v-if="o.shippingService">
+                            Service <span class="val tag" :class="o.shippingService === 'Standard' ? 'neutral' : o.shippingService === 'Express' ? 'blue' : 'bad'">{{ o.shippingService }}</span>
+                        </span>
+                    </div>
+
+                    <div class="po-items">
+                        <div v-for="(item, idx) in o.items" :key="idx" class="po-item-line">
+                            <span class="po-item-qty">{{ item.qty }}</span>
+                            <span class="nm">{{ item.name }}</span>
+                            <span class="pr num">{{ formatCurrency(item.subtotal ?? item.price * item.qty) }}</span>
+                        </div>
+                    </div>
+
+                    <div class="po-total-row">
+                        Total <span class="amt num">{{ formatCurrency(o.total) }}</span>
+                    </div>
+
+                    <div v-if="o._actionable" class="po-card-actions">
+                        <button type="button" class="po-btn-primary" @click="selectOrder(o.id)">
+                            {{ pickerCta(o) }}
+                        </button>
+                    </div>
+                    <p v-else class="po-card-note">
+                        {{ nonActionableNote(o) }}
+                    </p>
+                </div>
+            </div>
+
+            <div v-if="pickerLastPage > 1" class="po-pagination">
+                <span>Showing {{ pickerRangeLabel }} of {{ filteredPickerOrders.length }} orders</span>
+                <div class="po-page-nav">
+                    <button
+                        type="button"
+                        class="po-page-btn"
+                        :disabled="pickerPage <= 1"
+                        aria-label="Previous page"
+                        @click="pickerPage--"
+                    >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 5 8 12l7 7" /></svg>
+                    </button>
+                    <button
+                        v-for="p in pickerLastPage"
+                        :key="p"
+                        type="button"
+                        class="po-page-btn"
+                        :class="{ active: p === pickerPage }"
+                        @click="pickerPage = p"
+                    >
+                        {{ p }}
+                    </button>
+                    <button
+                        type="button"
+                        class="po-page-btn"
+                        :disabled="pickerPage >= pickerLastPage"
+                        aria-label="Next page"
+                        @click="pickerPage++"
+                    >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 5l7 7-7 7" /></svg>
+                    </button>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- ================================================================
+     PREPARE SHIPMENT — action modal, adapted from the reference's
+     .psm-overlay/.psm-modal: a 3-step flow (Shipping Details -> Pack
+     Items -> Ready for Pickup) with a live shipment summary panel.
+     Reuses the app's existing .modal-overlay/.modal-panel primitives
+     (same ones Inventory/Feedback/Messages already use) instead of a
+     one-off overlay, and every field either writes to a real order
+     field (courier, service tier) or is clearly a device-only draft
+     (weight/size, packing checklist) — see the draftKey comment below
+     for why the latter has no backend column.
+
+     This modal only ever takes the order as far as "Ready for Pickup"
+     (Processing -> Packed -> Ready for Pickup, the two real hops
+     Order::ALLOWED_TRANSITIONS actually allows) — it does NOT jump
+     straight to "In Transit". A normal fulfilment flow doesn't let a
+     seller declare an order shipped from their own packing desk; the
+     order becomes In Transit only once Courier Handover's own Confirm
+     Pickup fires, which is also where the real tracking number gets
+     attached (the seller packing a box doesn't know the AWB number
+     until the courier actually scans it).
+     ================================================================ -->
+    <Transition name="modal-fade">
+        <div v-if="modalOpen" class="modal-overlay" @click.self="closeModal">
+            <div
+                ref="panelRef"
+                class="modal-panel psm-panel"
+                :class="{ 'psm-panel-simple': isLoading || !order || !canPrepare }"
+                role="dialog"
+                aria-modal="true"
+                :aria-labelledby="psmTitleId"
+                @keydown.esc.stop.prevent="closeModal"
             >
-                <div>
-                    <p class="prep-picker-id">{{ o.id }}</p>
-                    <p class="prep-picker-meta">{{ o.customer }} — {{ o.items.length }} item(s) — {{ formatCurrency(o.total) }}</p>
-                </div>
-                <span class="badge" :class="statusBadgeClass(o.status)">{{ o.status }}</span>
-            </button>
-        </div>
-    </div>
+                <!-- Loading the targeted order -->
+                <template v-if="isLoading">
+                    <div class="modal-header">
+                        <h3 :id="psmTitleId">Loading order…</h3>
+                        <button type="button" class="modal-close" aria-label="Close" @click="closeModal">
+                            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+                        </button>
+                    </div>
+                    <div class="placeholder-page" style="padding: 1.5rem 0 0.5rem">
+                        <div class="loading-spinner"></div>
+                    </div>
+                </template>
 
-    <div v-else-if="!order" class="card">
-        <div class="placeholder-page">
-            <div class="icon-wrap">
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M9.5 9.5 14.5 14.5M14.5 9.5 9.5 14.5" />
-                </svg>
-            </div>
-            <h3>Order not found</h3>
-            <p>
-                That order couldn't be loaded. It may have been removed, or
-                the link may be out of date.
-            </p>
-            <button class="btn-outline" style="margin-top: 1.25rem" @click="goTo('orders')">
-                Go to Orders
-            </button>
-        </div>
-    </div>
-
-    <div v-else-if="!canPrepare" class="card">
-        <div class="placeholder-page">
-            <div class="icon-wrap" style="background: #fffbeb; color: #d97706">
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 9v4M12 17h.01" />
-                    <circle cx="12" cy="12" r="9" />
-                </svg>
-            </div>
-            <h3>{{ order.id }} isn't ready to prepare</h3>
-            <p>
-                This order is currently
-                <span class="badge" :class="statusBadgeClass(order.status)">{{ order.status }}</span>
-                — shipments can only be prepared for orders you've already
-                accepted.
-            </p>
-            <button class="btn-outline" style="margin-top: 1.25rem" @click="goToOrderDetails">
-                View Order Details
-            </button>
-        </div>
-    </div>
-
-    <div v-else>
-        <!-- ================================================================
-         HEADER
-         ================================================================ -->
-        <header class="prep-header">
-            <div>
-                <div class="flex items-center gap-3">
-                    <h2 class="prep-title">Prepare Shipment</h2>
-                    <span class="badge" :class="statusBadgeClass(order.status)">{{ statusLabel(order.status) }}</span>
-                </div>
-                <nav class="prep-breadcrumb">
-                    <a href="#" @click.prevent="goTo('orders')">Orders</a>
-                    <span>/</span>
-                    <a href="#" @click.prevent="goToOrderDetails">{{ order.id }}</a>
-                    <span>/</span>
-                    <span>Prepare Shipment</span>
-                </nav>
-            </div>
-            <div class="flex items-center gap-3">
-                <button class="btn-outline" @click="saveDraft">
-                    {{ draftSavedAt ? 'Draft Saved ✓' : 'Save Draft' }}
-                </button>
-                <button
-                    class="btn-primary"
-                    :disabled="!canDispatch"
-                    :title="dispatchDisabledReason"
-                    @click="confirmDispatch"
-                >
-                    {{ isUpdatingStatus ? 'Dispatching…' : 'Confirm Dispatch' }}
-                </button>
-            </div>
-        </header>
-
-        <p v-if="updateError" class="save-msg error" style="margin-bottom: 1rem">
-            {{ updateError }}
-        </p>
-
-        <!-- ================================================================
-         WORKFLOW GRID
-         ================================================================ -->
-        <div class="prep-grid">
-            <!-- LEFT: items + packing tips -->
-            <div class="prep-col">
-                <div class="card">
-                    <div class="prep-card-head">
-                        <div class="flex items-center gap-3">
-                            <div class="prep-icon-badge">
-                                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7">
-                                    <path d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Z" />
-                                    <path d="M3 6.5V14l7 3.5 7-3.5V6.5" />
-                                    <path d="M10 10v7.5" />
-                                </svg>
-                            </div>
-                            <h3>Items to Pack</h3>
+                <!-- Order couldn't be loaded -->
+                <template v-else-if="!order">
+                    <div class="modal-header">
+                        <h3 :id="psmTitleId">Order Not Found</h3>
+                        <button type="button" class="modal-close" aria-label="Close" @click="closeModal">
+                            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+                        </button>
+                    </div>
+                    <div class="placeholder-page">
+                        <div class="icon-wrap">
+                            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="9" />
+                                <path d="M9.5 9.5 14.5 14.5M14.5 9.5 9.5 14.5" />
+                            </svg>
                         </div>
-                        <span class="prep-progress-label">{{ packedCount }} / {{ totalItems }} packed</span>
+                        <p>
+                            That order couldn't be loaded. It may have been
+                            removed, or the link may be out of date.
+                        </p>
+                        <button class="btn-outline" style="margin-top: 1.25rem" @click="closeModal">
+                            Close
+                        </button>
+                    </div>
+                </template>
+
+                <!-- Found, but not in a packable status yet -->
+                <template v-else-if="!canPrepare">
+                    <div class="modal-header">
+                        <h3 :id="psmTitleId">{{ order.id }} Isn't Ready to Prepare</h3>
+                        <button type="button" class="modal-close" aria-label="Close" @click="closeModal">
+                            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+                        </button>
+                    </div>
+                    <div class="placeholder-page">
+                        <div class="icon-wrap" style="background: #fffbeb; color: #d97706">
+                            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 9v4M12 17h.01" />
+                                <circle cx="12" cy="12" r="9" />
+                            </svg>
+                        </div>
+                        <template v-if="order.status === 'Confirmed'">
+                            <p>
+                                This order is
+                                <span class="badge" :class="statusBadgeClass(order.status)">{{ order.status }}</span>
+                                — start processing it to begin packing.
+                            </p>
+                            <p v-if="updateError" class="save-msg error">{{ updateError }}</p>
+                            <button
+                                class="btn-primary"
+                                style="margin-top: 1.25rem"
+                                :disabled="isStartingProcessing"
+                                @click="startProcessingThisOrder"
+                            >
+                                {{ isStartingProcessing ? 'Starting…' : 'Start Processing' }}
+                            </button>
+                        </template>
+                        <template v-else>
+                            <p>
+                                This order is currently
+                                <span class="badge" :class="statusBadgeClass(order.status)">{{ order.status }}</span>
+                                — shipments can only be prepared for orders
+                                you've already accepted ("Processing").
+                            </p>
+                            <button class="btn-outline" style="margin-top: 1.25rem" @click="goToOrderDetails">
+                                View Order Details
+                            </button>
+                        </template>
+                    </div>
+                </template>
+
+                <!-- Real 3-step prepare-shipment flow -->
+                <template v-else>
+                    <div class="psm-head">
+                        <div class="psm-head-icon">
+                            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7">
+                                <path d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Z" />
+                                <path d="M3 6.5V14l7 3.5 7-3.5V6.5" />
+                                <path d="M10 10v7.5" />
+                            </svg>
+                        </div>
+                        <div class="psm-head-text">
+                            <h3 :id="psmTitleId">Prepare Shipment</h3>
+                            <p>{{ order.id }} · {{ order.customer || 'Unknown buyer' }}</p>
+                        </div>
+                        <span class="badge" :class="statusBadgeClass(order.status)">{{ order.statusLabel || order.status }}</span>
+                        <button type="button" class="modal-close" aria-label="Close" @click="closeModal">
+                            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+                        </button>
                     </div>
 
-                    <div class="prep-progress-track">
-                        <div class="prep-progress-fill" :style="{ width: packProgressPct + '%' }"></div>
-                    </div>
-
-                    <div class="prep-item-list">
-                        <div
-                            v-for="(item, idx) in order.items"
-                            :key="idx"
-                            class="prep-item-row"
-                            :class="{ packed: packedState[idx] }"
+                    <div class="psm-steps-wrap">
+                        <button
+                            v-for="step in PSM_STEPS"
+                            :key="step.n"
+                            type="button"
+                            class="psm-step"
+                            :class="{ active: activePsmStep === step.n, done: activePsmStep > step.n }"
+                            :disabled="step.n > maxPsmStep"
+                            @click="goToPsmStep(step.n)"
                         >
-                            <div class="prep-item-icon">
-                                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">
-                                    <path d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Z" />
-                                    <path d="M3 6.5V14l7 3.5 7-3.5V6.5" />
-                                </svg>
-                            </div>
-                            <div class="prep-item-info">
-                                <p v-if="item.sku" class="prep-item-sku">SKU: {{ item.sku }}</p>
-                                <h4 class="prep-item-name">{{ item.name }}</h4>
-                                <p v-if="item.variant" class="prep-item-variant">{{ item.variant }}</p>
-                            </div>
-                            <div class="prep-item-actions">
-                                <span class="prep-item-qty">Qty: {{ item.qty }}</span>
-                                <label class="prep-packed-toggle">
-                                    <input
-                                        type="checkbox"
-                                        :checked="!!packedState[idx]"
-                                        @change="togglePacked(idx)"
-                                    />
-                                    <span>{{ packedState[idx] ? 'Packed' : 'Pending' }}</span>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="prep-card-head" style="border-bottom: none; padding-bottom: 0">
-                        <h3>Packing Tips</h3>
-                    </div>
-                    <div class="prep-tips-grid">
-                        <div class="prep-tip">
-                            <span class="prep-tip-num">1</span>
-                            <p>Use a box sized close to the items — extra empty space means more movement in transit.</p>
-                        </div>
-                        <div class="prep-tip">
-                            <span class="prep-tip-num">2</span>
-                            <p>Wrap fragile or electronic items individually before boxing them together.</p>
-                        </div>
-                        <div class="prep-tip">
-                            <span class="prep-tip-num">3</span>
-                            <p>Double-check quantities against this checklist before sealing the box.</p>
-                        </div>
-                        <div class="prep-tip">
-                            <span class="prep-tip-num">4</span>
-                            <p>Seal all edges securely and keep the tracking number visible on the label.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- RIGHT: shipping configuration -->
-            <div class="prep-col">
-                <div class="card">
-                    <div class="prep-card-head">
-                        <div>
-                            <h3>Shipping Configuration</h3>
-                            <p class="prep-card-sub">Enter the package and courier details for this shipment.</p>
-                        </div>
+                            <span class="psm-step-dot">{{ activePsmStep > step.n ? '✓' : step.n }}</span>
+                            <span class="psm-step-label">{{ step.label }}</span>
+                        </button>
                     </div>
 
-                    <div class="prep-form">
-                        <div class="sheet-field-row">
-                            <div>
-                                <label class="field-label">Package Weight (kg) <span class="prep-required">*</span></label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    inputmode="decimal"
-                                    class="field-input"
-                                    v-model.number="packageWeight"
-                                    placeholder="0.00"
-                                    @keydown="blockNonNumericKey"
-                                    @paste="sanitizeNumericPaste"
-                                />
+                    <p v-if="updateError" class="save-msg error" style="margin: 0.9rem 1.5rem 0">{{ updateError }}</p>
+
+                    <div class="psm-body scrollbar-hidden">
+                        <div class="psm-form-col">
+                            <!-- Step 1: Shipping Details -->
+                            <div v-show="activePsmStep === 1" class="card">
+                                <div class="prep-card-head">
+                                    <div>
+                                        <h3>Shipping Details</h3>
+                                        <p class="prep-card-sub">Enter the package and courier details for this shipment.</p>
+                                    </div>
+                                </div>
+                                <div class="prep-form">
+                                    <div class="sheet-field-row">
+                                        <div>
+                                            <label class="field-label">Courier / Carrier</label>
+                                            <select class="field-input" v-model="shippingCarrier" :disabled="isLoadingCouriers">
+                                                <option value="">{{ courierSelectPlaceholder }}</option>
+                                                <option v-for="c in couriers" :key="c.id" :value="c.name">{{ c.name }}</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="field-label">Service Tier</label>
+                                            <select class="field-input" v-model="shippingService">
+                                                <option value="Standard">Standard</option>
+                                                <option value="Express">Express</option>
+                                                <option value="Same-Day">Same-Day</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <p class="field-hint">
+                                        Saved to this order once you mark it ready for
+                                        pickup — Courier Handover confirms the actual
+                                        pickup and hand-off from there.
+                                    </p>
+
+                                    <div class="sheet-field-row">
+                                        <div>
+                                            <label class="field-label">Package Weight (kg)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                class="field-input"
+                                                v-model.number="packageWeight"
+                                                placeholder="0.00"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label class="field-label">Package Size</label>
+                                            <select class="field-input" v-model="packageSize">
+                                                <option value="">Select a size…</option>
+                                                <option value="Small">Small</option>
+                                                <option value="Medium">Medium</option>
+                                                <option value="Large">Large</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <p class="field-hint">
+                                        Kept on this device only as a packing note —
+                                        there's no order field for package weight/size yet,
+                                        so it isn't sent anywhere when you dispatch.
+                                    </p>
+                                </div>
                             </div>
-                            <div>
-                                <label class="field-label">Dimensions L×W×H (cm) <span class="prep-required">*</span></label>
-                                <div class="prep-dims-row">
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        inputmode="decimal"
-                                        class="field-input"
-                                        v-model.number="packageDims.l"
-                                        placeholder="L"
-                                        @keydown="blockNonNumericKey"
-                                        @paste="sanitizeNumericPaste"
-                                    />
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        inputmode="decimal"
-                                        class="field-input"
-                                        v-model.number="packageDims.w"
-                                        placeholder="W"
-                                        @keydown="blockNonNumericKey"
-                                        @paste="sanitizeNumericPaste"
-                                    />
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        inputmode="decimal"
-                                        class="field-input"
-                                        v-model.number="packageDims.h"
-                                        placeholder="H"
-                                        @keydown="blockNonNumericKey"
-                                        @paste="sanitizeNumericPaste"
-                                    />
+
+                            <!-- Step 2: Pack Items -->
+                            <template v-if="activePsmStep === 2">
+                                <div class="card">
+                                    <div class="prep-card-head">
+                                        <div class="flex items-center gap-3">
+                                            <div class="prep-icon-badge">
+                                                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7">
+                                                    <path d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Z" />
+                                                    <path d="M3 6.5V14l7 3.5 7-3.5V6.5" />
+                                                    <path d="M10 10v7.5" />
+                                                </svg>
+                                            </div>
+                                            <h3>Items to Pack</h3>
+                                        </div>
+                                        <span class="prep-progress-label">{{ packedCount }} / {{ totalItems }} packed</span>
+                                    </div>
+
+                                    <div class="prep-progress-track">
+                                        <div class="prep-progress-fill" :style="{ width: packProgressPct + '%' }"></div>
+                                    </div>
+
+                                    <div class="prep-item-list">
+                                        <div
+                                            v-for="(item, idx) in order.items"
+                                            :key="idx"
+                                            class="prep-item-row"
+                                            :class="{ packed: packedState[idx] }"
+                                        >
+                                            <div class="prep-item-icon">
+                                                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">
+                                                    <path d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Z" />
+                                                    <path d="M3 6.5V14l7 3.5 7-3.5V6.5" />
+                                                </svg>
+                                            </div>
+                                            <div class="prep-item-info">
+                                                <p v-if="item.sku" class="prep-item-sku">SKU: {{ item.sku }}</p>
+                                                <h4 class="prep-item-name">{{ item.name }}</h4>
+                                                <p v-if="item.variant" class="prep-item-variant">{{ item.variant }}</p>
+                                            </div>
+                                            <div class="prep-item-actions">
+                                                <span class="prep-item-qty">Qty: {{ item.qty }}</span>
+                                                <label class="prep-packed-toggle">
+                                                    <input
+                                                        type="checkbox"
+                                                        :checked="!!packedState[idx]"
+                                                        @change="togglePacked(idx)"
+                                                    />
+                                                    <span>{{ packedState[idx] ? 'Packed' : 'Pending' }}</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="card">
+                                    <div class="prep-card-head" style="border-bottom: none; padding-bottom: 0">
+                                        <h3>Packing Tips</h3>
+                                    </div>
+                                    <div class="prep-tips-grid">
+                                        <div class="prep-tip">
+                                            <span class="prep-tip-num">1</span>
+                                            <p>Use a box sized close to the items — extra empty space means more movement in transit.</p>
+                                        </div>
+                                        <div class="prep-tip">
+                                            <span class="prep-tip-num">2</span>
+                                            <p>Wrap fragile or electronic items individually before boxing them together.</p>
+                                        </div>
+                                        <div class="prep-tip">
+                                            <span class="prep-tip-num">3</span>
+                                            <p>Double-check quantities against this checklist before sealing the box.</p>
+                                        </div>
+                                        <div class="prep-tip">
+                                            <span class="prep-tip-num">4</span>
+                                            <p>Seal all edges securely and keep the tracking number visible on the label.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Step 3: Ready for Pickup -->
+                            <div v-show="activePsmStep === 3" class="card">
+                                <div class="prep-card-head">
+                                    <div>
+                                        <h3>Ready for Pickup</h3>
+                                        <p class="prep-card-sub">Review the shipment before it waits for the courier.</p>
+                                    </div>
+                                </div>
+                                <p class="prep-dispatch-note">
+                                    Confirming this moves the order to
+                                    <strong>Ready for Pickup</strong> and lists it on
+                                    Courier Handover — it only becomes
+                                    <strong>In Transit</strong> once you actually confirm
+                                    the courier picked it up there.
+                                </p>
+                                <p v-if="!allPacked" class="prep-dispatch-warning">
+                                    {{ totalItems - packedCount }} item(s) still marked as
+                                    pending — you can still continue, but double-check
+                                    your box first.
+                                </p>
+
+                                <!-- Parcel confirmation code + tracking number, minted
+                                     the moment this step is reached (see
+                                     watch(activePsmStep) below) so both are already
+                                     printable before the seller ever hands the parcel
+                                     to a courier on Courier Handover. -->
+                                <div class="prep-review-section prep-review-section--qr">
+                                    <span class="prep-review-label">Parcel confirmation code</span>
+                                    <p class="prep-review-sub">
+                                        The courier scans this at pickup and again on
+                                        delivery. Print it and attach it to the parcel.
+                                    </p>
+                                    <div v-if="isPreppingDispatch" class="prep-review-qr-loading">
+                                        <div class="loading-spinner"></div>
+                                    </div>
+                                    <div v-else-if="reviewQrPayload" class="prep-qr-poster prep-review-qr">
+                                        <p class="prep-qr-poster-shop">{{ order.seller?.name || 'Store' }}</p>
+                                        <p class="prep-qr-poster-order">Order {{ order.id }}</p>
+                                        <ParcelQrCode :value="reviewQrPayload" :size="176" />
+                                        <p v-if="trackingNumber" class="prep-qr-poster-track">
+                                            Tracking: {{ trackingNumber }}
+                                        </p>
+                                    </div>
+                                    <p v-else class="prep-review-sub">
+                                        The code isn't ready yet — you can still continue,
+                                        and print it later from Order Details.
+                                    </p>
+                                    <button
+                                        v-if="reviewQrPayload"
+                                        type="button"
+                                        class="btn-outline prep-review-print"
+                                        @click="printDeliveryDetails"
+                                    >
+                                        Print
+                                    </button>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="sheet-field-row">
+                        <div class="psm-summary-col">
+                            <div class="psm-summary-head">
+                                <span class="psm-summary-avatar">{{ customerInitials(order.customer) }}</span>
+                                <div>
+                                    <h4>{{ order.customer || 'Unknown buyer' }}</h4>
+                                    <p>{{ order.id }}</p>
+                                </div>
+                            </div>
+
                             <div>
-                                <label class="field-label">Courier / Carrier <span class="prep-required">*</span></label>
-                                <select class="field-input" v-model="shippingCarrier">
-                                    <option value="" disabled>
-                                        {{ isLoadingLogisticsCompanies ? 'Loading couriers…' : 'Select a courier' }}
-                                    </option>
-                                    <option v-for="company in logisticsCompanies" :key="company.id" :value="company.name">
-                                        {{ company.name }}
-                                    </option>
-                                    <!-- Keeps a draft's/order's previously saved carrier selectable even if
-                                         it's since dropped off the active-companies list. -->
-                                    <option
-                                        v-if="shippingCarrier && !logisticsCompanies.some((c) => c.name === shippingCarrier)"
-                                        :value="shippingCarrier"
+                                <p class="psm-summary-title">Shipment</p>
+                                <div class="psm-summary-row">
+                                    <span class="lbl">Courier</span>
+                                    <span class="val">{{ shippingCarrier.trim() || 'Not set yet' }}</span>
+                                </div>
+                                <div class="psm-summary-row">
+                                    <span class="lbl">Service</span>
+                                    <span class="val">{{ shippingService }}</span>
+                                </div>
+                                <div class="psm-summary-row">
+                                    <span class="lbl">Weight</span>
+                                    <span class="val">{{ packageWeight ? `${packageWeight} kg` : '—' }}</span>
+                                </div>
+                                <div class="psm-summary-row">
+                                    <span class="lbl">Size</span>
+                                    <span class="val">{{ packageSize || '—' }}</span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <p class="psm-summary-title">Order</p>
+                                <div class="psm-summary-row">
+                                    <span class="lbl">Payment</span>
+                                    <span class="val">{{ order.paymentMethod || '—' }} ({{ order.paymentStatus || '—' }})</span>
+                                </div>
+                                <div class="psm-summary-row">
+                                    <span class="lbl">Ship to</span>
+                                    <span class="val">{{ formatAddress(order.address) }}</span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <p class="psm-summary-title">Products ({{ totalItems }})</p>
+                                <div class="psm-summary-items">
+                                    <div
+                                        v-for="(item, idx) in order.items"
+                                        :key="idx"
+                                        class="psm-summary-item"
+                                        :class="{ packed: packedState[idx] }"
                                     >
-                                        {{ shippingCarrier }}
-                                    </option>
-                                </select>
-                                <p v-if="!isLoadingLogisticsCompanies && logisticsCompanies.length === 0" class="field-hint">
-                                    No active logistics partners on file yet.
-                                </p>
+                                        <span class="chk">✓</span>
+                                        <span class="nm">{{ item.qty }}× {{ item.name }}</span>
+                                    </div>
+                                </div>
                             </div>
-                            <div>
-                                <label class="field-label">Service Tier</label>
-                                <select class="field-input" v-model="shippingService">
-                                    <option value="Standard">Standard</option>
-                                    <option value="Express">Express</option>
-                                    <option value="Same-Day">Same-Day</option>
-                                </select>
+
+                            <div class="psm-summary-total">
+                                Total <span class="amt num">{{ formatCurrency(order.total) }}</span>
                             </div>
                         </div>
+                    </div>
 
-                        <div>
-                            <label class="field-label">Tracking Number</label>
-                            <input
-                                type="text"
-                                class="field-input prep-tracking-input"
-                                :value="trackingNumber || (isPreppingDispatch ? 'Generating…' : 'Assigned on dispatch')"
-                                readonly
-                            />
-                            <p class="field-hint">
-                                Generated automatically — this is what buyers
-                                will see to track their order.
-                            </p>
+                    <div class="psm-foot">
+                        <div class="psm-foot-left">
+                            <button type="button" class="btn-outline" @click="closeModal">Cancel</button>
+                            <button type="button" class="psm-save-draft" @click="saveDraft">
+                                {{ draftSavedAt ? 'Draft Saved ✓' : 'Save Draft' }}
+                            </button>
+                        </div>
+                        <div class="psm-foot-right">
+                            <button v-if="activePsmStep > 1" type="button" class="btn-outline" @click="prevPsmStep">
+                                Back
+                            </button>
+                            <button v-if="activePsmStep < 3" type="button" class="btn-primary" @click="nextPsmStep">
+                                Next
+                            </button>
+                            <button
+                                v-else
+                                type="button"
+                                class="btn-primary"
+                                :disabled="!canConfirmReady"
+                                @click="confirmReadyForPickup"
+                            >
+                                {{ isUpdatingStatus ? 'Marking Ready…' : 'Mark Ready for Pickup' }}
+                            </button>
                         </div>
                     </div>
-                </div>
-
-                <div class="card">
-                    <div class="prep-card-head" style="border-bottom: none">
-                        <h3>Ready to Dispatch?</h3>
-                    </div>
-                    <p class="prep-dispatch-note">
-                        Confirming dispatch moves this order to
-                        <strong>In Transit</strong> and shares the tracking
-                        details above with the buyer.
-                    </p>
-                    <button
-                        class="btn-primary prep-dispatch-btn"
-                        :disabled="!canDispatch"
-                        :title="dispatchDisabledReason"
-                        @click="confirmDispatch"
-                    >
-                        {{ isUpdatingStatus ? 'Dispatching…' : 'Confirm Dispatch' }}
-                    </button>
-                </div>
+                </template>
             </div>
         </div>
-
-        <!-- ================================================================
-         DISPATCH REVIEW — the last look before the parcel goes out
-         ================================================================ -->
-        <div
-            v-if="reviewOpen"
-            class="modal-overlay"
-            @click.self="reviewOpen = false"
-        >
-            <div class="modal-panel prep-review-panel">
-                <div class="modal-header">
-                    <h3>Review delivery details</h3>
-                    <button class="modal-close" aria-label="Close" @click="reviewOpen = false">
-                        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M5 5l10 10M15 5 5 15" />
-                        </svg>
-                    </button>
-                </div>
-                <p class="modal-desc">
-                    Confirm everything below is correct. Dispatching moves
-                    {{ order.id }} to <strong>In Transit</strong> and can't be
-                    undone.
-                </p>
-
-                <div class="prep-review-section prep-review-section--qr">
-                    <span class="prep-review-label">Parcel confirmation code</span>
-                    <p class="prep-review-sub">
-                        The courier scans this at pickup and again on delivery.
-                        Print it and attach it to the parcel.
-                    </p>
-                    <div v-if="isPreppingDispatch" class="prep-review-qr-loading">
-                        <div class="loading-spinner"></div>
-                    </div>
-                    <div
-                        v-else-if="reviewQrPayload"
-                        ref="reviewPosterRef"
-                        class="prep-qr-poster prep-review-qr"
-                    >
-                        <p class="prep-qr-poster-shop">
-                            {{ order.seller?.name || 'Store' }}
-                        </p>
-                        <p class="prep-qr-poster-order">Order {{ order.id }}</p>
-                        <ParcelQrCode :value="reviewQrPayload" :size="176" />
-                        <p v-if="trackingNumber" class="prep-qr-poster-track">
-                            Tracking: {{ trackingNumber }}
-                        </p>
-                    </div>
-                    <p v-else class="prep-review-sub">
-                        The code isn't ready yet — you can still dispatch and
-                        print it from the order afterwards.
-                    </p>
-                </div>
-
-                <div class="prep-review-section">
-                    <span class="prep-review-label">Shop</span>
-                    <p class="prep-review-value">{{ order.seller?.name || 'Store' }}</p>
-                    <p v-if="shopLocation" class="prep-review-sub">{{ shopLocation }}</p>
-                </div>
-
-                <div class="prep-review-section">
-                    <span class="prep-review-label">Items</span>
-                    <ul class="prep-review-items">
-                        <li v-for="(item, idx) in order.items" :key="idx">
-                            <span>{{ item.name }}<template v-if="item.variant"> · {{ item.variant }}</template></span>
-                            <span class="prep-review-qty">× {{ item.qty }}</span>
-                        </li>
-                    </ul>
-                </div>
-
-                <div class="prep-review-section">
-                    <span class="prep-review-label">Shipping configuration</span>
-                    <dl class="prep-review-grid">
-                        <div>
-                            <dt>Weight</dt>
-                            <dd>{{ packageWeight ? `${packageWeight} kg` : '—' }}</dd>
-                        </div>
-                        <div>
-                            <dt>Dimensions</dt>
-                            <dd>{{ dimensionsLabel }}</dd>
-                        </div>
-                        <div>
-                            <dt>Courier</dt>
-                            <dd>{{ shippingCarrier || '—' }}</dd>
-                        </div>
-                        <div>
-                            <dt>Service tier</dt>
-                            <dd>{{ shippingService || '—' }}</dd>
-                        </div>
-                        <div class="prep-review-grid-wide">
-                            <dt>Tracking number</dt>
-                            <dd>{{ trackingNumber || '—' }}</dd>
-                        </div>
-                    </dl>
-                </div>
-
-                <p v-if="!allPacked" class="prep-dispatch-warning">
-                    {{ totalItems - packedCount }} item(s) still marked as pending.
-                </p>
-                <p v-if="updateError" class="save-msg error">{{ updateError }}</p>
-
-                <div class="modal-actions">
-                    <button class="btn-outline" @click="reviewOpen = false">Back</button>
-                    <button class="btn-outline" @click="printDeliveryDetails">
-                        Print
-                    </button>
-                    <button
-                        class="btn-primary"
-                        :disabled="isUpdatingStatus"
-                        @click="doDispatch"
-                    >
-                        {{ isUpdatingStatus ? 'Dispatching…' : 'Confirm & Dispatch' }}
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- ================================================================
-         PARCEL QR — the confirmation code, shown after a successful dispatch
-         ================================================================ -->
-        <div v-if="qrOpen" class="modal-overlay">
-            <div class="modal-panel prep-qr-panel">
-                <div class="modal-header">
-                    <h3>Parcel confirmation code</h3>
-                </div>
-                <p class="modal-desc">
-                    Print this and attach it to the parcel. The courier scans
-                    it to confirm each hand-off — at pickup, and again on
-                    delivery.
-                </p>
-                <p v-if="statusWarning" class="prep-dispatch-warning">
-                    {{ statusWarning }}
-                </p>
-
-                <div ref="qrPosterRef" class="prep-qr-poster">
-                    <p class="prep-qr-poster-shop">
-                        {{ dispatchedOrder?.seller?.name || 'Store' }}
-                    </p>
-                    <p class="prep-qr-poster-order">Order {{ dispatchedOrder?.id }}</p>
-                    <ParcelQrCode
-                        v-if="qrPayload"
-                        :value="qrPayload"
-                        :size="200"
-                    />
-                    <p
-                        v-if="dispatchedOrder?.shipping?.trackingNumber"
-                        class="prep-qr-poster-track"
-                    >
-                        Tracking: {{ dispatchedOrder.shipping.trackingNumber }}
-                    </p>
-                </div>
-
-                <div class="modal-actions">
-                    <button class="btn-outline" @click="printDeliveryDetails">
-                        Print
-                    </button>
-                    <button class="btn-primary" @click="finishDispatch">Done</button>
-                </div>
-            </div>
-        </div>
-    </div>
+    </Transition>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
+import { useCouriers } from '../composables/useCouriers';
 import { useOrders } from '../composables/useOrders';
 import { printDeliveryDetails as printDeliveryDetailsDoc } from '../lib/deliveryDetailsPrint';
 import ParcelQrCode from './ParcelQrCode.vue';
@@ -554,289 +614,99 @@ const {
     getOrderById,
     ensureDispatchPrep,
     statusBadgeClass,
-    statusLabel,
     formatCurrency,
     isUpdatingStatus,
     updateError,
-    statusWarning,
-    shipOrder,
-    logisticsCompanies,
-    isLoadingLogisticsCompanies,
-    loadLogisticsCompanies,
+    updateOrderStatus,
 } = useOrders();
 
-loadLogisticsCompanies();
+const { couriers, isLoadingCouriers, loadCouriers } = useCouriers();
 
-// Any status between "accepted" and "handed to the courier" — a seller can
-// jump straight from Confirmed to packing/dispatch (see Order::
-// ALLOWED_TRANSITIONS) rather than being forced through Processing/Packed/
-// Ready for Pickup one click at a time first.
-const PREPARABLE_STATUSES = ['Confirmed', 'Processing', 'Packed', 'Ready for Pickup'];
+const courierSelectPlaceholder = computed(() => {
+    if (isLoadingCouriers.value) {
+return 'Loading couriers…';
+}
+
+    if (!couriers.value.length) {
+return 'No couriers registered yet';
+}
+
+    return 'Select a courier…';
+});
 
 const isLoading = ref(true);
 const order = ref(null);
 
 const packedState = ref({}); // { [itemIndex]: boolean } — local packing checklist
-const trackingNumber = ref('');
 const shippingCarrier = ref('');
 const shippingService = ref('Standard');
 const packageWeight = ref(null);
-const packageDims = ref({ l: null, w: null, h: null });
+const packageSize = ref(''); // 'Small' | 'Medium' | 'Large' | ''
 const draftSavedAt = ref(null);
 
-// Confirm-dispatch flow: review sheet (with the QR) -> dispatch -> parcel
-// QR sheet (same code again, for printing after the fact).
-const reviewOpen = ref(false);
-const qrOpen = ref(false);
-const dispatchedOrder = ref(null); // the full order returned by shipOrder()
-const qrPosterRef = ref(null); // poster node in the post-dispatch sheet
-const reviewPosterRef = ref(null); // poster node in the review sheet
-
-// Dispatch identifiers assigned by the backend the moment an order is
-// opened for preparation: the parcel QR payload (shown in the review sheet
-// and reused post-dispatch) and the generated tracking number (shown
-// read-only on the form — sellers never type it).
+// Dispatch identifiers assigned by the backend the moment a seller
+// reaches the "Ready for Pickup" step: the parcel QR payload and the
+// generated tracking number (TRK-YYYYMMDD-NNNN). Minted here, during
+// preparation, rather than waiting for Courier Handover's "Confirm
+// Pickup" — a seller needs both to print and attach to the parcel
+// before it ever leaves their hands. dispatch-prep is idempotent, so
+// Courier Handover's later status update to 'In Transit' just reuses
+// whatever this already assigned instead of generating a second one.
 const reviewQrPayload = ref('');
+const trackingNumber = ref('');
 const isPreppingDispatch = ref(false);
 
-const shopLocation = computed(() => {
-    const s = order.value?.seller;
-
-    return s ? [s.city, s.province].filter(Boolean).join(', ') : '';
-});
-
-const dimensionsLabel = computed(() => {
-    const d = packageDims.value;
-
-    if (!d || (!d.l && !d.w && !d.h)) {
-        return '—';
-    }
-
-    return `${d.l || '?'} × ${d.w || '?'} × ${d.h || '?'} cm`;
-});
-
-// The string the seller SPA encodes into the parcel QR. Same value in the
-// review sheet and the post-dispatch sheet — the backend hands back the
-// order's existing token rather than minting a second one.
-const qrPayload = computed(
-    () => dispatchedOrder.value?.dispatch?.qrPayload || reviewQrPayload.value || '',
-);
-
-// Runs once `order.value` is populated (from cache or a fresh fetch):
-// seeds the local packing checklist, restores any saved draft, shows a
-// known tracking number, and kicks off dispatch-prep in the background.
-function afterOrderLoaded() {
-    packedState.value = Object.fromEntries(
-        order.value.items.map((_, idx) => [idx, false]),
-    );
-    draftSavedAt.value = null;
-    loadDraft();
-    // If the order already carries a tracking number (e.g. resumed
-    // later), show that; otherwise ask the backend to assign one. The
-    // cached list summary carries it flat; the full detail nests it
-    // under `shipping` — check both.
-    trackingNumber.value = order.value.shipping?.trackingNumber || order.value.trackingNumber || '';
-    prepareDispatch();
-}
+const modalOpen = computed(() => !!props.orderId);
 
 async function loadOrder() {
-    reviewOpen.value = false;
-    qrOpen.value = false;
-    dispatchedOrder.value = null;
-    reviewQrPayload.value = '';
-    trackingNumber.value = '';
+    // The queue behind the modal is loaded regardless of whether a
+    // specific order was targeted — it's the real page now, not just a
+    // fallback for when no order is selected.
+    if (!orders.value.length) {
+        loadOrders();
+    }
 
     if (!props.orderId) {
-        // No specific order — e.g. the seller clicked "Prepare Orders" in
-        // the sidebar directly, rather than a specific order's "Prepare
-        // Shipment" button. Show the picker shell immediately; its own
-        // isLoadingOrders spinner covers the (not awaited) list fetch
-        // instead of blocking this whole component behind it.
         order.value = null;
         isLoading.value = false;
 
-        if (!orders.value.length) {
-            loadOrders();
-        }
-
         return;
     }
 
-    // Instant paint: if this order is already in the cached list (the
-    // seller got here from the Orders list, Courier Handover, or this
-    // page's own picker — all backed by the same module-scoped `orders`
-    // ref), seed the page from that summary right away instead of making
-    // the seller wait on a network round trip for data we already have.
-    // The summary already carries items/status/customer in full.
-    const cached = orders.value.find((o) => o.id === props.orderId);
-
-    if (cached) {
-        order.value = { ...cached };
-        isLoading.value = false;
-        afterOrderLoaded();
-
-        // Backfill the detail-only fields the summary doesn't carry
-        // (seller/shop info) in the background — never blocks the page.
-        // Tracking is skipped; this view never renders it.
-        getOrderById(props.orderId, { includeJourney: false }).then((full) => {
-            if (full && order.value?.id === props.orderId) {
-                order.value = { ...order.value, ...full };
-            }
-        });
-
-        return;
-    }
-
-    // Cold path (e.g. a direct link) — nothing cached, so show the
-    // skeleton while fetching. Tracking is skipped; this view never
-    // renders it and it's the priciest part of the response.
     isLoading.value = true;
-    order.value = await getOrderById(props.orderId, { includeJourney: false });
-    isLoading.value = false;
+    resetPsmSteps();
+    reviewQrPayload.value = '';
+    trackingNumber.value = '';
+
+    // getOrderById() returns { order, notFound, error } (see its own
+    // doc comment in useOrders.js) — assigning the whole thing here
+    // instead of unwrapping .order would leave every field the wizard
+    // reads (order.value.items, .status, .customer, ...) undefined,
+    // since they'd actually sit one level deeper.
+    const { order: fetched } = await getOrderById(props.orderId, { includeJourney: false });
+    order.value = fetched;
 
     if (order.value) {
-        afterOrderLoaded();
-    }
-}
-
-onMounted(loadOrder);
-
-// Orders a seller has already accepted and can pack/dispatch.
-const preparableOrders = computed(() =>
-    orders.value.filter((o) => PREPARABLE_STATUSES.includes(o.status)),
-);
-
-function selectOrder(id) {
-    window.dispatchEvent(
-        new CustomEvent('seller-nav', {
-            detail: { section: 'prepareOrders', orderId: id },
-        }),
-    );
-}
-
-watch(() => props.orderId, loadOrder);
-
-const canPrepare = computed(() => order.value && PREPARABLE_STATUSES.includes(order.value.status));
-
-const totalItems = computed(() => order.value?.items.length || 0);
-const packedCount = computed(
-    () => Object.values(packedState.value).filter(Boolean).length,
-);
-const allPacked = computed(
-    () => totalItems.value > 0 && packedCount.value === totalItems.value,
-);
-const packProgressPct = computed(() =>
-    totalItems.value > 0 ? Math.round((packedCount.value / totalItems.value) * 100) : 0,
-);
-
-function togglePacked(idx) {
-    packedState.value = { ...packedState.value, [idx]: !packedState.value[idx] };
-}
-
-// Package weight, dimensions and courier are required before dispatch —
-// the buyer-facing shipment record needs them, and there's no sane
-// default to fall back on for any of the three.
-const shippingConfigComplete = computed(() => {
-    const d = packageDims.value || {};
-
-    return (
-        Number(packageWeight.value) > 0 &&
-        Number(d.l) > 0 &&
-        Number(d.w) > 0 &&
-        Number(d.h) > 0 &&
-        shippingCarrier.value.trim().length > 0
-    );
-});
-
-const canDispatch = computed(
-    () =>
-        canPrepare.value &&
-        trackingNumber.value.trim().length > 0 &&
-        shippingConfigComplete.value &&
-        !isUpdatingStatus.value,
-);
-const dispatchDisabledReason = computed(() => {
-    if (isUpdatingStatus.value) return '';
-    if (!trackingNumber.value.trim()) {
-        return isPreppingDispatch.value
-            ? 'Preparing this shipment…'
-            : 'This shipment isn\'t ready to dispatch yet.';
+        packedState.value = Object.fromEntries(
+            order.value.items.map((_, idx) => [idx, false]),
+        );
+        draftSavedAt.value = null;
+        loadDraft();
+        // Same cached list-vs-detail field split useOrders.js documents
+        // elsewhere: the list summary carries tracking flat, the full
+        // detail nests it under `shipping`.
+        trackingNumber.value = order.value.shipping?.trackingNumber || order.value.trackingNumber || '';
+        prepareDispatch();
     }
 
-    if (!shippingConfigComplete.value) {
-        const d = packageDims.value || {};
-        const missing = [];
-
-        if (!(Number(packageWeight.value) > 0)) {
-            missing.push('weight');
-        }
-
-        if (!(Number(d.l) > 0 && Number(d.w) > 0 && Number(d.h) > 0)) {
-            missing.push('dimensions');
-        }
-
-        if (!shippingCarrier.value.trim()) {
-            missing.push('courier');
-        }
-
-        return `Enter the package ${missing.join(', ')} before dispatching.`;
-    }
-
-    return '';
-});
-
-// ---- local draft (this device only) ----
-// There's no backend field for "packing progress" or a shipment draft —
-// this is a convenience so a seller can leave mid-pack and come back
-// without losing their checklist. Nothing here is sent to the server
-// until Confirm Dispatch actually calls shipOrder().
-const draftKey = computed(() => (order.value ? `buytheway:prepare-draft:${order.value.id}` : null));
-
-function loadDraft() {
-    if (!draftKey.value) return;
-
-    try {
-        const raw = window.localStorage.getItem(draftKey.value);
-
-        if (!raw) return;
-
-        const draft = JSON.parse(raw);
-        packedState.value = { ...packedState.value, ...(draft.packedState || {}) };
-        // trackingNumber is assigned by the backend, not drafted here.
-        shippingCarrier.value = draft.shippingCarrier || '';
-        shippingService.value = draft.shippingService || 'Standard';
-        packageWeight.value = draft.packageWeight ?? null;
-        packageDims.value = draft.packageDims || { l: null, w: null, h: null };
-    } catch {
-        // Corrupt/old draft — ignore and start fresh.
-    }
+    isLoading.value = false;
 }
 
-function saveDraft() {
-    if (!draftKey.value) return;
-
-    window.localStorage.setItem(
-        draftKey.value,
-        JSON.stringify({
-            packedState: packedState.value,
-            shippingCarrier: shippingCarrier.value,
-            shippingService: shippingService.value,
-            packageWeight: packageWeight.value,
-            packageDims: packageDims.value,
-        }),
-    );
-    draftSavedAt.value = new Date();
-}
-
-function clearDraft() {
-    if (draftKey.value) {
-        window.localStorage.removeItem(draftKey.value);
-    }
-}
-
-// Ask the backend to assign this order's dispatch identifiers (parcel QR
-// token + tracking number). Runs once when the order is opened; safe to
-// call again as a retry if the first attempt failed.
+// Ask the backend to assign this order's dispatch identifiers (parcel
+// QR token + tracking number) — during preparation, not at courier
+// pickup, so both are ready to print well before the parcel leaves the
+// seller's hands. Runs once when the order is opened; safe to call
+// again as a retry if the first attempt failed or returned nothing.
 async function prepareDispatch() {
     if ((reviewQrPayload.value && trackingNumber.value) || !order.value) {
         return;
@@ -854,80 +724,512 @@ async function prepareDispatch() {
     }
 }
 
-// "Confirm Dispatch" opens the review sheet rather than dispatching
-// straight away — the seller checks the QR, shop, items and shipping
-// summary (and the still-pending-items warning) there before committing.
-function confirmDispatch() {
-    if (!canDispatch.value) return;
-
-    reviewOpen.value = true;
-    prepareDispatch();
-}
-
-// Keep the weight / dimension boxes to digits (and a single decimal
-// point). type="number" already ignores letters on most browsers; this
-// covers "e"/"+"/"-" and pasted text so nothing but a number gets in.
-function blockNonNumericKey(event) {
-    if (['e', 'E', '+', '-'].includes(event.key)) {
-        event.preventDefault();
-    }
-}
-
-function sanitizeNumericPaste(event) {
-    const text = (event.clipboardData || window.clipboardData)?.getData('text') ?? '';
-
-    if (!/^\d*\.?\d*$/.test(text.trim())) {
-        event.preventDefault();
-    }
-}
-
-async function doDispatch() {
-    if (!canDispatch.value) return;
-
-    const updated = await shipOrder(order.value.id, {
-        tracking_number: trackingNumber.value.trim(),
-        shipping_carrier: shippingCarrier.value.trim() || null,
-        shipping_service: shippingService.value || null,
-    });
-
-    // shipOrder() swallows the error and surfaces it via updateError —
-    // keep the review sheet open so the seller sees it and can retry.
-    if (!updated) return;
-
-    clearDraft();
-    dispatchedOrder.value = updated;
-    reviewOpen.value = false;
-
-    // Show the parcel QR the courier will scan at each checkpoint. If the
-    // backend didn't return one, just go straight to the order.
-    if (updated.dispatch?.qrPayload) {
-        qrOpen.value = true;
-    } else {
-        goToOrderDetails();
-    }
-}
-
-function finishDispatch() {
-    qrOpen.value = false;
-    goToOrderDetails();
-}
-
-// Print the full delivery summary — shop, items, shipping config, tracking
-// number and the parcel QR. Shared with Order Details (see
-// lib/deliveryDetailsPrint.js) so it can be reprinted after the order has
-// left this list. Weight/dimensions live only on this screen, so pass
-// them through as extras.
+// Shared with Order Details (see lib/deliveryDetailsPrint.js) so the
+// same delivery slip can be reprinted after the order has moved on.
+// Weight lives only on this screen (this wizard collects a package
+// *size* bucket, not L×W×H dimensions), so pass it through as an extra.
 function printDeliveryDetails() {
-    const o = dispatchedOrder.value || order.value;
-
-    if (!o) {
+    if (!order.value) {
         return;
     }
 
-    printDeliveryDetailsDoc(o, {
+    printDeliveryDetailsDoc(order.value, {
         weight: packageWeight.value,
-        dims: packageDims.value,
     });
+}
+
+onMounted(() => {
+    loadOrder();
+    loadCouriers();
+});
+watch(() => props.orderId, loadOrder);
+
+// Keeps the packing queue current without a manual refresh (same 30s
+// rhythm as Orders.vue/Dashboard.vue's poll) — only re-pulls the list
+// behind the modal, not the modal's own order (that stays in sync via
+// the orderId watch above, so an in-progress packing checklist is never
+// clobbered mid-edit). { force: true }: loadOrders()'s own cache TTL is
+// also 30s, and without forcing, this timer races it and frequently
+// no-ops instead of actually fetching.
+const ORDERS_POLL_MS = 30 * 1000;
+let ordersPollTimer = null;
+
+onMounted(() => {
+    ordersPollTimer = setInterval(() => loadOrders({}, { force: true }), ORDERS_POLL_MS);
+});
+
+onBeforeUnmount(() => {
+    clearInterval(ordersPollTimer);
+});
+
+// Orders a seller has already accepted and can pack/dispatch. Includes
+// 'Confirmed' too — a seller who's accepted an order but hasn't started
+// processing it yet still belongs on this queue (matches the Orders
+// kanban's Processing column, which groups Confirmed the same way);
+// its card just offers "Start Processing" instead of a packing action
+// (see stageOf()'s 'accepted' stage below). Plus the already-shipped/
+// cancelled statuses so the Dispatched/Cancelled tabs have something
+// real to show instead of always being empty.
+const prepQueueOrders = computed(() =>
+    orders.value.filter((o) =>
+        [
+            'Confirmed',
+            'Processing',
+            'Packed',
+            'Ready for Pickup',
+            'In Transit',
+            'Delivered',
+            'Cancelled',
+            'Rejected',
+        ].includes(o.status),
+    ),
+);
+
+// Real per-order packing progress, read from the same localStorage draft
+// loadDraft()/saveDraft() below use — there's no backend field for this,
+// but it's real device-local state, not a fabricated status.
+function peekDraft(orderId) {
+    try {
+        const raw = window.localStorage.getItem(`nexmart:prepare-draft:${orderId}`);
+
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
+    }
+}
+
+function stageOf(o) {
+    if (['Cancelled', 'Rejected'].includes(o.status)) {
+        return 'cancelled';
+    }
+
+    if (['In Transit', 'Delivered'].includes(o.status)) {
+        return 'dispatched';
+    }
+
+    // Confirmed but not yet Processing — nothing to pack yet, so this
+    // is its own real stage rather than lumped in with 'started' (which
+    // means "Processing, actively being packed — including a checklist
+    // that hasn't had a box ticked yet"). Its card offers "Start
+    // Processing" instead of a packing CTA.
+    if (o.status === 'Confirmed') {
+        return 'accepted';
+    }
+
+    // Packed / Ready for Pickup: the order has already moved past
+    // whatever Prepare Orders can do for it — its modal only re-opens
+    // the packing wizard for 'Processing' (see canPrepare) — and the
+    // real remaining action (mark ready for pickup / confirm the
+    // courier pickup) lives on Courier Handover now. This has to be
+    // checked before the packing-draft peek below: once an order is
+    // actually submitted, clearDraft() wipes its local draft, so
+    // without this check a Packed/Ready-for-Pickup order would read as
+    // packed === 0 and wrongly come back 'started' — offering a
+    // "Start Packing" button that reopens the modal only to hit its
+    // "isn't ready to prepare" dead end.
+    if (['Packed', 'Ready for Pickup'].includes(o.status)) {
+        return 'ready';
+    }
+
+    // Only 'Processing' reaches here. There's no separate "not started"
+    // stage — the moment an order is Processing, the seller has already
+    // begun fulfilling it (and the wizard's own Save Draft lets them
+    // persist progress from the very first click), so a checklist with
+    // zero boxes ticked yet is still 'started', just at 0%. Only fully
+    // packed graduates it to 'ready'.
+    const draft = peekDraft(o.id);
+    const total = o.items?.length || 0;
+    const packed = draft?.packedState
+        ? Object.values(draft.packedState).filter(Boolean).length
+        : 0;
+
+    return packed >= total ? 'ready' : 'started';
+}
+
+const STAGE_TABS = [
+    { key: 'all', label: 'All' },
+    { key: 'ready', label: 'Ready to Ship' },
+    { key: 'started', label: 'Started' },
+    { key: 'accepted', label: 'Awaiting Processing' },
+    { key: 'dispatched', label: 'Dispatched' },
+    { key: 'cancelled', label: 'Cancelled' },
+];
+
+const STAGE_PILL = {
+    ready: { cls: 'good', label: 'Ready to Ship' },
+    started: { cls: 'warn', label: 'Started' },
+    accepted: { cls: 'blue', label: 'Awaiting Processing' },
+    dispatched: { cls: 'blue', label: 'Dispatched' },
+    cancelled: { cls: 'bad', label: 'Cancelled' },
+};
+
+const STAGE_CTA = {
+    accepted: 'Start Processing',
+    ready: 'Review & Confirm',
+};
+
+// 'started' covers both "just moved to Processing, checklist untouched"
+// and "partway through packing" — the CTA copy still tells them apart
+// even though the queue no longer splits them into separate tabs.
+function pickerCta(o) {
+    if (o._stage !== 'started') {
+        return STAGE_CTA[o._stage];
+    }
+
+    const draft = peekDraft(o.id);
+    const packed = draft?.packedState
+        ? Object.values(draft.packedState).filter(Boolean).length
+        : 0;
+
+    return packed > 0 ? 'Continue Packing' : 'Start Packing';
+}
+
+const activeStage = ref('all');
+const pickerSearch = ref('');
+
+// Most-recently-touched first, using the same real `updatedAt` field
+// CourierHandover already treats as "last status change" — a seller who
+// just confirmed an order (or advanced it another step) sees it surface
+// to the top of the queue immediately instead of hunting for it wherever
+// the API's default order happened to place it.
+const stagedOrders = computed(() =>
+    prepQueueOrders.value
+        .map((o) => ({
+            ...o,
+            _stage: stageOf(o),
+            // A 'ready' stage covers two different real meanings (see
+            // stageOf()'s comment) — one still actionable here, one not
+            // — so whether the card's button shows is decided from the
+            // real status directly, not just the stage bucket.
+            _actionable: ['Confirmed', 'Processing'].includes(o.status),
+        }))
+        .sort(
+            (a, b) =>
+                new Date(b.updatedAt || b.placedAt || 0) - new Date(a.updatedAt || a.placedAt || 0),
+        ),
+);
+
+function nonActionableNote(o) {
+    if (o._stage === 'cancelled') {
+        return 'This order was cancelled before packing began.';
+    }
+
+    if (o._stage === 'dispatched') {
+        return 'Order has been dispatched.';
+    }
+
+    if (o.status === 'Packed') {
+        return 'Packed — mark it ready for pickup on Courier Handover.';
+    }
+
+    if (o.status === 'Ready for Pickup') {
+        return 'Ready for pickup — confirm the hand-off on Courier Handover.';
+    }
+
+    return '';
+}
+
+const filteredPickerOrders = computed(() => {
+    const q = pickerSearch.value.trim().toLowerCase();
+
+    return stagedOrders.value.filter((o) => {
+        if (activeStage.value !== 'all' && o._stage !== activeStage.value) {
+            return false;
+        }
+
+        if (q && !`${o.id} ${o.customer || ''}`.toLowerCase().includes(q)) {
+            return false;
+        }
+
+        return true;
+    });
+});
+
+const PICKER_PAGE_SIZE = 9;
+const pickerPage = ref(1);
+
+// Watches the FILTER CRITERIA, not filteredPickerOrders itself — that
+// computed returns a brand-new array (and so a new reference) on every
+// recompute, including the ones the 30s orders poll triggers even when
+// its result is identical, which was silently bouncing a seller back to
+// page 1 every 30 seconds. Only an actual tab/search change should reset
+// the page.
+watch([activeStage, pickerSearch], () => {
+    pickerPage.value = 1;
+});
+
+const pickerLastPage = computed(() =>
+    Math.max(1, Math.ceil(filteredPickerOrders.value.length / PICKER_PAGE_SIZE)),
+);
+
+// Keeps the current page in range if the queue shrinks out from under
+// it (e.g. an order moves off the active stage) — safe to run on every
+// poll tick since it only acts when the page is actually now too high,
+// same pattern as Orders.vue's listOrders watch.
+watch(filteredPickerOrders, () => {
+    if (pickerPage.value > pickerLastPage.value) {
+        pickerPage.value = pickerLastPage.value;
+    }
+});
+
+const pagedPickerOrders = computed(() => {
+    const start = (pickerPage.value - 1) * PICKER_PAGE_SIZE;
+
+    return filteredPickerOrders.value.slice(start, start + PICKER_PAGE_SIZE);
+});
+
+const pickerRangeLabel = computed(() => {
+    if (!filteredPickerOrders.value.length) {
+        return '0';
+    }
+
+    const start = (pickerPage.value - 1) * PICKER_PAGE_SIZE + 1;
+    const end = Math.min(pickerPage.value * PICKER_PAGE_SIZE, filteredPickerOrders.value.length);
+
+    return `${start} to ${end}`;
+});
+
+function customerInitials(name) {
+    if (!name) {
+        return '?';
+    }
+
+    const parts = name.trim().split(/\s+/);
+
+    return parts.length === 1
+        ? parts[0].slice(0, 2).toUpperCase()
+        : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function placedAgo(iso) {
+    if (!iso) {
+        return 'recently';
+    }
+
+    const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+
+    if (days <= 0) {
+        return 'today';
+    }
+
+    return days === 1 ? '1 day ago' : `${days} days ago`;
+}
+
+// Opens the action modal on top of the queue (sets props.orderId via
+// SellerLayout's seller-nav handler — see closeModal() for the reverse).
+function selectOrder(id) {
+    window.dispatchEvent(
+        new CustomEvent('seller-nav', {
+            detail: { section: 'prepareOrders', orderId: id },
+        }),
+    );
+}
+
+function closeModal() {
+    // Don't let Esc/backdrop-click/Cancel drop an in-flight request —
+    // mirrors ConfirmActionDialog's same guard.
+    if (isUpdatingStatus.value || isStartingProcessing.value) {
+        return;
+    }
+
+    window.dispatchEvent(
+        new CustomEvent('seller-nav', {
+            detail: { section: 'prepareOrders', orderId: null },
+        }),
+    );
+}
+
+const canPrepare = computed(() => order.value && order.value.status === 'Processing');
+
+// A seller lands here right after confirming an order on Order Details
+// (which now only ever offers "Confirm Order" — see OrderDetails.vue).
+// Rather than sending them back to Order Details to start processing
+// and then back here again, the "not ready yet" panel above offers the
+// real next step directly when the order is 'Confirmed'.
+const isStartingProcessing = ref(false);
+
+async function startProcessingThisOrder() {
+    if (!order.value || isStartingProcessing.value) {
+        return;
+    }
+
+    isStartingProcessing.value = true;
+
+    try {
+        const updated = await updateOrderStatus(order.value.id, 'Processing');
+
+        if (updated) {
+            order.value = updated;
+        }
+    } catch {
+        // updateError already holds a message for the template to show.
+    } finally {
+        isStartingProcessing.value = false;
+    }
+}
+
+// ---- Prepare Shipment modal: 3-step flow ----
+const PSM_STEPS = [
+    { n: 1, label: 'Shipping Details' },
+    { n: 2, label: 'Pack Items' },
+    { n: 3, label: 'Ready for Pickup' },
+];
+const activePsmStep = ref(1);
+const maxPsmStep = ref(1); // furthest step reached — the indicator only lets you jump back, not skip ahead
+
+function resetPsmSteps() {
+    activePsmStep.value = 1;
+    maxPsmStep.value = 1;
+}
+
+function goToPsmStep(n) {
+    if (n <= maxPsmStep.value) {
+        activePsmStep.value = n;
+    }
+}
+
+function nextPsmStep() {
+    if (activePsmStep.value >= 3) {
+        return;
+    }
+
+    activePsmStep.value += 1;
+    maxPsmStep.value = Math.max(maxPsmStep.value, activePsmStep.value);
+}
+
+function prevPsmStep() {
+    if (activePsmStep.value > 1) {
+        activePsmStep.value -= 1;
+    }
+}
+
+const totalItems = computed(() => order.value?.items.length || 0);
+const packedCount = computed(
+    () => Object.values(packedState.value).filter(Boolean).length,
+);
+const allPacked = computed(
+    () => totalItems.value > 0 && packedCount.value === totalItems.value,
+);
+const packProgressPct = computed(() =>
+    totalItems.value > 0 ? Math.round((packedCount.value / totalItems.value) * 100) : 0,
+);
+
+function togglePacked(idx) {
+    packedState.value = { ...packedState.value, [idx]: !packedState.value[idx] };
+}
+
+function formatAddress(addr) {
+    if (!addr) {
+        return '—';
+    }
+
+    return [
+        addr.street,
+        [addr.barangay, addr.municipality].filter(Boolean).join(', '),
+        addr.province,
+        addr.country,
+    ]
+        .filter(Boolean)
+        .join(', ');
+}
+
+const canConfirmReady = computed(() => canPrepare.value && !isUpdatingStatus.value);
+
+// ---- local draft (this device only) ----
+// There's no backend field for "packing progress" or a shipment draft —
+// this is a convenience so a seller can leave mid-pack and come back
+// without losing their checklist. Nothing here is sent to the server
+// until Mark Ready for Pickup actually calls updateOrderStatus().
+const draftKey = computed(() => (order.value ? `nexmart:prepare-draft:${order.value.id}` : null));
+
+function loadDraft() {
+    if (!draftKey.value) {
+return;
+}
+
+    try {
+        const raw = window.localStorage.getItem(draftKey.value);
+
+        if (!raw) {
+return;
+}
+
+        const draft = JSON.parse(raw);
+        packedState.value = { ...packedState.value, ...(draft.packedState || {}) };
+        shippingCarrier.value = draft.shippingCarrier || '';
+        shippingService.value = draft.shippingService || 'Standard';
+        packageWeight.value = draft.packageWeight ?? null;
+        packageSize.value = draft.packageSize || '';
+    } catch {
+        // Corrupt/old draft — ignore and start fresh.
+    }
+}
+
+function saveDraft() {
+    if (!draftKey.value) {
+return;
+}
+
+    window.localStorage.setItem(
+        draftKey.value,
+        JSON.stringify({
+            packedState: packedState.value,
+            shippingCarrier: shippingCarrier.value,
+            shippingService: shippingService.value,
+            packageWeight: packageWeight.value,
+            packageSize: packageSize.value,
+        }),
+    );
+    draftSavedAt.value = new Date();
+}
+
+function clearDraft() {
+    if (draftKey.value) {
+        window.localStorage.removeItem(draftKey.value);
+    }
+}
+
+async function confirmReadyForPickup() {
+    if (!canConfirmReady.value) {
+return;
+}
+
+    if (
+        !allPacked.value &&
+        !window.confirm(
+            `${totalItems.value - packedCount.value} item(s) are still marked as pending. Mark this order ready for pickup anyway?`,
+        )
+    ) {
+        return;
+    }
+
+    const extra = {
+        shipping_carrier: shippingCarrier.value.trim() || null,
+        shipping_service: shippingService.value || null,
+    };
+
+    try {
+        // Processing -> Packed -> Ready for Pickup: two real, distinct
+        // hops (Order::ALLOWED_TRANSITIONS doesn't allow skipping
+        // Packed), each its own recorded status-history row. The
+        // courier/service picked in Step 1 rides along on both so the
+        // order already shows who it's earmarked for while it waits —
+        // it isn't actually handed off (In Transit) until Courier
+        // Handover's own Confirm Pickup, which is also where the real
+        // tracking number gets attached.
+        order.value = await updateOrderStatus(order.value.id, 'Packed', extra);
+        order.value = await updateOrderStatus(order.value.id, 'Ready for Pickup', extra);
+        clearDraft();
+        // Back to the queue — it already re-rendered (updateOrderStatus
+        // updates the composable's shared `orders` list in place), so
+        // this order now shows as awaiting pickup instead of leaving a
+        // stale page open for an order that's already moved on.
+        closeModal();
+    } catch {
+        // updateError already holds a message for the template; order.value
+        // reflects whichever hop actually completed, so canPrepare and the
+        // "not ready" placeholder stay honest even on a partial failure.
+    }
 }
 
 function goTo(section) {
@@ -947,4 +1249,557 @@ function goToOrderDetails() {
         }),
     );
 }
+
+// ---- modal accessibility: focus trap + Esc + restore focus on close ----
+// Same pattern as orders/ConfirmActionDialog.vue's onTabTrap, just local
+// to this component since this modal isn't a separate reusable dialog.
+const uid = Math.random().toString(36).slice(2, 8);
+const psmTitleId = `psm-title-${uid}`;
+const panelRef = ref(null);
+let lastFocused = null;
+
+watch(modalOpen, async (isOpen) => {
+    if (isOpen) {
+        lastFocused = document.activeElement;
+        document.addEventListener('keydown', onTabTrap, true);
+        await nextTick();
+        panelRef.value
+            ?.querySelector('button:not(:disabled), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+            ?.focus();
+    } else {
+        document.removeEventListener('keydown', onTabTrap, true);
+        lastFocused?.focus?.();
+    }
+});
+
+function onTabTrap(e) {
+    if (e.key !== 'Tab' || !panelRef.value) {
+        return;
+    }
+
+    const focusable = panelRef.value.querySelectorAll(
+        'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    );
+
+    if (!focusable.length) {
+        return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+    }
+}
+
+onBeforeUnmount(() => document.removeEventListener('keydown', onTabTrap, true));
 </script>
+
+<style scoped>
+/* ============================================================
+   Dark theme + reference spacing/typography for the queue page
+   (.prep-picker). The action modal's base layout (.psm-*, spacing,
+   grid) lives in the shared resources/css/seller/layout.css
+   stylesheet, not here — only its dark-theme color override lives
+   below (see "ACTION MODAL — DARK THEME"), scoped to .psm-panel so
+   Inventory/Feedback/Messages/ConfirmActionDialog's own modals keep
+   their plain white panel.
+   ============================================================ */
+.prep-picker {
+    --pp-surface: #161b17;
+    --pp-surface-2: #1d231e;
+    --pp-border: rgba(255, 255, 255, 0.08);
+    --pp-border-soft: rgba(255, 255, 255, 0.06);
+    --pp-ink-900: #f2f4f1;
+    --pp-ink-700: #c6cbc5;
+    --pp-ink-500: #97a099;
+    --pp-ink-400: #6d766e;
+    color: var(--pp-ink-900);
+}
+
+/* ---- topbar (matches the reference's .topbar/.page-title/.page-sub) ---- */
+.prep-picker .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.35rem;
+}
+.prep-picker .page-title {
+    font-size: 1.3rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--pp-ink-900);
+    margin: 0;
+}
+.prep-picker .page-sub {
+    font-size: 0.79rem;
+    color: var(--pp-ink-500);
+    margin: 0.2rem 0 0;
+}
+
+/* ---- controls row: stage tabs + search ---- */
+.prep-picker .controls-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.1rem;
+}
+.prep-picker .po-tabs {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+}
+.prep-picker .po-tab {
+    padding: 0.42rem 0.95rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    border: none;
+    background: transparent;
+    color: var(--pp-ink-500);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.prep-picker .po-tab.active {
+    background: var(--pp-ink-900);
+    color: var(--pp-surface);
+}
+.prep-picker .ctrl-right {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+.prep-picker .search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    max-width: 14rem;
+}
+.prep-picker .search .ic {
+    position: absolute;
+    left: 0.7rem;
+    color: var(--pp-ink-500);
+    pointer-events: none;
+    display: flex;
+}
+.prep-picker .search input {
+    width: 100%;
+    padding: 0.5rem 0.8rem 0.5rem 2.1rem;
+    border-radius: 0.6rem;
+    border: 1px solid var(--pp-border);
+    background: var(--pp-surface-2);
+    color: var(--pp-ink-900);
+    font-size: 0.82rem;
+}
+.prep-picker-empty {
+    font-size: 0.85rem;
+    color: var(--pp-ink-500);
+    padding: 2rem 0;
+    text-align: center;
+}
+
+/* ---- card grid (matches the reference's .po-grid/.po-card exactly) ---- */
+.prep-picker .po-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.1rem;
+}
+@media (max-width: 1180px) {
+    .prep-picker .po-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+@media (max-width: 720px) {
+    .prep-picker .po-grid {
+        grid-template-columns: 1fr;
+    }
+}
+.prep-picker .po-card {
+    background: var(--pp-surface);
+    border: 1px solid var(--pp-border);
+    border-radius: 1.1rem;
+    padding: 1.1rem 1.2rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+.prep-picker .po-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+.prep-picker .po-cust {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+}
+.prep-picker .po-cust-avatar {
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(15, 118, 110, 0.35), rgba(111, 163, 224, 0.35));
+    color: #5eead4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+.prep-picker .po-cust-name {
+    font-size: 0.87rem;
+    font-weight: 700;
+    color: var(--pp-ink-900);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.prep-picker .po-cust-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    color: var(--pp-ink-500);
+    margin-top: 0.15rem;
+    white-space: nowrap;
+}
+.prep-picker .po-status-pill {
+    flex-shrink: 0;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.66rem;
+    font-weight: 800;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.prep-picker .po-status-pill .dot {
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
+.prep-picker .po-status-pill.neutral { background: var(--pp-surface-2); color: var(--pp-ink-500); }
+.prep-picker .po-status-pill.warn { background: rgba(181, 121, 27, 0.2); color: #fbbf7d; }
+.prep-picker .po-status-pill.good { background: rgba(20, 184, 166, 0.2); color: #5eead4; }
+.prep-picker .po-status-pill.blue { background: rgba(111, 163, 224, 0.2); color: #9dc2ef; }
+.prep-picker .po-status-pill.bad { background: rgba(200, 67, 61, 0.2); color: #f7a49f; }
+
+.prep-picker .po-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.66rem;
+    font-weight: 700;
+    color: var(--pp-ink-400);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px dashed var(--pp-border);
+}
+.prep-picker .po-meta-row .val {
+    color: var(--pp-ink-900);
+    font-weight: 800;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.78rem;
+}
+.prep-picker .po-meta-row .val.tag {
+    padding: 0.1rem 0.5rem;
+    border-radius: 0.4rem;
+}
+.prep-picker .po-meta-row .val.tag.neutral { background: var(--pp-surface-2); color: var(--pp-ink-500); }
+.prep-picker .po-meta-row .val.tag.blue { background: rgba(111, 163, 224, 0.2); color: #9dc2ef; }
+.prep-picker .po-meta-row .val.tag.bad { background: rgba(200, 67, 61, 0.2); color: #f7a49f; }
+
+.prep-picker .po-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+.prep-picker .po-item-line {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.79rem;
+}
+.prep-picker .po-item-qty {
+    font-weight: 800;
+    color: var(--pp-ink-400);
+    flex-shrink: 0;
+    width: 1rem;
+}
+.prep-picker .po-item-line .nm {
+    flex: 1;
+    color: var(--pp-ink-700);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.prep-picker .po-item-line .pr {
+    font-weight: 700;
+    color: var(--pp-ink-900);
+    flex-shrink: 0;
+}
+
+.prep-picker .po-total-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--pp-border-soft);
+    font-size: 0.68rem;
+    font-weight: 800;
+    color: var(--pp-ink-400);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.prep-picker .po-total-row .amt {
+    font-size: 1rem;
+    color: var(--pp-ink-900);
+    text-transform: none;
+}
+
+.prep-picker .po-card-actions {
+    display: flex;
+    gap: 0.6rem;
+}
+.prep-picker .po-btn-primary {
+    flex: 1;
+    padding: 0.55rem;
+    border-radius: 0.65rem;
+    border: none;
+    background: var(--pp-ink-900);
+    color: var(--pp-surface);
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.prep-picker .po-btn-primary:hover {
+    background: #5eead4;
+}
+.prep-picker .po-card-note {
+    font-size: 0.78rem;
+    color: var(--pp-ink-500);
+    text-align: center;
+    padding: 0.4rem 0;
+    font-weight: 600;
+    margin: 0;
+}
+
+.prep-picker .po-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 1.3rem;
+    font-size: 0.78rem;
+    color: var(--pp-ink-500);
+}
+.prep-picker .po-page-nav {
+    display: flex;
+    gap: 0.4rem;
+}
+.prep-picker .po-page-btn {
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--pp-border);
+    background: var(--pp-surface-2);
+    color: var(--pp-ink-700);
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.prep-picker .po-page-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+.prep-picker .po-page-btn.active {
+    background: var(--pp-ink-900);
+    border-color: var(--pp-ink-900);
+    color: var(--pp-surface);
+}
+
+/* ============================================================
+   ACTION MODAL — DARK THEME
+   Brings the "Prepare Shipment" modal in line with the dark queue
+   behind it and the rest of the seller dashboard, instead of the
+   plain white panel the app's other modals intentionally keep
+   (Inventory/Feedback/Messages/ConfirmActionDialog stay untouched —
+   everything below is scoped to .psm-panel only).
+   ============================================================ */
+.psm-panel {
+    --psm-surface: #161b17;
+    --psm-surface-2: #1d231e;
+    --psm-border: rgba(255, 255, 255, 0.1);
+    --psm-border-soft: rgba(255, 255, 255, 0.07);
+    --psm-ink-900: #f2f4f1;
+    --psm-ink-700: #c6cbc5;
+    --psm-ink-500: #97a099;
+    --psm-ink-400: #6d766e;
+    background: var(--psm-surface);
+    color: var(--psm-ink-900);
+}
+
+.psm-panel .placeholder-page .icon-wrap {
+    background: rgba(20, 184, 166, 0.15);
+    color: #5eead4;
+}
+.psm-panel .placeholder-page h3 { color: var(--psm-ink-900); }
+.psm-panel .placeholder-page p { color: var(--psm-ink-500); }
+.psm-panel .modal-close { color: var(--psm-ink-500); }
+.psm-panel .modal-close:hover {
+    background: var(--psm-surface-2);
+    color: var(--psm-ink-900);
+}
+.psm-panel .save-msg.error { color: #f7a49f; }
+
+.psm-panel .badge-teal { background: rgba(20, 184, 166, 0.2); color: #5eead4; }
+.psm-panel .badge-amber { background: rgba(217, 119, 6, 0.2); color: #fbbf7d; border-color: transparent; }
+.psm-panel .badge-red { background: rgba(200, 67, 61, 0.2); color: #f7a49f; }
+.psm-panel .badge-slate { background: var(--psm-surface-2); color: var(--psm-ink-500); }
+.psm-panel .badge-emerald { background: rgba(20, 184, 166, 0.2); color: #5eead4; border-color: transparent; }
+.psm-panel .badge-sky { background: rgba(111, 163, 224, 0.2); color: #9dc2ef; border-color: transparent; }
+
+.psm-panel .btn-outline {
+    background: var(--psm-surface-2);
+    border-color: var(--psm-border);
+    color: var(--psm-ink-700);
+}
+.psm-panel .btn-outline:hover:not(:disabled) { background: var(--psm-border); }
+
+.psm-head { border-bottom-color: var(--psm-border-soft); }
+.psm-head-icon { background: rgba(20, 184, 166, 0.15); color: #5eead4; }
+.psm-head-text h3 { color: var(--psm-ink-900); }
+.psm-head-text p { color: var(--psm-ink-500); }
+
+.psm-steps-wrap {
+    background: var(--psm-surface-2);
+    border-bottom-color: var(--psm-border-soft);
+}
+.psm-step:not(:last-child)::after { background: var(--psm-border); }
+.psm-step-dot {
+    background: var(--psm-surface);
+    border-color: var(--psm-border);
+    color: var(--psm-ink-500);
+}
+.psm-step-label { color: var(--psm-ink-500); }
+.psm-step.active .psm-step-label { color: var(--psm-ink-900); }
+.psm-step.done .psm-step-dot {
+    background: rgba(20, 184, 166, 0.15);
+    color: #5eead4;
+}
+.psm-step.done .psm-step-label { color: #5eead4; }
+
+.psm-form-col { border-right-color: var(--psm-border-soft); }
+.psm-summary-col { background: var(--psm-surface-2); }
+
+.psm-panel .card {
+    background: var(--psm-surface);
+    border-color: var(--psm-border);
+}
+.psm-panel .prep-card-head { border-bottom-color: var(--psm-border-soft); }
+.psm-panel .prep-card-head h3 { color: var(--psm-ink-900); }
+.psm-panel .prep-card-sub { color: var(--psm-ink-500); }
+.psm-panel .prep-icon-badge { background: rgba(20, 184, 166, 0.15); color: #5eead4; }
+.psm-panel .prep-progress-label { color: var(--psm-ink-500); }
+.psm-panel .prep-progress-track { background: var(--psm-border-soft); }
+
+.psm-panel .field-label { color: var(--psm-ink-500); }
+.psm-panel .field-input {
+    background: var(--psm-surface-2);
+    border-color: var(--psm-border);
+    color: var(--psm-ink-900);
+}
+.psm-panel .field-input:disabled {
+    background: var(--psm-surface);
+    color: var(--psm-ink-400);
+}
+.psm-panel .field-hint { color: var(--psm-ink-400); }
+
+.psm-panel .prep-item-row {
+    border-color: var(--psm-border);
+    background: var(--psm-surface-2);
+}
+.psm-panel .prep-item-row.packed {
+    border-color: rgba(20, 184, 166, 0.4);
+    background: rgba(20, 184, 166, 0.1);
+}
+.psm-panel .prep-item-icon {
+    background: var(--psm-surface);
+    border-color: var(--psm-border);
+    color: var(--psm-ink-500);
+}
+.psm-panel .prep-item-row.packed .prep-item-icon {
+    color: #5eead4;
+    border-color: rgba(20, 184, 166, 0.4);
+}
+.psm-panel .prep-item-name { color: var(--psm-ink-900); }
+.psm-panel .prep-item-variant { color: var(--psm-ink-500); }
+.psm-panel .prep-item-qty { color: var(--psm-ink-700); }
+.psm-panel .prep-packed-toggle { color: var(--psm-ink-500); }
+.psm-panel .prep-item-row.packed .prep-packed-toggle { color: #5eead4; }
+
+.psm-panel .prep-tip-num {
+    background: var(--psm-surface-2);
+    color: var(--psm-ink-700);
+}
+.psm-panel .prep-tip p { color: var(--psm-ink-500); }
+
+.psm-panel .prep-dispatch-note { color: var(--psm-ink-500); }
+.psm-panel .prep-dispatch-warning {
+    background: rgba(217, 119, 6, 0.15);
+    border-color: rgba(217, 119, 6, 0.4);
+    color: #fbbf7d;
+}
+.psm-panel .prep-review-label { color: var(--psm-ink-500); }
+.psm-panel .prep-review-sub { color: var(--psm-ink-500); }
+
+.psm-summary-avatar {
+    background: linear-gradient(135deg, rgba(15, 118, 110, 0.35), rgba(111, 163, 224, 0.35));
+    color: #5eead4;
+}
+.psm-summary-head h4 { color: var(--psm-ink-900); }
+.psm-summary-head p { color: var(--psm-ink-500); }
+.psm-summary-title { color: var(--psm-ink-500); }
+.psm-summary-row { border-bottom-color: var(--psm-border); }
+.psm-summary-row .lbl { color: var(--psm-ink-500); }
+.psm-summary-row .val { color: var(--psm-ink-900); }
+.psm-summary-item { color: var(--psm-ink-500); }
+.psm-summary-item .chk { border-color: var(--psm-border); }
+.psm-summary-item.packed .nm {
+    color: var(--psm-ink-900);
+    text-decoration-color: var(--psm-border);
+}
+.psm-summary-total {
+    border-top-color: var(--psm-border);
+    color: var(--psm-ink-500);
+}
+.psm-summary-total .amt { color: var(--psm-ink-900); }
+
+.psm-foot { border-top-color: var(--psm-border-soft); }
+.psm-save-draft { color: var(--psm-ink-500); }
+.psm-save-draft:hover { color: #5eead4; }
+</style>

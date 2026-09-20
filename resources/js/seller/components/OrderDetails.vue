@@ -2,9 +2,53 @@
 <template>
     <div class="order-detail-page">
         <!-- Loading -->
-        <div v-if="isLoading" class="order-detail-loading">
-            <div class="loading-spinner"></div>
-            <p>Loading order…</p>
+        <div v-if="isLoading" class="order-detail-skel" aria-hidden="true">
+            <div class="order-detail-skel-head">
+                <span class="order-skel-bar" style="width: 12rem; height: 1.4rem"></span>
+                <span class="order-skel-bar order-skel-pill" style="width: 6rem"></span>
+            </div>
+            <div class="order-detail-skel-grid">
+                <div class="card order-detail-skel-card">
+                    <span class="order-skel-bar" style="width: 40%"></span>
+                    <span class="order-skel-bar" style="width: 80%"></span>
+                    <span class="order-skel-bar" style="width: 65%"></span>
+                    <span class="order-skel-bar" style="width: 75%"></span>
+                </div>
+                <div class="card order-detail-skel-card">
+                    <span class="order-skel-bar" style="width: 50%"></span>
+                    <span class="order-skel-bar" style="width: 70%"></span>
+                    <span class="order-skel-bar" style="width: 60%"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Load failed (network / server error) -->
+        <div v-else-if="loadFailed" class="card order-not-found">
+            <div class="empty-state">
+                <svg
+                    class="icon-lg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                >
+                    <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+                    <path d="M12 9v4M12 17h.01" />
+                </svg>
+                <p>Couldn't load this order.</p>
+                <p class="empty-hint">
+                    Something went wrong reaching the server. Check your
+                    connection and try again.
+                </p>
+                <div class="order-detail-error-actions">
+                    <button type="button" class="btn-outline" @click="loadOrder">
+                        Retry
+                    </button>
+                    <button type="button" class="btn-primary" @click="backToOrders">
+                        Back to Orders
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- Not found -->
@@ -37,21 +81,30 @@
         <!-- Loaded -->
         <template v-else>
             <!-- Header -->
-            <header class="order-detail-page-header">
-                <div>
-                    <div class="order-detail-title-row">
-                        <h2 class="order-detail-page-title">
-                            Order {{ order.id }}
-                        </h2>
-                        <span
-                            class="badge"
-                            :class="statusBadgeClass(order.status)"
-                            >{{ order.statusLabel || statusLabel(order.status) }}</span
-                        >
+            <header class="od-header">
+                <div class="od-header-left">
+                    <button
+                        type="button"
+                        class="od-back-btn"
+                        aria-label="Back to Orders"
+                        @click="backToOrders"
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <path d="M15 5 8 12l7 7" />
+                        </svg>
+                    </button>
+                    <div>
+                        <div class="order-detail-title-row">
+                            <h2 class="order-detail-page-title">
+                                Order {{ order.id }}
+                            </h2>
+                            <OrderStatusBadge :status="order.status" />
+                            <span v-if="returnLabel" class="order-return-flag">{{ returnLabel }}</span>
+                        </div>
+                        <p class="order-detail-page-sub">
+                            Placed on {{ order.date }} at {{ order.time }} · {{ order.customer }}
+                        </p>
                     </div>
-                    <p class="order-detail-page-sub">
-                        Placed on {{ order.date }} at {{ order.time }}
-                    </p>
                 </div>
 
                 <div class="order-detail-page-actions">
@@ -137,67 +190,113 @@
             <div class="order-detail-page-grid">
                 <!-- Left column -->
                 <div class="order-detail-page-left">
-                    <!-- Order Information -->
-                    <div class="card order-detail-page-card">
-                        <h3 class="order-section-label">Order Information</h3>
-                        <div class="order-info-grid">
-                            <div>
-                                <p class="order-info-label">Customer</p>
-                                <div class="order-customer-row">
-                                    <div class="order-customer-avatar">
-                                        {{ customerInitials }}
-                                    </div>
-                                    <div>
-                                        <p class="order-customer-name">
-                                            {{ order.customer }}
-                                        </p>
-                                        <p class="order-customer-email">
-                                            {{
-                                                order.email ||
-                                                'No email on file'
-                                            }}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div>
-                                <p class="order-info-label">Placed On</p>
-                                <p class="order-info-value">{{ order.date }}</p>
-                                <p class="order-info-sub">{{ order.time }}</p>
-                            </div>
-                            <div>
-                                <p class="order-info-label">Payment Method</p>
-                                <p class="order-info-value">
-                                    {{ order.paymentMethod || 'Not on file' }}
-                                </p>
-                                <p class="order-info-sub">
-                                    {{ order.paymentStatus || '—' }}
-                                </p>
-                            </div>
+                    <!-- Fulfilment progress -->
+                    <div v-if="!isCancelledOrRejected" class="card od-progress-card">
+                        <p v-if="shipFromLine" class="od-progress-top">{{ shipFromLine }}</p>
+                        <div class="od-steps">
+                            <span
+                                v-for="(step, idx) in progressSteps"
+                                :key="step.label"
+                                class="od-step"
+                                :class="{ done: step.done, active: step.active }"
+                            >
+                                <span class="od-step-ic">
+                                    <svg v-if="step.done" width="10" height="10" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="3">
+                                        <path d="M4 10l4 4 8-8" />
+                                    </svg>
+                                    <template v-else>{{ idx + 1 }}</template>
+                                </span>
+                                {{ step.label }}
+                            </span>
+                        </div>
+                        <div class="od-progress-bar"><span :style="{ width: progressWidth }"></span></div>
+                    </div>
+                    <div v-else class="card od-cancel-banner">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M9 9l6 6M15 9l-6 6" />
+                        </svg>
+                        <div>
+                            <p class="od-cancel-title">
+                                Order {{ order.status === 'Rejected' ? 'rejected' : 'cancelled' }}
+                            </p>
+                            <p v-if="order.cancellation?.reason" class="od-cancel-reason">
+                                {{ order.cancellation.reason }}
+                            </p>
                         </div>
                     </div>
 
-                    <!-- Items -->
-                    <div class="card order-detail-page-card order-items-card">
+                    <!-- Primary actions: destructive on the left, forward workflow on the right -->
+                    <div
+                        v-if="canCancel || nextStatusButtons.length"
+                        class="od-actions-row"
+                    >
+                        <div class="od-actions-row-left">
+                            <button
+                                v-if="canCancel"
+                                type="button"
+                                class="od-text-danger"
+                                :disabled="isBusy"
+                                @click="handleReject"
+                            >
+                                {{ busyKey === 'Rejected' ? 'Rejecting…' : 'Reject' }}
+                            </button>
+                            <button
+                                v-if="canCancel"
+                                type="button"
+                                class="btn-danger-soft"
+                                :disabled="isBusy"
+                                @click="handleCancel"
+                            >
+                                {{ busyKey === 'Cancelled' ? 'Cancelling…' : 'Cancel Order' }}
+                            </button>
+                        </div>
+                        <button
+                            v-for="s in nextStatusButtons"
+                            :key="s.value"
+                            type="button"
+                            class="btn-primary"
+                            :disabled="isBusy"
+                            @click="moveTo(s.value)"
+                        >
+                            {{ busyKey === s.value ? 'Working…' : nextActionLabel(s) }}
+                            <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                aria-hidden="true"
+                            >
+                                <path d="M5 12h14M12 5l7 7-7 7" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Products -->
+                    <div class="card od-card">
                         <h3 class="order-section-label">
-                            Items List ({{ order.items.length }})
+                            Products ({{ order.items.length }})
                         </h3>
                         <div
-                            class="order-item-card order-item-card-lg"
+                            class="od-product-row"
                             v-for="(item, idx) in order.items"
                             :key="idx"
                         >
-                            <div class="order-item-thumb order-item-thumb-lg">
+                            <span class="od-p-thumb">
                                 <img
                                     v-if="item.image"
                                     :src="item.image"
                                     :alt="item.name"
                                     style="width: 100%; height: 100%; object-fit: cover; border-radius: inherit"
+                                    loading="lazy"
+                                    decoding="async"
                                 />
                                 <svg
                                     v-else
-                                    width="26"
-                                    height="26"
+                                    width="20"
+                                    height="20"
                                     viewBox="0 0 24 24"
                                     fill="none"
                                     stroke="currentColor"
@@ -206,197 +305,41 @@
                                     <path d="M21 8 12 3 3 8v8l9 5 9-5V8Z" />
                                     <path d="M3 8l9 5 9-5M12 13v8" />
                                 </svg>
+                            </span>
+                            <div class="od-p-info">
+                                <p class="od-p-name">{{ item.name }}</p>
+                                <p class="od-p-meta">
+                                    <span v-if="item.sku">SKU {{ item.sku }}</span
+                                    ><span v-if="item.variant"> · {{ item.variant }}</span
+                                    ><span> · Qty {{ item.qty }}</span>
+                                </p>
                             </div>
-                            <div class="order-item-info">
-                                <div class="order-item-info-top">
-                                    <div>
-                                        <p class="order-item-name-lg">
-                                            {{ item.name }}
-                                        </p>
-                                        <p class="order-item-category">
-                                            {{
-                                                item.category
-                                                    ? `Category: ${item.category}`
-                                                    : ''
-                                            }}
-                                        </p>
-                                        <div class="order-item-meta-row">
-                                            <span v-if="item.variant"
-                                                >Variant:
-                                                <strong>{{
-                                                    item.variant
-                                                }}</strong></span
-                                            >
-                                            <span v-if="item.sku"
-                                                >SKU:
-                                                <strong>{{
-                                                    item.sku
-                                                }}</strong></span
-                                            >
-                                        </div>
-                                    </div>
-                                    <div class="order-item-price-block">
-                                        <p class="order-item-price-label">
-                                            Unit price
-                                        </p>
-                                        <p class="order-item-price-lg">
-                                            {{ formatCurrency(item.price) }}
-                                        </p>
-                                        <p class="order-item-qty">
-                                            Qty: {{ item.qty }}
-                                        </p>
-                                        <p
-                                            v-if="item.subtotal != null"
-                                            class="order-item-qty"
-                                            style="font-weight: 700; color: #0f172a"
-                                        >
-                                            Subtotal: {{ formatCurrency(item.subtotal) }}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
+                            <span class="od-p-price">
+                                {{ formatCurrency(item.subtotal ?? item.price * item.qty) }}
+                            </span>
                         </div>
                     </div>
 
-                    <!-- Address + Shipping -->
-                    <div class="order-detail-grid">
-                        <div class="card order-detail-page-card">
-                            <h3 class="order-section-label">
-                                Delivery Address
-                            </h3>
-                            <div class="order-info-icon-row">
-                                <div class="order-info-icon sky">
-                                    <svg
-                                        width="20"
-                                        height="20"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.6"
-                                    >
-                                        <path
-                                            d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z"
-                                        />
-                                        <circle cx="12" cy="10" r="2.5" />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <p class="order-address-name">
-                                        {{ order.address.recipient }}
-                                    </p>
-                                    <p class="order-address-text">
-                                        {{ formatAddress(order.address) }}
-                                    </p>
-                                    <p
-                                        class="order-address-phone"
-                                        v-if="order.phone"
-                                    >
-                                        Phone: {{ order.phone }}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card order-detail-page-card">
-                            <h3 class="order-section-label">Shipping Method</h3>
-                            <div class="order-info-icon-row">
-                                <div class="order-info-icon emerald">
-                                    <svg
-                                        width="20"
-                                        height="20"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.6"
-                                    >
-                                        <path
-                                            d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"
-                                        />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <p class="order-address-name">
-                                        {{
-                                            order.shipping.method ||
-                                            'Not specified'
-                                        }}
-                                    </p>
-                                    <p
-                                        class="order-address-text"
-                                        v-if="
-                                            order.shipping.handlingTime ||
-                                            order.shipping.carrier ||
-                                            order.shipping.service
-                                        "
-                                    >
-                                        <template
-                                            v-if="order.shipping.handlingTime"
-                                            >Handling Time:
-                                            {{ order.shipping.handlingTime
-                                            }}<br
-                                        /></template>
-                                        <template v-if="order.shipping.carrier"
-                                            >Carrier: {{ order.shipping.carrier
-                                            }}<br
-                                        /></template>
-                                        <template v-if="order.shipping.service"
-                                            >Service:
-                                            {{
-                                                order.shipping.service
-                                            }}</template
-                                        >
-                                    </p>
-                                    <a
-                                        v-if="order.shipping.trackingNumber"
-                                        href="#"
-                                        class="order-tracking-link"
-                                        @click.prevent="trackPackage"
-                                        >#{{ order.shipping.trackingNumber }}</a
-                                    >
-                                    <p v-else class="order-address-sub">
-                                        No tracking number yet
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div
-                            v-if="order.dispatch && order.dispatch.qrPayload"
-                            class="card order-detail-page-card order-parcel-qr-card"
-                        >
-                            <h3 class="order-section-label">
-                                Parcel Confirmation Code
-                            </h3>
-                            <p class="order-address-sub">
-                                Scanned by the courier at pickup and again on
-                                delivery.
-                            </p>
-                            <ParcelQrCode
-                                :value="order.dispatch.qrPayload"
-                                :size="150"
-                            />
-                            <button
-                                class="btn-outline order-parcel-qr-print"
-                                @click="printDeliveryDetails(order)"
-                            >
-                                Print delivery details
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Right column -->
-                <div class="order-detail-page-right">
                     <!-- Payment -->
-                    <div class="card order-detail-page-card order-payment-card">
-                        <h3 class="order-section-label">Payment Breakdown</h3>
-                        <div class="order-payment-row">
-                            <span>Order Subtotal</span
-                            ><strong>{{
-                                formatCurrency(order.subtotal)
-                            }}</strong>
+                    <div class="card od-card">
+                        <div class="od-section-head">
+                            <h3 class="order-section-label" style="margin: 0">
+                                Payment Details
+                            </h3>
+                            <span class="badge" :class="paymentBadgeClass">
+                                {{ order.paymentStatus || 'Unknown' }}
+                            </span>
                         </div>
                         <div class="order-payment-row">
-                            <span>Shipping</span>
+                            <span>Payment Method</span
+                            ><strong>{{ order.paymentMethod || 'Not on file' }}</strong>
+                        </div>
+                        <div class="order-payment-row">
+                            <span>Subtotal</span
+                            ><strong>{{ formatCurrency(order.subtotal) }}</strong>
+                        </div>
+                        <div class="order-payment-row">
+                            <span>Shipping Fee</span>
                             <strong
                                 :class="{
                                     'order-shipping-free': !order.shippingFee,
@@ -423,25 +366,190 @@
                             <span>Total Paid</span
                             ><strong>{{ formatCurrency(order.total) }}</strong>
                         </div>
-                        <div class="order-payment-footer">
-                            <p>
-                                Payment status:
-                                {{ order.paymentStatus || 'Unknown' }}
-                            </p>
+                    </div>
+                </div>
+
+                <!-- Right column -->
+                <div class="order-detail-page-right">
+                    <!-- Customer -->
+                    <div class="card od-card">
+                        <h3 class="order-section-label">Customer</h3>
+                        <div class="order-customer-row">
+                            <div class="order-customer-avatar od-cust-avatar-lg">
+                                {{ customerInitials }}
+                            </div>
+                            <div>
+                                <p class="order-customer-name">{{ order.customer }}</p>
+                                <p class="order-customer-email">
+                                    {{ order.email || 'No email on file' }}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                class="od-chat-btn"
+                                aria-label="Message customer"
+                                @click="contactBuyer"
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div v-if="order.email || order.phone" class="od-contact-chips">
+                            <span v-if="order.email" class="od-contact-chip">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" />
+                                </svg>
+                                {{ order.email }}
+                            </span>
+                            <span v-if="order.phone" class="od-contact-chip">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3-8.7A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.5 2.1L8 10a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.9.6 2.9.7a2 2 0 0 1 1.7 2Z" />
+                                </svg>
+                                {{ order.phone }}
+                            </span>
                         </div>
                     </div>
 
-                    <!-- Parcel tracking map -->
+                    <!-- Address + Shipping -->
+                    <div class="card od-card">
+                        <h3 class="order-section-label">
+                            Delivery Address
+                        </h3>
+                        <div class="order-info-icon-row">
+                            <div class="order-info-icon sky">
+                                <svg
+                                    width="20"
+                                    height="20"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.6"
+                                >
+                                    <path
+                                        d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z"
+                                    />
+                                    <circle cx="12" cy="10" r="2.5" />
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="order-address-name">
+                                    {{ order.address.recipient }}
+                                </p>
+                                <p class="order-address-text">
+                                    {{ formatAddress(order.address) }}
+                                </p>
+                                <p
+                                    class="order-address-phone"
+                                    v-if="order.phone"
+                                >
+                                    Phone: {{ order.phone }}
+                                </p>
+                            </div>
+                        </div>
+                        <div class="od-divider"></div>
+                        <h3 class="order-section-label" style="margin-top: 1.1rem">Shipping Method</h3>
+                        <div class="order-info-icon-row">
+                            <div class="order-info-icon emerald">
+                                <svg
+                                    width="20"
+                                    height="20"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.6"
+                                >
+                                    <path
+                                        d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"
+                                    />
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="order-address-name">
+                                    {{
+                                        order.shipping.method ||
+                                        'Not specified'
+                                    }}
+                                </p>
+                                <p
+                                    class="order-address-text"
+                                    v-if="
+                                        order.shipping.handlingTime ||
+                                        order.shipping.carrier ||
+                                        order.shipping.service
+                                    "
+                                >
+                                    <template
+                                        v-if="order.shipping.handlingTime"
+                                        >Handling Time:
+                                        {{ order.shipping.handlingTime
+                                        }}<br
+                                    /></template>
+                                    <template v-if="order.shipping.carrier"
+                                        >Carrier: {{ order.shipping.carrier
+                                        }}<br
+                                    /></template>
+                                    <template v-if="order.shipping.service"
+                                        >Service:
+                                        {{
+                                            order.shipping.service
+                                        }}</template
+                                    >
+                                </p>
+                                <a
+                                    v-if="order.shipping.trackingNumber"
+                                    href="#"
+                                    class="order-tracking-link"
+                                    @click.prevent="trackPackage"
+                                    >#{{ order.shipping.trackingNumber }}</a
+                                >
+                                <p v-else class="order-address-sub">
+                                    No tracking number yet
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Parcel confirmation QR — present once dispatch-prep has
+                         minted one (see Prepare Orders / SellerOrderController::
+                         dispatchPrep). The courier scans this at pickup and
+                         again on delivery. -->
+                    <div
+                        v-if="order.dispatch && order.dispatch.qrPayload"
+                        class="card od-card order-parcel-qr-card"
+                    >
+                        <h3 class="order-section-label">
+                            Parcel Confirmation Code
+                        </h3>
+                        <p class="order-address-sub">
+                            Scanned by the courier at pickup and again on
+                            delivery.
+                        </p>
+                        <ParcelQrCode
+                            :value="order.dispatch.qrPayload"
+                            :size="150"
+                        />
+                        <button
+                            class="btn-outline order-parcel-qr-print"
+                            @click="printDeliveryDetails(order)"
+                        >
+                            Print delivery details
+                        </button>
+                    </div>
+
+                    <!-- Parcel tracking map (kept as a light "island" card since
+                         it renders real map tiles/markers that assume a light
+                         base — see OrderJourneyMap's own scoped styles) -->
                     <div
                         v-if="order.journey"
                         ref="journeyCard"
-                        class="card order-detail-page-card"
+                        class="card od-card order-journey-card"
                     >
                         <OrderJourneyMap :journey="order.journey" />
                     </div>
 
                     <!-- Timeline -->
-                    <div class="card order-detail-page-card">
+                    <div class="card od-card">
                         <h3 class="order-section-label">Order Progression</h3>
                         <div class="timeline timeline-reverse">
                             <div
@@ -485,7 +593,7 @@
                 </div>
             </div>
 
-            <!-- Footer actions -->
+            <!-- Footer -->
             <p v-if="updateError" class="save-msg error" style="margin: 0 0 1rem">
                 {{ updateError }}
             </p>
@@ -507,54 +615,45 @@
                     </svg>
                     Back to All Orders
                 </a>
-                <div class="order-detail-page-footer-right">
-                    <button
-                        v-if="canCancel"
-                        class="btn-outline"
-                        :disabled="actionBusy"
-                        @click="handleReject"
-                    >
-                        Reject
-                    </button>
-                    <button
-                        v-if="canCancel"
-                        class="btn-danger-soft"
-                        :disabled="actionBusy"
-                        @click="handleCancel"
-                    >
-                        Cancel Order
-                    </button>
-                    <button
-                        v-for="s in nextStatusButtons"
-                        :key="s.value"
-                        class="btn-primary"
-                        :disabled="actionBusy"
-                        @click="moveTo(s.value)"
-                    >
-                        {{ nextActionLabel(s) }}
-                        <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M5 12h14M12 5l7 7-7 7" />
-                        </svg>
-                    </button>
-                </div>
             </div>
         </template>
+
+        <transition name="order-toast">
+            <div
+                v-if="toast"
+                class="order-toast"
+                :class="`order-toast--${toast.type}`"
+                role="status"
+                aria-live="polite"
+            >
+                {{ toast.msg }}
+            </div>
+        </transition>
+
+        <ConfirmActionDialog
+            :open="dialog.open"
+            :title="dialog.title"
+            :message="dialog.message"
+            :confirm-label="dialog.confirmLabel"
+            tone="danger"
+            requires-reason
+            :reason-label="dialog.reasonLabel"
+            reason-placeholder="e.g. item out of stock, buyer asked to cancel, address unreachable"
+            :busy="isBusy"
+            @confirm="onDialogConfirm"
+            @cancel="dialog.open = false"
+        />
     </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import OrderJourneyMap from '../../shared/OrderJourneyMap.vue';
 import { useOrders } from '../composables/useOrders';
 import { printDeliveryDetails } from '../lib/deliveryDetailsPrint';
 import ParcelQrCode from './ParcelQrCode.vue';
+import ConfirmActionDialog from './orders/ConfirmActionDialog.vue';
+import OrderStatusBadge from './orders/OrderStatusBadge.vue';
 
 const props = defineProps({
     orderId: { type: String, default: null },
@@ -565,86 +664,137 @@ const {
     getOrderById,
     getOrderTracking,
     updateOrderStatus,
-    statusBadgeClass,
-    statusLabel,
+    updateError,
     formatCurrency,
     cancelOrder,
     rejectOrder,
-    updateError,
 } = useOrders();
 
-const actionBusy = ref(false);
+// Which action is in flight ('' when idle). A status value for a
+// forward step, or 'Cancelled' / 'Rejected'. Used to show a per-button
+// spinner and to block duplicate submits.
+const busyKey = ref('');
+const isBusy = computed(() => busyKey.value !== '');
 
-// The seller's next moves come straight from the server (order.nextStatuses
-// = Order::ALLOWED_TRANSITIONS from the current status). Shipping/Delivery
-// are hidden here — those are logistics' to set.
+const toast = ref(null);
+let toastTimer = null;
+
+function flash(msg, type = 'success') {
+    clearTimeout(toastTimer);
+    toast.value = { msg, type };
+    toastTimer = setTimeout(() => {
+        toast.value = null;
+    }, 3800);
+}
+
+const dialog = reactive({
+    open: false,
+    target: '', // 'Cancelled' | 'Rejected'
+    title: '',
+    message: '',
+    confirmLabel: '',
+    reasonLabel: '',
+});
+
+// Order Details only ever offers "Confirm Order" — the whole packing
+// pipeline after that (Processing -> Packed -> Ready for Pickup) lives
+// in Order Preparation now, not as quick-jump buttons here, so there's
+// one real place a seller drives that flow from instead of two
+// competing ones. Once an order is actually Confirmed (or further
+// along), the server's nextStatuses for it no longer includes
+// 'Confirmed', so this naturally disappears on its own — no separate
+// "already confirmed" check needed.
 const nextStatusButtons = computed(() =>
-    (order.value?.nextStatuses || []).filter(
-        (s) => !['Cancelled', 'Rejected', 'In Transit', 'Delivered'].includes(s.value),
-    ),
+    (order.value?.nextStatuses || []).filter((s) => s.value === 'Confirmed'),
 );
 
-const NEXT_ACTION_VERBS = {
-    Confirmed: 'Confirm Order',
-    Processing: 'Start Processing',
-    Packed: 'Mark Packed',
-    'Ready for Pickup': 'Mark Ready for Pickup',
-};
-
-function nextActionLabel(s) {
-    return NEXT_ACTION_VERBS[s.value] || `Move to ${s.label}`;
+function nextActionLabel() {
+    return 'Confirm Order';
 }
 
 async function moveTo(statusValue) {
-    if (!order.value || actionBusy.value) {
+    if (!order.value || isBusy.value) {
         return;
     }
 
-    actionBusy.value = true;
+    busyKey.value = statusValue;
 
     try {
         const updated = await updateOrderStatus(order.value.id, statusValue);
 
         if (updated) {
             order.value = updated;
+
+            if (statusValue === 'Confirmed') {
+                flash('Order confirmed — opening Order Preparation…');
+                goTo('prepareOrders', updated.id);
+
+                return;
+            }
+
+            flash(`Order marked "${updated.statusLabel || statusValue}".`);
         }
     } catch {
-        // updateError is surfaced by the composable; the order stays put.
+        flash(updateError.value || 'Could not update the order status.', 'error');
     } finally {
-        actionBusy.value = false;
+        busyKey.value = '';
     }
 }
 
-async function handleReject() {
+// Cancel / Reject open a confirmation dialog (consequence spelled out,
+// typed reason required) instead of a bare window.prompt.
+function askDestructive(target) {
     if (!order.value) {
         return;
     }
 
-    const reason = window.prompt(
-        'Why are you rejecting this order? (unavailable stock, invalid order info, unable to fulfil, …)',
-    );
+    const isReject = target === 'Rejected';
 
-    if (!reason || reason.trim().length < 3) {
+    dialog.target = target;
+    dialog.title = isReject
+        ? `Reject order ${order.value.id}?`
+        : `Cancel order ${order.value.id}?`;
+    dialog.message =
+        'The buyer is notified, any reserved stock is released, and the order is closed. This cannot be undone.';
+    dialog.confirmLabel = isReject ? 'Reject order' : 'Cancel order';
+    dialog.reasonLabel = isReject ? 'Reason for rejecting' : 'Reason for cancelling';
+    dialog.open = true;
+}
+
+function handleReject() {
+    askDestructive('Rejected');
+}
+
+async function onDialogConfirm(reason) {
+    if (!order.value || isBusy.value) {
         return;
     }
 
-    actionBusy.value = true;
+    const target = dialog.target;
+    busyKey.value = target;
 
     try {
-        const updated = await rejectOrder(order.value.id, reason.trim());
+        const fn = target === 'Rejected' ? rejectOrder : cancelOrder;
+        const updated = await fn(order.value.id, reason);
 
         if (updated) {
             order.value = updated;
+            dialog.open = false;
+            flash(`Order ${target === 'Rejected' ? 'rejected' : 'cancelled'}.`);
         }
     } catch {
-        // handled by composable
+        flash(updateError.value || 'Could not update the order.', 'error');
     } finally {
-        actionBusy.value = false;
+        busyKey.value = '';
     }
 }
 
 const isLoading = ref(true);
 const order = ref(null);
+// true only when the fetch actually failed (network / 500), as opposed
+// to the order genuinely not existing (404) — the two states show
+// different UI.
+const loadFailed = ref(false);
 const journeyCard = ref(null);
 
 // Statuses reachable only before an order ships — there's no parcel
@@ -662,6 +812,7 @@ const PRE_SHIPMENT_STATUSES = ['New', 'Confirmed', 'Processing', 'Packed', 'Read
 
 async function loadOrder() {
     isLoading.value = true;
+    loadFailed.value = false;
 
     if (!props.orderId) {
         order.value = null;
@@ -673,7 +824,23 @@ async function loadOrder() {
     const cachedStatus = orders.value.find((o) => o.id === props.orderId)?.status;
     const includeJourney = !cachedStatus || !PRE_SHIPMENT_STATUSES.includes(cachedStatus);
 
-    order.value = await getOrderById(props.orderId, { includeJourney });
+    const { order: fetched, error } = await getOrderById(props.orderId, { includeJourney });
+
+    // Once an order is Processing, there's nothing left to do on this
+    // page — Order Details' only real action is "Confirm Order" (see
+    // nextStatusButtons below), which no longer even shows once the
+    // order has moved past Confirmed, and the whole packing flow lives
+    // on Prepare Orders now. Rather than land the seller on a page with
+    // no action left, send them straight to where the real work is —
+    // the same place Confirm Order itself already redirects to.
+    if (fetched?.status === 'Processing') {
+        goTo('prepareOrders', fetched.id);
+
+        return;
+    }
+
+    order.value = fetched;
+    loadFailed.value = !fetched && !!error;
     isLoading.value = false;
 }
 
@@ -753,6 +920,79 @@ const reversedTimeline = computed(() =>
 // Cancel / reject is only offered while the order is still Pending or
 // Confirmed (server enforces Order::SELLER_CANCELLABLE_FROM).
 const canCancel = computed(() => order.value?.canCancel === true);
+
+const RETURN_LABELS = {
+    requested: 'Return requested',
+    approved: 'Return approved',
+    returned: 'Returned / refunded',
+    rejected: 'Return rejected',
+};
+const returnLabel = computed(() => RETURN_LABELS[order.value?.returnStatus] || '');
+
+/*
+| Fulfilment stepper — groups the real Order::STATUSES into 4 stages so
+| the top-of-page progress bar reads at a glance. Cancelled/Rejected are
+| shown as a banner instead (see isCancelledOrRejected) since they don't
+| fit a "how far along" story. Widths are fixed visual increments, not a
+| measured metric — nothing here is fabricated data, just a coarser view
+| of the same real order.status the badge and timeline already show.
+*/
+const PROGRESS_STAGE_LABELS = ['Review order', 'Preparing order', 'Shipping', 'Delivered'];
+const PROGRESS_STAGE_STATUSES = [
+    ['New'],
+    ['Confirmed', 'Processing', 'Packed', 'Ready for Pickup'],
+    ['In Transit'],
+    ['Delivered'],
+];
+const PROGRESS_WIDTHS = ['12%', '45%', '78%', '100%'];
+
+const isCancelledOrRejected = computed(() =>
+    ['Cancelled', 'Rejected'].includes(order.value?.status),
+);
+
+const progressStageIndex = computed(() => {
+    if (!order.value || isCancelledOrRejected.value) {
+        return -1;
+    }
+
+    return PROGRESS_STAGE_STATUSES.findIndex((group) => group.includes(order.value.status));
+});
+
+const progressSteps = computed(() =>
+    PROGRESS_STAGE_LABELS.map((label, idx) => ({
+        label,
+        done: idx < progressStageIndex.value,
+        active: idx === progressStageIndex.value,
+    })),
+);
+
+const progressWidth = computed(
+    () => PROGRESS_WIDTHS[Math.max(progressStageIndex.value, 0)] || '0%',
+);
+
+// "Ships from {store} · {city, province}" — real seller identity, same
+// fields the printable receipt header already uses.
+const shipFromLine = computed(() => {
+    const seller = order.value?.seller;
+
+    if (!seller?.name) {
+        return '';
+    }
+
+    const place = [seller.city, seller.province].filter(Boolean).join(', ');
+
+    return place ? `Ships from ${seller.name} · ${place}` : `Ships from ${seller.name}`;
+});
+
+// payment_status is a fixed DB enum: Unpaid | Paid | Refunded.
+const PAYMENT_BADGE_CLASS = {
+    Paid: 'badge-emerald',
+    Unpaid: 'badge-slate',
+    Refunded: 'badge-red',
+};
+const paymentBadgeClass = computed(
+    () => PAYMENT_BADGE_CLASS[order.value?.paymentStatus] || 'badge-slate',
+);
 
 function formatAddress(addr) {
     if (!addr) {
@@ -1078,37 +1318,13 @@ function contactBuyer() {
     goTo('messages');
 }
 
-async function handleCancel() {
-    if (!order.value) {
-        return;
-    }
-
-    const reason = window.prompt(
-        `Cancel order ${order.value.id}? Enter a reason (this is recorded and shown to the buyer).`,
-    );
-
-    if (!reason || reason.trim().length < 3) {
-        return;
-    }
-
-    actionBusy.value = true;
-
-    try {
-        const updated = await cancelOrder(order.value.id, reason.trim());
-
-        if (updated) {
-            order.value = updated;
-        }
-    } catch {
-        // handled by composable
-    } finally {
-        actionBusy.value = false;
-    }
+function handleCancel() {
+    askDestructive('Cancelled');
 }
 
-function goTo(section) {
+function goTo(section, orderId) {
     window.dispatchEvent(
-        new CustomEvent('seller-nav', { detail: { section } }),
+        new CustomEvent('seller-nav', { detail: { section, orderId } }),
     );
 }
 

@@ -260,6 +260,7 @@ class ProductController extends Controller
             // incomplete spec never shows a blank row to the buyer.
             'specifications' => CategoryFieldConfig::labelSpecifications(
                 $product->category,
+                $product->subcategory,
                 $product->specifications,
             ),
             'sku' => $product->sku,

@@ -24,13 +24,24 @@ const updateError = ref('');
 // to "In Transit" but nobody's dispatch queue will pick it up.
 const statusWarning = ref('');
 
-// Active logistics companies, for the Courier / Carrier dropdown on
-// Prepare Orders / Courier Handover. Module-scoped (like `orders` above)
-// so it's fetched once and shared across every component that needs it,
-// not re-fetched per mount.
-const logisticsCompanies = ref([]);
-const isLoadingLogisticsCompanies = ref(false);
-let logisticsCompaniesLoaded = false;
+// Shared with SellerLayout.vue, which renders the search box and the
+// Filter popover (Order status/Payment/Date range/Sort) in the page
+// header for the orders section — same reasoning as useSellerProducts'
+// searchQuery: one real control, not a page-local one plus a decorative
+// duplicate in the shared header.
+const DEFAULT_ORDER_FILTERS = {
+    search: '',
+    status: '',
+    payment_status: '',
+    date_from: '',
+    date_to: '',
+    sort: 'newest',
+};
+const orderFilters = ref({ ...DEFAULT_ORDER_FILTERS });
+
+function resetOrderFilters() {
+    orderFilters.value = { ...DEFAULT_ORDER_FILTERS };
+}
 
 // Stored status value -> seller-facing label (mirrors Order::STATUS_LABELS).
 // 'New' shows as "Pending", 'In Transit' as "Shipped".
@@ -80,57 +91,133 @@ async function apiFetchRaw(path, options = {}) {
     const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+        // See useDeliveries.js's apiFetch for the full reasoning — a
+        // live session going stale mid-use is never re-checked, so
+        // without this every widget keeps failing forever and "Try
+        // again" can never succeed.
+        if (response.status === 401) {
+            window.location.href = '/';
+
+            return new Promise(() => {});
+        }
+
         throw new Error(body.message || 'Request failed.');
     }
 
     return body;
 }
 
-async function loadOrders(params = {}) {
-    isLoadingOrders.value = true;
-    loadError.value = '';
+// Dashboard, Orders, and PrepareOrders all call loadOrders() on mount —
+// without this, navigating between them re-fetched the seller's entire
+// order history (this endpoint is unpaginated by default) every single
+// time. ORDERS_CACHE_TTL_MS is short (orders change often — new orders,
+// status updates) rather than useSellerProducts' longer TTL.
+const ORDERS_CACHE_TTL_MS = 30 * 1000;
+let ordersRequest = null;
+let ordersRequestKey = null;
+let ordersLoadedAt = 0;
+let ordersLoadedKey = null;
 
+async function loadOrders(params = {}, { force = false } = {}) {
     const qs = new URLSearchParams(
         Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''),
     ).toString();
 
-    try {
-        const headers = await authHeaders();
-        const response = await fetch(`/api/seller/orders${qs ? `?${qs}` : ''}`, { headers });
-        const body = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            throw new Error(body.message || 'Request failed.');
-        }
-
-        orders.value = Array.isArray(body.data) ? body.data : [];
-        ordersMeta.value = body.meta || { statusCounts: {} };
-    } catch (err) {
-        console.error('Error loading seller orders:', err);
-        loadError.value =
-            err?.message || 'Something went wrong while loading your orders.';
-        orders.value = [];
-    } finally {
-        isLoadingOrders.value = false;
+    // Same request (same filters/params) already in flight — join it
+    // instead of firing a second, identical fetch.
+    if (ordersRequest && ordersRequestKey === qs) {
+        return ordersRequest;
     }
+
+    const cacheIsFresh =
+        ordersLoadedKey === qs && Date.now() - ordersLoadedAt < ORDERS_CACHE_TTL_MS;
+
+    if (!force && cacheIsFresh) {
+        isLoadingOrders.value = false;
+
+        return;
+    }
+
+    isLoadingOrders.value = true;
+    loadError.value = '';
+    ordersRequestKey = qs;
+
+    const request = (async () => {
+        try {
+            const headers = await authHeaders();
+            const response = await fetch(`/api/seller/orders${qs ? `?${qs}` : ''}`, { headers });
+            const body = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(body.message || 'Request failed.');
+            }
+
+            orders.value = Array.isArray(body.data) ? body.data : [];
+            ordersMeta.value = body.meta || { statusCounts: {} };
+            ordersLoadedAt = Date.now();
+            ordersLoadedKey = qs;
+        } catch (err) {
+            console.error('Error loading seller orders:', err);
+            loadError.value =
+                err?.message || 'Something went wrong while loading your orders.';
+            orders.value = [];
+        } finally {
+            isLoadingOrders.value = false;
+
+            if (ordersRequest === request) {
+                ordersRequest = null;
+                ordersRequestKey = null;
+            }
+        }
+    })();
+
+    ordersRequest = request;
+
+    return request;
 }
 
 // Fetches a single order with its full detail (address, shipping,
 // timeline). Always hits the API rather than reading the summary list
 // in memory, since the list response omits those detail-only fields.
 //
-// `includeJourney: false` skips the tracking-map payload server-side —
-// the priciest part of this endpoint — for callers (Prepare Orders) that
-// never render it. Order Details leaves it on for first paint.
+// Returns { order, notFound, error } so callers can tell a genuine 404
+// ("this order doesn't exist") apart from a transient failure
+// (network / 500) — the two want different UI (a plain empty state vs.
+// a retry prompt). `includeJourney: false` skips the tracking-map
+// payload server-side — the priciest part of this endpoint — for
+// callers (Prepare Orders) that never render it. Order Details leaves
+// it on for first paint.
 async function getOrderById(id, { includeJourney = true } = {}) {
-    try {
-        const suffix = includeJourney ? '' : '?include_journey=0';
+    // A leading "#" in the display id is a URL fragment once it hits the
+    // address bar — strip it before it becomes the request path.
+    const clean = String(id).replace(/^#/, '');
+    const suffix = includeJourney ? '' : '?include_journey=0';
 
-        return await apiFetch(`/orders/${encodeURIComponent(id)}${suffix}`);
+    try {
+        const headers = await authHeaders();
+        const response = await fetch(
+            `/api/seller/orders/${encodeURIComponent(clean)}${suffix}`,
+            { headers },
+        );
+        const body = await response.json().catch(() => ({}));
+
+        if (response.status === 404) {
+            return { order: null, notFound: true, error: '' };
+        }
+
+        if (!response.ok) {
+            throw new Error(body.message || `Request failed (${response.status}).`);
+        }
+
+        return { order: body.data ?? null, notFound: false, error: '' };
     } catch (err) {
         console.error('Error loading order:', err);
 
-        return null;
+        return {
+            order: null,
+            notFound: false,
+            error: err?.message || 'Could not load this order.',
+        };
     }
 }
 
@@ -160,29 +247,6 @@ async function getOrderTracking(id) {
         console.error('Error loading tracking:', err);
 
         return null;
-    }
-}
-
-// Fetches the active logistics companies once (unless `force`), for the
-// Courier / Carrier dropdown. Failure just leaves the list empty — the
-// dropdown then shows only its "Select a courier…" placeholder rather than
-// blocking the rest of the page.
-async function loadLogisticsCompanies({ force = false } = {}) {
-    if (logisticsCompaniesLoaded && !force) {
-        return;
-    }
-
-    isLoadingLogisticsCompanies.value = true;
-
-    try {
-        const data = await apiFetch('/logistics-companies');
-        logisticsCompanies.value = Array.isArray(data) ? data : [];
-        logisticsCompaniesLoaded = true;
-    } catch (err) {
-        console.error('Error loading logistics companies:', err);
-        logisticsCompanies.value = [];
-    } finally {
-        isLoadingLogisticsCompanies.value = false;
     }
 }
 
@@ -258,9 +322,12 @@ function shipOrder(id, extra = {}) {
     return updateOrderStatus(id, 'In Transit', extra).catch(() => null);
 }
 
-function deliverOrder(id) {
-    return updateOrderStatus(id, 'Delivered').catch(() => null);
-}
+// There is deliberately no deliverOrder() — a seller can no longer set
+// 'Delivered' at all (see Order::SELLER_SETTABLE_STATUSES /
+// SellerOrderController::updateStatus, which now rejects it). It's set
+// automatically instead: app/Console/Commands/AutoDeliverStaleOrders.php
+// (In Transit 7+ days with no confirmation), or eventually a buyer-side
+// confirmation.
 
 function statusBadgeClass(status) {
     const map = {
@@ -296,9 +363,9 @@ export function useOrders() {
         isUpdatingStatus,
         updateError,
         newOrdersCount,
-        logisticsCompanies,
-        isLoadingLogisticsCompanies,
-        loadLogisticsCompanies,
+        orderFilters,
+        resetOrderFilters,
+        STATUS_LABELS,
         loadOrders,
         getOrderById,
         ensureDispatchPrep,
@@ -315,6 +382,5 @@ export function useOrders() {
         rejectOrder,
         cancelOrder,
         shipOrder,
-        deliverOrder,
     };
 }

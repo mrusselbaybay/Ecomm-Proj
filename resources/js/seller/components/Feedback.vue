@@ -1,11 +1,17 @@
 <!-- resources/js/seller/components/Feedback.vue -->
 <template>
     <div class="feedback-page">
-        <!-- Toolbar -->
-        <div class="feedback-toolbar">
-            <p class="feedback-toolbar-note">
-                Reviews and ratings left on your products.
-            </p>
+        <!-- Header -->
+        <header class="fb-header">
+            <div>
+                <div class="fb-title-row">
+                    <h2 class="fb-title">Reviews</h2>
+                    <span v-if="summary?.unansweredCount" class="fb-needs-badge">
+                        {{ summary.unansweredCount }} need{{ summary.unansweredCount === 1 ? 's' : '' }} a response
+                    </span>
+                </div>
+                <p class="fb-subtitle">See what buyers are saying about your products.</p>
+            </div>
             <button
                 type="button"
                 class="btn-outline btn-sm feedback-export-btn"
@@ -19,113 +25,89 @@
                 </svg>
                 {{ isExporting ? 'Exporting…' : 'Export CSV' }}
             </button>
-        </div>
+        </header>
         <p v-if="exportError" class="feedback-inline-error">{{ exportError }}</p>
 
-        <!-- Summary cards -->
-        <div class="feedback-summary-grid">
-            <div class="card feedback-summary-card">
-                <div class="feedback-summary-card-top">
-                    <span class="feedback-summary-icon amber">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2Z" />
-                        </svg>
-                    </span>
-                    <span class="info-tip" tabindex="0" role="img" aria-label="Average of every star rating across your reviews">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
-                        <span class="info-tip-bubble">Average of every star rating across your reviews.</span>
-                    </span>
-                </div>
-                <h3 class="feedback-summary-value">{{ summary?.overallRating ?? '—' }}</h3>
-                <p class="feedback-summary-label">Average Rating</p>
-                <span v-if="ratingTrendValue !== null" class="feedback-trend" :class="trendClass(ratingTrendValue)">
-                    {{ trendArrow(ratingTrendValue) }} {{ Math.abs(ratingTrendValue).toFixed(2) }} vs last 30 days
-                </span>
-            </div>
-
-            <div class="card feedback-summary-card">
-                <div class="feedback-summary-card-top">
-                    <span class="feedback-summary-icon sky">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" />
-                        </svg>
-                    </span>
+        <!-- Stats row — matches the reference's 3-card layout: Total
+             Reviews, Average Rating, and Rating Distribution as one row
+             (Distribution used to live in a side rail; merged in here so
+             the page reads the same as the reference at a glance). -->
+        <div class="fb-stats-row">
+            <div class="card fb-stat-card">
+                <div class="fb-stat-top">
+                    <p class="fb-stat-label">Total Reviews</p>
                     <span class="info-tip" tabindex="0" role="img" aria-label="All reviews received across every product you sell">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
                         <span class="info-tip-bubble">All reviews received across every product you sell.</span>
                     </span>
                 </div>
-                <h3 class="feedback-summary-value">{{ summary?.totalReviews ?? '—' }}</h3>
-                <p class="feedback-summary-label">Total Reviews</p>
-                <span v-if="countTrendValue !== null" class="feedback-trend" :class="trendClass(countTrendValue)">
-                    {{ trendArrow(countTrendValue) }} {{ Math.abs(countTrendValue) }} vs last 30 days
-                </span>
-            </div>
-
-            <div class="card feedback-summary-card">
-                <div class="feedback-summary-card-top">
-                    <span class="feedback-summary-icon rose">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" />
-                        </svg>
-                    </span>
-                    <span class="info-tip" tabindex="0" role="img" aria-label="Reviews you have not replied to yet">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
-                        <span class="info-tip-bubble">Reviews you haven't replied to yet.</span>
+                <div class="fb-stat-value-row">
+                    <span class="fb-stat-value">{{ summary?.totalReviews ?? '—' }}</span>
+                    <span v-if="countTrendValue !== null" class="fb-stat-badge" :class="trendClass(countTrendValue)">
+                        {{ trendArrow(countTrendValue) }} {{ Math.abs(countTrendValue) }}
                     </span>
                 </div>
-                <h3 class="feedback-summary-value">{{ summary?.unansweredCount ?? '—' }}</h3>
-                <p class="feedback-summary-label">Unanswered</p>
+                <p class="fb-stat-caption">vs last 30 days</p>
             </div>
 
-            <div class="card feedback-summary-card">
-                <div class="feedback-summary-card-top">
-                    <span class="feedback-summary-icon emerald">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z" />
-                        </svg>
-                    </span>
-                    <span class="info-tip" tabindex="0" role="img" :aria-label="responseRateTooltip">
+            <div class="card fb-stat-card">
+                <div class="fb-stat-top">
+                    <p class="fb-stat-label">Average Rating</p>
+                    <span class="info-tip" tabindex="0" role="img" aria-label="Average of every star rating across your reviews">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
-                        <span class="info-tip-bubble">{{ responseRateTooltip }}</span>
+                        <span class="info-tip-bubble">Average of every star rating across your reviews.</span>
                     </span>
                 </div>
-                <h3 class="feedback-summary-value">{{ summary ? `${summary.responseRate}%` : '—' }}</h3>
-                <p class="feedback-summary-label">Response Rate</p>
+                <div class="fb-stat-value-row">
+                    <span class="fb-stat-value">{{ summary?.overallRating ?? '—' }}</span>
+                    <span v-if="summary?.overallRating != null" class="feedback-stars" role="img" :aria-label="`${summary.overallRating} out of 5 stars`">
+                        <span v-for="n in 5" :key="n" class="star" :class="{ filled: n <= Math.round(summary.overallRating) }">
+                            <svg width="14" height="14" viewBox="0 0 24 24"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2Z" /></svg>
+                        </span>
+                    </span>
+                </div>
+                <p class="fb-stat-caption">
+                    <template v-if="ratingTrendValue !== null">
+                        <span :class="trendClass(ratingTrendValue)">{{ trendArrow(ratingTrendValue) }} {{ Math.abs(ratingTrendValue).toFixed(2) }}</span>
+                        vs last 30 days ·
+                    </template>
+                    {{ summary ? `${summary.responseRate}% response rate` : '' }}<template v-if="summary?.avgResponseTimeHours != null"> · ~{{ summary.avgResponseTimeHours }}h to reply</template>
+                </p>
+            </div>
+
+            <div class="card fb-stat-card fb-stat-card--dist">
+                <p class="fb-stat-label">
+                    Rating Distribution
+                    <span class="info-tip" tabindex="0" role="img" aria-label="Click a row to filter the list by that rating">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+                        <span class="info-tip-bubble">Click a row to filter the list by that rating.</span>
+                    </span>
+                    — click a row to filter
+                </p>
+                <div v-if="summary" class="feedback-dist-list">
+                    <button
+                        v-for="row in summary.ratingDistribution"
+                        :key="row.rating"
+                        type="button"
+                        class="feedback-dist-row feedback-dist-row--compact"
+                        :class="{ active: filters.rating === row.rating }"
+                        @click="onDistRowClick(row.rating)"
+                    >
+                        <span class="feedback-dist-row-label">{{ row.rating }}★</span>
+                        <div class="feedback-dist-bar">
+                            <div class="feedback-dist-fill" :class="distBarClass(row.rating)" :style="{ width: row.percent + '%' }"></div>
+                        </div>
+                        <span class="feedback-dist-count">{{ row.count }}</span>
+                    </button>
+                </div>
             </div>
         </div>
 
-        <div class="feedback-layout">
-            <!-- Left column -->
-            <aside class="feedback-side">
-                <div class="card feedback-distribution">
-                    <h3 class="feedback-side-title">
-                        Rating Distribution
-                        <span class="info-tip" tabindex="0" role="img" aria-label="Click a row to filter the list by that rating">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
-                            <span class="info-tip-bubble">Click a row to filter the list by that rating.</span>
-                        </span>
-                    </h3>
-                    <div v-if="summary" class="feedback-dist-list">
-                        <button
-                            v-for="row in summary.ratingDistribution"
-                            :key="row.rating"
-                            type="button"
-                            class="feedback-dist-row"
-                            :class="{ active: filters.rating === row.rating }"
-                            @click="onDistRowClick(row.rating)"
-                        >
-                            <div class="feedback-dist-label-row">
-                                <span>{{ row.rating }} Star{{ row.rating > 1 ? 's' : '' }}</span>
-                                <span class="feedback-dist-count">{{ row.count }} ({{ row.percent }}%)</span>
-                            </div>
-                            <div class="feedback-dist-bar">
-                                <div class="feedback-dist-fill" :class="distBarClass(row.rating)" :style="{ width: row.percent + '%' }"></div>
-                            </div>
-                        </button>
-                    </div>
-                </div>
-
+        <!-- Secondary insights row — moved out of a persistent side rail
+             so the review list below reads full-width, like the
+             reference; still real, still reachable, just not
+             above-the-fold anymore. -->
+        <div class="fb-secondary-row">
                 <div class="card feedback-product-ratings">
                     <h3 class="feedback-side-title">
                         Ratings by Product
@@ -195,10 +177,9 @@
                         You're all caught up — every review has a reply.
                     </p>
                 </div>
-            </aside>
+        </div>
 
-            <!-- Right column -->
-            <section class="feedback-main">
+        <div class="feedback-main">
                 <div ref="controlsCard" class="card feedback-controls">
                     <div class="feedback-tabs" role="tablist" aria-label="Filter reviews by status">
                         <button
@@ -530,10 +511,10 @@
                         <button class="page-btn" :disabled="meta.currentPage === meta.lastPage" @click="goToPage(meta.currentPage + 1)">Next</button>
                     </div>
                 </div>
-            </section>
         </div>
 
         <!-- Image preview modal -->
+        <Transition name="modal-fade">
         <div
             v-if="previewImages.length"
             class="modal-overlay"
@@ -555,8 +536,10 @@
                 </button>
             </div>
         </div>
+        </Transition>
 
         <!-- Confirm edit modal -->
+        <Transition name="modal-fade">
         <div v-if="confirmEditId" class="modal-overlay" @click.self="cancelEditConfirm">
             <div class="modal-panel">
                 <div class="modal-header">
@@ -576,8 +559,10 @@
                 </div>
             </div>
         </div>
+        </Transition>
 
         <!-- Report review modal -->
+        <Transition name="modal-fade">
         <div v-if="reportModalReview" class="modal-overlay" @click.self="closeReportModal">
             <div class="modal-panel">
                 <div class="modal-header">
@@ -624,6 +609,7 @@
                 </div>
             </div>
         </div>
+        </Transition>
     </div>
 </template>
 
@@ -711,13 +697,6 @@ const REPORT_STATUS_LABELS = {
 };
 
 const today = new Date().toISOString().slice(0, 10);
-
-const responseRateTooltip = computed(() => {
-    const hours = summary.value?.avgResponseTimeHours;
-    const base = 'Share of your reviews that have a seller response.';
-
-    return hours != null ? `${base} You typically reply within ${hours}h.` : base;
-});
 
 const ratingTrendValue = computed(() => summary.value?.trend?.ratingChange ?? null);
 const countTrendValue = computed(() => summary.value?.trend?.reviewCountChange ?? null);
@@ -1094,6 +1073,26 @@ onMounted(() => {
     loadReviews();
 });
 
+// Same 30s poll rhythm as Orders.vue/Dashboard.vue — a new buyer review
+// shouldn't need a page reload to show up. Draft replies live in the
+// separate `drafts` ref keyed by review.id (not on the review objects
+// themselves), and the list is keyed by review.id too, so a background
+// refresh can't wipe out text someone is mid-typing.
+const FEEDBACK_POLL_MS = 30 * 1000;
+let feedbackPollTimer = null;
+
+onMounted(() => {
+    feedbackPollTimer = setInterval(() => {
+        loadSummary();
+        loadProductStats();
+        loadReviews();
+    }, FEEDBACK_POLL_MS);
+});
+
+onBeforeUnmount(() => {
+    clearInterval(feedbackPollTimer);
+});
+
 watch(
     filters,
     (f) => {
@@ -1146,3 +1145,517 @@ onBeforeUnmount(() => {
     window.removeEventListener('keydown', onPreviewKeydown);
 });
 </script>
+
+<style scoped>
+/* ============================================================
+   REVIEWS (Feedback) — dark reskin (matches Dashboard / Orders /
+   Inventory / Order Preparation / Order Details / Courier Handover /
+   Delivery / Reports). Scoped to this component, so targeting shared
+   class names here (.card, .btn-outline, .btn-primary, .field-input,
+   .badge-*, .pagination, .page-btn, .empty-state, ...) only ever
+   affects what this page renders — every other page keeps using the
+   same class names, unaffected, in their own light-mode originals.
+   The image-preview modal and the edit/report confirm dialogs are
+   left as-is (no page in this app reskins its modals — they stay a
+   neutral floating layer over any page's theme, same convention
+   Prepare Orders/Courier Handover already established).
+   ============================================================ */
+.feedback-page {
+    --fb-surface: #161b17;
+    --fb-surface-2: #1d231e;
+    --fb-border: rgba(255, 255, 255, 0.08);
+    --fb-border-soft: rgba(255, 255, 255, 0.06);
+    --fb-ink-900: #f2f4f1;
+    --fb-ink-700: #c6cbc5;
+    --fb-ink-500: #97a099;
+    --fb-ink-400: #6d766e;
+    color: var(--fb-ink-900);
+}
+
+/* ---- header ---- */
+.fb-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.1rem;
+}
+.fb-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+}
+.fb-title {
+    font-size: 1.4rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--fb-ink-900);
+    margin: 0;
+}
+.fb-needs-badge {
+    font-size: 0.7rem;
+    font-weight: 800;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(200, 67, 61, 0.2);
+    color: #f7a49f;
+    white-space: nowrap;
+}
+.fb-subtitle {
+    font-size: 0.8rem;
+    color: var(--fb-ink-500);
+    margin: 0.25rem 0 0;
+}
+
+.feedback-inline-error {
+    color: #f7a49f;
+}
+
+/* ---- stats row (3 cards: Total Reviews / Average Rating / Rating
+   Distribution) — replaces the old 4-card grid + side-rail distribution
+   card so the page reads the same as the reference at a glance. ---- */
+.fb-stats-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.6fr;
+    gap: 1.1rem;
+    margin-bottom: 1.25rem;
+    align-items: stretch;
+}
+.fb-stat-card {
+    padding: 1.15rem 1.3rem;
+}
+.fb-stat-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+.fb-stat-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--fb-ink-500);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.fb-stat-value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    margin-top: 0.6rem;
+}
+.fb-stat-value {
+    font-size: 1.9rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--fb-ink-900);
+    line-height: 1;
+}
+.fb-stat-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+    font-size: 0.75rem;
+    font-weight: 800;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+}
+.fb-stat-badge.up {
+    color: #5eead4;
+    background: rgba(15, 118, 110, 0.2);
+}
+.fb-stat-badge.down {
+    color: #f7a49f;
+    background: rgba(200, 67, 61, 0.2);
+}
+.fb-stat-badge.flat {
+    color: var(--fb-ink-500);
+    background: var(--fb-surface-2);
+}
+.fb-stat-caption {
+    font-size: 0.74rem;
+    color: var(--fb-ink-500);
+    margin: 0.5rem 0 0;
+}
+.fb-stat-caption .up {
+    color: #5eead4;
+    font-weight: 700;
+}
+.fb-stat-caption .down {
+    color: #f7a49f;
+    font-weight: 700;
+}
+
+.fb-stat-card--dist {
+    display: flex;
+    flex-direction: column;
+}
+.fb-stat-card--dist .feedback-dist-list {
+    flex: 1;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0;
+    margin-top: 0.6rem;
+}
+.feedback-dist-row--compact {
+    display: grid;
+    grid-template-columns: 1.8rem 1fr 2.2rem;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.15rem 0.4rem;
+}
+.feedback-dist-row-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--fb-ink-700);
+}
+.feedback-dist-row--compact .feedback-dist-count {
+    text-align: right;
+}
+
+/* ---- secondary insights row (Ratings by Product / Needs Attention) --- */
+.fb-secondary-row {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 1.1rem;
+    margin-bottom: 1.25rem;
+    align-items: start;
+}
+
+@media (max-width: 1024px) {
+    .fb-stats-row,
+    .fb-secondary-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ---- shared primitives ---- */
+.feedback-page .card {
+    background: var(--fb-surface);
+    border-color: var(--fb-border);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.feedback-page .btn-outline {
+    background: var(--fb-surface-2);
+    border-color: var(--fb-border);
+    color: var(--fb-ink-900);
+}
+.feedback-page .btn-outline:hover:not(:disabled) {
+    background: var(--fb-surface);
+}
+.feedback-page .field-input {
+    background: var(--fb-surface-2);
+    border-color: var(--fb-border);
+    color: var(--fb-ink-900);
+}
+.feedback-page .field-input::placeholder {
+    color: var(--fb-ink-400);
+}
+.feedback-page .field-label {
+    color: var(--fb-ink-500);
+}
+/* The pill (background/border) belongs on the <input>, not this
+   wrapper — the wrapper has no padding of its own, so as a block-level
+   div it defaults to full width (unlike the input's own fixed width),
+   and a border painted on it stretched past the input's real edges,
+   leaving the search icon floating outside the visible bar. */
+.feedback-page .header-search input {
+    background: var(--fb-surface-2);
+    border: 1px solid var(--fb-border);
+    color: var(--fb-ink-900);
+}
+.feedback-page .header-search input::placeholder {
+    color: var(--fb-ink-400);
+}
+.feedback-page .header-search .search-icon {
+    color: var(--fb-ink-500);
+}
+.feedback-page .save-msg.error {
+    color: #f7a49f;
+}
+.feedback-page .save-msg.success {
+    color: #5eead4;
+}
+.feedback-page .icon-lg {
+    color: var(--fb-ink-400);
+}
+.feedback-page .empty-state p,
+.feedback-page .empty-hint {
+    color: var(--fb-ink-500);
+}
+.feedback-page .empty-state p[style*='#1e293b'] {
+    color: var(--fb-ink-900) !important;
+}
+.feedback-page .pagination {
+    border-top-color: var(--fb-border);
+    color: var(--fb-ink-500);
+}
+.feedback-page .page-btn {
+    background: var(--fb-surface-2);
+    border-color: var(--fb-border);
+    color: var(--fb-ink-700);
+}
+.feedback-page .page-btn:disabled {
+    opacity: 0.4;
+}
+
+/* Status badges as translucent chips instead of solid light pastel
+   rectangles — same treatment as Order Details / Courier Handover /
+   Delivery. */
+.feedback-page .badge-sky {
+    background: rgba(18, 63, 143, 0.28);
+    color: #9dc2ef;
+    border-color: rgba(18, 63, 143, 0.4);
+}
+.feedback-page .badge-amber {
+    background: rgba(251, 191, 125, 0.16);
+    color: #fbbf7d;
+    border: 1px solid rgba(251, 191, 125, 0.3);
+}
+.feedback-page .badge-red {
+    background: rgba(247, 164, 159, 0.16);
+    color: #f7a49f;
+    border: 1px solid rgba(247, 164, 159, 0.3);
+}
+
+.feedback-page .info-tip {
+    color: var(--fb-ink-400);
+}
+.feedback-page .info-tip-bubble {
+    background: var(--fb-ink-900);
+    color: var(--fb-surface);
+}
+
+/* ---- rating distribution ---- */
+.feedback-side-title {
+    color: var(--fb-ink-900);
+}
+.feedback-dist-row:hover {
+    background: var(--fb-surface-2);
+}
+.feedback-dist-row.active {
+    background: rgba(20, 184, 166, 0.14);
+}
+.feedback-dist-label-row {
+    color: var(--fb-ink-700);
+}
+.feedback-dist-count {
+    color: var(--fb-ink-500);
+}
+.feedback-dist-bar {
+    background: var(--fb-surface-2);
+}
+.feedback-dist-fill.bar-teal,
+.feedback-dist-fill.bar-teal-soft {
+    background: #5eead4;
+}
+.feedback-dist-fill.bar-teal-soft {
+    opacity: 0.6;
+}
+.feedback-dist-fill.bar-amber {
+    background: #fbbf7d;
+}
+.feedback-dist-fill.bar-red {
+    background: #f7a49f;
+}
+.feedback-dist-fill.bar-red-strong {
+    background: #ea6f68;
+}
+
+/* ---- needs attention ---- */
+.feedback-attention-copy {
+    color: var(--fb-ink-700);
+}
+.feedback-attention-warning {
+    color: #f7a49f;
+    background: rgba(200, 67, 61, 0.16);
+}
+.feedback-attention-clear {
+    color: #5eead4;
+}
+
+/* ---- controls: tabs, search, sort, secondary filters ---- */
+.feedback-tab {
+    color: var(--fb-ink-500);
+}
+.feedback-tab:hover {
+    color: var(--fb-ink-900);
+    background: var(--fb-surface-2);
+}
+.feedback-tab.active {
+    color: var(--fb-surface);
+    background: #5eead4;
+}
+.feedback-secondary-filters {
+    border-top-color: var(--fb-border-soft);
+}
+.feedback-filter-dot {
+    background: #5eead4;
+}
+
+/* ---- loading skeleton ---- */
+.feedback-skeleton-line {
+    background: linear-gradient(90deg, var(--fb-surface-2) 25%, var(--fb-border) 37%, var(--fb-surface-2) 63%);
+    background-size: 400% 100%;
+}
+
+/* ---- review card ---- */
+.feedback-card.urgent {
+    border-left-color: #c8433d;
+}
+.feedback-avatar {
+    background: rgba(20, 184, 166, 0.18);
+    color: #5eead4;
+}
+.feedback-buyer-name {
+    color: var(--fb-ink-900);
+}
+.feedback-stars .star {
+    color: var(--fb-border);
+}
+.feedback-stars .star.filled {
+    color: #fbbf7d;
+}
+.feedback-date {
+    color: var(--fb-ink-500);
+}
+
+.feedback-product-chip {
+    background: var(--fb-surface-2);
+    border-color: var(--fb-border-soft);
+}
+.feedback-product-thumb,
+.feedback-product-rating-thumb {
+    background: var(--fb-surface);
+}
+.feedback-product-thumb-placeholder,
+.feedback-product-rating-thumb-ph {
+    color: var(--fb-ink-400);
+}
+.feedback-product-name {
+    color: var(--fb-ink-900);
+}
+.feedback-product-meta {
+    color: var(--fb-ink-500);
+}
+
+.feedback-comment {
+    color: var(--fb-ink-700);
+}
+.feedback-showmore {
+    color: #5eead4;
+}
+
+.feedback-image-thumb {
+    border-color: var(--fb-border);
+    background: var(--fb-surface-2);
+}
+.feedback-image-thumb:hover {
+    border-color: #5eead4;
+}
+
+/* ---- published response ---- */
+.feedback-response {
+    background: var(--fb-surface-2);
+    border-color: var(--fb-border-soft);
+}
+.feedback-response-head {
+    color: #5eead4;
+}
+.feedback-response-edited {
+    color: var(--fb-ink-500);
+}
+.feedback-response-text {
+    color: var(--fb-ink-700);
+}
+.feedback-edit-btn {
+    color: #9dc2ef;
+}
+
+/* ---- response form ---- */
+.feedback-response-form {
+    border-top-color: var(--fb-border-soft);
+}
+.feedback-quick-reply-btn {
+    color: #5eead4;
+    background: rgba(20, 184, 166, 0.1);
+    border-color: rgba(20, 184, 166, 0.28);
+}
+.feedback-quick-reply-btn:hover {
+    background: rgba(20, 184, 166, 0.18);
+}
+.feedback-char-count {
+    color: var(--fb-ink-500);
+}
+.feedback-char-count.warn {
+    color: #fbbf7d;
+}
+
+/* ---- ratings by product ---- */
+.feedback-product-ratings-hint {
+    color: var(--fb-ink-500);
+}
+.feedback-product-rating-row:hover {
+    background: var(--fb-surface-2);
+}
+.feedback-product-rating-row.active {
+    background: rgba(20, 184, 166, 0.14);
+}
+.feedback-product-rating-name {
+    color: var(--fb-ink-900);
+}
+.feedback-product-rating-meta {
+    color: var(--fb-ink-500);
+}
+.feedback-product-rating-score {
+    color: #fbbf7d;
+}
+.feedback-product-rating-unanswered {
+    color: #fbbf7d;
+}
+
+/* ---- active product filter chip ---- */
+.feedback-active-product {
+    background: rgba(20, 184, 166, 0.12);
+    border-color: rgba(20, 184, 166, 0.3);
+}
+.feedback-active-product-label {
+    color: var(--fb-ink-700);
+}
+.feedback-active-product-clear {
+    color: #5eead4;
+}
+
+/* ---- report review ---- */
+.feedback-reported-badge {
+    background: rgba(200, 67, 61, 0.18);
+    color: #f7a49f;
+}
+.feedback-card-footer {
+    border-top-color: var(--fb-border-soft);
+    border-top-style: dashed;
+}
+.feedback-report-btn {
+    color: var(--fb-ink-500);
+}
+.feedback-report-btn:hover {
+    color: #f7a49f;
+}
+.feedback-report-note,
+.feedback-report-sent {
+    color: var(--fb-ink-500);
+}
+.feedback-report-sent {
+    color: #5eead4;
+}
+.feedback-report-note-status {
+    color: #fbbf7d;
+}
+
+.pagination-page-indicator {
+    color: var(--fb-ink-500);
+}
+</style>

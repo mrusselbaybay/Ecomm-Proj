@@ -9,3 +9,7 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('messages:prune-staged-attachments')->daily();
+
+// See app/Console/Commands/AutoDeliverStaleOrders.php for why this
+// exists and what it does and doesn't rely on.
+Schedule::command('orders:auto-deliver')->daily();

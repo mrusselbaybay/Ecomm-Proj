@@ -1,6 +1,6 @@
 <!-- resources/js/seller/components/Profile.vue -->
 <template>
-    <div>
+    <div class="acct-page">
         <!-- Floating save-feedback toast — visible regardless of scroll
              position, since Save/Cancel live at the bottom of the form
              but the page can be scrolled well past them by then. -->

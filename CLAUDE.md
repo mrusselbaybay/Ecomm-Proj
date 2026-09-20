@@ -116,6 +116,24 @@ Optimize responses and development workflow for **minimal unnecessary token usag
 * Prefer inspecting the codebase over asking me for information that can be determined from the project.
 * Do not restate information already available in the conversation.
 
+Work efficiently and minimize token usage.
+
+- Use Graphify/code graph first for codebase exploration.
+- Do not read files unless they are relevant to the task.
+- Avoid broad "grep", "find", or repository-wide searches when the graph can identify the relevant files.
+- Do not reread files or context that you have already inspected.
+- Keep responses concise; summarize instead of repeating code.
+- Make the smallest necessary changes.
+- Do not explain obvious changes unless asked.
+- Run only the tests/checks relevant to the changes.
+- Before making changes, briefly identify the files/functions you expect to need.
+- If you already have enough information to act, do not perform additional exploration.
+- When resolving merge conflicts, inspect only the conflicting files and the relevant surrounding code, preserve compatible changes from both branches, and run targeted tests afterward.
+- Do not modify unrelated files.
+- Do not generate unnecessary documentation, comments, or refactors.
+- Prefer direct execution over asking unnecessary questions.
+- At the end, give a very short summary of what changed and what was tested.
+
 ## Verification
 
 After making changes:
@@ -204,3 +222,13 @@ Do not perform unnecessary large-scale refactors solely for optimization. Prefer
 - Do not assume PostgreSQL/MySQL, Vue, Laravel, or the network is the bottleneck without evidence.
 - Fix the highest-impact bottleneck first.
 - After optimization, verify that functionality remains unchanged.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

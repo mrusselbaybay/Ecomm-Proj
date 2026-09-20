@@ -29,6 +29,7 @@ class MessageAttachment extends Model
         'mime',
         'size',
         'url',
+        'path',
     ];
 
     protected $casts = [

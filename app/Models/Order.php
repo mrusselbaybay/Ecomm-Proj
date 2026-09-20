@@ -114,10 +114,17 @@ class Order extends Model
         'Rejected' => [],
     ];
 
-    // Statuses the SELLER is allowed to set. 'In Transit'/'Delivered' are
-    // deliberately excluded — per the spec those belong to logistics.
+    // Statuses the SELLER is allowed to set via
+    // SellerOrderController::updateStatus(). 'In Transit' is included —
+    // Courier Handover's own "Confirm Pickup" is how a seller hands an
+    // order to a courier in this project (there's no separate logistics
+    // portal action wired up for it). 'Delivered' is deliberately
+    // excluded: a seller declaring their own order delivered isn't a
+    // real confirmation of anything — it's set automatically instead,
+    // either by AutoDeliverStaleOrders (7 days with no confirmation) or
+    // a future buyer-side confirmation.
     public const SELLER_SETTABLE_STATUSES = [
-        'Confirmed', 'Processing', 'Packed', 'Ready for Pickup', 'Cancelled', 'Rejected',
+        'Confirmed', 'Processing', 'Packed', 'Ready for Pickup', 'In Transit', 'Cancelled', 'Rejected',
     ];
 
     // Once here, an order never goes back to an earlier status.
@@ -148,7 +155,10 @@ class Order extends Model
             }
 
             if (blank($order->tracking_number)) {
-                $order->tracking_number = self::generateTrackingNumber();
+                // Use the order's own SN- number as the tracking number too,
+                // so buyers/sellers only ever see one identifier for an
+                // order instead of a second, separately-generated TRK code.
+                $order->tracking_number = $order->order_number;
             }
         });
     }
@@ -166,25 +176,6 @@ class Order extends Model
         } while (static::where('confirmation_token', $token)->exists());
 
         return $token;
-    }
-
-    /**
-     * A courier tracking number of the shape TRK-YYYYMMDD-NNNN, where NNNN
-     * is that day's running count (zero-padded), e.g. TRK-20260903-0003.
-     * Sellers never type this — it's assigned when an order is prepared
-     * for dispatch. Bumps past any same-day collision so it stays unique.
-     */
-    public static function generateTrackingNumber(): string
-    {
-        $prefix = 'TRK-'.now()->format('Ymd').'-';
-        $seq = static::where('tracking_number', 'like', $prefix.'%')->count() + 1;
-
-        do {
-            $candidate = $prefix.str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
-            $seq++;
-        } while (static::where('tracking_number', $candidate)->exists());
-
-        return $candidate;
     }
 
     /**

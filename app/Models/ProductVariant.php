@@ -19,11 +19,13 @@ class ProductVariant extends Model
     protected $keyType = 'string';
 
     protected $fillable = [
-        'product_id', 'sku', 'price', 'stock', 'low_stock_threshold', 'image', 'status',
+        'product_id', 'seller_id', 'sku', 'price', 'discount_percent', 'discount_type',
+        'stock', 'low_stock_threshold', 'image', 'status',
     ];
 
     protected $casts = [
         'price' => 'decimal:2',
+        'discount_percent' => 'decimal:2',
         'stock' => 'integer',
         'low_stock_threshold' => 'integer',
         'image' => 'array',
@@ -88,5 +90,20 @@ class ProductVariant extends Model
     public function effectivePrice(): float
     {
         return (float) ($this->price ?? $this->product->price);
+    }
+
+    /**
+     * The price after discount_percent is applied to effectivePrice() —
+     * a seller-facing preview only (see the discount columns' migration
+     * docblock: not read by CheckoutService, doesn't change what a buyer
+     * is actually charged).
+     */
+    public function discountedPrice(): ?float
+    {
+        if ($this->discount_percent === null) {
+            return null;
+        }
+
+        return round($this->effectivePrice() * (1 - ((float) $this->discount_percent / 100)), 2);
     }
 }

@@ -29,7 +29,7 @@ class ParcelIntakeService
 
     /**
      * Case-insensitive match against Order::shipping_carrier. Sellers
-     * pick a carrier by name (see SellerLogisticsController) — there's
+     * pick a carrier by name (see SellerCourierController) — there's
      * no FK from `orders` back to `logistics_companies` — so this is the
      * same lookup ParcelAssignmentController::receive already relied on
      * to confirm a scanned parcel belongs to the scanning company.

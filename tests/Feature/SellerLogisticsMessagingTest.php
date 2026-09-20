@@ -34,6 +34,20 @@ beforeEach(function () {
             $table->timestamps();
         });
     }
+
+    // Also Supabase-managed, no Laravel migration — Logistics\
+    // MessageController::conversations() eager-loads courier.courierDetail
+    // for every conversation row (see the other Logistics*ApiTest files
+    // for the same ad hoc schema).
+    if (! Schema::hasTable('courier_details')) {
+        Schema::create('courier_details', function (Blueprint $table) {
+            $table->string('profile_id')->primary();
+            $table->string('vehicle')->nullable();
+            $table->string('plate_number')->nullable();
+            $table->string('logistics_company_id')->nullable();
+            $table->string('delivery_status')->default('unavailable');
+        });
+    }
 });
 
 function makeAssignedSellerParcel(string $region = 'Luzon'): array

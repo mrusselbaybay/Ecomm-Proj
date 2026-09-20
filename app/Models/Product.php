@@ -18,7 +18,7 @@ class Product extends Model
     protected $keyType = 'string';
 
     protected $fillable = [
-        'seller_id', 'name', 'description', 'category', 'sku',
+        'seller_id', 'name', 'description', 'category', 'subcategory', 'sku',
         'brand', 'condition', 'dimensions', 'weight', 'low_stock_threshold',
         'specifications',
         'price', 'compare_price', 'promo_code', 'stock', 'images', 'status',
@@ -60,6 +60,17 @@ class Product extends Model
     public function inventoryMovements(): HasMany
     {
         return $this->hasMany(InventoryMovement::class, 'product_id')->latest();
+    }
+
+    /**
+     * Buyer-submitted reviews for this listing. Additive relation (no
+     * existing seller/admin code referenced Product::reviews() before
+     * this) — added for CatalogController's public product feed, which
+     * needs a real average rating/count rather than an invented one.
+     */
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(Review::class, 'product_id');
     }
 
     /**

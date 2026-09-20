@@ -41,6 +41,23 @@ beforeEach(function () {
             $table->string('owner_kind');
         });
     }
+
+    // Also Supabase-managed, no Laravel migration (see the other
+    // Logistics*ApiTest files for the same ad hoc schema) — needed
+    // because ParcelIntakeService::intake() auto-matches a rider via
+    // ParcelAutoAssignService::eligibleCompanyRiders(), which queries
+    // this table regardless of whether a matching rider actually
+    // exists.
+    if (! Schema::hasTable('courier_applications')) {
+        Schema::create('courier_applications', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->string('courier_profile_id');
+            $table->string('logistics_company_id');
+            $table->string('status');
+            $table->timestamp('applied_at')->nullable();
+            $table->timestamps();
+        });
+    }
 });
 
 function makeLogisticsCompany(array $overrides = []): LogisticsCompany

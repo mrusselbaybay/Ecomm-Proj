@@ -25,7 +25,10 @@ class UpdateOrderStatusRequest extends FormRequest
                 'In Transit', 'Delivered', 'Cancelled', 'Rejected',
             ])],
             'reason' => ['nullable', 'required_if:status,Cancelled', 'required_if:status,Rejected', 'string', 'min:3', 'max:1000'],
-            'tracking_number' => ['nullable', 'string', 'max:100'],
+            // tracking_number is deliberately not accepted here — it's
+            // never client-supplied. SellerOrderController::updateStatus
+            // fills it itself, once, from the order's own SN- order_number,
+            // the moment an order actually becomes 'In Transit'.
             'shipping_carrier' => ['nullable', 'string', 'max:100'],
             'shipping_service' => ['nullable', 'string', 'max:100'],
         ];

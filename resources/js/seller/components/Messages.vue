@@ -802,12 +802,14 @@ const {
     clearDraft,
 } = useMessaging();
 
+// 'archived' isn't a tab here — the archive shortcut next to the search
+// bar (.msg-archived-shortcut) already covers that filter, so listing it
+// again as a tab would just be a second control for the same thing.
 const statusTabs = [
     { value: 'all', label: 'All' },
     { value: 'unread', label: 'Unread' },
     { value: 'needs_response', label: 'Needs Response' },
     { value: 'resolved', label: 'Resolved' },
-    { value: 'archived', label: 'Archived' },
 ];
 
 // Practical, editable-before-sending templates — inserted into the

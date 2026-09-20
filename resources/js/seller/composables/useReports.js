@@ -67,6 +67,19 @@ const topProductsSort = ref('revenue');
 const isLoadingTopProducts = ref(false);
 const topProductsError = ref('');
 
+// ---- Weekly Reports section ----
+const weeklyFulfillment = ref([]); // fixed rolling last-8-weeks window, not range-scoped
+const isLoadingWeeklyFulfillment = ref(false);
+const weeklyFulfillmentError = ref('');
+
+const hourlyVolume = ref(null);
+const isLoadingHourlyVolume = ref(false);
+const hourlyVolumeError = ref('');
+
+const customerMix = ref(null);
+const isLoadingCustomerMix = ref(false);
+const customerMixError = ref('');
+
 const isExporting = ref(false);
 const exportError = ref('');
 
@@ -135,6 +148,16 @@ return { aborted: true };
     const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+        // See useDeliveries.js's apiFetch for the full reasoning — a
+        // live session going stale mid-use is never re-checked, so
+        // without this every widget keeps failing forever and "Try
+        // again" can never succeed.
+        if (response.status === 401) {
+            window.location.href = '/';
+
+            return new Promise(() => {});
+        }
+
         const err = new Error(body.message || 'Request failed.');
         err.status = response.status;
 
@@ -236,15 +259,82 @@ return;
     }
 }
 
-// All four panels share one date range, so they're always refetched
-// together — keeps the dashboard internally consistent (the chart, the
-// KPI row, and the product table can never disagree about which period
-// they're each describing).
+async function loadHourlyVolume() {
+    isLoadingHourlyVolume.value = true;
+    hourlyVolumeError.value = '';
+
+    try {
+        const res = await apiFetch(`/reports/hourly-volume?${rangeQuery()}`, 'hourlyVolume');
+
+        if (res.aborted) {
+return;
+}
+
+        hourlyVolume.value = res.data;
+    } catch (err) {
+        console.error('Error loading hourly order volume:', err);
+        hourlyVolumeError.value = err?.message || 'Could not load order volume by hour.';
+    } finally {
+        isLoadingHourlyVolume.value = false;
+    }
+}
+
+async function loadCustomerMix() {
+    isLoadingCustomerMix.value = true;
+    customerMixError.value = '';
+
+    try {
+        const res = await apiFetch(`/reports/customer-mix?${rangeQuery()}`, 'customerMix');
+
+        if (res.aborted) {
+return;
+}
+
+        customerMix.value = res.data;
+    } catch (err) {
+        console.error('Error loading customer mix:', err);
+        customerMixError.value = err?.message || 'Could not load new vs. returning buyers.';
+    } finally {
+        isLoadingCustomerMix.value = false;
+    }
+}
+
+// Independent of the page's date-range picker — always the same fixed
+// rolling last-8-weeks window (see SellerReportController::
+// weeklyFulfillment's own docblock), so this is loaded once rather than
+// re-fetched every time the range filter changes.
+async function loadWeeklyFulfillment() {
+    isLoadingWeeklyFulfillment.value = true;
+    weeklyFulfillmentError.value = '';
+
+    try {
+        const res = await apiFetch('/reports/weekly-fulfillment', 'weeklyFulfillment');
+
+        if (res.aborted) {
+return;
+}
+
+        weeklyFulfillment.value = res.data;
+    } catch (err) {
+        console.error('Error loading weekly fulfillment:', err);
+        weeklyFulfillmentError.value = err?.message || 'Could not load the weekly fulfillment trend.';
+    } finally {
+        isLoadingWeeklyFulfillment.value = false;
+    }
+}
+
+// All panels share one date range, so they're always refetched together
+// — keeps the dashboard internally consistent (the chart, the KPI row,
+// and the product table can never disagree about which period they're
+// each describing). weeklyFulfillment is NOT included — it's a fixed
+// rolling window unrelated to this range (see loadWeeklyFulfillment).
 function loadAll() {
     loadSummary();
     loadRevenueTrend();
     loadOrderBreakdown();
     loadTopProducts();
+    loadHourlyVolume();
+    loadCustomerMix();
     loadReport();
 }
 
@@ -528,6 +618,21 @@ export function useReports() {
         isLoadingTopProducts,
         topProductsError,
         loadTopProducts,
+
+        weeklyFulfillment,
+        isLoadingWeeklyFulfillment,
+        weeklyFulfillmentError,
+        loadWeeklyFulfillment,
+
+        hourlyVolume,
+        isLoadingHourlyVolume,
+        hourlyVolumeError,
+        loadHourlyVolume,
+
+        customerMix,
+        isLoadingCustomerMix,
+        customerMixError,
+        loadCustomerMix,
 
         loadAll,
 
