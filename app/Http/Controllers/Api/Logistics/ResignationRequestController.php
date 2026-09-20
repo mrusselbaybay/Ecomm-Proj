@@ -22,6 +22,10 @@ use Illuminate\Support\Facades\Http;
  */
 class ResignationRequestController extends Controller
 {
+    // Same private "documents" bucket every applicant/company document
+    // lives in — see PickupCourierController's matching constant.
+    private const DOCUMENTS_BUCKET = 'documents';
+
     public function __construct(private readonly SupabaseStorageService $supabaseStorage) {}
 
     /**
@@ -81,7 +85,7 @@ class ResignationRequestController extends Controller
             return response()->json(['message' => 'Resignation letter not found.'], 404);
         }
 
-        $url = $this->supabaseStorage->signedUrl($resignation->letter_path);
+        $url = $this->supabaseStorage->createSignedUrl(self::DOCUMENTS_BUCKET, $resignation->letter_path);
         if (! $url) {
             return response()->json(['message' => 'Could not generate a link to the letter right now.'], 502);
         }

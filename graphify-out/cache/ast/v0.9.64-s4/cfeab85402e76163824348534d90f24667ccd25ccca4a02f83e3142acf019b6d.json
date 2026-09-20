@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_app_http_controllers_logistics_courierapplicationcontroller_php", "label": "CourierApplicationController.php", "file_type": "code", "source_file": "app/Http/Controllers/Logistics/CourierApplicationController.php", "source_location": "L1"}], "edges": [], "raw_calls": []}

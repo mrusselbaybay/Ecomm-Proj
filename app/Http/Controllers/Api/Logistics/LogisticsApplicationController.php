@@ -20,6 +20,10 @@ use Illuminate\Support\Facades\Mail;
 
 class LogisticsApplicationController extends Controller
 {
+    // Same private "documents" bucket every applicant/company document
+    // lives in — see PickupCourierController's matching constant.
+    private const DOCUMENTS_BUCKET = 'documents';
+
     public function __construct(private readonly SupabaseStorageService $supabaseStorage) {}
 
     /**
@@ -47,7 +51,7 @@ class LogisticsApplicationController extends Controller
             return response()->json(['message' => 'Resume not found.'], 404);
         }
 
-        $url = $this->supabaseStorage->signedUrl($courierApplication->resume_path);
+        $url = $this->supabaseStorage->createSignedUrl(self::DOCUMENTS_BUCKET, $courierApplication->resume_path);
         if (! $url) {
             return response()->json(['message' => 'Could not generate a link to the resume right now.'], 502);
         }
@@ -81,7 +85,7 @@ class LogisticsApplicationController extends Controller
             return response()->json(['message' => "Driver's license not found."], 404);
         }
 
-        $url = $this->supabaseStorage->signedUrl($courierApplication->license_path);
+        $url = $this->supabaseStorage->createSignedUrl(self::DOCUMENTS_BUCKET, $courierApplication->license_path);
         if (! $url) {
             return response()->json(['message' => "Could not generate a link to the driver's license right now."], 502);
         }

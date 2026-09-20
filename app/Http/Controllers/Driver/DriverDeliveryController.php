@@ -61,6 +61,12 @@ use Illuminate\Support\Str;
  */
 class DriverDeliveryController extends Controller
 {
+    // Private (not publicly browsable) — proof-of-pickup/delivery/transfer
+    // photos are only ever handed out as short-lived signed URLs (see
+    // [photo]/[pickupPhoto]), same pattern SupabaseStorageService's
+    // docblock already uses for message-attachments.
+    private const PHOTOS_BUCKET = 'delivery-photos';
+
     public function __construct(
         private readonly SupabaseStorageService $supabaseStorage,
         private readonly ParcelIntakeService $parcelIntake,
@@ -141,8 +147,15 @@ class DriverDeliveryController extends Controller
                         ParcelAssignment::STATUS_READY_TO_TRANSFER,
                     ]);
             })->orWhere(function (Builder $q) use ($profile): void {
+                // STATUS_FOR_INVENTORY included alongside STATUS_HANDED_OFF
+                // so the pickup courier's read-only record of this parcel
+                // doesn't disappear while it's sitting in Logistics'
+                // inventory queue, awaiting their scan.
                 $q->where('picked_up_by', $profile->id)
-                    ->where('status', ParcelAssignment::STATUS_HANDED_OFF);
+                    ->whereIn('status', [
+                        ParcelAssignment::STATUS_FOR_INVENTORY,
+                        ParcelAssignment::STATUS_HANDED_OFF,
+                    ]);
             })
             ->orderByDesc('assigned_at')
             ->get()
@@ -271,15 +284,30 @@ class DriverDeliveryController extends Controller
         // staff-confirm-only now (see this method's docblock), so it's
         // invisible here even to the rider it's earmarked for, the same
         // way [index] hides it from their list.
+        //
+        // The picked_up_by branch below exists purely for an idempotent
+        // retry: a successful call already clears rider_profile_id and
+        // moves the row to STATUS_FOR_INVENTORY, so a stale list or a
+        // double-tap resending the same request would otherwise 404
+        // ("Delivery not found") on a pickup that actually already
+        // succeeded, instead of falling through to the idempotent
+        // "already moved on" branch below.
         $assignment = ParcelAssignment::query()
             ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany'])
-            ->where('rider_profile_id', $profile->id)
-            ->whereIn('status', [
-                ParcelAssignment::STATUS_ASSIGNED,
-                ParcelAssignment::STATUS_HANDED_OFF,
-                ParcelAssignment::STATUS_READY_TO_TRANSFER,
-            ])
             ->whereKey($parcelAssignment)
+            ->where(function (Builder $query) use ($profile): void {
+                $query->where(function (Builder $q) use ($profile): void {
+                    $q->where('rider_profile_id', $profile->id)
+                        ->whereIn('status', [
+                            ParcelAssignment::STATUS_ASSIGNED,
+                            ParcelAssignment::STATUS_HANDED_OFF,
+                            ParcelAssignment::STATUS_READY_TO_TRANSFER,
+                        ]);
+                })->orWhere(function (Builder $q) use ($profile): void {
+                    $q->where('picked_up_by', $profile->id)
+                        ->where('status', ParcelAssignment::STATUS_FOR_INVENTORY);
+                });
+            })
             ->first();
 
         if (! $assignment) {
@@ -299,9 +327,14 @@ class DriverDeliveryController extends Controller
 
         // Idempotent: already moved on (e.g. dispatch beat the rider to
         // it, or a retried request) -> just return the current state
-        // instead of erroring.
+        // instead of erroring. STATUS_FOR_INVENTORY included since that's
+        // this leg's actual successful destination now (see [pickup]'s
+        // docblock) — the picked_up_by branch on the query above is what
+        // lets a retry still find the row once rider_profile_id is
+        // cleared.
         if ($assignment->status === ParcelAssignment::STATUS_HANDED_OFF
-            || $assignment->status === ParcelAssignment::STATUS_READY_TO_TRANSFER) {
+            || $assignment->status === ParcelAssignment::STATUS_READY_TO_TRANSFER
+            || $assignment->status === ParcelAssignment::STATUS_FOR_INVENTORY) {
             return response()->json(['data' => $this->present($assignment, $profile)]);
         }
 
@@ -316,7 +349,8 @@ class DriverDeliveryController extends Controller
         $photoPath = "profile/{$profile->id}/pickups/{$assignment->id}/".(string) Str::uuid().'.'.$extension;
 
         try {
-            $this->supabaseStorage->upload($file, $photoPath);
+            $this->supabaseStorage->ensureBucket(self::PHOTOS_BUCKET, false);
+            $this->supabaseStorage->upload(self::PHOTOS_BUCKET, $photoPath, file_get_contents($file->getRealPath()), $file->getMimeType());
         } catch (\Throwable $e) {
             Log::error('Pickup photo upload to Supabase failed: '.$e->getMessage());
 
@@ -332,37 +366,22 @@ class DriverDeliveryController extends Controller
                 return;
             }
 
-            // The parcel is now in this company's hands, not the
-            // seller's — every match from here on is against the BUYER's
-            // address instead, same tiered rule intake() used for the
-            // seller's (see ParcelAutoAssignService::matchRider's
-            // $isPickupPhase). No manual "Auto assign" step any more, so
-            // this has to land on the right delivery rider right here —
-            // stamping the *seller's* barangay_assignment_id here would
-            // silently leave the parcel routed by the wrong address.
-            $order = $lockedAssignment->order;
-            $company = $lockedAssignment->logisticsCompany;
-            $match = $order && $company
-                ? app(ParcelAutoAssignService::class)->matchRider(
-                    $order,
-                    $company,
-                    $lockedAssignment->required_vehicle_type,
-                    false,
-                )
-                : ['rider' => null, 'barangayAssignment' => null];
-
+            // The parcel is now physically in this company's hands, but no
+            // longer lands straight on a dispatch-ready status — it parks
+            // at STATUS_FOR_INVENTORY until Logistics scans it in from the
+            // mobile app (Api\Logistics\ParcelInventoryController::scan),
+            // which is also where the delivery-rider match against the
+            // BUYER's address (ParcelAutoAssignService::matchRider's
+            // $isPickupPhase) now happens — not here, so a picked-up
+            // parcel is never auto-staged for delivery/transfer before
+            // it's been physically re-verified.
             $lockedAssignment->update([
-                'status' => ParcelAssignment::STATUS_HANDED_OFF,
+                'status' => ParcelAssignment::STATUS_FOR_INVENTORY,
                 'handed_off_at' => now(),
+                'for_inventory_at' => now(),
+                'inventory_origin' => ParcelAssignment::INVENTORY_ORIGIN_PICKUP,
                 'pickup_photo_path' => $photoPath,
-                'barangay_assignment_id' => $match['barangayAssignment']?->id,
-                // Set only when a delivery rider was actually matched —
-                // null means "handed off, still needs a delivery rider",
-                // the same "awaiting dispatch decision" state the rest of
-                // the app already checks for (see
-                // Api\Logistics\ParcelAssignmentController::awaitingDispatchDecision).
-                'rider_profile_id' => $match['rider']?->id,
-                'assigned_at' => $match['rider'] ? now() : null,
+                'rider_profile_id' => null,
                 'picked_up_by' => $profile->id,
             ]);
         });
@@ -442,7 +461,8 @@ class DriverDeliveryController extends Controller
         $photoPath = "profile/{$profile->id}/deliveries/{$assignment->id}/".(string) Str::uuid().'.'.$extension;
 
         try {
-            $this->supabaseStorage->upload($file, $photoPath);
+            $this->supabaseStorage->ensureBucket(self::PHOTOS_BUCKET, false);
+            $this->supabaseStorage->upload(self::PHOTOS_BUCKET, $photoPath, file_get_contents($file->getRealPath()), $file->getMimeType());
         } catch (\Throwable $e) {
             Log::error('Delivery photo upload to Supabase failed: '.$e->getMessage());
 
@@ -554,7 +574,8 @@ class DriverDeliveryController extends Controller
         $photoPath = "profile/{$profile->id}/transfers/{$assignment->id}/".(string) Str::uuid().'.'.$extension;
 
         try {
-            $this->supabaseStorage->upload($file, $photoPath);
+            $this->supabaseStorage->ensureBucket(self::PHOTOS_BUCKET, false);
+            $this->supabaseStorage->upload(self::PHOTOS_BUCKET, $photoPath, file_get_contents($file->getRealPath()), $file->getMimeType());
         } catch (\Throwable $e) {
             Log::error('Transfer photo upload to Supabase failed: '.$e->getMessage());
 
@@ -609,7 +630,7 @@ class DriverDeliveryController extends Controller
             return response()->json(['message' => 'No delivery photo on file for this parcel.'], 404);
         }
 
-        $url = $this->supabaseStorage->signedUrl($assignment->delivery_photo_path);
+        $url = $this->supabaseStorage->createSignedUrl(self::PHOTOS_BUCKET, $assignment->delivery_photo_path);
         if (! $url) {
             return response()->json(['message' => 'Could not generate a link to the delivery photo right now.'], 502);
         }
@@ -635,7 +656,7 @@ class DriverDeliveryController extends Controller
             return response()->json(['message' => 'No pickup photo on file for this parcel.'], 404);
         }
 
-        $url = $this->supabaseStorage->signedUrl($assignment->pickup_photo_path);
+        $url = $this->supabaseStorage->createSignedUrl(self::PHOTOS_BUCKET, $assignment->pickup_photo_path);
         if (! $url) {
             return response()->json(['message' => 'Could not generate a link to the pickup photo right now.'], 502);
         }
@@ -815,6 +836,17 @@ class DriverDeliveryController extends Controller
 
         if ($assignment->status === ParcelAssignment::STATUS_TRANSFERRED) {
             return 'transferred';
+        }
+
+        // The pickup courier's read-only view of a parcel they've already
+        // handed back but Logistics hasn't scanned into inventory yet —
+        // same "it's not mine any more" record as 'handed_over' below,
+        // just distinguished so the app can say "awaiting inventory scan"
+        // rather than implying it's already past that checkpoint.
+        if ($viewer !== null
+            && $assignment->status === ParcelAssignment::STATUS_FOR_INVENTORY
+            && $assignment->picked_up_by === $viewer->id) {
+            return 'for_inventory';
         }
 
         // The pickup courier's read-only view of a parcel they've already

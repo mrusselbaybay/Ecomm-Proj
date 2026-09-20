@@ -301,6 +301,12 @@ class ParcelAutoAssignService
             ParcelAssignment::STATUS_TRANSFER_ONGOING,
             ParcelAssignment::STATUS_TRANSFER_ASSIGNED,
             ParcelAssignment::STATUS_READY_TO_TRANSFER,
+            // Awaiting the For Inventory checkpoint — rider_profile_id is
+            // null here too (courier released), but it must NOT be
+            // auto-assignable until Logistics scans it in
+            // (Api\Logistics\ParcelInventoryController::scan), or the
+            // "Auto assign" sweep would bypass the checkpoint entirely.
+            ParcelAssignment::STATUS_FOR_INVENTORY,
         ], true)) {
             return false;
         }

@@ -21,6 +21,19 @@ class ParcelAssignment extends Model
 
     public const STATUS_ASSIGNED = 'assigned';
 
+    // A NEW company has physically taken custody of this parcel but
+    // Logistics hasn't scanned it in yet — set at the two points that
+    // happens (see $inventory_origin below) instead of landing straight
+    // on STATUS_HANDED_OFF. Every dispatch action below (assign/
+    // requestTransfer/autoAssign/assignTransferCourier) already refuses
+    // any status but its own specific starting point, so a row parked
+    // here structurally can't be dispatched until Api\Logistics\
+    // ParcelInventoryController::scan moves it on. Does NOT apply to a
+    // transfer courier leaving this same company's own hub — see
+    // Api\Logistics\ParcelAssignmentController::handoff()'s transfer-leg
+    // branch, which goes straight to STATUS_READY_TO_TRANSFER.
+    public const STATUS_FOR_INVENTORY = 'for_inventory';
+
     public const STATUS_HANDED_OFF = 'handed_off';
 
     // A picked-up parcel this company has asked another company to take
@@ -81,6 +94,18 @@ class ParcelAssignment extends Model
 
     public const COURIER_QUOTA = 20;
 
+    // Which of the two "a NEW company just took custody of this parcel"
+    // moments produced a STATUS_FOR_INVENTORY row — a courier collecting
+    // from the seller, or a transfer courier arriving at a *different*
+    // company's hub. A transfer courier merely leaving this same
+    // company's own hub is NOT gated (see Api\Logistics\
+    // ParcelAssignmentController::handoff()'s transfer-leg branch) — that
+    // parcel was already scanned into this company's inventory once, so
+    // there's no second custody change to log here.
+    public const INVENTORY_ORIGIN_PICKUP = 'pickup';
+
+    public const INVENTORY_ORIGIN_TRANSFER_RECEIPT = 'transfer_receipt';
+
     public $incrementing = false;
 
     protected $keyType = 'string';
@@ -104,6 +129,10 @@ class ParcelAssignment extends Model
         'sorted_at',
         'assigned_at',
         'handed_off_at',
+        'for_inventory_at',
+        'inventory_scanned_at',
+        'inventory_scanned_by',
+        'inventory_origin',
         'pickup_photo_path',
         'delivered_at',
         'delivery_photo_path',
@@ -118,6 +147,8 @@ class ParcelAssignment extends Model
         'sorted_at' => 'datetime',
         'assigned_at' => 'datetime',
         'handed_off_at' => 'datetime',
+        'for_inventory_at' => 'datetime',
+        'inventory_scanned_at' => 'datetime',
         'delivered_at' => 'datetime',
         'transferred_at' => 'datetime',
     ];
@@ -149,6 +180,11 @@ class ParcelAssignment extends Model
     public function pickedUpBy(): BelongsTo
     {
         return $this->belongsTo(Profile::class, 'picked_up_by');
+    }
+
+    public function inventoryScannedBy(): BelongsTo
+    {
+        return $this->belongsTo(Profile::class, 'inventory_scanned_by');
     }
 
     public function rider(): BelongsTo

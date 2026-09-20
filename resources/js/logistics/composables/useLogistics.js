@@ -1043,11 +1043,14 @@ const pendingTransferCount = computed(
 function isParcelActionable(parcel) {
     // 'transferred' is gone for good; 'transfer_pending' is parked
     // waiting on the receiving company and only offers a "cancel
-    // request" affordance, not a routing decision.
+    // request" affordance, not a routing decision. 'for_inventory' has
+    // nothing for this desk to do either — it's waiting on a Logistics
+    // scan from the mobile app (see ParcelAssignment::STATUS_FOR_INVENTORY).
     if (
         parcel.status === 'transferred' ||
         parcel.status === 'transfer_pending' ||
-        parcel.status === 'ready_to_transfer'
+        parcel.status === 'ready_to_transfer' ||
+        parcel.status === 'for_inventory'
     ) {
         return false;
     }
@@ -1077,6 +1080,7 @@ function isParcelActionable(parcel) {
 const parcelStats = computed(() => {
     const stats = {
         toPickUp: 0,
+        awaitingInventory: 0,
         toDeliver: 0,
         toTransfer: 0,
         transferred: 0,
@@ -1088,6 +1092,8 @@ const parcelStats = computed(() => {
 
         if (parcel.status === 'transferred') {
             stats.transferred += 1;
+        } else if (parcel.status === 'for_inventory') {
+            stats.awaitingInventory += 1;
         } else if (parcel.status === 'transfer_pending') {
             // Offered to another company, waiting on their answer.
             stats.toTransfer += 1;

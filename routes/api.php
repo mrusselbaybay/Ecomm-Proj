@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\Logistics\LogisticsProvincialAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsRegionalAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
 use App\Http\Controllers\Api\Logistics\ParcelAssignmentController;
+use App\Http\Controllers\Api\Logistics\ParcelInventoryController;
 use App\Http\Controllers\Api\Logistics\ResignationRequestController as LogisticsResignationRequestController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CustomerService\SupportTicketController;
@@ -268,6 +269,17 @@ Route::middleware(['supabase.auth', 'logistics'])
             ->name('parcel-transfer-requests.reject');
         Route::post('/parcel-transfer-requests/{parcelTransferRequest}/cancel', [ParcelAssignmentController::class, 'cancelTransferRequest'])
             ->name('parcel-transfer-requests.cancel');
+
+        // Logistics mobile app's Inventory section — see
+        // Api\Logistics\ParcelInventoryController's class docblock.
+        Route::get('/inventory', [ParcelInventoryController::class, 'index'])
+            ->name('inventory.index');
+        Route::get('/inventory/pending', [ParcelInventoryController::class, 'pending'])
+            ->name('inventory.pending');
+        Route::get('/inventory/{parcelAssignment}', [ParcelInventoryController::class, 'show'])
+            ->name('inventory.show');
+        Route::put('/inventory/{parcelAssignment}/scan', [ParcelInventoryController::class, 'scan'])
+            ->name('inventory.scan');
 
         Route::get('/messages/unread-count', [LogisticsMessageController::class, 'unreadCount']);
         Route::get('/messages/conversations', [LogisticsMessageController::class, 'conversations']);

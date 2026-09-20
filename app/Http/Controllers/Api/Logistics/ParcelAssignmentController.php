@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Logistics;
 
+use App\Http\Controllers\Concerns\ScopesLogisticsCompany;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Logistics\AssignParcelRequest;
 use App\Http\Requests\Logistics\AssignTransferCourierRequest;
@@ -27,6 +28,8 @@ use Illuminate\Validation\ValidationException;
 
 class ParcelAssignmentController extends Controller
 {
+    use ScopesLogisticsCompany;
+
     public function __construct(
         private readonly ParcelIntakeService $parcelIntake,
         private readonly ParcelAutoAssignService $autoAssign,
@@ -65,6 +68,7 @@ class ParcelAssignmentController extends Controller
                 ParcelAssignment::STATUS_RECEIVED,
                 ParcelAssignment::STATUS_SORTED,
                 ParcelAssignment::STATUS_ASSIGNED,
+                ParcelAssignment::STATUS_FOR_INVENTORY,
                 ParcelAssignment::STATUS_HANDED_OFF,
                 ParcelAssignment::STATUS_TRANSFER_PENDING,
                 ParcelAssignment::STATUS_TRANSFER_ONGOING,
@@ -157,6 +161,17 @@ class ParcelAssignmentController extends Controller
     {
         $company = $this->companyFor($request);
         $this->ensureAssignmentBelongsToCompany($parcelAssignment, $company);
+
+        // Awaiting the For Inventory checkpoint — rider_profile_id is null
+        // here too (same as a genuine "needs a delivery rider" row below),
+        // but it must not be assignable until Logistics scans it in
+        // (Api\Logistics\ParcelInventoryController::scan), or this would
+        // bypass the checkpoint entirely.
+        if ($parcelAssignment->status === ParcelAssignment::STATUS_FOR_INVENTORY) {
+            throw ValidationException::withMessages([
+                'parcel' => 'This parcel is awaiting an inventory scan and cannot be assigned yet.',
+            ]);
+        }
 
         // A handed-off parcel that STILL has a rider is out for delivery —
         // genuinely terminal here. But once the pickup courier confirms
@@ -295,27 +310,37 @@ class ParcelAssignmentController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($parcelAssignment, $company, $isTransferLeg): void {
+        DB::transaction(function () use ($parcelAssignment, $isTransferLeg): void {
             $locked = ParcelAssignment::whereKey($parcelAssignment->id)->lockForUpdate()->first();
 
             if ($isTransferLeg) {
+                // No inventory gate on this leg — the For Inventory
+                // checkpoint only applies where a fresh company is taking
+                // custody (the original seller pickup, and the receiving
+                // company on arrival — see ParcelIntakeService::
+                // createTransferReceipt), not the courier simply leaving
+                // this same company's own hub with a parcel it already
+                // scanned in once. Straight to STATUS_READY_TO_TRANSFER,
+                // same as before that checkpoint existed.
                 $locked->update(['status' => ParcelAssignment::STATUS_READY_TO_TRANSFER]);
 
                 return;
             }
 
-            $order = $locked->order;
-            $match = $order
-                ? $this->autoAssign->matchRider($order, $company, $locked->required_vehicle_type, false)
-                : ['rider' => null, 'barangayAssignment' => null];
-
+            // The parcel is now physically in this company's hands, but no
+            // longer lands straight on STATUS_HANDED_OFF — it parks at
+            // STATUS_FOR_INVENTORY until Logistics scans it in from the
+            // mobile app, which is also where the delivery-rider match
+            // (ParcelAutoAssignService::matchRider) now happens — see
+            // Driver\DriverDeliveryController::pickup()'s docblock for the
+            // rider self-serve equivalent of this same change.
             $locked->update([
-                'status' => ParcelAssignment::STATUS_HANDED_OFF,
+                'status' => ParcelAssignment::STATUS_FOR_INVENTORY,
                 'handed_off_at' => now(),
-                'barangay_assignment_id' => $match['barangayAssignment']?->id,
-                'rider_profile_id' => $match['rider']?->id,
-                'assigned_at' => $match['rider'] ? now() : null,
-                // Recorded before it's overwritten above — same permanent
+                'for_inventory_at' => now(),
+                'inventory_origin' => ParcelAssignment::INVENTORY_ORIGIN_PICKUP,
+                'rider_profile_id' => null,
+                // Recorded before it's cleared above — same permanent
                 // "who actually collected it" record Driver\
                 // DriverDeliveryController::pickup() keeps, so a later
                 // transfer can still reuse this courier even once
@@ -483,7 +508,9 @@ class ParcelAssignmentController extends Controller
 
         if (! $this->awaitingDispatchDecision($parcelAssignment, $company)) {
             throw ValidationException::withMessages([
-                'parcel' => 'This parcel has to be picked up by a courier before it can be routed to another company.',
+                'parcel' => $parcelAssignment->status === ParcelAssignment::STATUS_FOR_INVENTORY
+                    ? 'This parcel is awaiting an inventory scan and cannot be routed yet.'
+                    : 'This parcel has to be picked up by a courier before it can be routed to another company.',
             ]);
         }
 
@@ -772,25 +799,6 @@ class ParcelAssignmentController extends Controller
             ['regional', 'provincial'],
             true,
         );
-    }
-
-    private function companyFor(Request $request): LogisticsCompany
-    {
-        /** @var Profile $profile */
-        $profile = $request->user();
-
-        return LogisticsCompany::query()
-            ->where('owner_profile_id', $profile->id)
-            ->where('status', 'approved')
-            ->where('account_status', 'active')
-            ->firstOrFail();
-    }
-
-    private function ensureAssignmentBelongsToCompany(
-        ParcelAssignment $parcelAssignment,
-        LogisticsCompany $company,
-    ): void {
-        abort_unless($parcelAssignment->logistics_company_id === $company->id, 404);
     }
 
     private function ensureRiderIsAccepted(LogisticsCompany $company, string $riderProfileId): void

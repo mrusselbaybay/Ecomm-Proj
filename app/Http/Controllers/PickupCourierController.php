@@ -12,6 +12,13 @@ use Illuminate\Support\Str;
 
 class PickupCourierController extends Controller
 {
+    // Private — resumes are only ever handed out as short-lived signed
+    // URLs (see [viewResume]), same bucket every other applicant/company
+    // document lives in (Api\Courier\CourierApplicationController,
+    // Api\Courier\ResignationRequestController, and their Logistics-side
+    // viewing counterparts).
+    private const DOCUMENTS_BUCKET = 'documents';
+
     public function __construct(private readonly SupabaseStorageService $supabaseStorage)
     {
     }
@@ -155,7 +162,7 @@ class PickupCourierController extends Controller
             return response()->json(['error' => 'No resume on file for this application.'], 404);
         }
 
-        $url = $this->supabaseStorage->signedUrl($application->resume_path);
+        $url = $this->supabaseStorage->createSignedUrl(self::DOCUMENTS_BUCKET, $application->resume_path);
         if (! $url) {
             return response()->json(['error' => 'Could not generate a link to your resume right now.'], 502);
         }
@@ -230,7 +237,8 @@ class PickupCourierController extends Controller
         $storagePath = "profile/{$userId}/resumes/" . (string) Str::uuid() . '.' . $extension;
 
         try {
-            $this->supabaseStorage->upload($file, $storagePath);
+            $this->supabaseStorage->ensureBucket(self::DOCUMENTS_BUCKET, false);
+            $this->supabaseStorage->upload(self::DOCUMENTS_BUCKET, $storagePath, file_get_contents($file->getRealPath()), $file->getMimeType());
         } catch (\Throwable $e) {
             Log::error('Resume upload to Supabase failed: ' . $e->getMessage());
 

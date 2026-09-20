@@ -105,19 +105,22 @@ class ParcelIntakeService
      * a transfer request
      * (Api\Logistics\ParcelAssignmentController::acceptTransferRequest).
      *
-     * The row starts at STATUS_HANDED_OFF — the "to be delivered" tag —
-     * rather than the STATUS_RECEIVED a scanned-in parcel gets. A
-     * transferred parcel has already been collected from the seller
-     * during the origin company's pickup leg, so there is nothing left to
-     * pick up.
+     * The row starts at STATUS_FOR_INVENTORY — the transfer courier's
+     * arrival here is a courier physically handing this company a parcel,
+     * same as any other pickup, so it must be scanned in by Logistics
+     * (Api\Logistics\ParcelInventoryController::scan) before it can be
+     * dispatched, rather than landing straight on STATUS_HANDED_OFF the
+     * way it used to. Nothing left to pick up — a transferred parcel has
+     * already been collected from the seller during the origin company's
+     * pickup leg — but it still isn't dispatch-ready until Logistics here
+     * re-verifies it.
      *
-     * Rider and barangay are auto-matched the same tiered way a normal
-     * delivery-phase dispatch is (barangay -> provincial pool -> regional
-     * pool -> company-wide pool — see ParcelAutoAssignService::matchRider),
-     * same as intake() does for a fresh pickup-phase parcel: the receiving
-     * company was chosen specifically because it can reach this address,
-     * so it should land on a rider immediately instead of sitting
-     * unassigned until someone at that desk notices it.
+     * Rider and barangay are NOT matched here any more (deferred to the
+     * scan action, same as the other two "courier hands this company a
+     * parcel" cases) even though the receiving company was chosen
+     * specifically because it can reach the buyer's address — matching
+     * eagerly would still count as auto-staging it for delivery before
+     * it's been scanned in.
      *
      * The transfer trigger is re-evaluated here too, but since it's now
      * purely seller-vs-buyer (not tied to which company currently holds
@@ -132,24 +135,17 @@ class ParcelIntakeService
         $order = $origin->order;
         $trigger = $this->transferTrigger->evaluate($order);
 
-        // A transfer receipt is always post-pickup — matched against the
-        // BUYER's address, same as any other delivery-phase match.
-        $match = app(ParcelAutoAssignService::class)->matchRider($order, $targetCompany, $trigger['required_vehicle_type'], false);
-
         return ParcelAssignment::query()->create([
             'order_id' => $order->id,
             'logistics_company_id' => $targetCompany->id,
             'previous_assignment_id' => $origin->id,
-            'barangay_assignment_id' => $match['barangayAssignment']?->id,
-            'rider_profile_id' => $match['rider']?->id,
             'is_transfer' => $trigger['is_transfer'],
             'transfer_trigger' => $trigger['trigger'],
             'required_vehicle_type' => $trigger['required_vehicle_type'],
-            'status' => ParcelAssignment::STATUS_HANDED_OFF,
+            'status' => ParcelAssignment::STATUS_FOR_INVENTORY,
             'received_at' => now(),
-            'sorted_at' => $match['barangayAssignment'] ? now() : null,
-            'assigned_at' => $match['rider'] ? now() : null,
-            'handed_off_at' => now(),
+            'for_inventory_at' => now(),
+            'inventory_origin' => ParcelAssignment::INVENTORY_ORIGIN_TRANSFER_RECEIPT,
         ]);
     }
 

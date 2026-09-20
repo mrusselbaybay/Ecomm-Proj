@@ -55,6 +55,24 @@ class ParcelAssignmentResource extends JsonResource
             'assigned_at' => $this->assigned_at?->toISOString(),
             'handed_off_at' => $this->handed_off_at?->toISOString(),
             'transferred_at' => $this->transferred_at?->toISOString(),
+            // The For Inventory checkpoint (App\Models\ParcelAssignment::
+            // STATUS_FOR_INVENTORY) — see Api\Logistics\
+            // ParcelInventoryController for the scan that fills in
+            // inventory_scanned_at/by.
+            'for_inventory_at' => $this->for_inventory_at?->toISOString(),
+            'inventory_scanned_at' => $this->inventory_scanned_at?->toISOString(),
+            'inventory_origin' => $this->inventory_origin,
+            'inventory_scanned_by' => $this->whenLoaded('inventoryScannedBy', fn (): ?array => $this->inventoryScannedBy ? [
+                'id' => $this->inventoryScannedBy->id,
+                'first_name' => $this->inventoryScannedBy->first_name,
+                'last_name' => $this->inventoryScannedBy->last_name,
+            ] : null),
+            'picked_up_by' => $this->whenLoaded('pickedUpBy', fn (): ?array => $this->pickedUpBy ? [
+                'id' => $this->pickedUpBy->id,
+                'first_name' => $this->pickedUpBy->first_name,
+                'last_name' => $this->pickedUpBy->last_name,
+                'contact_no' => $this->pickedUpBy->contact_no,
+            ] : null),
             // False for a row the seller's handover created but that
             // hasn't been physically scanned in at the sorting center
             // yet — see App\Services\ParcelIntakeService.

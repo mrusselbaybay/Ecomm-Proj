@@ -24,6 +24,10 @@ class ParcelScanEvent extends Model
 
     public const CHECKPOINT_TRANSFER = 'transfer';
 
+    // Logistics staff scanning a STATUS_FOR_INVENTORY parcel's QR from the
+    // mobile app — see Api\Logistics\ParcelInventoryController::scan.
+    public const CHECKPOINT_INVENTORY = 'inventory';
+
     public $incrementing = false;
 
     protected $keyType = 'string';

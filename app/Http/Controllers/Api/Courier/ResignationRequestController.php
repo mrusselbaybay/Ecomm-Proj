@@ -21,6 +21,10 @@ use Illuminate\Support\Str;
  */
 class ResignationRequestController extends Controller
 {
+    // Same private "documents" bucket every applicant/company document
+    // lives in — see PickupCourierController's matching constant.
+    private const DOCUMENTS_BUCKET = 'documents';
+
     public function __construct(private readonly SupabaseStorageService $supabaseStorage) {}
 
     private function authenticatedProfile(Request $request): Profile|JsonResponse
@@ -120,7 +124,8 @@ class ResignationRequestController extends Controller
         $path = "profile/{$profile->id}/resignations/".(string) Str::uuid().'.'.$extension;
 
         try {
-            $this->supabaseStorage->upload($file, $path);
+            $this->supabaseStorage->ensureBucket(self::DOCUMENTS_BUCKET, false);
+            $this->supabaseStorage->upload(self::DOCUMENTS_BUCKET, $path, file_get_contents($file->getRealPath()), $file->getMimeType());
         } catch (\Throwable $e) {
             Log::error('Resignation letter upload to Supabase failed: '.$e->getMessage());
 
@@ -188,7 +193,7 @@ class ResignationRequestController extends Controller
             return response()->json(['message' => 'No resignation letter on file.'], 404);
         }
 
-        $url = $this->supabaseStorage->signedUrl($resignation->letter_path);
+        $url = $this->supabaseStorage->createSignedUrl(self::DOCUMENTS_BUCKET, $resignation->letter_path);
         if (! $url) {
             return response()->json(['message' => 'Could not generate a link to the letter right now.'], 502);
         }

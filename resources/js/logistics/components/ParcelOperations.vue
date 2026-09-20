@@ -245,7 +245,7 @@
                                     >{{ statusLabel(parcel) }}</span
                                 >
                                 <span
-                                    v-if="!parcel.is_scanned"
+                                    v-if="!parcel.is_scanned && stageOf(parcel) === 'toPickUp'"
                                     class="parcel-meta"
                                     >Not yet scanned in</span
                                 >
@@ -293,7 +293,7 @@
                                 <span
                                     v-else-if="parcel.status === 'transferred'"
                                     class="handoff-time"
-                                    >Delivered
+                                    >Transferred
                                     {{
                                         formatDate(parcel.transferred_at)
                                     }}</span
@@ -406,6 +406,24 @@
                             }}
                             — this parcel crosses a
                             {{ selectedParcel.transfer_trigger }} boundary.
+                        </span>
+                    </p>
+
+                    <!-- Awaiting the For Inventory checkpoint — a courier has
+                     already handed this company the parcel, but nobody can
+                     act on it here until it's scanned in. Scanning is
+                     mobile-only (device camera), so this is informational,
+                     not an action. -->
+                    <p
+                        v-if="selectedParcel.status === 'for_inventory'"
+                        class="callout-amber callout-block"
+                    >
+                        <NavIcon name="alert" :size="16" />
+                        <span>
+                            This parcel is awaiting an inventory scan.
+                            Scan its QR code in the Logistics mobile app to
+                            move it into inventory before it can be
+                            delivered or transferred.
                         </span>
                     </p>
 
@@ -681,8 +699,11 @@
 
                     <p class="panel-copy">
                         Another logistics company is asking you to take custody
-                        of these parcels. Accept to pull the parcel into your
-                        "To be delivered" queue; reject to send it back to them.
+                        of these parcels. Accepting doesn't move the parcel yet —
+                        their courier still has to physically deliver it to your
+                        hub. Once they do, it'll appear in your "Awaiting
+                        inventory" queue for you to scan in before it can be
+                        dispatched. Reject to send the request back to them.
                     </p>
 
                     <p v-if="transferRequestsLoading" class="parcel-meta">
@@ -916,6 +937,16 @@ function stageOf(parcel) {
         return 'transferred';
     }
 
+    // A courier has physically handed this company the parcel, but
+    // Logistics hasn't scanned it in yet — the For Inventory checkpoint
+    // (see App\Models\ParcelAssignment::STATUS_FOR_INVENTORY). Checked
+    // before the `status !== 'handed_off'` fallback below, which would
+    // otherwise wrongly bucket it into "To pick up". Scanning itself only
+    // happens in the Logistics mobile app — this tab is read-only here.
+    if (parcel.status === 'for_inventory') {
+        return 'awaitingInventory';
+    }
+
     // Offered to another company, waiting on their accept/reject — folded
     // into "To transfer" alongside a parcel that hasn't been offered yet.
     if (parcel.status === 'transfer_pending') {
@@ -974,6 +1005,11 @@ const stageOptions = computed(() => [
         count: parcelStats.value.toPickUp,
     },
     {
+        value: 'awaitingInventory',
+        label: 'Awaiting inventory',
+        count: parcelStats.value.awaitingInventory,
+    },
+    {
         value: 'toDeliver',
         label: 'To be delivered',
         count: parcelStats.value.toDeliver,
@@ -985,7 +1021,7 @@ const stageOptions = computed(() => [
     },
     {
         value: 'transferred',
-        label: 'Delivered',
+        label: 'Transferred',
         count: parcelStats.value.transferred,
     },
     { value: 'all', label: 'All', count: parcelStats.value.total },
@@ -1037,6 +1073,7 @@ const emptyTitle = computed(() => {
     return (
         {
             toPickUp: 'No parcels waiting for pickup',
+            awaitingInventory: 'No parcels awaiting an inventory scan',
             toDeliver: 'No parcels waiting to be delivered',
             toTransfer: 'No parcels waiting to be transferred',
             transferred: 'No parcels handed to another company',
@@ -1098,13 +1135,29 @@ function vehicleRequirementLabel(requiredVehicleType) {
 
 // One label per stage (see stageOf) — the action column next to it
 // already spells out finer detail where it matters (e.g. "With courier,
-// headed to X", "Requested X ago").
+// headed to X", "Requested X ago"). 'transfer_assigned' is checked before
+// falling back to the coarse per-stage label: a courier has only been
+// *picked* for that leg, not yet physically handed the parcel (that now
+// routes through the For Inventory scan — see handoff()'s transfer-leg
+// branch), so grouping it under the same "To be delivered" text as
+// 'ready_to_transfer' (courier already has it, en route) reads as further
+// along than it actually is.
 function statusLabel(parcel) {
+    if (parcel.status === 'transfer_assigned') {
+        return 'Courier assigned';
+    }
+
     return {
         toPickUp: 'To pick up',
+        awaitingInventory: 'Awaiting inventory',
         toDeliver: 'To be delivered',
         toTransfer: 'To transfer',
-        transferred: 'Delivered',
+        // parcel.status only ever reaches the literal value 'transferred'
+        // via a completed cross-company transfer (confirmTransfer()) — an
+        // ordinary local delivery's completion lives on the Order model
+        // instead (see this file's class-level stageOf() docblock), so
+        // there's no ambiguity in calling this "Transferred" outright.
+        transferred: 'Transferred',
     }[stageOf(parcel)];
 }
 
@@ -1113,6 +1166,10 @@ function statusClass(parcel) {
 
     if (stage === 'transferred') {
         return 'badge-teal';
+    }
+
+    if (stage === 'awaitingInventory') {
+        return 'badge-slate';
     }
 
     return stage === 'toTransfer' ? 'badge-indigo' : 'badge-amber';
@@ -1324,8 +1381,8 @@ async function handoff() {
         await handoffParcel(selectedParcel.value.id);
         notify(
             isTransferHandoff
-                ? 'Courier handoff confirmed. They can now confirm the transfer from their app.'
-                : 'Rider handoff confirmed.',
+                ? 'Courier handoff confirmed. Scan it into inventory from the Logistics mobile app before they can confirm the transfer.'
+                : 'Rider handoff confirmed. Scan it into inventory from the Logistics mobile app before it can be dispatched.',
         );
         closeAssignment();
     } catch (error) {
@@ -1369,9 +1426,12 @@ function cancelReject() {
 }
 
 // action: 'accept' | 'reject' (this company answering) or 'cancel' (the
-// origin company withdrawing). Either way the sorting queue changed —
-// a new "to be delivered" row on accept, a released origin row otherwise
-// — so pull it fresh.
+// origin company withdrawing). Accepting doesn't create anything in this
+// company's own sorting queue yet — custody only moves once the origin's
+// courier physically delivers it here (Api\Logistics\
+// ParcelAssignmentController::acceptTransferRequest's docblock) — but the
+// origin's own queue view of the request changes either way, so pull it
+// fresh regardless.
 async function respond(req, action, note = null) {
     respondingId.value = req.id;
     transferRequestError.value = '';
@@ -1381,7 +1441,7 @@ async function respond(req, action, note = null) {
         await loadParcelAssignments({ force: true });
         notify(
             action === 'accept'
-                ? 'Transfer accepted. The parcel is now in your delivery queue.'
+                ? "Transfer accepted. It'll appear in your \"Awaiting inventory\" queue once their courier delivers it."
                 : 'Transfer request rejected.',
         );
         cancelReject();
