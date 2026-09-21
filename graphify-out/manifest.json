@@ -516,9 +516,9 @@
     "semantic_hash": ""
   },
   "app/Http/Controllers/Api/Logistics/ParcelAssignmentController.php": {
-    "mtime": 1789996111.7690775,
-    "seen": 1789996393.7246253,
-    "ast_hash": "c9ec9449aa527291348ae4cab191b70b",
+    "mtime": 1790001409.6615856,
+    "seen": 1790003328.8617785,
+    "ast_hash": "6ba0f013007422763c662dcf5be038fd",
     "semantic_hash": ""
   },
   "app/Http/Controllers/Api/Logistics/ParcelInventoryController.php": {
@@ -1146,9 +1146,9 @@
     "semantic_hash": ""
   },
   "app/Http/Resources/Logistics/ParcelAssignmentResource.php": {
-    "mtime": 1789996152.431851,
-    "seen": 1789996393.7249231,
-    "ast_hash": "2dacb7d479b6f002936104ebbd64b1f1",
+    "mtime": 1790002077.8455608,
+    "seen": 1790003328.8620198,
+    "ast_hash": "1f4199e103406591c11ee146405a44c0",
     "semantic_hash": ""
   },
   "app/Http/Resources/Logistics/ParcelInventoryResource.php": {
@@ -2892,15 +2892,15 @@
     "semantic_hash": ""
   },
   "resources/js/logistics/components/NavIcon.vue": {
-    "mtime": 1789742467.6572306,
-    "seen": 1789911226.796421,
-    "ast_hash": "992135f74812a649bd95b4fb485884a8",
+    "mtime": 1789999874.7634554,
+    "seen": 1790003328.8629277,
+    "ast_hash": "c80f93f40cf38389631dd3ea6fb5331c",
     "semantic_hash": ""
   },
   "resources/js/logistics/components/ParcelOperations.vue": {
-    "mtime": 1789996282.2840123,
-    "seen": 1789996393.725675,
-    "ast_hash": "e750deca4232e66eee450f6dac7b0d83",
+    "mtime": 1790003233.9258318,
+    "seen": 1790003328.8629386,
+    "ast_hash": "6735811e22e2f4a3066bfb12057ee8de",
     "semantic_hash": ""
   },
   "resources/js/logistics/components/PortalPlaceholder.vue": {
@@ -2922,9 +2922,9 @@
     "semantic_hash": ""
   },
   "resources/js/logistics/composables/useLogistics.js": {
-    "mtime": 1789996171.040583,
-    "seen": 1789996393.72569,
-    "ast_hash": "c5f441e19f40115d45db242c3a83f140",
+    "mtime": 1789999976.653131,
+    "seen": 1790003328.8629644,
+    "ast_hash": "15ac577f49d29b3b6c6fb9952bdb5c39",
     "semantic_hash": ""
   },
   "resources/js/logistics/composables/useLogisticsProfile.js": {
@@ -3402,9 +3402,9 @@
     "semantic_hash": ""
   },
   "routes/api.php": {
-    "mtime": 1789918372.263338,
-    "seen": 1789996393.7258897,
-    "ast_hash": "6049be35f08203644b692ddcb42d0611",
+    "mtime": 1789999874.770454,
+    "seen": 1790003328.8633113,
+    "ast_hash": "b49112c223ecbb99910a367f40ece0ce",
     "semantic_hash": ""
   },
   "routes/buyer.php": {

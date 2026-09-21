@@ -915,6 +915,21 @@ async function fetchTransferOptions(id) {
     return readJson(response, 'Failed to load transfer destinations.');
 }
 
+// Product/seller/status-history for the Order page's Details modal — one
+// parcel at a time, only when the modal actually opens for it, and never
+// cached: it's read once per view, not re-rendered on every list refresh.
+async function fetchParcelDetails(id) {
+    const response = await logisticsFetch(
+        `/api/logistics/parcel-assignments/${id}/details`,
+    );
+    const payload = await readJson(
+        response,
+        'Failed to load the parcel details.',
+    );
+
+    return payload.data;
+}
+
 // Asks another logistics company to take a picked-up parcel this company
 // can't deliver. Nothing moves yet — the parcel parks at
 // 'transfer_pending' until the receiving company accepts or rejects the
@@ -1293,6 +1308,7 @@ export function useLogistics() {
         handoffParcel,
         assignTransferCourier,
         fetchTransferOptions,
+        fetchParcelDetails,
         requestParcelTransfer,
         loadTransferRequests,
         respondToTransferRequest,

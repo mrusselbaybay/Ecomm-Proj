@@ -90,7 +90,7 @@ class ParcelAssignmentResource extends JsonResource
             // handed_off_at (null until this company's rider takes it out)
             // must not force the seller's address back up.
             'phase' => ($this->handed_off_at || $this->previous_assignment_id) ? 'delivery' : 'pickup',
-            'order' => ($this->handed_off_at || $this->previous_assignment_id) ? [
+            'order' => (($this->handed_off_at || $this->previous_assignment_id) ? [
                 'id' => $this->order?->id,
                 'order_number' => $this->order?->order_number,
                 'tracking_number' => $this->order?->tracking_number,
@@ -125,6 +125,18 @@ class ParcelAssignmentResource extends JsonResource
                 'province_name' => $this->order?->pickup_province_name,
                 'municipality_name' => $this->order?->pickup_municipality_name,
                 'barangay' => $this->order?->pickup_barangay,
+            ]) + [
+                // Unconditional — unlike `recipient_name` above (which the
+                // pickup phase repurposes to show the SELLER, for the
+                // address card), the Order sorting table's own "Recipient"
+                // column always names the actual buyer, regardless of phase.
+                'buyer_name' => $this->order?->recipient_name,
+                'placed_at' => $this->order?->placed_at?->toISOString(),
+                'service_type' => $this->order?->shipping_service,
+                // Cost of the goods themselves — excludes shipping/tax, so
+                // the queue's Price column reads as "what the product(s)
+                // are worth", not the buyer's full checkout total.
+                'product_price' => $this->order?->subtotal !== null ? (float) $this->order->subtotal : null,
             ],
             'barangay_assignment' => $this->whenLoaded('barangayAssignment', fn (): ?array => $this->barangayAssignment ? [
                 'id' => $this->barangayAssignment->id,

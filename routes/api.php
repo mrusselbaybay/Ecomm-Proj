@@ -238,6 +238,10 @@ Route::middleware(['supabase.auth', 'logistics'])
 
         Route::get('/parcel-assignments', [ParcelAssignmentController::class, 'index'])
             ->name('parcel-assignments.index');
+        // Details modal on the Order page — product/seller/status-history,
+        // fetched lazily per parcel, never as part of the queue list.
+        Route::get('/parcel-assignments/{parcelAssignment}/details', [ParcelAssignmentController::class, 'details'])
+            ->name('parcel-assignments.details');
         Route::post('/parcel-assignments/receive', [ParcelAssignmentController::class, 'receive'])
             ->name('parcel-assignments.receive');
         Route::put('/parcel-assignments/{parcelAssignment}/assign', [ParcelAssignmentController::class, 'assign'])

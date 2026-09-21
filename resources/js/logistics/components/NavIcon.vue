@@ -111,6 +111,13 @@ const ICONS = {
     ],
     'chevron-left': ['m14.4 5.6-6.4 6.4 6.4 6.4'],
     'chevron-right': ['m9.6 5.6 6.4 6.4-6.4 6.4'],
+    more: ['M12 5.5h.01', 'M12 12h.01', 'M12 18.5h.01'],
+    store: [
+        'M4 9.5 5.2 4h13.6L20 9.5',
+        'M4 9.5a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0',
+        'M5 9.5V20h14V9.5',
+        'M9.5 20v-6h5v6',
+    ],
 };
 
 const paths = computed(() => ICONS[props.name] || ICONS.dashboard);

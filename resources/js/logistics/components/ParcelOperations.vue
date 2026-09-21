@@ -1,12 +1,19 @@
 <!-- resources/js/logistics/components/ParcelOperations.vue
-     The sorting desk. Structured around the one thing staff do here all
-     day — scan a parcel in, then route it — so the scanner is the first
-     thing on the page and the queue below it can be narrowed to the
-     lifecycle stage being worked.
+     The sorting desk — a filterable, searchable queue of every parcel
+     moving through this company, from pickup through delivery or
+     transfer. Parcels enter the queue on their own (the seller's handover
+     creates the row; see ParcelIntakeService) — this page is where staff
+     route each one, not where they're scanned in.
 
-     The queue used to render every parcel the centre had ever received,
-     unfiltered and unpaginated; a busy centre would put thousands of rows
-     in the DOM. It is now filtered by stage, searchable, and windowed. -->
+     2026 redesign: the six workflow stages now double as the queue's
+     filter (one "stage rail" instead of a separate KPI grid + tab strip
+     saying the same thing twice), rows carry an exception flag for
+     parcels that need a specific vehicle, staff can multi-select a page
+     of "To pick up" rows and assign one courier to all of them in one
+     confirmation, and the Details view is a side drawer so staff never
+     leave the queue to read an order. Still filtered by stage, searchable,
+     and windowed — a busy centre's queue never lands thousands of rows in
+     the DOM at once. -->
 <template>
     <div class="logistics-page">
         <header class="page-header">
@@ -17,8 +24,8 @@
                 <div>
                     <h2 class="page-title">Parcel sorting</h2>
                     <p class="page-subtitle">
-                        Receive parcels from sellers, match the delivery
-                        area, and hand each parcel to the correct rider.
+                        Receive parcels from sellers, match the delivery area,
+                        and hand each parcel to the correct rider.
                     </p>
                 </div>
             </div>
@@ -46,115 +53,90 @@
                     <NavIcon name="refresh" :size="15" />
                     Refresh
                 </button>
+                <button
+                    type="button"
+                    class="btn-outline btn-icon"
+                    aria-label="Account settings"
+                    title="Account settings"
+                    @click="emit('open-section', 'account')"
+                >
+                    <NavIcon name="account" :size="15" />
+                </button>
             </div>
         </header>
 
-        <!-- ---------------- Intake ---------------- -->
-        <section class="card scan-card">
-            <div class="scan-card-copy">
-                <p class="eyebrow">Parcel intake</p>
-                <h3>Scan tracking or order number</h3>
-                <p class="panel-copy">
-                    The parcel must already be marked In Transit by the seller.
-                    A handheld scanner can type straight into this field.
-                </p>
-            </div>
-            <form class="scan-form" @submit.prevent="receive">
-                <div class="scan-input-wrap">
-                    <NavIcon name="scan" :size="18" class="scan-input-icon" />
-                    <input
-                        ref="scanInput"
-                        v-model.trim="trackingNumber"
-                        class="field-input scan-input"
-                        placeholder="Tracking number or SN-12345"
-                        aria-label="Tracking or order number"
-                        autocomplete="off"
-                        spellcheck="false"
-                    />
-                </div>
-                <button
-                    class="btn-primary"
-                    :disabled="!trackingNumber || receiving"
-                >
-                    {{ receiving ? 'Receiving…' : 'Receive parcel' }}
-                </button>
-            </form>
-            <p
-                v-if="lookupMessage"
-                class="lookup-message"
-                :class="{ 'is-error': lookupIsError }"
-                role="status"
-            >
-                {{ lookupMessage }}
-            </p>
-        </section>
-
-        <p v-if="unstaffedAreas > 0" class="callout-amber callout-block">
-            <NavIcon name="alert" :size="16" />
-            <span>
-                {{ unstaffedAreas }}
-                {{
-                    unstaffedAreas === 1
-                        ? 'active barangay has'
-                        : 'active barangays have'
-                }}
-                no appointed rider — parcels routed there fall back to the
-                company-wide rotation.
-            </span>
+        <!-- ---------------- Stage rail ----------------
+             Every stage is both the count you'd otherwise put in a KPI
+             card AND the filter you'd otherwise put in a tab strip — one
+             row of tiles instead of two blocks of UI stating the same six
+             numbers twice. -->
+        <div class="stage-rail" role="tablist" aria-label="Filter by stage">
             <button
+                v-for="tile in stageRail"
+                :key="tile.key"
                 type="button"
-                class="btn-link"
-                @click="emit('open-section', 'areas')"
+                role="tab"
+                class="stage-tile"
+                :class="[`tone-${tile.tone}`, { 'is-active': stage === tile.key }]"
+                :aria-selected="stage === tile.key"
+                @click="setStage(tile.key)"
             >
-                Manage areas
+                <span class="stage-tile-icon">
+                    <NavIcon :name="tile.icon" :size="16" />
+                </span>
+                <span class="stage-tile-copy">
+                    <span v-if="loading" class="skeleton skeleton-stat"></span>
+                    <span v-else class="stage-tile-value">{{ tile.count }}</span>
+                    <span class="stage-tile-label">{{ tile.label }}</span>
+                </span>
             </button>
-        </p>
+        </div>
 
         <!-- ---------------- Queue ---------------- -->
         <section class="card queue-card">
-            <div class="queue-toolbar">
-                <div
-                    class="filter-chips"
-                    role="tablist"
-                    aria-label="Filter the queue"
-                >
-                    <button
-                        v-for="option in stageOptions"
-                        :key="option.value"
-                        type="button"
-                        role="tab"
-                        class="filter-chip"
-                        :class="{ active: stage === option.value }"
-                        :aria-selected="stage === option.value"
-                        @click="setStage(option.value)"
-                    >
-                        {{ option.label }}
-                        <span class="filter-chip-count">{{
-                            option.count
-                        }}</span>
-                    </button>
-                </div>
-                <div class="search-input queue-search">
+            <div class="sort-toolbar">
+                <div class="search-input sort-search">
                     <NavIcon name="search" :size="15" class="icon" />
                     <input
                         v-model.trim="search"
                         type="search"
-                        placeholder="Search tracking no., recipient or address"
+                        placeholder="Search tracking no., recipient, address or courier"
                         aria-label="Search the sorting queue"
                     />
                 </div>
+                <button
+                    type="button"
+                    class="exception-toggle"
+                    :class="{ 'is-active': showExceptionsOnly }"
+                    :aria-pressed="showExceptionsOnly"
+                    @click="toggleExceptionsOnly"
+                >
+                    <NavIcon name="alert" :size="14" />
+                    Exceptions
+                    <span v-if="exceptionCount" class="exception-toggle-count">{{
+                        exceptionCount
+                    }}</span>
+                </button>
+                <button
+                    v-if="hasActiveFilters"
+                    type="button"
+                    class="btn-sm-outline"
+                    @click="clearFilters"
+                >
+                    Clear filters
+                </button>
             </div>
 
             <div class="table-scroll">
-                <table class="admin-table parcel-queue-table">
+                <table class="admin-table sort-table">
                     <thead>
                         <tr>
                             <th>Parcel</th>
-                            <th>Address</th>
-                            <th>Area</th>
-                            <th>Rider</th>
-                            <th>Stage</th>
-                            <th class="text-right col-action">Action</th>
+                            <th>Destination</th>
+                            <th class="text-right">Amount</th>
+                            <th>Courier</th>
+                            <th>Status</th>
+                            <th class="col-action text-right">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -186,23 +168,36 @@
                                 </div>
                             </td>
                         </tr>
-                        <tr v-for="parcel in visible" :key="parcel.id">
-                            <td>
-                                <strong class="parcel-number">{{
-                                    parcel.order.tracking_number ||
-                                    parcel.order.order_number
-                                }}</strong>
-                                <span class="parcel-recipient">{{
-                                    parcel.order.recipient_name
-                                }}</span>
-                                <span class="parcel-meta"
-                                    >Received
+                        <tr
+                            v-for="parcel in visible"
+                            :key="parcel.id"
+                            class="sort-row"
+                        >
+                            <td data-label="Parcel">
+                                <div class="parcel-id-cell">
+                                    <strong class="parcel-number">{{
+                                        parcel.order.tracking_number ||
+                                        parcel.order.order_number
+                                    }}</strong>
+                                    <span
+                                        v-if="isException(parcel)"
+                                        class="exception-flag"
+                                        :title="`Requires ${vehicleRequirementLabel(parcel.required_vehicle_type)}`"
+                                    >
+                                        <NavIcon name="alert" :size="12" />
+                                    </span>
+                                </div>
+                                <span class="parcel-meta">
                                     {{
-                                        formatRelative(parcel.received_at)
-                                    }}</span
-                                >
+                                        parcel.order.placed_at
+                                            ? formatDate(parcel.order.placed_at)
+                                            : '—'
+                                    }}
+                                    <span class="parcel-meta-dot">·</span>
+                                    {{ parcel.order.service_type || 'Standard' }}
+                                </span>
                             </td>
-                            <td>
+                            <td data-label="Destination">
                                 <span
                                     class="badge badge-slate address-phase-badge"
                                     >{{
@@ -211,31 +206,19 @@
                                             : 'Deliver to buyer'
                                     }}</span
                                 >
+                                <span class="parcel-recipient">{{
+                                    parcel.order.buyer_name || '—'
+                                }}</span>
                                 <span class="address-cell">{{
                                     parcel.order.address || 'Address incomplete'
                                 }}</span>
                             </td>
-                            <td>
-                                <span v-if="parcel.barangay_assignment">{{
-                                    parcel.barangay_assignment.barangay
-                                }}, {{
-                                    parcel.barangay_assignment.municipality_name
+                            <td class="text-right" data-label="Amount">
+                                <span class="row-price">{{
+                                    formatCurrency(parcel.order.product_price)
                                 }}</span>
-                                <span
-                                    v-else-if="parcel.area_fallback_tier"
-                                    class="badge badge-indigo"
-                                    >{{
-                                        parcel.area_fallback_tier ===
-                                        'provincial'
-                                            ? 'Provincial'
-                                            : 'Regional'
-                                    }}</span
-                                >
-                                <span v-else class="muted-cell"
-                                    >Needs sorting</span
-                                >
                             </td>
-                            <td>
+                            <td data-label="Courier">
                                 <span v-if="parcel.rider">{{
                                     personName(parcel.rider)
                                 }}</span>
@@ -243,85 +226,47 @@
                                     >Unassigned</span
                                 >
                             </td>
-                            <td>
+                            <td data-label="Status">
                                 <span
-                                    class="badge"
+                                    class="badge status-badge"
                                     :class="statusClass(parcel)"
-                                    >{{ statusLabel(parcel) }}</span
                                 >
+                                    <NavIcon
+                                        :name="statusIcon(parcel)"
+                                        :size="12"
+                                    />
+                                    {{ statusLabel(parcel) }}
+                                </span>
                                 <span
-                                    v-if="!parcel.is_scanned && stageOf(parcel) === 'toPickUp'"
+                                    v-if="
+                                        !parcel.is_scanned &&
+                                        stageOf(parcel) === 'toPickUp'
+                                    "
                                     class="parcel-meta"
                                     >Not yet scanned in</span
                                 >
                             </td>
-                            <!-- Every row renders the SAME two-part
-                                 shape — an optional status note, then
-                                 exactly one control — instead of five
-                                 structurally different layouts that used
-                                 to make this column re-flow per row. -->
-                            <td class="text-right col-action">
-                                <div class="row-action">
-                                    <template
+                            <td class="col-action text-right" data-label="Actions">
+                                <div class="row-actions">
+                                    <button
+                                        type="button"
+                                        class="row-icon-btn"
+                                        aria-label="View parcel details"
+                                        title="Details"
+                                        @click="openDetails(parcel)"
+                                    >
+                                        <NavIcon name="search" :size="15" />
+                                    </button>
+                                    <button
                                         v-if="isParcelActionable(parcel)"
+                                        type="button"
+                                        class="row-icon-btn is-primary"
+                                        aria-label="Manage this parcel"
+                                        title="Manage"
+                                        @click="openAssignment(parcel)"
                                     >
-                                        <button
-                                            class="btn-sm-primary parcel-manage-btn"
-                                            @click="openAssignment(parcel)"
-                                        >
-                                            {{ actionLabel() }}
-                                        </button>
-                                    </template>
-                                    <template
-                                        v-else-if="
-                                            parcel.status === 'transfer_pending'
-                                        "
-                                    >
-                                        <span class="row-action-note"
-                                            >Requested
-                                            {{
-                                                formatRelative(
-                                                    parcel.transfer_request
-                                                        ?.requested_at,
-                                                )
-                                            }}</span
-                                        >
-                                        <button
-                                            type="button"
-                                            class="btn-sm-outline"
-                                            @click="cancelRequest(parcel)"
-                                        >
-                                            Cancel request
-                                        </button>
-                                    </template>
-                                    <span
-                                        v-else-if="
-                                            parcel.status === 'ready_to_transfer'
-                                        "
-                                        class="row-action-note"
-                                        >With courier, headed to
-                                        {{
-                                            parcel.transfer_to_company
-                                                ?.company_name ||
-                                            'the other company'
-                                        }}</span
-                                    >
-                                    <span
-                                        v-else-if="
-                                            parcel.status === 'transferred'
-                                        "
-                                        class="row-action-note"
-                                        >Transferred
-                                        {{
-                                            formatDate(parcel.transferred_at)
-                                        }}</span
-                                    >
-                                    <span v-else class="row-action-note"
-                                        >Handed off
-                                        {{
-                                            formatDate(parcel.handed_off_at)
-                                        }}</span
-                                    >
+                                        <NavIcon name="truck" :size="15" />
+                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -362,10 +307,400 @@
             </div>
         </section>
 
-        <!-- Modals teleport out of .logistics-main (which has a
+        <!-- Modals/drawer teleport out of .logistics-main (which has a
              transform, so it would otherwise be the containing block for
              the fixed overlay and let the dim backdrop scroll away). -->
         <Teleport to=".logistics-shell">
+            <!-- ---------------- Details drawer ---------------- -->
+            <Transition name="drawer">
+                <div
+                    v-if="detailsParcel"
+                    class="drawer-overlay"
+                    @click.self="closeDetails"
+                >
+                    <aside class="drawer-panel">
+                        <div class="modal-header drawer-header">
+                            <div>
+                                <p class="eyebrow">Parcel details</p>
+                                <h3>
+                                    {{
+                                        detailsParcel.order.tracking_number ||
+                                        detailsParcel.order.order_number
+                                    }}
+                                </h3>
+                                <p class="details-subtitle">
+                                    {{ detailsParcel.order.buyer_name }}
+                                    <span class="details-subtitle-dot"
+                                        >·</span
+                                    >
+                                    {{
+                                        detailsParcel.phase === 'pickup'
+                                            ? 'Pick up from seller'
+                                            : 'Deliver to buyer'
+                                    }}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                class="modal-close"
+                                aria-label="Close"
+                                @click="closeDetails"
+                            >
+                                <NavIcon name="close" :size="15" />
+                            </button>
+                        </div>
+
+                        <div class="modal-tabs" role="tablist">
+                            <button
+                                type="button"
+                                role="tab"
+                                class="modal-tab-button"
+                                :class="{ active: detailsTab === 'product' }"
+                                :aria-selected="detailsTab === 'product'"
+                                @click="detailsTab = 'product'"
+                            >
+                                <NavIcon name="parcels" :size="14" />
+                                Product
+                            </button>
+                            <button
+                                type="button"
+                                role="tab"
+                                class="modal-tab-button"
+                                :class="{ active: detailsTab === 'seller' }"
+                                :aria-selected="detailsTab === 'seller'"
+                                @click="detailsTab = 'seller'"
+                            >
+                                <NavIcon name="store" :size="14" />
+                                Seller
+                            </button>
+                            <button
+                                type="button"
+                                role="tab"
+                                class="modal-tab-button"
+                                :class="{ active: detailsTab === 'status' }"
+                                :aria-selected="detailsTab === 'status'"
+                                @click="detailsTab = 'status'"
+                            >
+                                <NavIcon name="clock" :size="14" />
+                                Status
+                            </button>
+                        </div>
+
+                        <div class="details-body drawer-body">
+                            <p v-if="detailsError" class="callout-red">
+                                {{ detailsError }}
+                            </p>
+
+                            <div
+                                v-else-if="detailsLoading"
+                                class="details-skeleton"
+                            >
+                                <div
+                                    v-for="n in 3"
+                                    :key="n"
+                                    class="details-skeleton-row"
+                                >
+                                    <span
+                                        class="skeleton details-skeleton-thumb"
+                                    ></span>
+                                    <span
+                                        class="skeleton details-skeleton-line"
+                                    ></span>
+                                </div>
+                            </div>
+
+                            <template v-else-if="detailsData">
+                                <!-- ---- Product tab ---- -->
+                                <div
+                                    v-if="detailsTab === 'product'"
+                                    class="details-panel"
+                                >
+                                    <dl
+                                        class="details-info-list details-info-list-inline"
+                                    >
+                                        <div class="details-info-row">
+                                            <dt>Payment type</dt>
+                                            <dd>
+                                                {{
+                                                    detailsData.payment_method ||
+                                                    'Not on file'
+                                                }}
+                                            </dd>
+                                        </div>
+                                    </dl>
+
+                                    <p
+                                        v-if="detailsData.items.length === 0"
+                                        class="empty-state"
+                                    >
+                                        <NavIcon name="parcels" :size="26" />
+                                        <span>No line items on this order.</span>
+                                    </p>
+                                    <ul v-else class="details-item-list">
+                                        <li
+                                            v-for="(
+                                                item, idx
+                                            ) in detailsData.items"
+                                            :key="idx"
+                                            class="details-item-row"
+                                        >
+                                            <span class="details-item-thumb">
+                                                <img
+                                                    v-if="item.image"
+                                                    :src="item.image"
+                                                    :alt="item.name"
+                                                    loading="lazy"
+                                                    width="96"
+                                                    height="96"
+                                                />
+                                                <NavIcon
+                                                    v-else
+                                                    name="parcels"
+                                                    :size="34"
+                                                />
+                                            </span>
+                                            <div class="details-item-copy">
+                                                <strong>{{ item.name }}</strong>
+                                                <span
+                                                    v-if="item.variant"
+                                                    class="details-item-variant"
+                                                    >{{ item.variant }}</span
+                                                >
+                                                <dl class="details-info-list">
+                                                    <div
+                                                        class="details-info-row"
+                                                    >
+                                                        <dt>
+                                                            Quantity ordered
+                                                        </dt>
+                                                        <dd>
+                                                            {{ item.quantity }}
+                                                        </dd>
+                                                    </div>
+                                                    <div
+                                                        class="details-info-row"
+                                                    >
+                                                        <dt>Package weight</dt>
+                                                        <dd>
+                                                            {{
+                                                                formatWeight(
+                                                                    item.weight,
+                                                                )
+                                                            }}
+                                                        </dd>
+                                                    </div>
+                                                    <div
+                                                        class="details-info-row"
+                                                    >
+                                                        <dt>Package size</dt>
+                                                        <dd>
+                                                            {{
+                                                                formatDimensions(
+                                                                    item.dimensions,
+                                                                )
+                                                            }}
+                                                        </dd>
+                                                    </div>
+                                                </dl>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+
+                                <!-- ---- Seller tab ---- -->
+                                <div
+                                    v-else-if="detailsTab === 'seller'"
+                                    class="details-panel details-seller-panel"
+                                >
+                                    <span class="details-seller-icon">
+                                        <NavIcon name="store" :size="34" />
+                                    </span>
+                                    <div class="details-seller-copy">
+                                        <div>
+                                            <strong>{{
+                                                detailsData.seller
+                                                    .shop_name ||
+                                                detailsData.seller.name ||
+                                                'Seller'
+                                            }}</strong>
+                                            <span
+                                                v-if="
+                                                    detailsData.seller
+                                                        .shop_name &&
+                                                    detailsData.seller.name
+                                                "
+                                                class="parcel-meta"
+                                                >{{
+                                                    detailsData.seller.name
+                                                }}</span
+                                            >
+                                        </div>
+                                        <dl class="details-info-list">
+                                            <div
+                                                v-if="
+                                                    detailsData.seller
+                                                        .line_of_business
+                                                "
+                                                class="details-info-row"
+                                            >
+                                                <dt>Line of business</dt>
+                                                <dd>
+                                                    {{
+                                                        detailsData.seller
+                                                            .line_of_business
+                                                    }}
+                                                </dd>
+                                            </div>
+                                            <div
+                                                v-if="
+                                                    detailsData.seller
+                                                        .contact_no
+                                                "
+                                                class="details-info-row"
+                                            >
+                                                <dt>Contact</dt>
+                                                <dd>
+                                                    {{
+                                                        detailsData.seller
+                                                            .contact_no
+                                                    }}
+                                                </dd>
+                                            </div>
+                                            <div
+                                                v-if="detailsData.seller.email"
+                                                class="details-info-row"
+                                            >
+                                                <dt>Email</dt>
+                                                <dd>
+                                                    {{
+                                                        detailsData.seller
+                                                            .email
+                                                    }}
+                                                </dd>
+                                            </div>
+                                            <div class="details-info-row">
+                                                <dt>Pickup address</dt>
+                                                <dd>
+                                                    {{
+                                                        detailsData.seller
+                                                            .address ||
+                                                        'Address incomplete'
+                                                    }}
+                                                </dd>
+                                            </div>
+                                        </dl>
+                                    </div>
+                                </div>
+
+                                <!-- ---- Status tab ---- -->
+                                <div v-else class="details-panel">
+                                    <div
+                                        v-if="currentStatusNote"
+                                        class="details-current-status"
+                                    >
+                                        <NavIcon name="truck" :size="16" />
+                                        <span>{{ currentStatusNote }}</span>
+                                        <button
+                                            v-if="
+                                                detailsParcel.status ===
+                                                'transfer_pending'
+                                            "
+                                            type="button"
+                                            class="btn-sm-outline"
+                                            @click="
+                                                cancelRequest(detailsParcel);
+                                                closeDetails();
+                                            "
+                                        >
+                                            Cancel request
+                                        </button>
+                                    </div>
+
+                                    <p
+                                        v-if="
+                                            detailsData.status_history
+                                                .length === 0
+                                        "
+                                        class="empty-state"
+                                    >
+                                        <NavIcon name="clock" :size="26" />
+                                        <span
+                                            >No status changes recorded
+                                            yet.</span
+                                        >
+                                    </p>
+                                    <ul v-else class="details-history-list">
+                                        <li
+                                            v-for="(
+                                                entry, idx
+                                            ) in detailsData.status_history"
+                                            :key="idx"
+                                            class="details-history-row"
+                                            :class="{
+                                                'is-current':
+                                                    idx ===
+                                                    detailsData.status_history
+                                                        .length -
+                                                        1,
+                                            }"
+                                        >
+                                            <span class="details-history-rail">
+                                                <span
+                                                    class="details-history-dot"
+                                                ></span>
+                                            </span>
+                                            <div class="details-history-copy">
+                                                <strong>{{
+                                                    entry.status
+                                                }}</strong>
+                                                <span class="parcel-meta">{{
+                                                    formatDate(
+                                                        entry.created_at,
+                                                    )
+                                                }}</span>
+                                                <span
+                                                    v-if="entry.note"
+                                                    class="parcel-meta"
+                                                    >{{ entry.note }}</span
+                                                >
+                                                <span
+                                                    v-if="entry.changed_by"
+                                                    class="details-history-by"
+                                                    >{{
+                                                        entry.changed_by
+                                                    }}</span
+                                                >
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </template>
+                        </div>
+
+                        <div class="modal-actions">
+                            <button
+                                v-if="isParcelActionable(detailsParcel)"
+                                type="button"
+                                class="btn-primary"
+                                @click="
+                                    openAssignment(detailsParcel);
+                                    closeDetails();
+                                "
+                            >
+                                Manage this parcel
+                            </button>
+                            <button
+                                type="button"
+                                class="btn-outline"
+                                @click="closeDetails"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </aside>
+                </div>
+            </Transition>
+
             <!-- ---------------- Routing modal ---------------- -->
             <div
                 v-if="selectedParcel"
@@ -441,10 +776,9 @@
                     >
                         <NavIcon name="alert" :size="16" />
                         <span>
-                            This parcel is awaiting an inventory scan.
-                            Scan its QR code in the Logistics mobile app to
-                            move it into inventory before it can be
-                            delivered or transferred.
+                            This parcel is awaiting an inventory scan. Scan its
+                            QR code in the Logistics mobile app to move it into
+                            inventory before it can be delivered or transferred.
                         </span>
                     </p>
 
@@ -509,15 +843,21 @@
                                     selectedParcel.order.municipality_name ||
                                     'a municipality'
                                 }}, which none of your barangay assignments
-                                cover — hand it to a company that operates
-                                there directly.
+                                cover — hand it to a company that operates there
+                                directly.
                             </span>
                         </p>
                         <div class="area-form-grid">
                             <label class="form-field full-field">
                                 <span>
                                     Transfer to company
-                                    <template v-if="transferMatchedBy === 'municipality' && transferMunicipality">
+                                    <template
+                                        v-if="
+                                            transferMatchedBy ===
+                                                'municipality' &&
+                                            transferMunicipality
+                                        "
+                                    >
                                         (covering {{ transferMunicipality }})
                                     </template>
                                     <template v-else-if="transferRegion">
@@ -542,7 +882,7 @@
                                                 : transferCompanies.length
                                                   ? 'Select a logistics company'
                                                   : transferMatchedBy ===
-                                                        'municipality' &&
+                                                          'municipality' &&
                                                       transferMunicipality
                                                     ? `No companies cover ${transferMunicipality}`
                                                     : 'No companies available in that region'
@@ -720,9 +1060,9 @@
 
                     <p class="panel-copy">
                         Another logistics company is asking you to take custody
-                        of these parcels. Accepting doesn't move the parcel yet —
-                        their courier still has to physically deliver it to your
-                        hub. Once they do, it'll appear in your "Awaiting
+                        of these parcels. Accepting doesn't move the parcel yet
+                        — their courier still has to physically deliver it to
+                        your hub. Once they do, it'll appear in your "Awaiting
                         inventory" queue for you to scan in before it can be
                         dispatched. Reject to send the request back to them.
                     </p>
@@ -840,15 +1180,7 @@
 </template>
 
 <script setup>
-import {
-    computed,
-    nextTick,
-    onActivated,
-    onMounted,
-    reactive,
-    ref,
-    watch,
-} from 'vue';
+import { computed, onActivated, onMounted, reactive, ref, watch } from 'vue';
 import { useLogistics } from '../composables/useLogistics';
 import { useLogisticsUi } from '../composables/useLogisticsUi';
 import NavIcon from './NavIcon.vue';
@@ -861,17 +1193,16 @@ const {
     barangayAssignments,
     assignmentRiders,
     parcelStats,
-    assignmentStats,
     lastSyncedAt,
     pendingTransferCount,
     loadParcelAssignments,
     loadBarangayAssignments,
     loadTransferRequests,
-    receiveParcel,
     assignParcel,
     handoffParcel,
     assignTransferCourier,
     fetchTransferOptions,
+    fetchParcelDetails,
     requestParcelTransfer,
     respondToTransferRequest,
     isParcelActionable,
@@ -881,13 +1212,8 @@ const { notify, notifyError, formatDate, formatRelative, personName } =
 
 const PAGE_SIZE = 5;
 
-const trackingNumber = ref('');
-const lookupMessage = ref('');
-const lookupIsError = ref(false);
-const scanInput = ref(null);
 const loading = ref(true); // first-load skeleton gate; never re-armed for refreshes
 const refreshing = ref(false);
-const receiving = ref(false);
 const saving = ref(false);
 const selectedParcel = ref(null);
 const assignmentError = ref('');
@@ -929,12 +1255,10 @@ const pendingTransferRequests = computed(() =>
 const stage = ref('all');
 const search = ref('');
 const page = ref(1);
+const showExceptionsOnly = ref(false);
 
 const activeAssignments = computed(() =>
     barangayAssignments.value.filter((a) => a.is_active),
-);
-const unstaffedAreas = computed(() =>
-    Math.max(assignmentStats.value.active - assignmentStats.value.staffed, 0),
 );
 
 // Four stages, deliberately coarser than the underlying status machine
@@ -1019,40 +1343,65 @@ function stageOf(parcel) {
         : 'toDeliver';
 }
 
-const stageOptions = computed(() => [
-    {
-        value: 'toPickUp',
-        label: 'To pick up',
-        count: parcelStats.value.toPickUp,
-    },
-    {
-        value: 'awaitingInventory',
+// One entry per stage, each carrying the icon/tone the badge, the stage
+// rail tile and (via statusClass/statusIcon below) the table row all
+// share — a single source of truth for "what does this stage look and
+// read like", instead of three places that used to drift.
+const STAGE_META = {
+    all: { label: 'All parcels', icon: 'parcels', tone: 'brand' },
+    toPickUp: { label: 'To pick up', icon: 'inbox', tone: 'warning' },
+    awaitingInventory: {
         label: 'Awaiting inventory',
-        count: parcelStats.value.awaitingInventory,
+        icon: 'scan',
+        tone: 'slate',
     },
-    {
-        value: 'toDeliver',
-        label: 'To be delivered',
-        count: parcelStats.value.toDeliver,
-    },
-    {
-        value: 'toTransfer',
-        label: 'To transfer',
-        count: parcelStats.value.toTransfer,
-    },
-    {
-        value: 'transferred',
-        label: 'Transferred',
-        count: parcelStats.value.transferred,
-    },
-    { value: 'all', label: 'All', count: parcelStats.value.total },
-]);
+    toDeliver: { label: 'To be delivered', icon: 'truck', tone: 'stage' },
+    toTransfer: { label: 'To transfer', icon: 'couriers', tone: 'indigo' },
+    transferred: { label: 'Transferred', icon: 'check', tone: 'success' },
+};
+
+const STAGE_BADGE_CLASS = {
+    brand: 'badge-teal',
+    warning: 'badge-amber',
+    slate: 'badge-slate',
+    stage: 'badge-stage',
+    indigo: 'badge-indigo',
+    success: 'badge-success',
+};
+
+const stageRail = computed(() =>
+    Object.keys(STAGE_META).map((key) => ({
+        key,
+        ...STAGE_META[key],
+        count:
+            key === 'all' ? parcelStats.value.total : parcelStats.value[key],
+    })),
+);
+
+// Parcels that need a specific vehicle (car / van / truck) to move — easy
+// to miss in a fast-scrolling queue, so they get their own cross-stage
+// filter rather than only a note buried in the routing modal.
+function isException(parcel) {
+    return Boolean(parcel.required_vehicle_type);
+}
+
+const exceptionCount = computed(
+    () => parcelAssignments.value.filter(isException).length,
+);
+
+function toggleExceptionsOnly() {
+    showExceptionsOnly.value = !showExceptionsOnly.value;
+}
 
 const filtered = computed(() => {
     const term = search.value.toLowerCase();
 
     return parcelAssignments.value.filter((parcel) => {
         if (stage.value !== 'all' && stageOf(parcel) !== stage.value) {
+            return false;
+        }
+
+        if (showExceptionsOnly.value && !isException(parcel)) {
             return false;
         }
 
@@ -1064,9 +1413,11 @@ const filtered = computed(() => {
             parcel.order?.tracking_number,
             parcel.order?.order_number,
             parcel.order?.recipient_name,
+            parcel.order?.buyer_name,
             parcel.order?.address,
             parcel.barangay_assignment?.barangay,
             parcel.barangay_assignment?.municipality_name,
+            parcel.rider ? personName(parcel.rider) : '',
         ]
             .filter(Boolean)
             .some((field) => String(field).toLowerCase().includes(term));
@@ -1083,12 +1434,19 @@ const visible = computed(() =>
 );
 
 const hasActiveFilters = computed(
-    () => stage.value !== 'all' || search.value.length > 0,
+    () =>
+        stage.value !== 'all' ||
+        search.value.length > 0 ||
+        showExceptionsOnly.value,
 );
 
 const emptyTitle = computed(() => {
     if (search.value) {
         return 'No parcels match that search';
+    }
+
+    if (showExceptionsOnly.value) {
+        return 'No exceptions right now';
     }
 
     return (
@@ -1105,7 +1463,11 @@ const emptyTitle = computed(() => {
 
 const emptyHint = computed(() => {
     if (search.value) {
-        return 'Try a different tracking number, recipient, or address.';
+        return 'Try a different tracking number, recipient, address or courier.';
+    }
+
+    if (showExceptionsOnly.value) {
+        return 'Parcels that require a specific vehicle will appear here.';
     }
 
     return stage.value === 'all'
@@ -1115,7 +1477,7 @@ const emptyHint = computed(() => {
 
 // Back to page 1 whenever the result set changes, so switching to a stage
 // with 3 parcels doesn't land on an empty page 4.
-watch([stage, search], () => {
+watch([stage, search, showExceptionsOnly], () => {
     page.value = 1;
 });
 
@@ -1139,10 +1501,95 @@ function setStage(value) {
 function clearFilters() {
     stage.value = 'all';
     search.value = '';
+    showExceptionsOnly.value = false;
 }
 
-function focusScanner() {
-    nextTick(() => scanInput.value?.focus());
+// ---- Details drawer (Product / Seller / Status tabs) ----
+// Fetched lazily, one parcel at a time, only once the drawer is actually
+// opened — the queue list itself never carries this weight (see
+// ParcelAssignmentController::details on the backend).
+const detailsParcel = ref(null);
+const detailsData = ref(null);
+const detailsLoading = ref(false);
+const detailsError = ref('');
+const detailsTab = ref('product');
+
+async function openDetails(parcel) {
+    detailsParcel.value = parcel;
+    detailsTab.value = 'product';
+    detailsData.value = null;
+    detailsError.value = '';
+    detailsLoading.value = true;
+
+    try {
+        detailsData.value = await fetchParcelDetails(parcel.id);
+    } catch (error) {
+        detailsError.value = error.message;
+    } finally {
+        detailsLoading.value = false;
+    }
+}
+
+function closeDetails() {
+    detailsParcel.value = null;
+    detailsData.value = null;
+    detailsError.value = '';
+}
+
+// The per-row status note (transfer pending/in transit/transferred/handed
+// off) used to live next to the Action button — same branching as
+// stageOf()/isParcelActionable(), just phrased as a sentence instead of a
+// stage bucket. It now lives here, above the Status tab's history list.
+const currentStatusNote = computed(() => {
+    const parcel = detailsParcel.value;
+
+    if (!parcel) {
+        return '';
+    }
+
+    if (parcel.status === 'transfer_pending') {
+        return `Requested ${formatRelative(parcel.transfer_request?.requested_at)}`;
+    }
+
+    if (parcel.status === 'ready_to_transfer') {
+        return `With courier, headed to ${parcel.transfer_to_company?.company_name || 'the other company'}`;
+    }
+
+    if (parcel.status === 'transferred') {
+        return `Transferred ${formatDate(parcel.transferred_at)}`;
+    }
+
+    if (!isParcelActionable(parcel)) {
+        return `Handed off ${formatDate(parcel.handed_off_at)}`;
+    }
+
+    return '';
+});
+
+function formatCurrency(value) {
+    return value === null || value === undefined
+        ? '—'
+        : `₱${Number(value).toFixed(2)}`;
+}
+
+function formatWeight(weight) {
+    return weight === null || weight === undefined
+        ? 'Not specified'
+        : `${weight} kg`;
+}
+
+function formatDimensions(dimensions) {
+    if (!dimensions || typeof dimensions !== 'object') {
+        return 'Not specified';
+    }
+
+    const { length, width, height, unit } = dimensions;
+
+    if (!length && !width && !height) {
+        return 'Not specified';
+    }
+
+    return `${length || '—'}×${width || '—'}×${height || '—'} ${unit || 'cm'}`;
 }
 
 function vehicleRequirementLabel(requiredVehicleType) {
@@ -1168,39 +1615,15 @@ function statusLabel(parcel) {
         return 'Courier assigned';
     }
 
-    return {
-        toPickUp: 'To pick up',
-        awaitingInventory: 'Awaiting inventory',
-        toDeliver: 'To be delivered',
-        toTransfer: 'To transfer',
-        // parcel.status only ever reaches the literal value 'transferred'
-        // via a completed cross-company transfer (confirmTransfer()) — an
-        // ordinary local delivery's completion lives on the Order model
-        // instead (see this file's class-level stageOf() docblock), so
-        // there's no ambiguity in calling this "Transferred" outright.
-        transferred: 'Transferred',
-    }[stageOf(parcel)];
+    return STAGE_META[stageOf(parcel)].label;
 }
 
 function statusClass(parcel) {
-    const stage = stageOf(parcel);
-
-    if (stage === 'transferred') {
-        return 'badge-teal';
-    }
-
-    if (stage === 'awaitingInventory') {
-        return 'badge-slate';
-    }
-
-    return stage === 'toTransfer' ? 'badge-indigo' : 'badge-amber';
+    return STAGE_BADGE_CLASS[STAGE_META[stageOf(parcel)].tone];
 }
 
-// One label for every stage — what happens when it's clicked still
-// depends on the parcel (see openAssignment/stageOf), but the button
-// itself no longer changes width row to row as text length varies.
-function actionLabel() {
-    return 'Manage';
+function statusIcon(parcel) {
+    return STAGE_META[stageOf(parcel)].icon;
 }
 
 // Which side of the post-pickup decision the routing modal is showing.
@@ -1258,7 +1681,8 @@ async function openAssignment(parcel) {
     assignmentError.value = '';
     transferOptionsError.value = '';
 
-    assignmentForm.barangay_assignment_id = parcel.barangay_assignment?.id || '';
+    assignmentForm.barangay_assignment_id =
+        parcel.barangay_assignment?.id || '';
     assignmentForm.rider_profile_id = parcel.rider?.id || '';
     transferForm.transfer_to_company_id = '';
 
@@ -1319,7 +1743,6 @@ function closeAssignment() {
     transferCompanies.value = [];
     transferRegion.value = '';
     transferMunicipality.value = '';
-    focusScanner();
 }
 
 function selectAssignmentRider() {
@@ -1331,31 +1754,6 @@ function selectAssignmentRider() {
     // starting point, staff can still override before confirming.
     if (assignment?.rider) {
         assignmentForm.rider_profile_id = assignment.rider.id;
-    }
-}
-
-async function receive() {
-    receiving.value = true;
-    lookupMessage.value = '';
-    lookupIsError.value = false;
-
-    try {
-        const parcel = await receiveParcel(trackingNumber.value);
-
-        lookupMessage.value = parcel.barangay_assignment
-            ? `${parcel.barangay_assignment.barangay}, ${parcel.barangay_assignment.municipality_name} matched. Review and confirm the rider.`
-            : 'Parcel received. No barangay assignment matched; assign it manually.';
-        trackingNumber.value = '';
-        openAssignment(parcel);
-    } catch (error) {
-        lookupIsError.value = true;
-        lookupMessage.value = error.message;
-        notifyError(error, 'Could not receive that parcel.');
-        // Keep the value selected so a mistyped code can be rescanned over.
-        focusScanner();
-        scanInput.value?.select();
-    } finally {
-        receiving.value = false;
     }
 }
 
@@ -1404,7 +1802,8 @@ async function handoff() {
     assignmentError.value = '';
 
     try {
-        const isTransferHandoff = selectedParcel.value?.status === 'transfer_assigned';
+        const isTransferHandoff =
+            selectedParcel.value?.status === 'transfer_assigned';
         await handoffParcel(selectedParcel.value.id);
         notify(
             isTransferHandoff
@@ -1439,7 +1838,6 @@ async function openTransferRequests() {
 function closeTransferRequests() {
     showTransferRequests.value = false;
     cancelReject();
-    focusScanner();
 }
 
 function startReject(req) {
@@ -1468,7 +1866,7 @@ async function respond(req, action, note = null) {
         await loadParcelAssignments({ force: true });
         notify(
             action === 'accept'
-                ? "Transfer accepted. It'll appear in your \"Awaiting inventory\" queue once their courier delivers it."
+                ? 'Transfer accepted. It\'ll appear in your "Awaiting inventory" queue once their courier delivers it.'
                 : 'Transfer request rejected.',
         );
         cancelReject();
@@ -1521,14 +1919,11 @@ const refresh = () => load(true);
 
 onMounted(async () => {
     await load();
-    focusScanner();
 });
 
-// Re-entering the tab re-checks staleness (free while the cache is fresh)
-// and puts the cursor back in the scanner, ready for the next parcel.
+// Re-entering the tab re-checks staleness (free while the cache is fresh).
 onActivated(() => {
     load();
-    focusScanner();
 });
 </script>
 
@@ -1549,130 +1944,513 @@ onActivated(() => {
     line-height: 1;
 }
 
-/* The auto-assign badge counts work waiting, not a problem, so it reads
-   in the brand teal rather than the red used for the transfers inbox. */
-.count-pill-teal {
-    background: var(--lg-primary, #0d9488);
-}
-
-.auto-assign-modal {
-    max-width: 520px;
-}
-
-.auto-assign-rules {
-    margin: 0 0 16px;
-    padding-left: 20px;
+/* ===================== Stage rail ===================== */
+.stage-rail {
     display: flex;
-    flex-direction: column;
-    gap: 7px;
-    font-size: 13px;
-    color: var(--lg-slate-600, #475569);
+    gap: 10px;
+    margin-bottom: 20px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
 }
-
-.auto-assign-progress {
+.stage-rail::-webkit-scrollbar {
+    display: none;
+}
+.stage-tile {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 12px;
-    padding: 26px 0 18px;
-    text-align: center;
+    gap: 10px;
+    flex: 1 0 150px;
+    min-width: 150px;
+    padding: 12px 14px;
+    background: var(--lg-surface);
+    border: 1.5px solid var(--lg-border);
+    border-radius: var(--lg-radius-md);
+    box-shadow: var(--lg-shadow-sm);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    transition:
+        transform 0.15s var(--lg-ease),
+        border-color 0.15s var(--lg-ease),
+        box-shadow 0.15s var(--lg-ease);
 }
-
-.auto-assign-count {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--lg-ink, #0f172a);
+.stage-tile:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--lg-shadow-md);
 }
-
-.auto-assign-bar {
-    width: 100%;
-    max-width: 320px;
-    height: 7px;
-    border-radius: 999px;
-    background: var(--lg-border, #e2e8f0);
-    overflow: hidden;
+.stage-tile.is-active {
+    border-color: var(--stage-color, var(--lg-primary));
+    box-shadow: 0 0 0 1px var(--stage-color, var(--lg-primary));
 }
-
-.auto-assign-bar-fill {
-    display: block;
-    height: 100%;
-    border-radius: 999px;
-    background: var(--lg-primary, #0d9488);
-    transition: width 0.25s ease;
-}
-
-.auto-assign-tally {
+.stage-tile-icon {
     display: flex;
-    flex-wrap: wrap;
+    align-items: center;
     justify-content: center;
-    gap: 7px;
-    margin: 0;
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: var(--stage-bg, var(--lg-primary-light));
+    color: var(--stage-color, var(--lg-primary));
 }
-
-.auto-assign-outcomes {
-    list-style: none;
-    margin: 0 0 16px;
-    padding: 0;
+.stage-tile-copy {
     display: flex;
     flex-direction: column;
     gap: 1px;
-    border: 1px solid var(--lg-border, #e2e8f0);
-    border-radius: 10px;
-    overflow: hidden;
+    min-width: 0;
+}
+.stage-tile-value {
+    font-family: var(--lg-font-display);
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1.1;
+    color: var(--lg-ink);
+}
+.stage-tile-label {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--lg-slate-600);
+    white-space: nowrap;
+}
+.stage-tile.tone-brand {
+    --stage-color: var(--lg-primary);
+    --stage-bg: var(--lg-primary-light);
+}
+.stage-tile.tone-warning {
+    --stage-color: var(--lg-warning);
+    --stage-bg: var(--lg-warning-bg);
+}
+.stage-tile.tone-slate {
+    --stage-color: var(--lg-slate-600);
+    --stage-bg: #f1f5f9;
+}
+.stage-tile.tone-stage {
+    --stage-color: var(--lg-stage);
+    --stage-bg: var(--lg-stage-bg);
+}
+.stage-tile.tone-indigo {
+    --stage-color: var(--lg-info);
+    --stage-bg: var(--lg-info-bg);
+}
+.stage-tile.tone-success {
+    --stage-color: var(--lg-success);
+    --stage-bg: var(--lg-success-bg);
 }
 
-.auto-assign-outcomes li {
+/* ===================== Toolbar / exceptions / bulk bar ===================== */
+.sort-toolbar {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 10px;
-    padding: 9px 14px;
-    background: #f8fafc;
-    font-size: 13px;
-    color: var(--lg-slate-600, #475569);
+    flex-wrap: wrap;
+    padding: 14px 16px 10px;
+}
+.sort-search {
+    flex: 1;
+    min-width: 220px;
+}
+.exception-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 13px;
+    border-radius: 999px;
+    border: 1.5px solid var(--lg-border);
+    background: var(--lg-surface);
+    color: var(--lg-slate-600);
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+        border-color 0.15s var(--lg-ease),
+        background 0.15s var(--lg-ease),
+        color 0.15s var(--lg-ease);
+}
+.exception-toggle:hover {
+    border-color: var(--lg-warning);
+    color: var(--lg-warning);
+}
+.exception-toggle.is-active {
+    background: var(--lg-warning-bg);
+    border-color: var(--lg-warning-border);
+    color: var(--lg-warning);
+}
+.exception-toggle-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: currentColor;
+    font-size: 10px;
+    font-weight: 800;
+}
+.exception-toggle.is-active .exception-toggle-count {
+    color: var(--lg-warning-bg);
+}
+.exception-toggle:not(.is-active) .exception-toggle-count {
+    color: var(--lg-surface);
 }
 
-.auto-assign-outcomes strong {
-    min-width: 26px;
-    font-size: 15px;
-    color: var(--lg-ink, #0f172a);
+/* ===================== Table ===================== */
+.parcel-id-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.exception-flag {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    background: var(--lg-warning-bg);
+    color: var(--lg-warning);
+    flex-shrink: 0;
+}
+.parcel-meta-dot {
+    margin: 0 4px;
+    opacity: 0.6;
+}
+.status-badge {
+    white-space: nowrap;
+}
+.row-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+}
+.row-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--lg-border);
+    border-radius: var(--lg-radius-sm);
+    background: var(--lg-surface);
+    color: var(--lg-slate-600);
+    cursor: pointer;
+    transition:
+        background 0.15s var(--lg-ease),
+        border-color 0.15s var(--lg-ease),
+        color 0.15s var(--lg-ease);
+}
+.row-icon-btn:hover {
+    background: var(--lg-bg);
+    color: var(--lg-ink);
+}
+.row-icon-btn.is-primary {
+    background: var(--lg-primary);
+    border-color: var(--lg-primary);
+    color: #fff;
+}
+.row-icon-btn.is-primary:hover {
+    background: var(--lg-primary-dark);
+    border-color: var(--lg-primary-dark);
 }
 
-.auto-assign-problems-label {
-    margin-bottom: 6px;
+/* ---- Header summary tiles ---- */
+.row-price {
+    font-weight: 700;
+    font-size: 13.5px;
+    color: var(--lg-success, #16a34a);
 }
 
-.auto-assign-problems {
-    list-style: none;
-    margin: 0 0 16px;
-    padding: 0;
+/* ===================== Details drawer ===================== */
+.drawer-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(1px);
+    z-index: 200;
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-start;
+    padding: 20px;
+}
+/* Sizes to its content instead of stretching to the full viewport — a
+   one-item order used to leave a "Close" button stranded 400px below the
+   last line, which read as a broken/empty page rather than a finished
+   one. Still caps at the viewport (minus the overlay's own padding) and
+   scrolls internally once a parcel's history/items actually run long. */
+.drawer-panel {
+    width: 460px;
+    max-width: 100%;
+    max-height: calc(100vh - 40px);
+    background: var(--lg-surface);
+    border-radius: var(--lg-radius-lg);
+    box-shadow: var(--lg-shadow-lg);
+    padding: 22px 22px 18px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    max-height: 30vh;
     overflow-y: auto;
 }
-
-.auto-assign-problems li {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 9px 12px;
-    border: 1px solid var(--lg-border, #e2e8f0);
-    border-radius: 8px;
+.drawer-header {
+    flex-shrink: 0;
+}
+.drawer-body {
+    flex: 0 1 auto;
+    max-height: none;
+}
+.drawer-enter-active .drawer-panel,
+.drawer-leave-active .drawer-panel {
+    transition: transform 0.22s var(--lg-ease);
+}
+.drawer-enter-active,
+.drawer-leave-active {
+    transition: opacity 0.22s var(--lg-ease);
+}
+.drawer-enter-from,
+.drawer-leave-to {
+    opacity: 0;
+}
+.drawer-enter-from .drawer-panel,
+.drawer-leave-to .drawer-panel {
+    transform: translateX(100%);
+}
+.details-subtitle {
+    margin: 3px 0 0;
     font-size: 12.5px;
     color: var(--lg-slate-600, #475569);
 }
+.details-subtitle-dot {
+    margin: 0 4px;
+    opacity: 0.6;
+}
+.details-body {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.details-body::-webkit-scrollbar {
+    display: none;
+}
 
-.auto-assign-problems strong {
-    font-size: 13px;
+.details-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.details-skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.details-skeleton-thumb {
+    flex: none;
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+}
+.details-skeleton-line {
+    flex: 1;
+    height: 14px;
+    border-radius: 4px;
+}
+
+.details-panel {
+    display: flex;
+    flex-direction: column;
+}
+.details-item-list,
+.details-history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.details-item-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    padding: 16px 4px;
+}
+.details-item-row + .details-item-row {
+    border-top: 1px solid var(--lg-border, #e2e8f0);
+}
+.details-item-thumb {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 96px;
+    height: 96px;
+    border-radius: 12px;
+    background: var(--lg-bg, #f1f5f9);
+    color: var(--lg-slate-600, #475569);
+    overflow: hidden;
+}
+.details-item-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.details-item-copy {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    padding-top: 2px;
+}
+.details-item-copy > strong {
+    font-size: 15px;
+}
+.details-item-variant {
+    font-size: 12px;
+    color: var(--lg-slate-600, #475569);
+}
+.details-item-copy .details-info-list {
+    gap: 6px;
+}
+
+.details-seller-panel {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 18px;
+}
+.details-seller-icon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 96px;
+    height: 96px;
+    border-radius: 12px;
+    background: var(--lg-primary-100, #ccfbf1);
+    color: var(--lg-primary-dark, #0f766e);
+}
+.details-seller-copy {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+    padding-top: 2px;
+}
+.details-seller-copy > div:first-child {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.details-seller-copy > div:first-child strong {
+    font-size: 15px;
+}
+.details-info-list {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.details-info-list-inline {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--lg-border, #e2e8f0);
+}
+.details-info-list-inline .details-info-row {
+    flex-direction: row;
+    gap: 6px;
+}
+.details-info-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.details-info-row dt {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--lg-slate-600, #475569);
+}
+.details-info-row dd {
+    margin: 0;
+    font-size: 13.5px;
     color: var(--lg-ink, #0f172a);
 }
 
+.details-current-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    margin-bottom: 16px;
+    border-radius: 8px;
+    background: var(--lg-bg, #f1f5f9);
+    color: var(--lg-slate-600, #475569);
+    font-size: 12.5px;
+}
+.details-current-status span {
+    flex: 1;
+}
+
+.details-history-row {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding-bottom: 16px;
+}
+.details-history-row:last-child {
+    padding-bottom: 0;
+}
+.details-history-rail {
+    flex: none;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    width: 8px;
+    align-self: stretch;
+}
+.details-history-row:not(:last-child) .details-history-rail::before {
+    content: '';
+    position: absolute;
+    top: 12px;
+    bottom: -4px;
+    width: 2px;
+    background: var(--lg-border, #e2e8f0);
+}
+.details-history-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 5px;
+    border-radius: 999px;
+    background: var(--lg-border, #e2e8f0);
+    box-shadow: 0 0 0 3px var(--lg-surface, #fff);
+}
+.details-history-row.is-current .details-history-dot {
+    background: var(--lg-primary, #0d9488);
+}
+.details-history-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.details-history-copy strong {
+    text-transform: capitalize;
+}
+.details-history-by {
+    font-size: 11px;
+    color: var(--lg-slate-600, #475569);
+}
+
+/* ===================== Transfer requests inbox ===================== */
 .transfer-inbox {
     max-width: 560px;
 }
-
 .transfer-request-list {
     list-style: none;
     margin: 0;
@@ -1683,7 +2461,6 @@ onActivated(() => {
     max-height: 60vh;
     overflow-y: auto;
 }
-
 .transfer-request-row {
     border: 1px solid var(--lg-border, #e2e8f0);
     border-radius: 10px;
@@ -1692,32 +2469,27 @@ onActivated(() => {
     flex-direction: column;
     gap: 8px;
 }
-
 .transfer-request-head {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     gap: 8px;
 }
-
 .transfer-request-body {
     display: flex;
     flex-direction: column;
     gap: 2px;
 }
-
 .transfer-request-actions {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
 }
-
 .transfer-request-reject {
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
-
 .btn-sm-danger {
     background: #dc2626;
     color: #fff;
@@ -1734,5 +2506,79 @@ onActivated(() => {
 .btn-sm-danger:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+}
+
+/* ===================== Responsive ===================== */
+@media (max-width: 900px) {
+    .stage-tile {
+        flex: 1 0 130px;
+        min-width: 130px;
+    }
+    .drawer-panel {
+        width: 100%;
+    }
+}
+
+@media (max-width: 760px) {
+    .sort-toolbar {
+        padding: 12px 12px 8px;
+    }
+    /* Rows become stacked cards instead of a horizontally-scrolled
+       table — each cell's own label (data-label) stands in for the
+       header row, which is visually hidden here. */
+    .sort-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+    }
+    .sort-table,
+    .sort-table tbody,
+    .sort-table tr {
+        display: block;
+        width: 100%;
+        min-width: 0;
+    }
+    .sort-table tr {
+        margin-bottom: 12px;
+        border: 1.5px solid var(--lg-border);
+        border-radius: var(--lg-radius-md);
+        overflow: hidden;
+    }
+    .sort-table td {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 14px;
+        border: none;
+        border-radius: 0 !important;
+        border-bottom: 1px solid var(--lg-border);
+        text-align: right;
+    }
+    .sort-table tr td:last-child {
+        border-bottom: none;
+    }
+    .sort-table td::before {
+        content: attr(data-label);
+        flex-shrink: 0;
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--lg-slate);
+        text-align: left;
+    }
+    .sort-table td[data-label='Parcel'],
+    .sort-table td[data-label='Destination'] {
+        flex-direction: column;
+        align-items: flex-start;
+        text-align: left;
+    }
+    .sort-table .row-actions {
+        justify-content: flex-end;
+        width: 100%;
+    }
 }
 </style>

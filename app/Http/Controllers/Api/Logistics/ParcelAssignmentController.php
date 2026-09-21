@@ -14,6 +14,8 @@ use App\Models\CourierApplication;
 use App\Models\LogisticsBarangayAssignment;
 use App\Models\LogisticsCompany;
 use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\OrderStatusHistory;
 use App\Models\ParcelAssignment;
 use App\Models\ParcelTransferRequest;
 use App\Models\Profile;
@@ -90,6 +92,90 @@ class ParcelAssignmentController extends Controller
         return response()->json([
             'data' => ParcelAssignmentResource::collection($assignments),
         ]);
+    }
+
+    /**
+     * Read-only detail payload for the Order sorting page's "Details"
+     * modal — product line items (order snapshot + live product
+     * weight/dimensions/photo), the seller's identity and pickup address,
+     * and the order's full status change history. Deliberately separate
+     * from ParcelAssignmentResource (paid for by every row in the queue):
+     * this is only fetched once, on demand, when staff open the modal for
+     * one parcel — mirrors Seller\SellerOrderController::detailRelations's
+     * eager-load shape (including its images-column caveat, see itemImage()).
+     */
+    public function details(Request $request, ParcelAssignment $parcelAssignment): JsonResponse
+    {
+        $company = $this->companyFor($request);
+        $this->ensureAssignmentBelongsToCompany($parcelAssignment, $company);
+
+        $order = $parcelAssignment->order()->with([
+            'items.product:id,images,weight,dimensions',
+            'seller.sellerDetail',
+            'statusHistory.changedBy',
+        ])->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'This parcel has no linked order.'], 404);
+        }
+
+        return response()->json([
+            'data' => [
+                'items' => $order->items->map(fn (OrderItem $item): array => [
+                    'name' => $item->product_name,
+                    'variant' => $item->variant,
+                    'quantity' => $item->quantity,
+                    'image' => $this->itemImage($item),
+                    'weight' => $item->product?->weight !== null ? (float) $item->product->weight : null,
+                    'dimensions' => $item->product?->dimensions,
+                ])->all(),
+                // Order-level, not per-item — shown once above the item
+                // list rather than repeated on every row.
+                'payment_method' => $order->payment_method,
+                // Same field names as ParcelInventoryResource's `seller`
+                // block (the mobile Inventory screen's equivalent), so
+                // both surfaces describe a seller identically, plus
+                // line_of_business/email that block doesn't carry.
+                'seller' => [
+                    'name' => $order->seller?->full_name,
+                    'shop_name' => $order->seller?->sellerDetail?->business_name,
+                    'line_of_business' => $order->seller?->sellerDetail?->line_of_business,
+                    'email' => $order->seller?->email,
+                    'contact_no' => $order->seller?->contact_no,
+                    'address' => collect([
+                        $order->pickup_barangay,
+                        $order->pickup_municipality_name,
+                        $order->pickup_province_name,
+                    ])->filter()->implode(', ') ?: null,
+                ],
+                'status_history' => $order->statusHistory->map(fn (OrderStatusHistory $history): array => [
+                    'status' => $history->status,
+                    'previous_status' => $history->previous_status,
+                    'note' => $history->note,
+                    'changed_by' => $history->changedBy?->full_name,
+                    'created_at' => $history->created_at?->toISOString(),
+                ])->all(),
+            ],
+        ]);
+    }
+
+    /**
+     * First renderable image for an order item, or null. Only looks at an
+     * eager-loaded `product` relation — same shape and same Postgres
+     * "WHERE id IN (...) while selecting images hangs" caveat documented
+     * on Seller\SellerOrderController::itemImage(), which is why this is
+     * only ever called from the single-order details() endpoint above,
+     * never from index()'s bulk queue list.
+     */
+    private function itemImage(OrderItem $item): ?string
+    {
+        if (! $item->relationLoaded('product')) {
+            return null;
+        }
+
+        $images = $item->product?->images ?? [];
+
+        return $images[0]['url'] ?? ($images[0] ?? null);
     }
 
     /**
