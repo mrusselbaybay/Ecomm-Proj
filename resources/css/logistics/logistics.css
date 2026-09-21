@@ -1,4 +1,13 @@
-/* resources/css/logistics/logistics.css */
+/* resources/css/logistics/logistics.css
+   2026 redesign — brought onto the same design language as the Seller
+   portal (resources/css/seller/layout.css): Plus Jakarta Sans / Inter,
+   the same teal brand ramp, the same dark radial-gradient sidebar, the
+   same metric-card/chart-card anatomy. Logistics keeps its own --lg-*
+   namespace (nothing here is shared at runtime with the seller bundle),
+   but the values themselves are now sourced from the seller tokens so
+   the two portals read as one product family. */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 
 /* ===================== Design tokens ===================== */
 :root {
@@ -6,32 +15,74 @@
     --lg-primary-dark: #0f766e;
     --lg-primary-light: #f0fdfa;
     --lg-primary-100: #ccfbf1;
+    --lg-primary-300: #5eead4;
     --lg-ink: #0f172a;
-    --lg-amber: #b45309;
-    --lg-amber-bg: #fef3c7;
-    --lg-red: #b91c1c;
-    --lg-red-bg: #fee2e2;
-    --lg-red-border: #fecaca;
+
+    /* Semantic status colors. Each one means exactly ONE thing across
+       every page — see references/status-semantics in the design notes
+       below. Do not reach for a raw hex when one of these fits. */
+    --lg-success: #059669;
+    --lg-success-bg: #ecfdf5;
+    --lg-success-border: #a7f3d0;
+    --lg-warning: #b45309;
+    --lg-warning-bg: #fef3c7;
+    --lg-warning-border: #fcd9a4;
+    --lg-error: #b91c1c;
+    --lg-error-bg: #fee2e2;
+    --lg-error-border: #fecaca;
+    --lg-info: #4338ca;
+    --lg-info-bg: #e0e7ff;
+    --lg-info-border: #c7d2fe;
+    /* A workflow *stage* (e.g. "interviewing") is not the same signal as
+       an area/coverage fact (e.g. "regional fallback") — both used to
+       render as the same indigo badge. Stage gets its own hue. */
+    --lg-stage: #7e22ce;
+    --lg-stage-bg: #f3e8ff;
+    --lg-stage-border: #e9d5ff;
+
+    /* Back-compat aliases so existing amber/red usages keep working
+       while every NEW usage below should reach for the semantic name. */
+    --lg-amber: var(--lg-warning);
+    --lg-amber-bg: var(--lg-warning-bg);
+    --lg-red: var(--lg-error);
+    --lg-red-bg: var(--lg-error-bg);
+    --lg-red-border: var(--lg-error-border);
+
     --lg-slate: #64748b;
     --lg-slate-600: #475569;
-    --lg-bg: #f6f8fa;
+    --lg-bg: #f8fafc;
     --lg-surface: #ffffff;
     --lg-border: #e2e8f0;
     --lg-border-strong: #cbd5e1;
-    --lg-sidebar-bg: #0b1220;
+    --lg-sidebar-bg: #0f1210;
     --lg-sidebar-bg-alt: #111a2c;
-    --lg-sidebar-text: #cbd5e1;
-    --lg-sidebar-text-dim: #8391a8;
+    --lg-sidebar-text: #94a3b8;
+    --lg-sidebar-text-dim: #64748b;
 
     --lg-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
     --lg-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
     --lg-shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.16);
+    --lg-shadow-primary: 0 8px 20px -4px rgba(13, 148, 136, 0.38);
 
-    --lg-radius-sm: 8px;
-    --lg-radius-md: 12px;
-    --lg-radius-lg: 16px;
+    --lg-radius-sm: 10px;
+    --lg-radius-md: 14px;
+    --lg-radius-lg: 20px;
+    --lg-radius-xl: 26px;
+
+    --lg-gradient-primary: linear-gradient(
+        135deg,
+        var(--lg-primary) 0%,
+        var(--lg-primary-dark) 100%
+    );
+    --lg-gradient-wash: linear-gradient(
+        160deg,
+        var(--lg-primary-light) 0%,
+        var(--lg-surface) 60%
+    );
 
     --lg-ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --lg-font-display: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+    --lg-font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
 
 /* Lock the page shell to the viewport so the ONLY scrollbar is inside
@@ -64,10 +115,16 @@ body {
     overflow: hidden;
     background: var(--lg-bg);
     color: var(--lg-ink);
-    font-family:
-        -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
-        Arial, sans-serif;
+    font-family: var(--lg-font-body);
     -webkit-font-smoothing: antialiased;
+}
+.logistics-shell .page-title,
+.logistics-shell .brand-name,
+.logistics-shell .acct-title,
+.logistics-shell h1,
+.logistics-shell h2,
+.logistics-shell h3 {
+    font-family: var(--lg-font-display);
 }
 
 .logistics-shell :focus-visible {
@@ -170,16 +227,16 @@ body {
 /* ===================== Sidebar ===================== */
 .logistics-sidebar {
     width: 16rem;
-    background-color: #0f1420;
+    background-color: var(--lg-sidebar-bg);
     background-image:
         radial-gradient(
             circle at 15% 25%,
-            rgba(13, 148, 136, 0.12),
+            rgba(15, 118, 110, 0.16),
             transparent 45%
         ),
         radial-gradient(
             circle at 85% 80%,
-            rgba(245, 158, 11, 0.07),
+            rgba(44, 90, 160, 0.1),
             transparent 45%
         ),
         radial-gradient(circle, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
@@ -263,7 +320,8 @@ body {
     padding: 10px 12px;
     border-radius: var(--lg-radius-sm);
     background: none;
-    border: none;
+    border: 1px solid transparent;
+    border-right: 3px solid transparent;
     color: var(--lg-sidebar-text);
     text-align: left;
     cursor: pointer;
@@ -272,8 +330,7 @@ body {
     width: 100%;
     transition:
         background 0.15s var(--lg-ease),
-        color 0.15s var(--lg-ease),
-        transform 0.15s var(--lg-ease);
+        color 0.15s var(--lg-ease);
     position: relative;
 }
 .sidebar-link .icon {
@@ -282,23 +339,28 @@ body {
 }
 .sidebar-link:hover {
     background: rgba(255, 255, 255, 0.06);
-    color: white;
+    color: #e2e8f0;
 }
 .sidebar-link:hover .icon {
-    color: white;
+    color: #e2e8f0;
 }
 .sidebar-link.active {
-    background: rgba(20, 184, 166, 0.12);
-    border: 1px solid rgba(20, 184, 166, 0.25);
-    color: #5eead4;
+    background: rgba(15, 118, 110, 0.18);
+    border-color: transparent;
+    border-right-color: var(--lg-primary);
+    color: #ffffff;
     box-shadow: none;
 }
 .sidebar-link.active .icon {
-    color: #5eead4;
+    color: var(--lg-primary-300);
 }
+/* Unread/pending-work count on a nav item — a call to action, not a
+   warning, so it gets its own error-red (matches the Seller sidebar's
+   .nav-badge) rather than reusing the warning amber that also brands
+   the "LOGISTICS" eyebrow label above. */
 .sidebar-badge {
     margin-left: auto;
-    background: #f59e0b;
+    background: var(--lg-error);
     color: white;
     font-size: 11px;
     font-weight: 700;
@@ -322,7 +384,7 @@ body {
     font-size: 16px;
 }
 .sidebar-link.active .nav-symbol {
-    color: #5eead4;
+    color: var(--lg-primary-300);
 }
 .sidebar-account {
     display: flex;
@@ -467,16 +529,48 @@ body {
     margin-bottom: 26px;
     flex-wrap: wrap;
 }
+.page-header-titles {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+/* Every page gets the same identity: a gradient icon badge in front of
+   its title, instead of a bare text heading — makes each page instantly
+   recognizable while keeping one shared visual language. */
+.page-icon-badge {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: var(--lg-radius-md);
+    background: var(--lg-gradient-primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--lg-shadow-primary);
+}
+.page-icon-badge.tone-warning {
+    background: linear-gradient(135deg, #d97706, var(--lg-warning));
+    box-shadow: 0 8px 20px -4px rgba(180, 83, 9, 0.38);
+}
+.page-icon-badge.tone-info {
+    background: linear-gradient(135deg, #6366f1, var(--lg-info));
+    box-shadow: 0 8px 20px -4px rgba(67, 56, 202, 0.38);
+}
+.page-icon-badge.tone-stage {
+    background: linear-gradient(135deg, #a855f7, var(--lg-stage));
+    box-shadow: 0 8px 20px -4px rgba(126, 34, 206, 0.38);
+}
 .page-title {
-    font-size: 24px;
+    font-size: 25px;
     font-weight: 800;
     color: var(--lg-ink);
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
 }
 .page-subtitle {
     font-size: 14px;
     color: var(--lg-slate);
-    margin-top: 4px;
+    margin-top: 3px;
 }
 
 /* ===================== Layout utilities ===================== */
@@ -520,8 +614,8 @@ body {
 .stat-card {
     background: var(--lg-surface);
     border: 1px solid var(--lg-border);
-    border-radius: var(--lg-radius-md);
-    padding: 18px;
+    border-radius: var(--lg-radius-lg);
+    padding: 20px;
     position: relative;
     overflow: hidden;
     box-shadow: var(--lg-shadow-sm);
@@ -531,8 +625,8 @@ body {
         border-color 0.18s var(--lg-ease);
 }
 .stat-card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--lg-shadow-md);
+    transform: translateY(-3px);
+    box-shadow: var(--lg-shadow-lg);
     border-color: var(--lg-border-strong);
 }
 .stat-card::before {
@@ -541,7 +635,8 @@ body {
     left: 0;
     top: 0;
     bottom: 0;
-    width: 4px;
+    width: 5px;
+    border-radius: 0 4px 4px 0;
     background: var(--lg-card-accent, var(--lg-slate));
 }
 .stat-card.accent-total {
@@ -679,7 +774,7 @@ body {
 .card {
     background: var(--lg-surface);
     border: 1px solid var(--lg-border);
-    border-radius: var(--lg-radius-md);
+    border-radius: var(--lg-radius-lg);
     box-shadow: var(--lg-shadow-sm);
 }
 .overflow-hidden {
@@ -692,30 +787,50 @@ body {
 .table-scroll {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    padding: 6px 10px;
 }
 
+/* "Floating row" table — each row is its own rounded, bordered card
+   with breathing room around it (border-spacing) instead of one flat
+   grid of hairlines. Horizontal spacing stays 0 so columns within a row
+   still sit flush; only the vertical gap between rows opens up. */
 .admin-table {
     width: 100%;
     min-width: 640px;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0 10px;
 }
 .admin-table th {
     text-align: left;
-    font-size: 11.5px;
-    font-weight: 700;
+    font-size: 11px;
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     color: var(--lg-slate);
-    padding: 13px 18px;
-    border-bottom: 1px solid var(--lg-border);
-    background: #fafbfc;
+    padding: 4px 18px 10px;
+    background: transparent;
     white-space: nowrap;
 }
 .admin-table td {
-    padding: 14px 18px;
-    border-bottom: 1px solid var(--lg-border);
+    padding: 15px 18px;
+    border-top: 1.5px solid var(--lg-border);
+    border-bottom: 1.5px solid var(--lg-border);
+    background: var(--lg-surface);
     font-size: 14px;
     vertical-align: middle;
+    transition:
+        border-color 0.15s var(--lg-ease),
+        box-shadow 0.15s var(--lg-ease);
+}
+.admin-table td:first-child {
+    border-left: 1.5px solid var(--lg-border);
+    border-top-left-radius: var(--lg-radius-md);
+    border-bottom-left-radius: var(--lg-radius-md);
+}
+.admin-table td:last-child {
+    border-right: 1.5px solid var(--lg-border);
+    border-top-right-radius: var(--lg-radius-md);
+    border-bottom-right-radius: var(--lg-radius-md);
 }
 /* `.text-right` / `.text-center` (specificity 0,1,0) lost to
    `.admin-table th` (0,1,1), so a header marked text-center still
@@ -728,14 +843,9 @@ body {
 .admin-table td.text-center {
     text-align: center;
 }
-.admin-table tbody tr {
-    transition: background-color 0.12s var(--lg-ease);
-}
-.admin-table tbody tr:hover {
-    background-color: #f8fafc;
-}
-.admin-table tbody tr:last-child td {
-    border-bottom: none;
+.admin-table tbody tr:hover td {
+    border-color: var(--lg-primary-300);
+    box-shadow: var(--lg-shadow-md);
 }
 .text-right {
     text-align: right;
@@ -765,6 +875,16 @@ body {
     flex-shrink: 0;
     box-shadow: 0 2px 6px rgba(13, 148, 136, 0.3);
 }
+/* "Nobody assigned here" is a different fact from "this person's
+   initials are literally the digit 0" — a filled brand-gradient circle
+   with a bare "0" in it reads as a data bug, not an empty state. A
+   dashed, muted circle with a person-slash glyph reads as intentional. */
+.avatar.is-unassigned {
+    background: var(--lg-bg);
+    border: 1.5px dashed var(--lg-border-strong);
+    color: var(--lg-slate);
+    box-shadow: none;
+}
 .text-slate-800 {
     color: #1e293b;
 }
@@ -786,10 +906,11 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 11px;
+    padding: 5px 12px;
     border-radius: 999px;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 11.5px;
+    font-weight: 800;
+    letter-spacing: 0.01em;
     text-transform: capitalize;
     line-height: 1.4;
 }
@@ -809,9 +930,29 @@ body {
     background: #f1f5f9;
     color: var(--lg-slate);
 }
+/* "Where" — area coverage and fallback-tier facts (assigned barangay,
+   provincial/regional pool match). Keep this meaning exclusive to
+   .badge-indigo; a workflow *stage* like "Interviewing" is a different
+   kind of fact and uses .badge-stage instead, so indigo never has to
+   carry two unrelated meanings on the same page again. */
 .badge-indigo {
-    background: #e0e7ff;
-    color: #4338ca;
+    background: var(--lg-info-bg);
+    color: var(--lg-info);
+}
+/* "What stage" — a step in a review/hiring pipeline (e.g. Interviewing).
+   Never reuse for area/coverage badges — see the note above. */
+.badge-stage {
+    background: var(--lg-stage-bg);
+    color: var(--lg-stage);
+}
+.badge-success {
+    background: var(--lg-success-bg);
+    color: var(--lg-success);
+}
+.badge-outline {
+    background: var(--lg-surface);
+    color: var(--lg-slate-600);
+    border: 1px solid var(--lg-border-strong);
 }
 .status-dot {
     width: 6px;
@@ -828,6 +969,26 @@ body {
     justify-content: center;
     flex-wrap: wrap;
 }
+/* A destructive action (Fire, Reject, Delete…) must never sit at the
+   same reach-distance as a routine one — a misclick shouldn't be one
+   pixel away from an irreversible decision. A hairline divider plus
+   extra left margin gives it its own zone in the row without needing a
+   whole extra column. */
+.action-buttons-split {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+.action-divider {
+    width: 1px;
+    align-self: stretch;
+    min-height: 22px;
+    background: var(--lg-border);
+    margin: 0 2px;
+    flex-shrink: 0;
+}
 /* A lone "Fire" action reads better with some body to it than a tiny
    pill floating under the centred "Actions" header. */
 .btn-fire {
@@ -842,31 +1003,34 @@ button {
 
 .btn-primary,
 .btn-sm-primary {
-    background: var(--lg-primary);
+    background: var(--lg-gradient-primary);
     color: white;
     border: none;
-    border-radius: var(--lg-radius-sm);
-    padding: 9px 16px;
+    border-radius: 999px;
+    padding: 10px 20px;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 700;
+    letter-spacing: 0.005em;
     cursor: pointer;
     transition:
-        background 0.15s var(--lg-ease),
+        filter 0.15s var(--lg-ease),
         transform 0.1s var(--lg-ease),
         box-shadow 0.15s var(--lg-ease);
-    box-shadow: var(--lg-shadow-sm);
+    box-shadow: var(--lg-shadow-primary);
 }
-.btn-primary:hover,
-.btn-sm-primary:hover {
-    background: var(--lg-primary-dark);
-    box-shadow: var(--lg-shadow-md);
+.btn-primary:hover:not(:disabled),
+.btn-sm-primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+    box-shadow:
+        0 10px 24px -4px rgba(13, 148, 136, 0.46),
+        var(--lg-shadow-primary);
 }
 .btn-primary:active,
 .btn-sm-primary:active {
     transform: translateY(1px);
 }
 .btn-sm-primary {
-    padding: 7px 13px;
+    padding: 8px 16px;
 }
 .parcel-manage-btn {
     min-width: 90px;
@@ -875,68 +1039,75 @@ button {
 .btn-outline,
 .btn-sm-outline {
     background: var(--lg-surface);
-    border: 1px solid var(--lg-border);
-    border-radius: var(--lg-radius-sm);
-    padding: 9px 16px;
+    border: 1.5px solid var(--lg-border);
+    border-radius: 999px;
+    padding: 9.5px 18px;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
     color: #1e293b;
     transition:
         background 0.15s var(--lg-ease),
         border-color 0.15s var(--lg-ease),
+        color 0.15s var(--lg-ease),
         transform 0.1s var(--lg-ease);
 }
-.btn-outline:hover,
-.btn-sm-outline:hover {
-    background: #f8fafc;
-    border-color: var(--lg-border-strong);
+.btn-outline:hover:not(:disabled),
+.btn-sm-outline:hover:not(:disabled) {
+    background: var(--lg-primary-light);
+    border-color: var(--lg-primary);
+    color: var(--lg-primary-dark);
 }
 .btn-outline:active,
 .btn-sm-outline:active {
     transform: translateY(1px);
 }
 .btn-sm-outline {
-    padding: 7px 13px;
+    padding: 7.5px 15px;
 }
 
 .btn-danger,
 .btn-danger-outline {
     background: var(--lg-surface);
-    border: 1px solid var(--lg-red-border);
+    border: 1.5px solid var(--lg-red-border);
     color: var(--lg-red);
-    border-radius: var(--lg-radius-sm);
-    padding: 7px 13px;
+    border-radius: 999px;
+    padding: 7.5px 15px;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
     transition:
         background 0.15s var(--lg-ease),
         transform 0.1s var(--lg-ease),
         color 0.15s var(--lg-ease);
 }
-.btn-danger-outline:hover {
+.btn-danger-outline:hover:not(:disabled) {
     background: var(--lg-red-bg);
+    border-color: var(--lg-red);
 }
 .btn-danger {
-    background: var(--lg-red);
+    background: linear-gradient(135deg, #dc2626, var(--lg-red));
     color: white;
     border: none;
+    box-shadow: 0 8px 20px -6px rgba(185, 28, 28, 0.5);
 }
-.btn-danger:hover {
-    background: #991b1b;
+.btn-danger:hover:not(:disabled) {
+    filter: brightness(1.08);
 }
 .btn-danger:active,
 .btn-danger-outline:active {
     transform: translateY(1px);
 }
 
+/* Same size/radius rhythm as .btn-sm-outline — a row that mixes this
+   with Details/Fire buttons used to mix three different button
+   geometries in one line. */
 .btn-doc {
     background: none;
     border: 1px solid var(--lg-border);
-    border-radius: 7px;
-    padding: 6px 12px;
-    font-size: 12px;
+    border-radius: var(--lg-radius-sm);
+    padding: 7px 13px;
+    font-size: 13px;
     font-weight: 600;
     cursor: pointer;
     color: #1e293b;
@@ -2417,6 +2588,378 @@ button:disabled:hover {
     }
 }
 
+/* ===================== Needs attention ===================== */
+/* A raw number ("12") doesn't tell you what to do about it. Each row
+   here pairs the count with the reason it matters and a direct link to
+   where it gets resolved — see Dashboard.vue / Reports.vue. Rendered
+   only when at least one item is non-zero; an all-clear state replaces
+   the whole panel rather than showing a row of zeros. */
+.attention-panel {
+    border: 1px solid var(--lg-warning-border);
+    background: linear-gradient(180deg, var(--lg-warning-bg) 0%, var(--lg-surface) 140px);
+    margin-bottom: 24px;
+}
+.attention-panel-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px 4px;
+}
+.attention-panel-head .nav-icon {
+    color: var(--lg-warning);
+}
+.attention-panel-head h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--lg-ink);
+}
+.attention-panel-sub {
+    margin: 2px 0 0;
+    padding: 0 20px 14px;
+    font-size: 12.5px;
+    color: var(--lg-slate-600);
+}
+.attention-list {
+    display: flex;
+    flex-direction: column;
+}
+.attention-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 13px 20px;
+    border-top: 1px solid rgba(180, 83, 9, 0.14);
+    background: var(--lg-surface);
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+    transition: background 0.15s var(--lg-ease);
+}
+.attention-item:hover {
+    background: #fffdf7;
+}
+.attention-item:last-child {
+    border-radius: 0 0 var(--lg-radius-md) var(--lg-radius-md);
+}
+.attention-item-count {
+    flex-shrink: 0;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 8px;
+    border-radius: 10px;
+    background: var(--lg-warning-bg);
+    color: var(--lg-warning);
+    font-size: 15px;
+    font-weight: 800;
+    display: grid;
+    place-items: center;
+}
+.attention-item-copy {
+    flex: 1;
+    min-width: 0;
+}
+.attention-item-copy strong {
+    display: block;
+    color: var(--lg-ink);
+    font-size: 13.5px;
+    font-weight: 700;
+}
+.attention-item-copy span {
+    color: var(--lg-slate);
+    font-size: 12px;
+}
+.attention-item-go {
+    flex-shrink: 0;
+    color: var(--lg-primary-dark);
+    display: flex;
+    align-items: center;
+}
+.attention-allclear {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    border: 1px solid var(--lg-success-border);
+    background: var(--lg-success-bg);
+    border-radius: var(--lg-radius-md);
+    color: var(--lg-success);
+    font-size: 13.5px;
+    font-weight: 700;
+}
+.attention-allclear span {
+    color: #065f46;
+    font-weight: 500;
+}
+
+/* ===================== KPI cards (icon → label → value) =====================
+   Same anatomy as the Seller portal's .metric-card, ported onto --lg-*
+   tokens: an icon chip, an uppercase label, a large value, and an
+   optional one-line sub-fact. Used wherever a page needs to state real
+   counts rather than a plain .stat-card. */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+}
+.kpi-card {
+    background: var(--lg-surface);
+    border: 1px solid var(--lg-border);
+    border-radius: var(--lg-radius-md);
+    padding: 16px;
+    box-shadow: var(--lg-shadow-sm);
+    transition:
+        transform 0.15s var(--lg-ease),
+        box-shadow 0.15s var(--lg-ease);
+}
+.kpi-card.is-clickable {
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    font: inherit;
+    color: inherit;
+}
+.kpi-card.is-clickable:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--lg-shadow-md);
+}
+.kpi-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+.kpi-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--lg-primary-light);
+    color: var(--lg-primary-dark);
+    flex-shrink: 0;
+}
+.kpi-icon.tone-warning {
+    background: var(--lg-warning-bg);
+    color: var(--lg-warning);
+}
+.kpi-icon.tone-info {
+    background: var(--lg-info-bg);
+    color: var(--lg-info);
+}
+.kpi-icon.tone-success {
+    background: var(--lg-success-bg);
+    color: var(--lg-success);
+}
+.kpi-icon.tone-neutral {
+    background: #f1f5f9;
+    color: var(--lg-slate-600);
+}
+.kpi-label {
+    color: var(--lg-slate);
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.kpi-value {
+    margin-top: 4px;
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--lg-ink);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+}
+.kpi-sub {
+    margin-top: 4px;
+    color: var(--lg-slate);
+    font-size: 11.5px;
+    line-height: 1.4;
+}
+
+/* ===================== Chart cards ===================== */
+.chart-row {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 18px;
+    margin-bottom: 24px;
+    align-items: stretch;
+}
+.chart-card {
+    padding: 20px 22px;
+}
+.chart-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+.chart-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--lg-ink);
+}
+.chart-sub {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--lg-slate);
+}
+.chart-canvas-wrap {
+    position: relative;
+    height: 220px;
+}
+.chart-legend-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 14px;
+}
+.chart-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12.5px;
+    color: var(--lg-slate-600);
+}
+.chart-legend-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+.chart-legend-row strong {
+    margin-left: auto;
+    color: var(--lg-ink);
+}
+.chart-empty {
+    height: 220px;
+    display: grid;
+    place-items: center;
+    color: var(--lg-slate);
+    font-size: 12.5px;
+    text-align: center;
+    padding: 0 20px;
+}
+
+/* ===================== Segmented tabs (page navigation) =====================
+   Generic alias for .area-tab-group / .area-tab-btn so any page can use
+   a true nav control — separate from .page-header-actions — for
+   switching between views (Barangay/Provincial/Regional, Applications/
+   Resignations…) without the tabs and the page's action buttons
+   crowding the same row. */
+.tab-group,
+.page-nav-row .area-tab-group {
+    display: flex;
+    gap: 4px;
+    background: #f1f5f9;
+    padding: 4px;
+    border-radius: 999px;
+    width: fit-content;
+}
+.tab-btn {
+    padding: 8px 18px;
+    border-radius: 999px;
+    border: none;
+    background: transparent;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--lg-slate-600);
+    cursor: pointer;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    transition:
+        background 0.15s var(--lg-ease),
+        color 0.15s var(--lg-ease);
+}
+.tab-btn:hover {
+    color: var(--lg-ink);
+}
+.tab-btn.is-active {
+    background: var(--lg-surface);
+    color: var(--lg-ink);
+    box-shadow: var(--lg-shadow-sm);
+}
+.tab-btn-count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--lg-bg);
+    color: var(--lg-slate-600);
+    font-size: 10.5px;
+    font-weight: 800;
+}
+.tab-btn.is-active .tab-btn-count {
+    background: var(--lg-primary-light);
+    color: var(--lg-primary-dark);
+}
+.tab-btn-count.is-urgent {
+    background: var(--lg-error);
+    color: #fff;
+}
+/* Page nav (tabs) sits on its own line, above the actions row — the two
+   were merged into one flex container before, which made the whole
+   header reflow every time a tab-specific action appeared/disappeared. */
+.page-nav-row {
+    margin-bottom: 16px;
+}
+
+/* ===================== Chip collapse (assigned areas, etc.) =====================
+   More than a couple of badges in a table cell blows out that row's
+   height next to every single-line row around it. Show the first two,
+   collapse the rest behind a single "+N" chip instead of an unbounded
+   wrap. */
+.chip-collapse {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+.chip-more {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 700;
+    background: #f1f5f9;
+    color: var(--lg-slate-600);
+    border: 1px dashed var(--lg-border-strong);
+    cursor: default;
+}
+
+/* ===================== Fixed-shape table action column =====================
+   The Action column used to hold five structurally different things
+   (button / timer+button / plain sentence / …), so the column re-flowed
+   per row. Every row now renders the same two-part shape: a status
+   note on top, one primary control under it — see ParcelOperations.vue. */
+.col-action {
+    width: 190px;
+}
+.row-action {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+    min-height: 30px;
+    justify-content: center;
+}
+.row-action-note {
+    color: var(--lg-slate);
+    font-size: 11px;
+    line-height: 1.4;
+    text-align: right;
+}
+
 /* ===================== Dashboard ===================== */
 .dashboard-split {
     display: grid;
@@ -2543,8 +3086,11 @@ button:disabled:hover {
 }
 
 /* ===================== Queue: filters, table, footer ===================== */
+/* No overflow:hidden here — the floating-row table below needs room for
+   its hover shadow to breathe past the card's own edge. .table-scroll
+   still owns horizontal scrolling on its own. */
 .queue-card {
-    overflow: hidden;
+    overflow: visible;
 }
 .queue-toolbar {
     display: flex;
@@ -2708,6 +3254,33 @@ button:disabled:hover {
     }
     .dashboard-split {
         grid-template-columns: 1fr;
+    }
+    .chart-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 900px) {
+    .kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .col-action {
+        width: auto;
+    }
+}
+
+@media (max-width: 560px) {
+    .kpi-grid {
+        grid-template-columns: 1fr;
+    }
+    .attention-item {
+        align-items: flex-start;
+    }
+    .row-action {
+        align-items: flex-start;
+    }
+    .row-action-note {
+        text-align: left;
     }
 }
 
@@ -3396,4 +3969,90 @@ button:disabled:hover {
         align-items: flex-start;
         gap: 0.75rem;
     }
+}
+
+/* ===================== Rider cards (Riders.vue) =====================
+   The roster used to be a dense table where "Assigned areas" and
+   "Actions" fought for the same cramped row. A rider is a person with
+   several loosely related facts about them (identity, coverage,
+   workload, actions) — a card says that more honestly than a table row
+   ever could, and it's the same reasoning BarangayAssignments already
+   uses for delivery areas. */
+.rider-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+.rider-card {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.rider-card-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+.rider-card-identity {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.rider-card-identity strong {
+    color: var(--lg-ink);
+    font-size: 14.5px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.rider-card-identity span {
+    margin-top: 1px;
+    color: var(--lg-slate);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.rider-card-row {
+    padding-top: 12px;
+    border-top: 1px solid var(--lg-border);
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+.rider-card-row .field-label {
+    margin: 0;
+}
+.quota-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.quota-bar {
+    flex: 1;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--lg-bg);
+    overflow: hidden;
+}
+.quota-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--lg-gradient-primary);
+    transition: width 0.25s var(--lg-ease);
+}
+.quota-bar-fill.is-full {
+    background: linear-gradient(135deg, #d97706, var(--lg-warning));
+}
+.rider-card-foot {
+    padding-top: 12px;
+    border-top: 1px solid var(--lg-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
 }

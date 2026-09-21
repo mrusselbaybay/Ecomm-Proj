@@ -8,9 +8,13 @@
     <div class="logistics-page">
         <!-- Toasts render once, in LogisticsLayout, for the whole portal. -->
         <header class="page-header">
-            <div>
+            <div class="page-header-titles">
+                <span class="page-icon-badge">
+                    <NavIcon name="pin" :size="22" />
+                </span>
+                <div>
                 <h2 class="page-title">Delivery Areas</h2>
-                <p class="page-subtitle">
+                <p class="page-subtitle" style="min-height: 2.8em">
                     <template v-if="activeTab === 'barangay'"
                         >Appoint one courier per barangay. Parcels route
                         straight to them; unassigned barangays fall back to
@@ -27,6 +31,7 @@
                         your own region.</template
                     >
                 </p>
+                </div>
             </div>
             <div class="page-header-actions">
                 <template v-if="activeTab === 'barangay'">
@@ -47,34 +52,42 @@
                 >
                     + Add couriers
                 </button>
-                <div class="area-tab-group">
-                    <button
-                        type="button"
-                        class="area-tab-btn"
-                        :class="{ 'is-active': activeTab === 'barangay' }"
-                        @click="switchTab('barangay')"
-                    >
-                        Barangay
-                    </button>
-                    <button
-                        type="button"
-                        class="area-tab-btn"
-                        :class="{ 'is-active': activeTab === 'provincial' }"
-                        @click="switchTab('provincial')"
-                    >
-                        Provincial
-                    </button>
-                    <button
-                        type="button"
-                        class="area-tab-btn"
-                        :class="{ 'is-active': activeTab === 'regional' }"
-                        @click="switchTab('regional')"
-                    >
-                        Regional
-                    </button>
-                </div>
             </div>
         </header>
+
+        <!-- Tabs are navigation, not page actions — kept on their own row
+             so switching tabs never reflows the buttons above it (the
+             two used to share one flex row, and Auto-create/Add delivery
+             area would appear or disappear right next to the tab you'd
+             just clicked). -->
+        <div class="page-nav-row">
+            <div class="area-tab-group">
+                <button
+                    type="button"
+                    class="area-tab-btn"
+                    :class="{ 'is-active': activeTab === 'barangay' }"
+                    @click="switchTab('barangay')"
+                >
+                    Barangay
+                </button>
+                <button
+                    type="button"
+                    class="area-tab-btn"
+                    :class="{ 'is-active': activeTab === 'provincial' }"
+                    @click="switchTab('provincial')"
+                >
+                    Provincial
+                </button>
+                <button
+                    type="button"
+                    class="area-tab-btn"
+                    :class="{ 'is-active': activeTab === 'regional' }"
+                    @click="switchTab('regional')"
+                >
+                    Regional
+                </button>
+            </div>
+        </div>
 
         <div v-if="activeTab === 'barangay'" class="area-summary-grid">
             <div class="stat-card accent-total">
@@ -139,6 +152,14 @@
                         <button
                             type="button"
                             class="filter-toggle-btn"
+                            :class="{ 'is-active': statusFilter === 'all' }"
+                            @click="statusFilter = 'all'"
+                        >
+                            All
+                        </button>
+                        <button
+                            type="button"
+                            class="filter-toggle-btn"
                             :class="{ 'is-active': statusFilter === 'staffed' }"
                             @click="toggleStatusFilter('staffed')"
                         >
@@ -164,7 +185,7 @@
                 v-else-if="barangayAssignments.length === 0"
                 class="card empty-state"
             >
-                <div class="empty-box">B</div>
+                <NavIcon name="pin" :size="28" />
                 <strong>No barangays assigned yet</strong>
                 <p>
                     Add the barangays your riders cover so parcels route to
@@ -181,7 +202,7 @@
                 v-else-if="filteredAssignments.length === 0"
                 class="card empty-state"
             >
-                <div class="empty-box">B</div>
+                <NavIcon name="search" :size="28" />
                 <strong>No matching barangays</strong>
                 <p>
                     Nothing matches your search{{
@@ -233,8 +254,15 @@
                         <strong>{{ assignment.delivered_count ?? 0 }}</strong>
                     </p>
                     <div class="assigned-rider">
-                        <div class="avatar">
-                            {{ assignment.rider ? initials(assignment.rider) : 0 }}
+                        <div
+                            class="avatar"
+                            :class="{ 'is-unassigned': !assignment.rider }"
+                        >
+                            {{
+                                assignment.rider
+                                    ? initials(assignment.rider)
+                                    : '—'
+                            }}
                         </div>
                         <div v-if="assignment.rider">
                             <strong>{{ riderName(assignment.rider) }}</strong
@@ -312,7 +340,7 @@
                 <div class="loading-spinner"></div>
             </div>
             <div v-else-if="!currentTierAssignment" class="card empty-state">
-                <div class="empty-box">{{ activeTab === 'provincial' ? 'P' : 'R' }}</div>
+                <NavIcon name="truck" :size="28" />
                 <strong>Not set up yet</strong>
                 <p>
                     Add a business address in Account Settings, or create
@@ -324,7 +352,7 @@
                 v-else-if="currentTierAssignment.riders.length === 0"
                 class="card empty-state"
             >
-                <div class="empty-box">{{ activeTab === 'provincial' ? 'P' : 'R' }}</div>
+                <NavIcon name="couriers" :size="28" />
                 <strong>No riders in this pool yet</strong>
                 <p>
                     {{

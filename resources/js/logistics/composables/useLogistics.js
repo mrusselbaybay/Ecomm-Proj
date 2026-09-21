@@ -1026,9 +1026,13 @@ const pendingTransferCount = computed(
  * Not handed off yet (needs a pickup courier), or handed off but back in
  * the pool with no rider (the pickup courier confirmed collection — now
  * it needs the deliver-or-transfer call). A handed-off parcel that
- * already has a rider is normally out for delivery and off this desk —
- * except a regional-tier match (buyer outside this company's own
- * region), which stays actionable even once a regional rider is
+ * already has a rider AND was actually confirmed by a staff member
+ * (assigned_by set) is out for delivery and off this desk — but a rider
+ * ParcelInventoryController::scan()'s auto-match filled in isn't a real
+ * handoff yet (nobody at the desk physically gave that rider the
+ * parcel), so it stays actionable until staff open Manage and confirm
+ * it. Also stays actionable for a regional-tier match (buyer outside
+ * this company's own region) even once a regional rider is
  * auto-assigned, so staff can still choose to hand it to another company
  * instead of using the in-house regional pool. One already given to
  * another company ('transferred') is gone for good.
@@ -1070,7 +1074,9 @@ function isParcelActionable(parcel) {
         return true;
     }
 
-    return parcel.status !== 'handed_off' || !parcel.rider;
+    return (
+        parcel.status !== 'handed_off' || !parcel.rider || !parcel.assigned_by
+    );
 }
 
 // Mirrors ParcelOperations.vue's stageOf() exactly — four tab counts,

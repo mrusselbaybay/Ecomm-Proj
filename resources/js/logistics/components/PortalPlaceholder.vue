@@ -1,8 +1,9 @@
 <!-- resources/js/logistics/components/PortalPlaceholder.vue
-     Honest empty state for the two portal sections that have no backend
-     behind them yet. It says plainly that the section isn't available and
-     points at the tab that does the job today, rather than implying a
-     feature exists and is merely empty. -->
+     Fallback for any nav tab key that isn't wired to a real page in
+     LogisticsLayout's TAB_COMPONENTS map — every current tab (including
+     Messages and Reports, both formerly placeholders here) now has a
+     real implementation, so this only renders for an unrecognised or
+     future tab key, e.g. a stale bookmark. -->
 <template>
     <div class="logistics-page">
         <header class="page-header">
@@ -31,31 +32,17 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
 import NavIcon from './NavIcon.vue';
 
-const props = defineProps({ section: { type: String, required: true } });
+defineProps({ section: { type: String, required: true } });
 const emit = defineEmits(['open-section']);
 
-const SECTIONS = {
-    messages: {
-        title: 'Messages',
-        description: 'Coordinate with riders and marketplace staff.',
-        icon: 'messages',
-        heading: 'Messaging isn’t available yet',
-        note: 'Rider coordination and delivery escalation threads will live here. For now, rider contact numbers are on each rider’s record under Riders.',
-        action: { tab: 'riders', label: 'Go to Riders' },
-    },
-    reports: {
-        title: 'Reports',
-        description:
-            'Parcel transactions, rider activity, and commission totals.',
-        icon: 'reports',
-        heading: 'Reporting isn’t available yet',
-        note: 'Date-filtered transaction summaries, commission totals, and exports will live here. Live parcel counts are on the Dashboard in the meantime.',
-        action: { tab: 'dashboard', label: 'Go to Dashboard' },
-    },
+const content = {
+    title: 'Not available',
+    description: '',
+    icon: 'alert',
+    heading: 'This section isn’t available',
+    note: 'It may have moved. Try the Dashboard, or use the sidebar to find what you’re looking for.',
+    action: { tab: 'dashboard', label: 'Go to Dashboard' },
 };
-
-const content = computed(() => SECTIONS[props.section] || SECTIONS.reports);
 </script>

@@ -10,12 +10,17 @@
 <template>
     <div class="logistics-page">
         <header class="page-header">
-            <div>
-                <h2 class="page-title">Parcel sorting</h2>
-                <p class="page-subtitle">
-                    Receive parcels from sellers, match the delivery area, and
-                    hand each parcel to the correct rider.
-                </p>
+            <div class="page-header-titles">
+                <span class="page-icon-badge">
+                    <NavIcon name="parcels" :size="22" />
+                </span>
+                <div>
+                    <h2 class="page-title">Parcel sorting</h2>
+                    <p class="page-subtitle">
+                        Receive parcels from sellers, match the delivery
+                        area, and hand each parcel to the correct rider.
+                    </p>
+                </div>
             </div>
             <div class="page-header-actions">
                 <span v-if="lastSyncedAt" class="sync-note">
@@ -149,7 +154,7 @@
                             <th>Area</th>
                             <th>Rider</th>
                             <th>Stage</th>
-                            <th class="text-right">Action</th>
+                            <th class="text-right col-action">Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -250,58 +255,74 @@
                                     >Not yet scanned in</span
                                 >
                             </td>
-                            <td class="text-right">
-                                <button
-                                    v-if="isParcelActionable(parcel)"
-                                    class="btn-sm-primary parcel-manage-btn"
-                                    @click="openAssignment(parcel)"
-                                >
-                                    {{ actionLabel() }}
-                                </button>
-                                <span
-                                    v-else-if="
-                                        parcel.status === 'transfer_pending'
-                                    "
-                                    class="pending-transfer-cell"
-                                >
-                                    <span class="handoff-time"
-                                        >Requested
+                            <!-- Every row renders the SAME two-part
+                                 shape — an optional status note, then
+                                 exactly one control — instead of five
+                                 structurally different layouts that used
+                                 to make this column re-flow per row. -->
+                            <td class="text-right col-action">
+                                <div class="row-action">
+                                    <template
+                                        v-if="isParcelActionable(parcel)"
+                                    >
+                                        <button
+                                            class="btn-sm-primary parcel-manage-btn"
+                                            @click="openAssignment(parcel)"
+                                        >
+                                            {{ actionLabel() }}
+                                        </button>
+                                    </template>
+                                    <template
+                                        v-else-if="
+                                            parcel.status === 'transfer_pending'
+                                        "
+                                    >
+                                        <span class="row-action-note"
+                                            >Requested
+                                            {{
+                                                formatRelative(
+                                                    parcel.transfer_request
+                                                        ?.requested_at,
+                                                )
+                                            }}</span
+                                        >
+                                        <button
+                                            type="button"
+                                            class="btn-sm-outline"
+                                            @click="cancelRequest(parcel)"
+                                        >
+                                            Cancel request
+                                        </button>
+                                    </template>
+                                    <span
+                                        v-else-if="
+                                            parcel.status === 'ready_to_transfer'
+                                        "
+                                        class="row-action-note"
+                                        >With courier, headed to
                                         {{
-                                            formatRelative(
-                                                parcel.transfer_request
-                                                    ?.requested_at,
-                                            )
+                                            parcel.transfer_to_company
+                                                ?.company_name ||
+                                            'the other company'
                                         }}</span
                                     >
-                                    <button
-                                        type="button"
-                                        class="btn-sm-outline"
-                                        @click="cancelRequest(parcel)"
+                                    <span
+                                        v-else-if="
+                                            parcel.status === 'transferred'
+                                        "
+                                        class="row-action-note"
+                                        >Transferred
+                                        {{
+                                            formatDate(parcel.transferred_at)
+                                        }}</span
                                     >
-                                        Cancel request
-                                    </button>
-                                </span>
-                                <span
-                                    v-else-if="parcel.status === 'ready_to_transfer'"
-                                    class="handoff-time"
-                                    >With courier, headed to
-                                    {{
-                                        parcel.transfer_to_company
-                                            ?.company_name || 'the other company'
-                                    }}</span
-                                >
-                                <span
-                                    v-else-if="parcel.status === 'transferred'"
-                                    class="handoff-time"
-                                    >Transferred
-                                    {{
-                                        formatDate(parcel.transferred_at)
-                                    }}</span
-                                >
-                                <span v-else class="handoff-time"
-                                    >Handed off
-                                    {{ formatDate(parcel.handed_off_at) }}</span
-                                >
+                                    <span v-else class="row-action-note"
+                                        >Handed off
+                                        {{
+                                            formatDate(parcel.handed_off_at)
+                                        }}</span
+                                    >
+                                </div>
                             </td>
                         </tr>
                     </tbody>
@@ -1193,16 +1214,22 @@ const dispatchMode = ref('deliver'); // 'deliver' | 'transfer'
 // match (buyer outside this company's own region, or in-province but
 // outside any barangay it directly covers) auto-assigns a pool rider
 // immediately — staff still need the option to hand it to another
-// company instead, so this stays true for either case too. Skipped for
-// a transfer receipt once it has a rider (is_transfer_receipt): the
-// receiving company was chosen for covering this area, so its own
-// regional/provincial pool is an ordinary way to deliver it, not
-// something to keep re-offering a transfer for. Mirrors Api\Logistics\
-// ParcelAssignmentController::awaitingDispatchDecision.
+// company instead, so this stays true for either case too. Also true
+// while a rider is only ParcelInventoryController::scan()'s auto-match
+// (assigned_by not set yet) — staff haven't actually confirmed that
+// handoff, so this is still their delivery decision to make, not a
+// stale pickup-courier form. Skipped for a transfer receipt once it has
+// a rider (is_transfer_receipt): the receiving company was chosen for
+// covering this area, so its own regional/provincial pool is an
+// ordinary way to deliver it, not something to keep re-offering a
+// transfer for. Mirrors Api\Logistics\
+// ParcelAssignmentController::awaitingDispatchDecision, plus the
+// assign()/$isDeliveryDispatch confirmation check.
 const awaitingDispatchDecision = computed(
     () =>
         selectedParcel.value?.status === 'handed_off' &&
         (!selectedParcel.value?.rider ||
+            !selectedParcel.value?.assigned_by ||
             (!selectedParcel.value?.is_transfer_receipt &&
                 (selectedParcel.value?.area_fallback_tier === 'regional' ||
                     selectedParcel.value?.area_fallback_tier ===
@@ -1640,13 +1667,6 @@ onActivated(() => {
 .auto-assign-problems strong {
     font-size: 13px;
     color: var(--lg-ink, #0f172a);
-}
-
-.pending-transfer-cell {
-    display: inline-flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 6px;
 }
 
 .transfer-inbox {

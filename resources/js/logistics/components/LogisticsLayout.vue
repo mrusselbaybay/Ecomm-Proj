@@ -244,6 +244,7 @@ const AccountSettings = defineAsyncComponent(
     () => import('./AccountSettings.vue'),
 );
 const Messages = defineAsyncComponent(() => import('./Messages.vue'));
+const Reports = defineAsyncComponent(() => import('./Reports.vue'));
 const CustomerServicePage = defineAsyncComponent(
     () => import('../../shared/CustomerServicePage.vue'),
 );
@@ -306,6 +307,7 @@ const TAB_COMPONENTS = {
     riders: Riders,
     applications: Applications,
     messages: Messages,
+    reports: Reports,
     'customer-service': CustomerServicePage,
     account: AccountSettings,
 };

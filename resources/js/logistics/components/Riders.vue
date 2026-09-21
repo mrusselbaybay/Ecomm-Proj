@@ -6,13 +6,18 @@
 <template>
     <div class="logistics-page">
         <header class="page-header">
-            <div>
-                <h2 class="page-title">Riders</h2>
-                <p class="page-subtitle">
-                    Riders currently accepted by
-                    {{ companyName || 'your company' }}. Appoint them to
-                    delivery areas from the Delivery Areas page.
-                </p>
+            <div class="page-header-titles">
+                <span class="page-icon-badge">
+                    <NavIcon name="couriers" :size="22" />
+                </span>
+                <div>
+                    <h2 class="page-title">Riders</h2>
+                    <p class="page-subtitle">
+                        Riders currently accepted by
+                        {{ companyName || 'your company' }}. Appoint them
+                        to delivery areas from the Delivery Areas page.
+                    </p>
+                </div>
             </div>
             <div class="page-header-actions">
                 <button
@@ -54,141 +59,135 @@
             </div>
         </div>
 
-        <div class="card overflow-hidden">
-            <div class="table-scroll">
-                <table class="admin-table">
-                    <thead>
-                        <tr>
-                            <th>Rider</th>
-                            <th>Status</th>
-                            <th>Assigned areas</th>
-                            <th>Parcel quota</th>
-                            <th>Documents</th>
-                            <th class="text-center">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-if="loading">
-                            <td colspan="6">
-                                <div class="skeleton-list skeleton-table">
-                                    <span
-                                        v-for="n in 5"
-                                        :key="n"
-                                        class="skeleton skeleton-row"
-                                    ></span>
-                                </div>
-                            </td>
-                        </tr>
-                        <tr v-else-if="acceptedRiders.length === 0">
-                            <td colspan="6">
-                                <div class="empty-state">
-                                    <NavIcon name="couriers" :size="30" />
-                                    <strong>{{ emptyTitle }}</strong>
-                                    <p>{{ emptyHint }}</p>
-                                    <button
-                                        v-if="search.trim()"
-                                        type="button"
-                                        class="btn-outline"
-                                        @click="clearSearch"
-                                    >
-                                        Clear search
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                        <template v-else>
-                            <tr v-for="rider in acceptedRiders" :key="rider.id">
-                                <td>
-                                    <div class="flex items-center gap-3">
-                                        <div class="avatar" aria-hidden="true">
-                                            {{ initials(rider.courier) }}
-                                        </div>
-                                        <div>
-                                            <p
-                                                class="font-medium text-slate-800"
-                                            >
-                                                {{ rider.courier?.first_name }}
-                                                {{ rider.courier?.last_name }}
-                                            </p>
-                                            <p class="text-xs text-slate-500">
-                                                {{ rider.courier?.email }}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <span
-                                        class="badge"
-                                        :class="
-                                            isAvailable(rider)
-                                                ? 'badge-teal'
-                                                : 'badge-slate'
-                                        "
-                                    >
-                                        <span class="status-dot"></span>
-                                        {{
-                                            isAvailable(rider)
-                                                ? 'Available'
-                                                : 'Unavailable'
-                                        }}
-                                    </span>
-                                </td>
-                                <td>
-                                    <div
-                                        v-if="
-                                            assignedAreasFor(
-                                                rider.courier_profile_id,
-                                            ).length
-                                        "
-                                        class="area-chip-list"
-                                    >
-                                        <span
-                                            v-for="name in assignedAreasFor(
-                                                rider.courier_profile_id,
-                                            )"
-                                            :key="name"
-                                            class="badge badge-indigo"
-                                            >{{ name }}</span
-                                        >
-                                    </div>
-                                    <span v-else class="text-xs text-slate-500"
-                                        >Unassigned</span
-                                    >
-                                </td>
-                                <td>
-                                    <span class="rider-quota-badge">{{
-                                        quotaLabel(rider)
-                                    }}</span>
-                                </td>
-                                <td>
-                                    <button
-                                        class="btn-doc"
-                                        @click="openDocuments(rider)"
-                                    >
-                                        View
-                                    </button>
-                                </td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <button
-                                            class="btn-sm-outline"
-                                            @click="openDetailsModal(rider)"
-                                        >
-                                            Details
-                                        </button>
-                                        <button
-                                            class="btn-danger-outline btn-fire"
-                                            @click="openFireModal(rider)"
-                                        >
-                                            Fire
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                        </template>
-                    </tbody>
-                </table>
+        <div v-if="loading" class="rider-card-grid">
+            <div v-for="n in 6" :key="n" class="card rider-card">
+                <div class="rider-card-head">
+                    <span class="skeleton skeleton-circle" style="width: 38px; height: 38px"></span>
+                    <div class="rider-card-identity" style="gap: 6px">
+                        <span class="skeleton skeleton-text" style="width: 70%"></span>
+                        <span class="skeleton skeleton-text" style="width: 90%"></span>
+                    </div>
+                </div>
+                <span class="skeleton skeleton-row"></span>
             </div>
+        </div>
+        <div v-else-if="acceptedRiders.length === 0" class="card empty-state">
+            <NavIcon name="couriers" :size="30" />
+            <strong>{{ emptyTitle }}</strong>
+            <p>{{ emptyHint }}</p>
+            <button
+                v-if="search.trim()"
+                type="button"
+                class="btn-outline empty-action"
+                @click="clearSearch"
+            >
+                Clear search
+            </button>
+        </div>
+        <div v-else class="rider-card-grid">
+            <article
+                v-for="rider in acceptedRiders"
+                :key="rider.id"
+                class="card rider-card"
+            >
+                <div class="rider-card-head">
+                    <div class="avatar" aria-hidden="true">
+                        {{ initials(rider.courier) }}
+                    </div>
+                    <div class="rider-card-identity">
+                        <strong
+                            >{{ rider.courier?.first_name }}
+                            {{ rider.courier?.last_name }}</strong
+                        >
+                        <span>{{ rider.courier?.email }}</span>
+                    </div>
+                    <span
+                        class="badge"
+                        :class="isAvailable(rider) ? 'badge-teal' : 'badge-slate'"
+                    >
+                        <span class="status-dot"></span>
+                        {{ isAvailable(rider) ? 'Available' : 'Unavailable' }}
+                    </span>
+                </div>
+
+                <div class="rider-card-row">
+                    <span class="field-label">Assigned areas</span>
+                    <div
+                        v-if="
+                            assignedAreasFor(rider.courier_profile_id).length
+                        "
+                        class="chip-collapse"
+                        :title="
+                            assignedAreasFor(rider.courier_profile_id).join(
+                                ', ',
+                            )
+                        "
+                    >
+                        <span
+                            v-for="name in assignedAreasFor(
+                                rider.courier_profile_id,
+                            ).slice(0, 2)"
+                            :key="name"
+                            class="badge badge-indigo"
+                            >{{ name }}</span
+                        >
+                        <span
+                            v-if="
+                                assignedAreasFor(rider.courier_profile_id)
+                                    .length > 2
+                            "
+                            class="chip-more"
+                            >+{{
+                                assignedAreasFor(rider.courier_profile_id)
+                                    .length - 2
+                            }}
+                            more</span
+                        >
+                    </div>
+                    <span v-else class="text-xs text-slate-500"
+                        >Unassigned — falls back to the company-wide
+                        rotation</span
+                    >
+                </div>
+
+                <div class="rider-card-row">
+                    <span class="field-label">Parcel quota</span>
+                    <div class="quota-row">
+                        <div class="quota-bar">
+                            <div
+                                class="quota-bar-fill"
+                                :class="{ 'is-full': quotaPercent(rider) >= 90 }"
+                                :style="{ width: quotaPercent(rider) + '%' }"
+                            ></div>
+                        </div>
+                        <span class="rider-quota-badge">{{
+                            quotaLabel(rider)
+                        }}</span>
+                    </div>
+                </div>
+
+                <div class="rider-card-foot">
+                    <button class="btn-doc" @click="openDocuments(rider)">
+                        <NavIcon name="reports" :size="13" />
+                        Documents
+                    </button>
+                    <div class="action-buttons-split">
+                        <button
+                            class="btn-sm-outline"
+                            @click="openDetailsModal(rider)"
+                        >
+                            Details
+                        </button>
+                        <span class="action-divider"></span>
+                        <button
+                            class="btn-danger-outline btn-fire"
+                            @click="openFireModal(rider)"
+                        >
+                            Fire
+                        </button>
+                    </div>
+                </div>
+            </article>
         </div>
 
         <div
@@ -713,6 +712,17 @@ function quotaLabel(rider) {
     const max = rider.quota?.max ?? 20;
 
     return `${active}/${max} parcels`;
+}
+
+function quotaPercent(rider) {
+    const active = rider.quota?.active ?? 0;
+    const max = rider.quota?.max ?? 20;
+
+    if (max <= 0) {
+        return 0;
+    }
+
+    return Math.min(100, Math.round((active / max) * 100));
 }
 
 // ---- Fire ----

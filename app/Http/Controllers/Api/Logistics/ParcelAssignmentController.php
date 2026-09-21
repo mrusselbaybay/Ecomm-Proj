@@ -181,8 +181,17 @@ class ParcelAssignmentController extends Controller
         // how a delivery rider gets picked. Keep it 'handed_off' in that
         // case — it's already collected, so the delivery rider goes
         // straight to "mark delivered", not back through pickup.
+        //
+        // assigned_by null also counts as still-dispatchable even when a
+        // rider is already set: ParcelInventoryController::scan()'s
+        // auto-match fills rider_profile_id (and often barangay_assignment_id)
+        // the moment a parcel is scanned in, but nobody at the desk has
+        // actually handed it to that rider yet — this call, made from
+        // staff reviewing/confirming the pre-filled Manage modal, is that
+        // physical handoff. Once assigned_by is set below the row is truly
+        // terminal and this branch no longer applies.
         $isDeliveryDispatch = $parcelAssignment->status === ParcelAssignment::STATUS_HANDED_OFF
-            && $parcelAssignment->rider_profile_id === null;
+            && ($parcelAssignment->rider_profile_id === null || $parcelAssignment->assigned_by === null);
 
         if ($parcelAssignment->status === ParcelAssignment::STATUS_HANDED_OFF && ! $isDeliveryDispatch) {
             throw ValidationException::withMessages([

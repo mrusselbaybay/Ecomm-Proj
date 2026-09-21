@@ -853,6 +853,36 @@ class AuthController extends Controller
         return response()->json($response->json());
     }
 
+    /**
+     * Native mobile counterpart to handleGoogleCallback(): the Flutter app
+     * gets a Google id_token directly from the device's native Google
+     * Sign-In SDK (no OAuth code/redirect involved), so this just exchanges
+     * that id_token with Supabase the same way the web callback does and
+     * returns the session as JSON instead of redirecting.
+     */
+    public function loginWithGoogleIdToken(Request $request)
+    {
+        $data = $request->validate([
+            'id_token' => 'required|string',
+        ]);
+
+        $response = Http::withHeaders([
+            'apikey' => config('services.supabase.anon_key'),
+            'Content-Type' => 'application/json',
+        ])->post(config('services.supabase.url').'/auth/v1/token?grant_type=id_token', [
+            'provider' => 'google',
+            'id_token' => $data['id_token'],
+        ]);
+
+        if (! $response->successful()) {
+            Log::error('Supabase Google id_token exchange failed', ['body' => $response->body()]);
+
+            return response()->json(['message' => 'Google sign-in failed.'], 401);
+        }
+
+        return response()->json($response->json());
+    }
+
     public function user(Request $request)
     {
         $token = $request->bearerToken();

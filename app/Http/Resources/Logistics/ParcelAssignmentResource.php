@@ -84,9 +84,13 @@ class ParcelAssignmentResource extends JsonResource
             // everything switches to the buyer's shipping address — see
             // Api\Logistics\ParcelAssignmentController::assign's
             // $isDeliveryDispatch, the same "has it actually been
-            // collected yet" check.
-            'phase' => $this->handed_off_at ? 'delivery' : 'pickup',
-            'order' => $this->handed_off_at ? [
+            // collected yet" check. A transfer receipt (previous_assignment_id
+            // set) starts life already past pickup — it was collected from
+            // the seller at the origin company, so this fresh row's own
+            // handed_off_at (null until this company's rider takes it out)
+            // must not force the seller's address back up.
+            'phase' => ($this->handed_off_at || $this->previous_assignment_id) ? 'delivery' : 'pickup',
+            'order' => ($this->handed_off_at || $this->previous_assignment_id) ? [
                 'id' => $this->order?->id,
                 'order_number' => $this->order?->order_number,
                 'tracking_number' => $this->order?->tracking_number,
@@ -140,6 +144,13 @@ class ParcelAssignmentResource extends JsonResource
                 'last_name' => $this->rider->last_name,
                 'contact_no' => $this->rider->contact_no,
             ] : null),
+            // Null when `rider` above was filled by an auto-match (e.g.
+            // ParcelInventoryController::scan()) rather than a staff
+            // member confirming it through the Manage modal — see
+            // ParcelAssignmentController::assign's $isDeliveryDispatch.
+            // The frontend's isParcelActionable() uses this to keep the
+            // Manage button up until that confirmation actually happens.
+            'assigned_by' => $this->assigned_by,
         ];
     }
 }

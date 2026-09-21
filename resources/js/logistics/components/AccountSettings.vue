@@ -46,13 +46,18 @@
         </Transition>
 
         <header class="acct-header">
-            <div>
-                <h2 class="acct-title">Account Settings</h2>
-                <nav class="prep-breadcrumb" style="margin-top: 0.35rem">
-                    <span>Company</span>
-                    <span>/</span>
-                    <span>Settings</span>
-                </nav>
+            <div class="page-header-titles">
+                <span class="page-icon-badge">
+                    <NavIcon name="account" :size="22" />
+                </span>
+                <div>
+                    <h2 class="acct-title">Account Settings</h2>
+                    <nav class="prep-breadcrumb" style="margin-top: 0.35rem">
+                        <span>Company</span>
+                        <span>/</span>
+                        <span>Settings</span>
+                    </nav>
+                </div>
             </div>
             <span class="acct-last-updated"
                 >Last updated: {{ lastUpdatedLabel }}</span
@@ -1071,6 +1076,7 @@ import { getSupabase } from '../composables/useLogistics';
 import { useLogisticsProfile } from '../composables/useLogisticsProfile';
 import { usePsgc } from '../composables/usePsgc';
 import AvatarCropper from './AvatarCropper.vue';
+import NavIcon from './NavIcon.vue';
 
 const {
     profile,

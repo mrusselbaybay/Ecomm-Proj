@@ -2,26 +2,39 @@
 <template>
     <div class="logistics-page">
         <header class="page-header">
-            <div>
-                <h2 class="page-title">Rider applications</h2>
-                <p class="page-subtitle">
-                    Review couriers who applied to join
-                    {{ companyName || 'your company' }}.
-                </p>
+            <div class="page-header-titles">
+                <span
+                    class="page-icon-badge"
+                    :class="{ 'tone-warning': view === 'resignations' }"
+                >
+                    <NavIcon
+                        :name="view === 'resignations' ? 'logout' : 'applications'"
+                        :size="22"
+                    />
+                </span>
+                <div>
+                    <h2 class="page-title">
+                        {{
+                            view === 'resignations'
+                                ? 'Resignation requests'
+                                : 'Rider applications'
+                        }}
+                    </h2>
+                    <p class="page-subtitle">
+                        <template v-if="view === 'resignations'"
+                            >Couriers asking to leave
+                            {{ companyName || 'your company' }}.</template
+                        >
+                        <template v-else
+                            >Review couriers who applied to join
+                            {{
+                                companyName || 'your company'
+                            }}.</template
+                        >
+                    </p>
+                </div>
             </div>
             <div class="page-header-actions">
-                <button
-                    type="button"
-                    class="btn-outline resignations-btn"
-                    @click="openResignations"
-                >
-                    Resignation requests
-                    <span
-                        v-if="pendingResignationCount > 0"
-                        class="resignations-badge"
-                        >{{ pendingResignationCount }}</span
-                    >
-                </button>
                 <button
                     type="button"
                     class="btn-outline btn-icon"
@@ -34,12 +47,45 @@
             </div>
         </header>
 
+        <!-- Two unrelated workflows — couriers trying to join, and
+             riders on the roster trying to leave — used to share this
+             page's header (a button that popped a "Resignation requests"
+             modal). They're separate concerns with separate data, so
+             they get separate tabs instead. -->
+        <div class="page-nav-row">
+            <div class="tab-group">
+                <button
+                    type="button"
+                    class="tab-btn"
+                    :class="{ 'is-active': view === 'applications' }"
+                    @click="switchView('applications')"
+                >
+                    <NavIcon name="applications" :size="15" />
+                    Applications
+                </button>
+                <button
+                    type="button"
+                    class="tab-btn"
+                    :class="{ 'is-active': view === 'resignations' }"
+                    @click="switchView('resignations')"
+                >
+                    <NavIcon name="logout" :size="15" />
+                    Resignations
+                    <span
+                        v-if="pendingResignationCount > 0"
+                        class="tab-btn-count is-urgent"
+                        >{{ pendingResignationCount }}</span
+                    >
+                </button>
+            </div>
+        </div>
+
         <!-- The status counters double as the status filter, so the
              numbers on screen are the thing you click. Status is filtered
              client-side off one unfiltered fetch, which keeps the counts
              stable (they used to zero out as soon as a filter narrowed
              the server response) and makes switching tabs free. -->
-        <div class="queue-toolbar">
+        <div v-if="view === 'applications'" class="queue-toolbar">
             <div
                 class="filter-chips"
                 role="tablist"
@@ -74,7 +120,7 @@
             </div>
         </div>
 
-        <div class="card overflow-hidden">
+        <div v-if="view === 'applications'" class="card">
             <div class="table-scroll">
                 <table class="admin-table">
                     <thead>
@@ -147,7 +193,7 @@
                                     class="badge"
                                     :class="
                                         isInterviewing(app)
-                                            ? 'badge-indigo'
+                                            ? 'badge-stage'
                                             : badgeClass(app.status)
                                     "
                                 >
@@ -242,6 +288,163 @@
                 </table>
             </div>
         </div>
+
+        <!-- RESIGNATION REQUESTS — a distinct workflow (an existing rider
+             asking to leave) from the table above (a new courier asking
+             to join), so it gets its own tab and its own card instead of
+             a button that popped a modal over the applications page. -->
+        <section v-else class="card p-6">
+            <div class="card-heading">
+                <div>
+                    <h3 class="section-label">Pending requests</h3>
+                    <p class="page-subtitle" style="margin-top: 4px">
+                        Approving frees the rider to join another company.
+                    </p>
+                </div>
+            </div>
+
+            <div v-if="resignations.loading" class="py-8">
+                <div class="loading-spinner"></div>
+            </div>
+            <div
+                v-else-if="resignationRequests.length === 0"
+                class="empty-state"
+            >
+                <NavIcon name="logout" :size="28" />
+                <strong>No resignation requests</strong>
+                <p>Nothing to review right now.</p>
+            </div>
+
+            <ul v-else class="resignation-list">
+                <li
+                    v-for="r in resignationRequests"
+                    :key="r.id"
+                    class="resignation-item"
+                >
+                    <div class="resignation-head">
+                        <div>
+                            <strong>
+                                {{ r.courier?.first_name }}
+                                {{ r.courier?.last_name }}
+                            </strong>
+                            <span class="parcel-recipient">{{
+                                r.courier?.email ||
+                                r.courier?.contact_no ||
+                                '—'
+                            }}</span>
+                        </div>
+                        <span class="badge" :class="badgeClass(r.status)">{{
+                            r.status
+                        }}</span>
+                    </div>
+
+                    <p class="resignation-meta">
+                        Submitted {{ formatDate(r.submitted_at) }}
+                    </p>
+                    <p v-if="r.reason" class="resignation-reason">
+                        “{{ r.reason }}”
+                    </p>
+                    <p v-if="r.decision_note" class="resignation-reason">
+                        Decision note: {{ r.decision_note }}
+                    </p>
+
+                    <div class="resignation-actions">
+                        <button
+                            v-if="r.has_letter"
+                            type="button"
+                            class="btn-sm-outline"
+                            @click="openResignationLetter(r)"
+                        >
+                            View letter
+                        </button>
+                        <template v-if="r.status === 'pending'">
+                            <button
+                                type="button"
+                                class="btn-sm-primary"
+                                :disabled="resignations.busyId === r.id"
+                                @click="doApproveResignation(r)"
+                            >
+                                Approve
+                            </button>
+                            <button
+                                type="button"
+                                class="btn-sm-outline"
+                                :disabled="resignations.busyId === r.id"
+                                @click="
+                                    resignations.rejectingId =
+                                        resignations.rejectingId === r.id
+                                            ? null
+                                            : r.id
+                                "
+                            >
+                                Reject
+                            </button>
+                        </template>
+                    </div>
+
+                    <div
+                        v-if="resignations.rejectingId === r.id"
+                        class="resignation-reject"
+                    >
+                        <textarea
+                            v-model="resignations.rejectNote"
+                            class="field-input"
+                            rows="2"
+                            placeholder="Reason for rejecting (required) — the courier will see this"
+                        ></textarea>
+                        <div class="resignation-actions">
+                            <button
+                                type="button"
+                                class="btn-sm-outline"
+                                @click="resignations.rejectingId = null"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                class="btn-sm-primary"
+                                :disabled="
+                                    resignations.busyId === r.id ||
+                                    !resignations.rejectNote.trim()
+                                "
+                                @click="doRejectResignation(r)"
+                            >
+                                Confirm rejection
+                            </button>
+                        </div>
+                    </div>
+                </li>
+            </ul>
+
+            <div
+                v-if="resignationRequestsMeta.lastPage > 1"
+                class="driver-pagination"
+            >
+                <button
+                    type="button"
+                    class="btn-sm-outline"
+                    :disabled="resignations.page <= 1 || resignations.loading"
+                    @click="changeResignationsPage(resignations.page - 1)"
+                >
+                    Prev
+                </button>
+                <span
+                    >Page {{ resignations.page }} of
+                    {{ resignationRequestsMeta.lastPage }}</span
+                >
+                <button
+                    type="button"
+                    class="btn-sm-outline"
+                    :disabled="
+                        resignations.page >= resignationRequestsMeta.lastPage ||
+                        resignations.loading
+                    "
+                    @click="changeResignationsPage(resignations.page + 1)"
+                >
+                    Next
+                </button>
+            </div>
+        </section>
 
         <!-- Modals teleport out of .logistics-main (which has a transform,
              so a fixed overlay left inside it uses .logistics-main as its
@@ -645,187 +848,6 @@
             </div>
         </transition>
 
-        <!-- RESIGNATION REQUESTS PANEL -->
-        <transition name="modal">
-            <div
-                v-if="resignations.show"
-                class="modal-overlay"
-                @click.self="resignations.show = false"
-            >
-                <div
-                    class="modal-panel modal-lg"
-                    role="dialog"
-                    aria-modal="true"
-                >
-                    <div class="modal-header">
-                        <div>
-                            <h3>Resignation requests</h3>
-                            <p class="page-subtitle">
-                                Couriers asking to leave {{ companyName }}.
-                                Approving frees them to join another company.
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            class="modal-close"
-                            @click="resignations.show = false"
-                        >
-                            &times;
-                        </button>
-                    </div>
-
-                    <div v-if="resignations.loading" class="py-8">
-                        <div class="loading-spinner"></div>
-                    </div>
-                    <div
-                        v-else-if="resignationRequests.length === 0"
-                        class="empty-state"
-                    >
-                        <strong>No resignation requests</strong>
-                        <p>Nothing to review right now.</p>
-                    </div>
-
-                    <ul v-else class="resignation-list">
-                        <li
-                            v-for="r in resignationRequests"
-                            :key="r.id"
-                            class="resignation-item"
-                        >
-                            <div class="resignation-head">
-                                <div>
-                                    <strong>
-                                        {{ r.courier?.first_name }}
-                                        {{ r.courier?.last_name }}
-                                    </strong>
-                                    <span class="parcel-recipient">{{
-                                        r.courier?.email ||
-                                        r.courier?.contact_no ||
-                                        '—'
-                                    }}</span>
-                                </div>
-                                <span
-                                    class="badge"
-                                    :class="badgeClass(r.status)"
-                                    >{{ r.status }}</span
-                                >
-                            </div>
-
-                            <p class="resignation-meta">
-                                Submitted {{ formatDate(r.submitted_at) }}
-                            </p>
-                            <p v-if="r.reason" class="resignation-reason">
-                                “{{ r.reason }}”
-                            </p>
-                            <p
-                                v-if="r.decision_note"
-                                class="resignation-reason"
-                            >
-                                Decision note: {{ r.decision_note }}
-                            </p>
-
-                            <div class="resignation-actions">
-                                <button
-                                    v-if="r.has_letter"
-                                    type="button"
-                                    class="btn-sm-outline"
-                                    @click="openResignationLetter(r)"
-                                >
-                                    View letter
-                                </button>
-                                <template v-if="r.status === 'pending'">
-                                    <button
-                                        type="button"
-                                        class="btn-sm-primary"
-                                        :disabled="resignations.busyId === r.id"
-                                        @click="doApproveResignation(r)"
-                                    >
-                                        Approve
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="btn-sm-outline"
-                                        :disabled="resignations.busyId === r.id"
-                                        @click="
-                                            resignations.rejectingId =
-                                                resignations.rejectingId ===
-                                                r.id
-                                                    ? null
-                                                    : r.id
-                                        "
-                                    >
-                                        Reject
-                                    </button>
-                                </template>
-                            </div>
-
-                            <div
-                                v-if="resignations.rejectingId === r.id"
-                                class="resignation-reject"
-                            >
-                                <textarea
-                                    v-model="resignations.rejectNote"
-                                    class="field-input"
-                                    rows="2"
-                                    placeholder="Reason for rejecting (required) — the courier will see this"
-                                ></textarea>
-                                <div class="resignation-actions">
-                                    <button
-                                        type="button"
-                                        class="btn-sm-outline"
-                                        @click="resignations.rejectingId = null"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="btn-sm-primary"
-                                        :disabled="
-                                            resignations.busyId === r.id ||
-                                            !resignations.rejectNote.trim()
-                                        "
-                                        @click="doRejectResignation(r)"
-                                    >
-                                        Confirm rejection
-                                    </button>
-                                </div>
-                            </div>
-                        </li>
-                    </ul>
-
-                    <div
-                        v-if="resignationRequestsMeta.lastPage > 1"
-                        class="driver-pagination"
-                    >
-                        <button
-                            type="button"
-                            class="btn-sm-outline"
-                            :disabled="
-                                resignations.page <= 1 || resignations.loading
-                            "
-                            @click="changeResignationsPage(resignations.page - 1)"
-                        >
-                            Prev
-                        </button>
-                        <span
-                            >Page {{ resignations.page }} of
-                            {{ resignationRequestsMeta.lastPage }}</span
-                        >
-                        <button
-                            type="button"
-                            class="btn-sm-outline"
-                            :disabled="
-                                resignations.page >=
-                                    resignationRequestsMeta.lastPage ||
-                                resignations.loading
-                            "
-                            @click="changeResignationsPage(resignations.page + 1)"
-                        >
-                            Next
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </transition>
         </Teleport>
 
         <!-- The confirm dialog and the toast stack are rendered once by
@@ -869,6 +891,9 @@ const {
 
 const search = ref('');
 const statusFilter = ref('');
+// Which of the two unrelated workflows this page is currently showing —
+// see switchView() below.
+const view = ref('applications');
 // `loading` is true only during the very first load — it gates the
 // skeleton. Re-entering the tab (onActivated) refreshes silently through
 // the shared cache, so the skeleton never flashes over data already on
@@ -952,7 +977,6 @@ function clearFilters() {
 // pull the company's entire resignation history into the browser on every
 // open, no matter how long it had grown.
 const resignations = reactive({
-    show: false,
     loading: false,
     page: 1,
     busyId: null,
@@ -978,11 +1002,18 @@ async function refreshResignations(force = false) {
 }
 
 async function openResignations() {
-    resignations.show = true;
     resignations.page = 1;
     resignations.rejectingId = null;
     resignations.rejectNote = '';
     await refreshResignations();
+}
+
+function switchView(next) {
+    view.value = next;
+
+    if (next === 'resignations') {
+        openResignations();
+    }
 }
 
 function changeResignationsPage(page) {
@@ -1443,25 +1474,6 @@ onActivated(boot);
 </script>
 
 <style scoped>
-.resignations-btn {
-    position: relative;
-    white-space: nowrap;
-}
-.resignations-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 20px;
-    height: 20px;
-    margin-left: 8px;
-    padding: 0 6px;
-    border-radius: 999px;
-    background: #dc2626;
-    color: #fff;
-    font-size: 11px;
-    font-weight: 800;
-    line-height: 1;
-}
 .resignation-list {
     list-style: none;
     margin: 0;
