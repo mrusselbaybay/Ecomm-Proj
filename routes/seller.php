@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Seller\ProductController;
 use App\Http\Controllers\Seller\SellerOrderController;
 use Illuminate\Support\Facades\Route;
 
@@ -18,6 +19,9 @@ use Illuminate\Support\Facades\Route;
  * server-side rather than trusted to client-side RLS alone.
  */
 Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.seller.')->group(function () {
+    Route::post('/products', [ProductController::class, 'store'])
+        ->middleware('throttle:10,1')
+        ->name('products.store');
     Route::get('/orders', [SellerOrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{id}', [SellerOrderController::class, 'show'])->name('orders.show');
     Route::put('/orders/{id}/status', [SellerOrderController::class, 'updateStatus'])->name('orders.update-status');

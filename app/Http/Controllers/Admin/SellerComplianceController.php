@@ -26,6 +26,7 @@ class SellerComplianceController extends Controller
                     ->with('admin:id,first_name,last_name')
                     ->latest()
                     ->limit(5),
+                'latestModeration',
             ]);
 
         $status = $request->string('status')->toString();
@@ -222,6 +223,15 @@ class SellerComplianceController extends Controller
                     'admin' => $action->admin?->full_name,
                 ])
                 ->values(),
+            'moderation' => $product->latestModeration ? [
+                'ai_status' => $product->latestModeration->ai_status->value,
+                'confidence_score' => (float) $product->latestModeration->ai_confidence_score,
+                'flagged_signals' => $product->latestModeration->ai_flagged_signals,
+                'reasoning' => $product->latestModeration->ai_reasoning,
+                'final_status' => $product->latestModeration->final_status->value,
+                'needs_human_review' => $product->latestModeration->needs_human_review,
+                'reviewed_at' => $product->latestModeration->created_at?->toIso8601String(),
+            ] : null,
         ];
     }
 }

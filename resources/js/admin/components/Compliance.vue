@@ -100,6 +100,7 @@
                         <th>Seller</th>
                         <th>Registered category</th>
                         <th>Product category</th>
+                        <th>AI review</th>
                         <th>
                             {{ showingHistory ? 'Latest action' : 'Review' }}
                         </th>
@@ -108,12 +109,12 @@
                 </thead>
                 <tbody>
                     <tr v-if="loading">
-                        <td colspan="6" class="py-8 text-center text-slate-500">
+                        <td colspan="7" class="py-8 text-center text-slate-500">
                             Loading products...
                         </td>
                     </tr>
                     <tr v-else-if="products.length === 0">
-                        <td colspan="6" class="py-8 text-center text-slate-500">
+                        <td colspan="7" class="py-8 text-center text-slate-500">
                             No products match these filters.
                         </td>
                     </tr>
@@ -146,6 +147,57 @@
                             }}
                         </td>
                         <td>{{ product.category || 'Uncategorized' }}</td>
+                        <td>
+                            <div
+                                v-if="product.moderation"
+                                class="space-y-1"
+                                :title="product.moderation.reasoning"
+                            >
+                                <span
+                                    class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold capitalize"
+                                    :class="aiStatusBadgeClass(product.moderation.ai_status)"
+                                >
+                                    {{
+                                        product.moderation.ai_status.toLowerCase()
+                                    }}
+                                    ·
+                                    {{
+                                        Math.round(
+                                            product.moderation.confidence_score *
+                                                100,
+                                        )
+                                    }}%
+                                </span>
+                                <p
+                                    v-if="
+                                        product.moderation.flagged_signals
+                                            .length
+                                    "
+                                    class="text-xs text-red-600"
+                                >
+                                    Flagged:
+                                    {{
+                                        product.moderation.flagged_signals.join(
+                                            ', ',
+                                        )
+                                    }}
+                                </p>
+                                <p
+                                    v-else
+                                    class="text-xs text-slate-500 capitalize"
+                                >
+                                    {{
+                                        product.moderation.final_status.replaceAll(
+                                            '_',
+                                            ' ',
+                                        )
+                                    }}
+                                </p>
+                            </div>
+                            <span v-else class="text-xs text-slate-400">
+                                Not yet reviewed
+                            </span>
+                        </td>
                         <td>
                             <div v-if="showingHistory" class="space-y-1">
                                 <span
@@ -400,6 +452,18 @@ function statusBadgeClass(status) {
     }
 
     return 'bg-slate-100 text-slate-600';
+}
+
+function aiStatusBadgeClass(aiStatus) {
+    if (aiStatus === 'APPROVE') {
+        return 'bg-emerald-100 text-emerald-700';
+    }
+
+    if (aiStatus === 'REJECT') {
+        return 'bg-red-100 text-red-700';
+    }
+
+    return 'bg-amber-100 text-amber-700';
 }
 
 function historyAction(product) {
