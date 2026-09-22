@@ -1,442 +1,627 @@
 <!-- resources/js/seller/components/Orders.vue -->
+<!--
+  Seller Order Management.
+
+  Real data via useOrders() -> Laravel SellerOrderController. Summary
+  cards + filter bar + a paginated table (desktop) / card list (mobile) +
+  a live detail preview drawer. Every status action is workflow-aware:
+  the buttons come straight from order.nextStatuses / order.canCancel
+  (Order::ALLOWED_TRANSITIONS on the server), so an invalid transition
+  can't be offered, and the API still rejects one if forced.
+-->
 <template>
-    <div class="order-page">
-        <!-- New Order Alert -->
-        <div v-if="newOrdersCount > 0" class="order-alert">
+    <div class="order-page order-page--v2">
+        <!-- New-order alert -->
+        <div v-if="newCount > 0 && viewMode === 'board'" class="order-alert" role="status">
             <div class="order-alert-left">
-                <span class="order-alert-dot"></span>
+                <span class="order-alert-dot" aria-hidden="true"></span>
                 <p>
-                    You have {{ newOrdersCount }} New Purchase Order{{
-                        newOrdersCount === 1 ? '' : 's'
-                    }}
-                    awaiting approval!
+                    {{ newCount }} new order{{ newCount === 1 ? '' : 's' }}
+                    awaiting your review.
                 </p>
             </div>
-            <button class="btn-primary btn-sm" @click="activeFilter = 'new'">
-                View New
+            <button
+                type="button"
+                class="btn-primary btn-sm"
+                @click="filters.status = 'New'"
+            >
+                Review new
             </button>
         </div>
 
-        <!-- Toolbar: filters + search -->
-        <div class="order-toolbar">
-            <div class="order-filter-tabs">
+        <!-- ============================================================
+             ORDERS LIST — the full, filterable, paginated list a kanban
+             column's "View N more" opens (real click-through, matching
+             the reference's view-orders-list). Reads the same already-
+             loaded `orders` array as the board — no extra fetch, since
+             loadOrders() already returns the seller's full matching list.
+             ============================================================ -->
+        <template v-if="viewMode === 'list'">
+            <div class="ol-topbar">
                 <button
-                    v-for="tab in filterTabs"
-                    :key="tab.id"
-                    class="order-filter-tab"
-                    :class="{ active: activeFilter === tab.id }"
-                    @click="activeFilter = tab.id"
+                    type="button"
+                    class="ol-back-btn"
+                    aria-label="Back to order board"
+                    @click="closeList"
                 >
-                    {{ tab.label
-                    }}<span v-if="tab.count !== null"> ({{ tab.count }})</span>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                        <path d="M15 5 8 12l7 7" />
+                    </svg>
+                </button>
+                <div>
+                    <p class="ol-breadcrumb">Orders &gt; {{ listTitle }}</p>
+                    <h3 class="ol-title">
+                        {{ listTitle }} Orders
+                        <span class="ol-count-badge num">{{ listOrders.length }}</span>
+                    </h3>
+                </div>
+            </div>
+
+            <div class="ol-tabs">
+                <button
+                    v-for="tab in LIST_TABS"
+                    :key="tab.key"
+                    type="button"
+                    class="ol-tab"
+                    :class="{ active: listStageKey === tab.key }"
+                    @click="selectListTab(tab.key)"
+                >
+                    {{ tab.label }}
                 </button>
             </div>
-            <div class="header-search order-search">
-                <span class="search-icon">
-                    <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                    >
-                        <circle cx="11" cy="11" r="7" />
-                        <path d="m21 21-4.35-4.35" />
-                    </svg>
-                </span>
-                <input
-                    v-model="searchQuery"
-                    type="text"
-                    placeholder="Search Order ID, name…"
-                />
-            </div>
-        </div>
 
-        <p v-if="loadError" class="order-sample-note">{{ loadError }}</p>
-
-        <!-- Split View -->
-        <div class="order-split">
-            <!-- Left: Order List -->
-            <div class="order-list-panel card">
-                <div class="order-list-head">
-                    <h3>Active Purchase Orders</h3>
-                </div>
-                <div class="order-list-scroll">
-                    <table class="order-table">
-                        <thead>
-                            <tr>
-                                <th>Order ID</th>
-                                <th>Customer</th>
-                                <th>Date</th>
-                                <th class="text-right">Amount</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-if="filteredOrders.length === 0">
-                                <td colspan="5" class="order-empty-row">
-                                    No orders match this filter.
-                                </td>
-                            </tr>
-                            <tr
-                                v-for="order in filteredOrders"
-                                :key="order.id"
-                                class="order-row"
-                                :class="{
-                                    active: order.id === selectedOrderId,
-                                }"
-                                @click="selectedOrderId = order.id"
-                            >
-                                <td class="order-id">
-                                    <a
-                                        href="#"
-                                        class="order-id-link"
-                                        @click.stop.prevent="
-                                            openDetails(order.id)
-                                        "
-                                        >{{ order.id }}</a
-                                    >
-                                </td>
-                                <td class="customer">{{ order.customer }}</td>
-                                <td class="order-date">{{ order.date }}</td>
-                                <td class="amount text-right">
-                                    {{ formatCurrency(order.total) }}
-                                </td>
-                                <td>
-                                    <span
-                                        class="badge"
-                                        :class="statusBadgeClass(order.status)"
-                                        >{{ order.status }}</span
-                                    >
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="order-list-footer">
-                    <span
-                        >{{ filteredOrders.length }} order{{
-                            filteredOrders.length === 1 ? '' : 's'
-                        }}</span
-                    >
-                </div>
-            </div>
-
-            <!-- Right: Order Detail Preview -->
-            <div class="order-detail-panel card">
-                <template v-if="selectedOrder">
-                    <div class="order-detail-head">
-                        <div>
-                            <div class="order-detail-title-row">
-                                <h3>Order {{ selectedOrder.id }} Profile</h3>
-                                <span
-                                    class="badge"
-                                    :class="
-                                        statusBadgeClass(selectedOrder.status)
-                                    "
-                                    >{{ selectedOrder.status }}</span
-                                >
-                            </div>
-                            <p class="order-detail-sub">
-                                Placed on {{ selectedOrder.date }} at
-                                {{ selectedOrder.time }}
-                            </p>
-                        </div>
-                        <button
-                            class="btn-outline btn-sm"
-                            @click="openDetails(selectedOrder.id)"
-                        >
-                            View Full Details
-                        </button>
-                    </div>
-
-                    <div class="order-detail-body">
-                        <div class="order-detail-grid">
-                            <div>
-                                <h4 class="order-section-label">
-                                    Delivery Address
-                                </h4>
-                                <p class="order-address-name">
-                                    {{ selectedOrder.customer }}
-                                </p>
-                                <p class="order-address-text">
-                                    {{ formatAddress(selectedOrder.address) }}
-                                </p>
-                            </div>
-                            <div>
-                                <h4 class="order-section-label">
-                                    Payment Details
-                                </h4>
-                                <div class="order-payment-row">
-                                    <span>Subtotal</span
-                                    ><strong>{{
-                                        formatCurrency(selectedOrder.subtotal)
-                                    }}</strong>
-                                </div>
-                                <div class="order-payment-row">
-                                    <span>Shipping</span>
-                                    <strong
-                                        :class="{
-                                            'order-shipping-free':
-                                                !selectedOrder.shippingFee,
-                                        }"
-                                    >
-                                        {{
-                                            selectedOrder.shippingFee
-                                                ? formatCurrency(
-                                                      selectedOrder.shippingFee,
-                                                  )
-                                                : 'Free'
-                                        }}
-                                    </strong>
-                                </div>
-                                <div
-                                    class="order-payment-row order-payment-total"
-                                >
-                                    <span>Total Paid</span
-                                    ><strong>{{
-                                        formatCurrency(selectedOrder.total)
-                                    }}</strong>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div>
-                            <h4 class="order-section-label">
-                                Items ({{ selectedOrder.items.length }})
-                            </h4>
-                            <div
-                                v-for="(item, idx) in selectedOrder.items"
-                                :key="idx"
-                                class="order-item-card"
-                            >
-                                <div class="order-item-thumb">
-                                    <svg
-                                        width="22"
-                                        height="22"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.6"
-                                    >
-                                        <path d="M21 8 12 3 3 8v8l9 5 9-5V8Z" />
-                                        <path d="M3 8l9 5 9-5M12 13v8" />
-                                    </svg>
-                                </div>
-                                <div class="order-item-info">
-                                    <p class="order-item-name">
-                                        {{ item.name }}
-                                    </p>
-                                    <p class="order-item-meta">
-                                        Qty: {{ item.qty }} • {{ item.variant }}
-                                    </p>
-                                </div>
-                                <p class="order-item-price">
-                                    {{ formatCurrency(item.price) }}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div>
-                            <h4 class="order-section-label">
-                                Timeline Tracking
-                            </h4>
-                            <div class="timeline">
-                                <div
-                                    v-for="(
-                                        step, idx
-                                    ) in selectedOrder.timeline"
-                                    :key="idx"
-                                    class="timeline-item"
-                                >
-                                    <div class="timeline-dot-wrap">
-                                        <span
-                                            class="timeline-dot"
-                                            :class="{ pending: !step.done }"
-                                        ></span>
-                                        <span
-                                            v-if="
-                                                idx <
-                                                selectedOrder.timeline.length -
-                                                    1
-                                            "
-                                            class="timeline-line"
-                                        ></span>
-                                    </div>
-                                    <div>
-                                        <p
-                                            class="timeline-text"
-                                            :class="{ muted: !step.done }"
-                                        >
-                                            {{ step.label }}
-                                        </p>
-                                        <p class="timeline-time">
-                                            {{ step.time }}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="order-footer-actions">
-                        <button
-                            class="btn-text-danger"
-                            :disabled="
-                                selectedOrder.status === 'Cancelled' ||
-                                selectedOrder.status === 'Delivered'
-                            "
-                            @click="rejectOrder(selectedOrder.id)"
-                        >
-                            Reject Order
-                        </button>
-                        <div class="order-footer-right">
-                            <button class="btn-outline" @click="printInvoice">
-                                Print Invoice
-                            </button>
-                            <button
-                                class="btn-primary"
-                                :disabled="selectedOrder.status !== 'New'"
-                                @click="acceptOrder(selectedOrder.id)"
-                            >
-                                Accept Order
-                            </button>
-                        </div>
-                    </div>
-                </template>
-
-                <div v-else class="empty-state order-detail-empty">
+            <div class="card">
+                <div v-if="!listOrders.length" class="order-state order-state--empty">
                     <svg
                         class="icon-lg"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
                         stroke-width="1.5"
+                        aria-hidden="true"
                     >
                         <rect x="4" y="4" width="16" height="17" rx="2" />
                         <path d="M9 2h6v3H9zM8 10h8M8 14h8M8 18h5" />
                     </svg>
-                    <p>Select an order from the list to view its details.</p>
+                    <p class="order-state-title">No orders in this view</p>
+                </div>
+
+                <template v-else>
+                    <div class="order-table-wrap">
+                        <table class="order-table--full">
+                            <thead>
+                                <tr>
+                                    <th>Order</th>
+                                    <th>Customer</th>
+                                    <th>Items</th>
+                                    <th>Date</th>
+                                    <th class="text-right">Amount</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr
+                                    v-for="o in pagedListOrders"
+                                    :key="o.id"
+                                    class="order-row"
+                                    @click="openDetails(o.id)"
+                                >
+                                    <td>
+                                        <button
+                                            type="button"
+                                            class="order-id-link"
+                                            @click.stop="openDetails(o.id)"
+                                        >
+                                            {{ o.id }}
+                                        </button>
+                                    </td>
+                                    <td class="customer">{{ o.customer }}</td>
+                                    <td class="order-products">{{ orderItemsSummary(o) }}</td>
+                                    <td class="order-date">{{ o.date }}</td>
+                                    <td class="amount text-right">{{ formatCurrency(o.total) }}</td>
+                                    <td><OrderStatusBadge :status="o.status" size="sm" /></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="ol-pagination">
+                        <span class="ol-page-info">{{ listRangeLabel }}</span>
+                        <div class="ol-page-nav">
+                            <button
+                                type="button"
+                                class="ol-page-btn"
+                                aria-label="Previous page"
+                                :disabled="listPage === 1"
+                                @click="goToListPage(listPage - 1)"
+                            >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                    <path d="M15 5 8 12l7 7" />
+                                </svg>
+                            </button>
+                            <span class="ol-page-current num">{{ listPage }} / {{ listLastPage }}</span>
+                            <button
+                                type="button"
+                                class="ol-page-btn"
+                                aria-label="Next page"
+                                :disabled="listPage === listLastPage"
+                                @click="goToListPage(listPage + 1)"
+                            >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                    <path d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </template>
+
+        <template v-else>
+        <div class="ord-stats">
+            <div class="card ord-stat-card">
+                <div class="ord-stat-head">
+                    <div class="ord-stat-title">
+                        <span class="ord-stat-ic">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2" /><path d="M9 2h6v3H9zM8 10h8M8 14h8M8 18h5" /></svg>
+                        </span>
+                        Orders Overview
+                    </div>
+                </div>
+                <div class="ord-big-num num">
+                    {{ activePipelineCount }}<span class="unit">orders in the active pipeline</span>
+                </div>
+                <p class="ord-compare">
+                    {{ totalLabel }}<template v-if="hasActiveFilters"> matching your filters</template>
+                </p>
+                <div class="ord-legend">
+                    <span v-for="g in kanbanColumns" :key="g.key" class="ord-legend-item">
+                        <span class="dot" :style="{ background: g.color }"></span>{{ g.label }} <strong class="num">{{ g.count }}</strong>
+                    </span>
+                </div>
+                <div class="ord-bar">
+                    <span
+                        v-for="g in kanbanColumns"
+                        :key="g.key"
+                        :style="{ width: (total ? (g.count / total) * 100 : 0) + '%', background: g.color }"
+                    ></span>
                 </div>
             </div>
+
+            <div class="card ord-stat-card">
+                <div class="ord-stat-head">
+                    <div class="ord-stat-title">
+                        <span class="ord-stat-ic blue">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 9 12 9s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5" /></svg>
+                        </span>
+                        Revenue
+                    </div>
+                </div>
+                <div v-if="paidRevenue.total === 0" class="ord-revenue-empty">
+                    No paid orders yet.
+                </div>
+                <div v-else class="ord-gauge-row">
+                    <div class="ord-donut-wrap">
+                        <svg viewBox="0 0 36 36" class="ord-donut" style="transform: rotate(-90deg)">
+                            <circle cx="18" cy="18" r="15.9" fill="transparent" style="stroke: var(--ord-border)" stroke-width="4" />
+                            <circle
+                                v-for="seg in revenueDonutSegments"
+                                :key="seg.key"
+                                cx="18"
+                                cy="18"
+                                r="15.9"
+                                fill="transparent"
+                                :stroke="seg.color"
+                                stroke-width="4"
+                                stroke-linecap="round"
+                                :stroke-dasharray="`${seg.pct} ${100 - seg.pct}`"
+                                :stroke-dashoffset="seg.dashoffset"
+                            ></circle>
+                        </svg>
+                    </div>
+                    <div class="ord-gauge-legend">
+                        <span class="ord-legend-item"><span class="dot" style="background: #6fa3e0"></span>Online <strong class="num">{{ formatCurrency(paidRevenue.online) }}</strong></span>
+                        <span class="ord-legend-item"><span class="dot" style="background: #fbbf7d"></span>Cash on Delivery <strong class="num">{{ formatCurrency(paidRevenue.cod) }}</strong></span>
+                    </div>
+                    <div class="ord-gauge-total">
+                        <div class="g-num num">{{ formatCurrency(paidRevenue.total) }}</div>
+                    </div>
+                </div>
+                <p class="ord-gauge-caption">Collected from paid orders, split by how the buyer paid.</p>
+            </div>
         </div>
+
+        <section class="order-results" aria-label="Order pipeline board">
+                <div class="order-results-head">
+                    <div class="board-title">
+                        <h3>Live Order Pipeline</h3>
+                        <span class="order-filter-active-pill" v-if="hasActiveFilters">Filtered</span>
+                    </div>
+                    <span class="order-results-count">{{ totalLabel }}</span>
+                </div>
+
+                <!-- Error -->
+                <div
+                    v-if="loadError && !isLoadingOrders"
+                    class="order-state order-state--error"
+                >
+                    <p class="order-state-title">Couldn't load your orders</p>
+                    <p class="order-state-text">{{ loadError }}</p>
+                    <button type="button" class="btn-outline" @click="reload">
+                        Try again
+                    </button>
+                </div>
+
+                <!-- Skeleton (first load) -->
+                <div
+                    v-else-if="isLoadingOrders && !orders.length"
+                    class="order-skel-list"
+                    aria-hidden="true"
+                >
+                    <div v-for="n in 6" :key="n" class="order-skel-row">
+                        <span class="order-skel-bar" style="width: 20%"></span>
+                        <span class="order-skel-bar" style="width: 26%"></span>
+                        <span class="order-skel-bar" style="width: 14%"></span>
+                        <span class="order-skel-bar" style="width: 12%"></span>
+                        <span class="order-skel-bar order-skel-pill" style="width: 5rem"></span>
+                    </div>
+                </div>
+
+                <!-- Empty -->
+                <div
+                    v-else-if="!orders.length"
+                    class="order-state order-state--empty"
+                >
+                    <svg
+                        class="icon-lg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        aria-hidden="true"
+                    >
+                        <rect x="4" y="4" width="16" height="17" rx="2" />
+                        <path d="M9 2h6v3H9zM8 10h8M8 14h8M8 18h5" />
+                    </svg>
+                    <p class="order-state-title">No orders match these filters</p>
+                    <p class="order-state-text">
+                        Try widening the date range or clearing a filter.
+                    </p>
+                    <button
+                        v-if="hasActiveFilters"
+                        type="button"
+                        class="btn-outline"
+                        @click="resetFilters"
+                    >
+                        Reset filters
+                    </button>
+                </div>
+
+                <template v-else>
+                    <!-- ============================================================
+                     LIVE ORDER PIPELINE — kanban board grouped by real status.
+                     Order::STATUSES has 9 values; grouped into 5 stage columns
+                     so the board stays scannable (New, Confirmed+Processing+
+                     Packed+Ready for Pickup, In Transit, Delivered, Cancelled+
+                     Rejected) — each card still shows its own precise status
+                     via OrderStatusBadge, so no precision is lost. Confirmed
+                     sits in the Processing column, not New: once a seller has
+                     accepted an order it's already moving toward being
+                     packed, which is exactly what Prepare Orders now expects
+                     (see OrderDetails.vue's redirect once status hits
+                     Processing) — New is reserved for orders still awaiting
+                     that accept/reject decision.
+
+                     No drag-and-drop: Order::ALLOWED_TRANSITIONS is strict
+                     per current status (e.g. New can only go to Confirmed/
+                     Processing/Cancelled/Rejected, never straight to
+                     Delivered), so "drop anywhere in a column" can't map
+                     cleanly onto real transition rules. The existing
+                     workflow-aware primary-action button on each card is
+                     the real, validated way to change status; clicking the
+                     rest of a card opens the full Order Details page
+                     (which has its own Cancel/Reject actions).
+                     ============================================================ -->
+                    <div class="kanban">
+                        <div v-for="col in kanbanColumns" :key="col.key" class="kanban-col">
+                            <div class="kanban-col-head">
+                                <span class="dot" :style="{ background: col.color }"></span>
+                                <span class="label">{{ col.label }}</span>
+                                <span class="kanban-count num">{{ col.count }}</span>
+                            </div>
+                            <div class="kanban-col-body">
+                                <OrderCard
+                                    v-for="order in visibleCards(col)"
+                                    :key="order.id"
+                                    :order="order"
+                                    @select="openDetails(order.id)"
+                                    @open="openDetails(order.id)"
+                                />
+                                <p v-if="!col.cards.length" class="kanban-empty">
+                                    No orders here.
+                                </p>
+                            </div>
+                            <button
+                                v-if="col.count > visibleCards(col).length"
+                                type="button"
+                                class="kanban-more"
+                                @click="openList(col.key)"
+                            >
+                                View {{ col.count - visibleCards(col).length }} more →
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </section>
+        </template>
     </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useOrders } from '../composables/useOrders';
+import OrderCard from './orders/OrderCard.vue';
+import OrderStatusBadge from './orders/OrderStatusBadge.vue';
+
+const props = defineProps({
+    // Real status string deep-linked from Reports.vue's order-breakdown.
+    statusFilter: { type: String, default: null },
+});
 
 const {
-    orders: mockOrders,
+    orders,
+    ordersMeta,
+    isLoadingOrders,
     loadError,
-    newOrdersCount,
+    orderFilters: filters,
+    resetOrderFilters: resetFilters,
     loadOrders,
-    statusBadgeClass,
     formatCurrency,
-    acceptOrder,
-    rejectOrder,
 } = useOrders();
 
-const activeFilter = ref('all');
-const searchQuery = ref('');
-const selectedOrderId = ref(null);
+// ---- derived ------------------------------------------------------------
 
-onMounted(async () => {
-    await loadOrders();
-    selectedOrderId.value = mockOrders.value[0]?.id ?? null;
+const statusCounts = computed(() => ordersMeta.value?.statusCounts || {});
+const newCount = computed(() => Number(statusCounts.value.New || 0));
+const total = computed(() => orders.value.length);
+
+const totalLabel = computed(() => {
+    const t = total.value;
+
+    return `${t} order${t === 1 ? '' : 's'}`;
 });
 
-// Keep a selection once orders arrive/refresh, in case the page loaded
-// before the first fetch resolved.
-watch(mockOrders, (list) => {
-    if (!selectedOrderId.value && list.length) {
-        selectedOrderId.value = list[0].id;
-    }
+const hasActiveFilters = computed(() => {
+    const f = filters.value;
+
+    return (
+        !!f.search ||
+        !!f.status ||
+        !!f.payment_status ||
+        !!f.date_from ||
+        !!f.date_to ||
+        f.sort !== 'newest'
+    );
 });
 
-const filterTabs = computed(() => {
-    const counts = {
-        new: 0,
-        processing: 0,
-        'in transit': 0,
-        delivered: 0,
-        cancelled: 0,
-    };
+// ---- kanban board — real Order::STATUSES grouped into stage columns
+// (see the template comment above the board for why: 9 real statuses,
+// grouped to 4 columns so it matches the reference; each card still
+// shows its own exact status via OrderStatusBadge). Cancelled/Rejected
+// orders are intentionally not shown as a column (per the reference),
+// so a cancelled/rejected order won't appear on this board — it's still
+// reachable via the Order Status filter in the header, and on the full
+// Order Details page. ----
+const STAGE_GROUPS = [
+    { key: 'new', label: 'New', statuses: ['New'], color: '#9dc2ef' },
+    { key: 'processing', label: 'Processing', statuses: ['Confirmed', 'Processing', 'Packed', 'Ready for Pickup'], color: '#fbbf7d' },
+    { key: 'transit', label: 'In Transit', statuses: ['In Transit'], color: '#6fa3e0' },
+    { key: 'delivered', label: 'Delivered', statuses: ['Delivered'], color: '#14b8a6' },
+];
 
-    for (const o of mockOrders.value) {
-        const key = o.status.toLowerCase();
+const kanbanColumns = computed(() =>
+    STAGE_GROUPS.map((g) => {
+        // Most-recently-touched first (real `updatedAt`, same field
+        // Prepare Orders' queue and Courier Handover's history table
+        // already sort by) — so a card that just moved into a column
+        // (e.g. an order Courier Handover just confirmed picked up)
+        // surfaces at the top of "In Transit" instead of wherever its
+        // original placed_at date happens to rank it.
+        const cards = orders.value
+            .filter((o) => g.statuses.includes(o.status))
+            .sort(
+                (a, b) =>
+                    new Date(b.updatedAt || b.placedAt || 0) - new Date(a.updatedAt || a.placedAt || 0),
+            );
 
-        if (key in counts) {
-            counts[key] += 1;
-        }
-    }
-
-    return [
-        { id: 'all', label: 'All', count: null },
-        { id: 'new', label: 'New', count: counts.new },
-        { id: 'processing', label: 'Processing', count: counts.processing },
-        { id: 'shipped', label: 'Shipped', count: counts['in transit'] },
-        { id: 'delivered', label: 'Delivered', count: counts.delivered },
-        { id: 'cancelled', label: 'Cancelled', count: counts.cancelled },
-    ];
-});
-
-const statusFilterMap = {
-    new: 'New',
-    processing: 'Processing',
-    shipped: 'In Transit',
-    delivered: 'Delivered',
-    cancelled: 'Cancelled',
-};
-
-const filteredOrders = computed(() => {
-    let list = mockOrders.value;
-
-    if (activeFilter.value !== 'all') {
-        const target = statusFilterMap[activeFilter.value];
-        list = list.filter((o) => o.status === target);
-    }
-
-    const q = searchQuery.value.trim().toLowerCase();
-
-    if (q) {
-        list = list.filter(
-            (o) =>
-                o.id.toLowerCase().includes(q) ||
-                o.customer.toLowerCase().includes(q),
-        );
-    }
-
-    return list;
-});
-
-const selectedOrder = computed(
-    () => mockOrders.value.find((o) => o.id === selectedOrderId.value) || null,
+        return { ...g, cards, count: cards.length };
+    }),
 );
 
-function formatAddress(addr) {
-    if (!addr) {
-        return '—';
+const activePipelineCount = computed(() =>
+    kanbanColumns.value
+        .filter((c) => c.key !== 'delivered')
+        .reduce((sum, c) => sum + c.count, 0),
+);
+
+// Each column shows at most 3 cards; "View N more" doesn't reveal them
+// in place — it opens the full Orders List below, pre-filtered to that
+// column's stage (matches the reference's kanban-more -> orders-list
+// click-through).
+const COLUMN_INITIAL = 3;
+
+function visibleCards(col) {
+    return col.cards.slice(0, COLUMN_INITIAL);
+}
+
+// ---- Orders List — the drill-down a "View N more" opens. Reads the
+// same already-loaded `orders` array as the board (no extra fetch) and
+// paginates it client-side, since loadOrders() already returns the
+// seller's full matching list in one shot. ----
+const viewMode = ref('board'); // 'board' | 'list'
+const listStageKey = ref('all');
+const LIST_PAGE_SIZE = 10;
+const listPage = ref(1);
+
+const LIST_TABS = [{ key: 'all', label: 'All' }, ...STAGE_GROUPS.map((g) => ({ key: g.key, label: g.label }))];
+
+function openList(stageKey) {
+    listStageKey.value = stageKey;
+    listPage.value = 1;
+    viewMode.value = 'list';
+}
+
+function closeList() {
+    viewMode.value = 'board';
+}
+
+function selectListTab(key) {
+    listStageKey.value = key;
+    listPage.value = 1;
+}
+
+const listStageGroup = computed(() => STAGE_GROUPS.find((g) => g.key === listStageKey.value) || null);
+const listTitle = computed(() => listStageGroup.value?.label || 'All');
+
+const listOrders = computed(() =>
+    listStageGroup.value
+        ? orders.value.filter((o) => listStageGroup.value.statuses.includes(o.status))
+        : orders.value,
+);
+
+const listLastPage = computed(() => Math.max(1, Math.ceil(listOrders.value.length / LIST_PAGE_SIZE)));
+
+const pagedListOrders = computed(() => {
+    const start = (listPage.value - 1) * LIST_PAGE_SIZE;
+
+    return listOrders.value.slice(start, start + LIST_PAGE_SIZE);
+});
+
+const listRangeLabel = computed(() => {
+    if (!listOrders.value.length) {
+        return 'No orders';
     }
 
-    return [
-        addr.street,
-        [addr.barangay, addr.municipality].filter(Boolean).join(', '),
-        addr.province,
-        addr.country,
-    ]
-        .filter(Boolean)
-        .join(', ');
+    const start = (listPage.value - 1) * LIST_PAGE_SIZE + 1;
+    const end = Math.min(listOrders.value.length, listPage.value * LIST_PAGE_SIZE);
+
+    return `Showing ${start} to ${end} of ${listOrders.value.length} orders`;
+});
+
+function goToListPage(page) {
+    listPage.value = Math.min(Math.max(1, page), listLastPage.value);
 }
 
-function printInvoice() {
-    window.print();
+// Keeps the current page in range if a filter/status change shrinks the
+// list out from under it (e.g. an order gets moved off this stage).
+watch(listOrders, () => {
+    if (listPage.value > listLastPage.value) {
+        listPage.value = listLastPage.value;
+    }
+});
+
+function orderItemsSummary(o) {
+    const items = o.items || [];
+
+    if (!items.length) {
+        return 'No items';
+    }
+
+    const first = items[0].name || 'Item';
+
+    return items.length === 1 ? first : `${first} +${items.length - 1} more`;
 }
 
-// Navigates to the dedicated Order Details page (/seller/orders/{id})
-// via the same seller-nav event SellerLayout already listens for.
+// ---- revenue split — real payment_method values are 'cod' | 'gcash' |
+// 'card' (see buyer Checkout.vue); "Online" groups gcash+card. Only
+// counts Paid orders, so this is real collected revenue, not a
+// projection. No month-over-month comparison — there is no historical
+// revenue snapshot to compare against. ----
+const paidRevenue = computed(() => {
+    const paid = orders.value.filter((o) => o.paymentStatus === 'Paid');
+    const cod = paid.filter((o) => o.paymentMethod === 'cod').reduce((s, o) => s + (Number(o.total) || 0), 0);
+    const online = paid.filter((o) => o.paymentMethod !== 'cod').reduce((s, o) => s + (Number(o.total) || 0), 0);
+
+    return { cod, online, total: cod + online };
+});
+
+const revenueDonutSegments = computed(() => {
+    const { cod, online, total: revTotal } = paidRevenue.value;
+    const denom = revTotal || 1;
+    const segments = [
+        { key: 'online', color: '#6fa3e0', amount: online },
+        { key: 'cod', color: '#fbbf7d', amount: cod },
+    ];
+
+    let offsetAcc = 0;
+
+    return segments
+        .filter((s) => s.amount > 0)
+        .map((s) => {
+            const pct = Math.round((s.amount / denom) * 100);
+            const seg = { ...s, pct, dashoffset: -offsetAcc };
+
+            offsetAcc += pct;
+
+            return seg;
+        });
+});
+
+// ---- display helpers --------------------------------------------------
+
+// ---- data loading ---------------------------------------------------------
+
+// No `page` param -> SellerOrderController returns the full unpaginated
+// list (see its docblock). The kanban board needs every matching order
+// at once to group them into real columns, and the Orders List
+// drill-down (see openList()) paginates that same real array client-side
+// instead of re-fetching.
+// { force: true }: without it, the 30s poll below races loadOrders()'s
+// own 30s cache TTL and frequently no-ops instead of actually fetching
+// (see the poll's own comment) — forcing also makes a filter change or
+// a manual reload() call always land a real request, never a stale
+// cache hit.
+async function reload() {
+    await loadOrders({ ...filters.value }, { force: true });
+}
+
+watch(filters, reload, { deep: true });
+
+watch(
+    () => props.statusFilter,
+    (status) => {
+        if (status) {
+            filters.value = { ...filters.value, status };
+        }
+    },
+    { immediate: true },
+);
+
+onMounted(reload);
+
+// Orders are created buyer-side straight in Supabase (not through this
+// Laravel API — see useOrders.js's own header comment), and nothing
+// else on this page re-triggers a fetch once it's mounted (only a
+// filter change or a fresh mount does). Without a poll, a seller who
+// just leaves the board open would never see a brand-new order land in
+// "New", or another order they shipped elsewhere move into "In
+// Transit" — same 30s rhythm as the orders cache's own TTL. reload()
+// itself forces past that cache (see its own comment), so every tick is
+// guaranteed to be a real fetch.
+const ORDERS_POLL_MS = 30 * 1000;
+let ordersPollTimer = null;
+
+onMounted(() => {
+    ordersPollTimer = setInterval(reload, ORDERS_POLL_MS);
+});
+
+onBeforeUnmount(() => {
+    clearInterval(ordersPollTimer);
+});
+
+// Status changes and Cancel/Reject live on the full Order Details page,
+// opened by clicking a card (nothing here mutates order state directly
+// anymore).
 function openDetails(id) {
     window.dispatchEvent(
         new CustomEvent('seller-nav', {

@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreSellerComplianceActionRequest;
 use App\Mail\SellerComplianceNotice;
 use App\Models\Product;
+use App\Models\Profile;
 use App\Models\SellerComplianceAction;
 use App\Models\StatusAuditLog;
+use App\Services\SellerNotifier;
 use App\Support\CategoryMatcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -123,51 +125,192 @@ class SellerComplianceController extends Controller
         $reason = $data['reason'] ?? null;
         $seller = $product->seller;
 
-        DB::transaction(function () use (
-            $request,
+        // Idempotency: a double-submit (double-click, a retried request)
+        // must not create a second compliance-history row for an outcome
+        // that's already in effect.
+        if ($action === 'verify' && $product->status === 'active') {
+            return response()->json(['message' => 'Product is already verified and active.']);
+        }
+
+        if ($action === 'remove' && $product->status === 'archived') {
+            return response()->json(['message' => 'Product is already removed.']);
+        }
+
+        if ($action === 'suspend' && $seller->account_status === 'suspended') {
+            return response()->json(['message' => 'Seller is already suspended.']);
+        }
+
+        $complianceAction = DB::transaction(fn () => $this->recordAction(
             $product,
             $seller,
-            $data,
             $action,
             $reason,
-        ): void {
-            if ($action === 'verify') {
-                $product->update(['status' => 'active']);
-            }
+            $data['notes'] ?? null,
+            $request->user()->id,
+        ));
 
-            if ($action === 'remove') {
-                $product->update(['status' => 'archived']);
-            }
+        // Notifications only after the transaction has committed (see
+        // SellerNotifier's own docblock for why).
+        $this->notifyForAction($product->fresh(), $seller->fresh(), $action, $reason, $complianceAction->id);
 
-            if ($action === 'restore') {
-                $product->update(['status' => 'pending_review']);
-            }
+        return response()->json([
+            'message' => match ($action) {
+                'verify' => 'Product verified and made active.',
+                'warn' => 'Product flagged and the seller was notified.',
+                'remove' => 'Product moved to the archive and the seller was notified.',
+                'restore' => 'Product restored to the pending review queue.',
+                'suspend' => 'Seller suspended and notified.',
+            },
+        ]);
+    }
 
-            if ($action === 'suspend') {
-                $oldStatus = $seller->account_status;
-                $seller->update(['account_status' => 'suspended']);
+    /**
+     * POST /api/admin/compliance/products/verify-all
+     *
+     * Bulk-verifies every product currently sitting at pending_review
+     * (optionally narrowed by the same search filter the Compliance page
+     * itself is using), running each one through the exact same
+     * recordAction()/notifyForAction() path a single manual Verify does —
+     * same compliance-history row, same notification, just looped.
+     * Already-active products are skipped (idempotent against a repeat
+     * click or a race with an AI auto-approval that just landed).
+     */
+    public function verifyAll(Request $request): JsonResponse
+    {
+        $query = Product::query()->where('status', 'pending_review')->with('seller');
 
-                StatusAuditLog::create([
-                    'entity_type' => 'profile',
-                    'entity_id' => $seller->id,
-                    'old_status' => $oldStatus,
-                    'new_status' => 'suspended',
-                    'reason' => "Seller compliance violation: {$reason}",
-                    'changed_by' => $request->user()->id,
-                ]);
-            }
+        if ($search = $request->string('search')->trim()->toString()) {
+            $query->where(function ($query) use ($search): void {
+                $query->where('name', 'ilike', "%{$search}%")
+                    ->orWhere('description', 'ilike', "%{$search}%")
+                    ->orWhere('category', 'ilike', "%{$search}%")
+                    ->orWhereHas('seller', function ($sellerQuery) use ($search): void {
+                        $sellerQuery->where('first_name', 'ilike', "%{$search}%")
+                            ->orWhere('last_name', 'ilike', "%{$search}%")
+                            ->orWhere('email', 'ilike', "%{$search}%");
+                    });
+            });
+        }
 
-            SellerComplianceAction::create([
-                'seller_id' => $seller->id,
-                'product_id' => $product->id,
-                'action' => $action,
-                'reason' => $reason,
-                'notes' => $data['notes'] ?? null,
-                'admin_id' => $request->user()->id,
+        $products = $query->get()->filter(fn (Product $product) => $product->seller?->role === 'seller');
+
+        if ($products->isEmpty()) {
+            return response()->json([
+                'message' => 'No products currently require verification.',
+                'verified' => 0,
+            ]);
+        }
+
+        $adminId = $request->user()->id;
+
+        $processed = DB::transaction(function () use ($products, $adminId) {
+            return $products->map(fn (Product $product) => [
+                'product' => $product,
+                'compliance_action' => $this->recordAction(
+                    $product,
+                    $product->seller,
+                    'verify',
+                    null,
+                    'Bulk-verified via Verify All.',
+                    $adminId,
+                ),
             ]);
         });
 
-        if (in_array($action, ['warn', 'remove', 'suspend'], true)) {
+        foreach ($processed as $entry) {
+            $this->notifyForAction(
+                $entry['product']->fresh(),
+                $entry['product']->seller,
+                'verify',
+                null,
+                $entry['compliance_action']->id,
+            );
+        }
+
+        return response()->json([
+            'message' => $processed->count().' product(s) verified.',
+            'verified' => $processed->count(),
+        ]);
+    }
+
+    /**
+     * Applies one compliance action's side effects (product/seller status
+     * change + the audit trail row) and returns the created
+     * SellerComplianceAction — the single place both store() and
+     * verifyAll() go through, so "verified via Verify All" and "verified
+     * individually" are always the same code path with the same result.
+     */
+    private function recordAction(
+        Product $product,
+        Profile $seller,
+        string $action,
+        ?string $reason,
+        ?string $notes,
+        ?string $adminId,
+    ): SellerComplianceAction {
+        if ($action === 'verify') {
+            $product->update(['status' => 'active']);
+        }
+
+        if ($action === 'remove') {
+            $product->update(['status' => 'archived']);
+        }
+
+        if ($action === 'restore') {
+            $product->update(['status' => 'pending_review']);
+        }
+
+        if ($action === 'suspend') {
+            $oldStatus = $seller->account_status;
+            $seller->update(['account_status' => 'suspended']);
+
+            StatusAuditLog::create([
+                'entity_type' => 'profile',
+                'entity_id' => $seller->id,
+                'old_status' => $oldStatus,
+                'new_status' => 'suspended',
+                'reason' => "Seller compliance violation: {$reason}",
+                'changed_by' => $adminId,
+            ]);
+        }
+
+        return SellerComplianceAction::create([
+            'seller_id' => $seller->id,
+            'product_id' => $product->id,
+            'action' => $action,
+            'reason' => $reason,
+            'notes' => $notes,
+            'admin_id' => $adminId,
+        ]);
+    }
+
+    /**
+     * Fires the seller-facing side effects of a compliance action: the
+     * in-app notification (App\Services\SellerNotifier — the same inbox
+     * powering order notifications) plus, for the actions that already
+     * had it, the compliance-notice email. `restore` has no seller-facing
+     * notification — it just reopens the review queue, nothing changed
+     * for the seller yet. `$eventId` is the compliance action's own id,
+     * used as the notification's dedupe key.
+     */
+    private function notifyForAction(
+        Product $product,
+        Profile $seller,
+        string $action,
+        ?string $reason,
+        string $eventId,
+    ): void {
+        $notifier = app(SellerNotifier::class);
+
+        match ($action) {
+            'warn' => $notifier->productFlagged($product, $reason, $eventId),
+            'verify' => $notifier->productVerified($product, $eventId),
+            'remove' => $notifier->productRemoved($product, $reason, $eventId),
+            'suspend' => $notifier->sellerSuspended($seller, $reason, $eventId),
+            default => null,
+        };
+
+        if (in_array($action, ['verify', 'warn', 'remove', 'suspend'], true)) {
             Mail::to($seller->email)->queue(new SellerComplianceNotice(
                 sellerName: $seller->full_name,
                 productName: $product->name,
@@ -175,16 +318,6 @@ class SellerComplianceController extends Controller
                 reason: $reason,
             ));
         }
-
-        return response()->json([
-            'message' => match ($action) {
-                'verify' => 'Product verified and made active.',
-                'warn' => 'Warning recorded and queued for email delivery.',
-                'remove' => 'Product moved to the archive and the seller was notified.',
-                'restore' => 'Product restored to the pending review queue.',
-                'suspend' => 'Seller suspended and notified.',
-            },
-        ]);
     }
 
     /**
@@ -220,7 +353,7 @@ class SellerComplianceController extends Controller
                     'reason' => $action->reason,
                     'notes' => $action->notes,
                     'created_at' => $action->created_at?->toIso8601String(),
-                    'admin' => $action->admin?->full_name,
+                    'admin' => $action->admin_id ? $action->admin?->full_name : 'AI Moderation',
                 ])
                 ->values(),
             'moderation' => $product->latestModeration ? [

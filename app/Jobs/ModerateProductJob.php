@@ -4,8 +4,11 @@ namespace App\Jobs;
 
 use App\Enums\ProductStatus;
 use App\Models\Product;
+use App\Models\SellerComplianceAction;
+use App\Services\KeywordProductModerationClient;
 use App\Services\ProductApprovalRouter;
 use App\Services\ProductModerationClient;
+use App\Services\SellerNotifier;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -27,6 +30,7 @@ class ModerateProductJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(
         ProductModerationClient $moderationClient,
+        KeywordProductModerationClient $keywordClient,
         ProductApprovalRouter $approvalRouter,
     ): void {
         if (! config('services.product_moderation.enabled', false)) {
@@ -39,14 +43,40 @@ class ModerateProductJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $aiResult = $moderationClient->moderate($product);
+        // OpenAI is preferred (it actually inspects images/description for
+        // harmful content); the keyword client is a zero-cost, name-only
+        // fallback for when OpenAI isn't reachable/billed — see its
+        // docblock. Falling back here (rather than letting the job fail)
+        // means a billing outage doesn't leave every submission stuck in
+        // the queue's retry/backoff cycle for no reason.
+        try {
+            $aiResult = $moderationClient->moderate($product);
+        } catch (Throwable $e) {
+            Log::warning('OpenAI product moderation unavailable, falling back to keyword check.', [
+                'product_id' => $this->productId,
+                'error' => $e->getMessage(),
+            ]);
+
+            $aiResult = $keywordClient->moderate($product);
+        }
+
         $decision = $approvalRouter->route(
             $product->toArray(),
             $aiResult,
             allowAutomaticDecisions: config('services.product_moderation.mode') === 'automatic',
         );
 
-        DB::transaction(function () use ($aiResult, $decision): void {
+        // A decisive AI verdict (auto-approved/auto-rejected) is itself a
+        // verification event, exactly like an admin clicking Verify/Remove
+        // — it must land in seller_compliance_actions or it never shows up
+        // in Compliance History and the product silently stays stuck
+        // looking "unreviewed" in the main list (its query only excludes
+        // active products once a verify action exists). A merely
+        // "needs_human_review" verdict is NOT a verification — nothing to
+        // record yet, a human still has to decide.
+        $complianceAction = null;
+
+        DB::transaction(function () use ($aiResult, $decision, &$complianceAction): void {
             $product = Product::query()->lockForUpdate()->find($this->productId);
 
             if (! $product || $product->status !== ProductStatus::PendingReview->value) {
@@ -65,7 +95,33 @@ class ModerateProductJob implements ShouldBeUnique, ShouldQueue
             $product->update([
                 'status' => $decision['product_status'],
             ]);
+
+            if (! $decision['needs_human_review']) {
+                $complianceAction = SellerComplianceAction::create([
+                    'seller_id' => $product->seller_id,
+                    'product_id' => $product->id,
+                    'action' => $decision['final_status'] === 'auto_approved' ? 'verify' : 'remove',
+                    'reason' => $decision['final_status'] === 'auto_rejected' ? $decision['reasoning'] : null,
+                    'notes' => 'Auto-processed by AI moderation: '.$decision['reasoning'],
+                    'admin_id' => null,
+                ]);
+            }
         });
+
+        if ($complianceAction) {
+            // SellerNotifier only reads seller_id/name off $product, both
+            // already correct on the copy fetched before the transaction
+            // — no need to re-fetch (and no dependency on the `seller`
+            // relation actually resolving, which matters for the
+            // narrow-schema unit tests around this job).
+            $notifier = app(SellerNotifier::class);
+
+            if ($complianceAction->action === 'verify') {
+                $notifier->productVerified($product, $complianceAction->id);
+            } else {
+                $notifier->productRemoved($product, $decision['reasoning'], $complianceAction->id);
+            }
+        }
     }
 
     /**

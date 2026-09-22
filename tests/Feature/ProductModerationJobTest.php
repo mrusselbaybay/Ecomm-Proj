@@ -3,15 +3,15 @@
 use App\Jobs\ModerateProductJob;
 use App\Models\Product;
 use App\Models\ProductModerationLog;
+use App\Services\KeywordProductModerationClient;
 use App\Services\ProductApprovalRouter;
 use App\Services\ProductModerationClient;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Client\Request;
-use Illuminate\Http\Client\RequestException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 
 beforeEach(function () {
     Schema::create('products', function (Blueprint $table) {
@@ -41,6 +41,20 @@ beforeEach(function () {
         $table->timestamps();
     });
 
+    // Minimal, FK-free — mirrors the real seller_compliance_actions shape
+    // just enough for ModerateProductJob's auto-verify/auto-remove write.
+    // See ProductModerationJobTest's "auto-approve" test.
+    Schema::create('seller_compliance_actions', function (Blueprint $table) {
+        $table->uuid('id')->primary();
+        $table->uuid('seller_id');
+        $table->uuid('product_id')->nullable();
+        $table->string('action', 40);
+        $table->text('reason')->nullable();
+        $table->text('notes')->nullable();
+        $table->uuid('admin_id')->nullable();
+        $table->timestamps();
+    });
+
     config([
         'services.product_moderation.enabled' => true,
         'services.product_moderation.mode' => 'review_only',
@@ -55,6 +69,7 @@ beforeEach(function () {
 });
 
 afterEach(function () {
+    Schema::dropIfExists('seller_compliance_actions');
     Schema::dropIfExists('product_moderation_logs');
     Schema::dropIfExists('products');
 });
@@ -116,11 +131,21 @@ it('only activates a clean product when automatic decisions are explicitly enabl
 
     runModerationJob($product);
 
+    $complianceAction = DB::table('seller_compliance_actions')->where('product_id', $product->id)->first();
+
     expect($product->fresh()?->status)->toBe('active')
-        ->and(ProductModerationLog::query()->first()?->final_status->value)->toBe('auto_approved');
+        ->and(ProductModerationLog::query()->first()?->final_status->value)->toBe('auto_approved')
+        // An auto-approval is itself a verification event — it must land
+        // in compliance history exactly like a manual Verify does, with
+        // no admin attached (that's how the UI tells "AI Moderation"
+        // apart from a human admin's name).
+        ->and($complianceAction)->not->toBeNull()
+        ->and($complianceAction->action)->toBe('verify')
+        ->and($complianceAction->admin_id)->toBeNull()
+        ->and($complianceAction->id)->not->toBeEmpty();
 });
 
-it('leaves the product pending when the moderation API fails', function () {
+it('falls back to keyword moderation when the OpenAI API fails', function () {
     $product = createPendingProductForModeration();
 
     Http::fake([
@@ -129,23 +154,36 @@ it('leaves the product pending when the moderation API fails', function () {
         ], 503),
     ]);
 
-    expect(fn () => runModerationJob($product))->toThrow(RequestException::class);
+    // A billing/outage failure on OpenAI's end must not leave the product
+    // (or every future submission) stuck retrying for minutes — it falls
+    // back to the zero-cost keyword check and still produces a real
+    // moderation log, just via the fallback path.
+    runModerationJob($product);
+
+    $moderationLog = ProductModerationLog::query()->first();
 
     expect($product->fresh()?->status)->toBe('pending_review')
-        ->and(ProductModerationLog::query()->count())->toBe(0);
+        ->and(ProductModerationLog::query()->count())->toBe(1)
+        ->and($moderationLog?->ai_status->value)->toBe('NEEDS_REVIEW')
+        ->and($moderationLog?->final_status->value)->toBe('pending_human_review')
+        ->and($moderationLog?->ai_reasoning)->toContain('Keyword check');
 });
 
-it('leaves the product pending when OpenAI returns an invalid response', function () {
+it('falls back to keyword moderation when OpenAI returns an invalid response', function () {
     $product = createPendingProductForModeration();
 
     Http::fake([
         'https://api.openai.com/v1/moderations' => Http::response(['results' => []]),
     ]);
 
-    expect(fn () => runModerationJob($product))->toThrow(ValidationException::class);
+    runModerationJob($product);
+
+    $moderationLog = ProductModerationLog::query()->first();
 
     expect($product->fresh()?->status)->toBe('pending_review')
-        ->and(ProductModerationLog::query()->count())->toBe(0);
+        ->and(ProductModerationLog::query()->count())->toBe(1)
+        ->and($moderationLog?->ai_status->value)->toBe('NEEDS_REVIEW')
+        ->and($moderationLog?->ai_reasoning)->toContain('Keyword check');
 });
 
 it('does not overwrite an administrator decision made during moderation', function () {
@@ -187,6 +225,7 @@ function runModerationJob(Product $product): void
 {
     (new ModerateProductJob($product->id))->handle(
         app(ProductModerationClient::class),
+        app(KeywordProductModerationClient::class),
         app(ProductApprovalRouter::class),
     );
 }

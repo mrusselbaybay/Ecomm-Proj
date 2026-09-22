@@ -110,6 +110,11 @@ class Profile extends Model
         return $this->hasMany(Complaint::class, 'respondent_id');
     }
 
+    public function conversationsAsSeller(): HasMany
+    {
+        return $this->hasMany(Conversation::class, 'seller_id');
+    }
+
     public function getFullNameAttribute(): string
     {
         $mi = $this->middle_initial ? "{$this->middle_initial}. " : '';

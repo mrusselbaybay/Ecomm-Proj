@@ -91,6 +91,14 @@ class Product extends Model
     }
 
     /**
+     * Buyer-submitted reviews for this listing.
+     */
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(Review::class, 'product_id');
+    }
+
+    /**
      * Products buyers are allowed to browse/purchase. Sellers can set
      * status to something other than 'active' (e.g. 'disabled') to hide a
      * listing without deleting it.

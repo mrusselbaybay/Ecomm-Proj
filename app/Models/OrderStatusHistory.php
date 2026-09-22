@@ -8,10 +8,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class OrderStatusHistory extends Model
 {
     protected $table = 'order_status_history';
+
     protected $keyType = 'string';
+
     public $timestamps = false;
 
-    protected $fillable = ['order_id', 'status', 'note', 'changed_by'];
+    protected $fillable = ['order_id', 'status', 'previous_status', 'note', 'changed_by'];
 
     protected $casts = [
         'created_at' => 'datetime',

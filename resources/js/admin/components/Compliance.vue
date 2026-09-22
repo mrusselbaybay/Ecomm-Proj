@@ -3,8 +3,8 @@
         <div>
             <h2 class="text-xl font-bold text-slate-900">Seller compliance</h2>
             <p class="mt-1 text-sm text-slate-500">
-                Verify category alignment, review inappropriate products, issue
-                warnings, and suspend sellers for serious violations.
+                Verify category alignment, review inappropriate products, flag
+                or remove violations, and suspend sellers for serious cases.
             </p>
         </div>
 
@@ -73,13 +73,27 @@
                 </select>
             </div>
 
-            <button class="btn-outline" type="button" @click="toggleHistory">
-                {{
-                    showingHistory
-                        ? 'Back to compliance review'
-                        : 'Compliance history'
-                }}
-            </button>
+            <div class="flex flex-wrap gap-2">
+                <button
+                    v-if="!showingHistory && summary.pending > 0"
+                    class="btn-primary"
+                    type="button"
+                    @click="openVerifyAll"
+                >
+                    Verify all ({{ summary.pending }})
+                </button>
+                <button
+                    class="btn-outline"
+                    type="button"
+                    @click="toggleHistory"
+                >
+                    {{
+                        showingHistory
+                            ? 'Back to compliance review'
+                            : 'Compliance history'
+                    }}
+                </button>
+            </div>
         </div>
 
         <div v-if="showingHistory">
@@ -155,7 +169,11 @@
                             >
                                 <span
                                     class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold capitalize"
-                                    :class="aiStatusBadgeClass(product.moderation.ai_status)"
+                                    :class="
+                                        aiStatusBadgeClass(
+                                            product.moderation.ai_status,
+                                        )
+                                    "
                                 >
                                     {{
                                         product.moderation.ai_status.toLowerCase()
@@ -163,8 +181,8 @@
                                     ·
                                     {{
                                         Math.round(
-                                            product.moderation.confidence_score *
-                                                100,
+                                            product.moderation
+                                                .confidence_score * 100,
                                         )
                                     }}%
                                 </span>
@@ -201,11 +219,12 @@
                         <td>
                             <div v-if="showingHistory" class="space-y-1">
                                 <span
-                                    class="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 capitalize"
+                                    class="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700"
                                 >
                                     {{
-                                        historyAction(product)?.action ||
-                                        'Reviewed'
+                                        historyActionLabel(
+                                            historyAction(product)?.action,
+                                        )
                                     }}
                                 </span>
                                 <p class="text-xs text-slate-500">
@@ -238,16 +257,13 @@
                             </span>
                         </td>
                         <td>
-                            <div class="flex flex-wrap gap-2">
+                            <div class="flex flex-wrap items-center gap-2">
                                 <button
-                                    v-if="
-                                        !showingHistory &&
-                                        product.status !== 'archived'
-                                    "
-                                    class="btn-success"
-                                    @click="openAction(product, 'verify')"
+                                    class="btn-outline"
+                                    type="button"
+                                    @click="openView(product)"
                                 >
-                                    Verify
+                                    View
                                 </button>
                                 <button
                                     v-if="
@@ -255,23 +271,15 @@
                                         product.status !== 'archived'
                                     "
                                     class="btn-warning"
+                                    type="button"
                                     @click="openAction(product, 'warn')"
                                 >
-                                    Warn
-                                </button>
-                                <button
-                                    v-if="
-                                        !showingHistory &&
-                                        product.status !== 'archived'
-                                    "
-                                    class="btn-danger"
-                                    @click="openAction(product, 'remove')"
-                                >
-                                    Remove
+                                    Flagged
                                 </button>
                                 <button
                                     v-if="product.status === 'archived'"
                                     class="btn-outline"
+                                    type="button"
                                     @click="openAction(product, 'restore')"
                                 >
                                     Restore
@@ -284,9 +292,40 @@
                                             'suspended'
                                     "
                                     class="btn-danger"
+                                    type="button"
                                     @click="openAction(product, 'suspend')"
                                 >
-                                    Suspend seller
+                                    Suspend
+                                </button>
+                                <button
+                                    v-if="
+                                        !showingHistory &&
+                                        product.status !== 'archived'
+                                    "
+                                    class="btn-icon-danger"
+                                    type="button"
+                                    title="Remove product"
+                                    aria-label="Remove product"
+                                    @click="openAction(product, 'remove')"
+                                >
+                                    <svg
+                                        width="15"
+                                        height="15"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                    >
+                                        <path d="M3 6h18" />
+                                        <path
+                                            d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                                        />
+                                        <path
+                                            d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"
+                                        />
+                                        <line x1="10" y1="11" x2="10" y2="17" />
+                                        <line x1="14" y1="11" x2="14" y2="17" />
+                                    </svg>
                                 </button>
                             </div>
                         </td>
@@ -320,72 +359,352 @@
             </div>
         </div>
 
-        <div
-            v-if="selectedProduct"
-            class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-            @click.self="closeAction"
-        >
-            <form
-                class="modal-card w-full max-w-lg p-6"
-                @submit.prevent="submitAction"
+        <Transition name="modal-fade">
+            <div
+                v-if="viewingProduct"
+                class="modal-overlay"
+                @click.self="closeView"
             >
-                <h3 class="text-lg font-bold text-slate-900 capitalize">
-                    {{ actionLabels[selectedAction] }}
-                </h3>
-                <p class="mt-1 text-sm text-slate-500">
-                    Product: {{ selectedProduct.name }} · Seller:
-                    {{ selectedProduct.seller?.full_name }}
-                </p>
+                <div class="modal-panel modal-panel-lg">
+                    <div class="modal-header">
+                        <div>
+                            <h3>{{ viewingProduct.name }}</h3>
+                            <p class="modal-subtitle">
+                                {{ viewingProduct.category || 'Uncategorized' }}
+                                <span v-if="viewingProduct.price">
+                                    · ₱{{
+                                        Number(
+                                            viewingProduct.price,
+                                        ).toLocaleString()
+                                    }}
+                                </span>
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            class="modal-close"
+                            aria-label="Close"
+                            @click="closeView"
+                        >
+                            <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <path d="M5 5l10 10M15 5 5 15" />
+                            </svg>
+                        </button>
+                    </div>
 
-                <div
-                    v-if="!['verify', 'restore'].includes(selectedAction)"
-                    class="mt-4"
-                >
-                    <label class="field-label" for="compliance-reason">
-                        Violation or reason
-                    </label>
-                    <textarea
-                        id="compliance-reason"
-                        v-model="reason"
-                        class="field-input"
-                        rows="4"
-                        required
-                        minlength="5"
-                        placeholder="Describe the prohibited content, category issue, or policy violation..."
-                    ></textarea>
+                    <div
+                        v-if="viewingProduct.images?.length"
+                        class="photo-grid"
+                    >
+                        <button
+                            v-for="(image, index) in viewingProduct.images"
+                            :key="index"
+                            type="button"
+                            class="photo-thumb"
+                            :aria-label="`View ${viewingProduct.name} photo ${index + 1} of ${viewingProduct.images.length}`"
+                            @click="openLightbox(index)"
+                        >
+                            <img
+                                :src="image.url || image"
+                                :alt="`${viewingProduct.name} photo ${index + 1}`"
+                                loading="lazy"
+                                decoding="async"
+                            />
+                        </button>
+                    </div>
+                    <p v-else class="modal-desc">
+                        No photos uploaded for this product.
+                    </p>
+
+                    <div class="mt-4">
+                        <p class="field-label">Description</p>
+                        <p
+                            class="mt-1 text-sm whitespace-pre-line text-slate-700"
+                        >
+                            {{
+                                viewingProduct.description ||
+                                'No description provided.'
+                            }}
+                        </p>
+                    </div>
+
+                    <div class="mt-4 grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <p class="field-label">Registered category</p>
+                            <p class="mt-1 text-slate-700">
+                                {{
+                                    viewingProduct.registered_category ||
+                                    'Not registered'
+                                }}
+                            </p>
+                        </div>
+                        <div>
+                            <p class="field-label">Seller</p>
+                            <p class="mt-1 text-slate-700">
+                                {{ viewingProduct.seller?.business_name }}
+                                ({{ viewingProduct.seller?.full_name }})
+                            </p>
+                        </div>
+                    </div>
+
+                    <div v-if="viewingProduct.moderation" class="mt-4">
+                        <p class="field-label">AI review</p>
+                        <p class="mt-1 text-sm text-slate-700">
+                            {{ viewingProduct.moderation.reasoning }}
+                        </p>
+                    </div>
+
+                    <!-- Manual override: only relevant for a product AI
+                         flagged (or hasn't decided on) — an already
+                         active/archived product has nothing to verify. -->
+                    <button
+                        v-if="
+                            !['active', 'archived'].includes(
+                                viewingProduct.status,
+                            )
+                        "
+                        type="button"
+                        class="btn-success mt-5"
+                        style="width: 100%"
+                        @click="verifyFromView"
+                    >
+                        Verify product
+                    </button>
                 </div>
+            </div>
+        </Transition>
 
-                <div class="mt-4">
-                    <label class="field-label" for="compliance-notes">
-                        Internal notes
-                    </label>
-                    <textarea
-                        id="compliance-notes"
-                        v-model="notes"
-                        class="field-input"
-                        rows="3"
-                        placeholder="Optional notes for other administrators..."
-                    ></textarea>
+        <!-- Verify All confirmation -->
+        <Transition name="modal-fade">
+            <div
+                v-if="verifyAllOpen"
+                class="modal-overlay"
+                @click.self="closeVerifyAll"
+            >
+                <div class="modal-panel">
+                    <div class="modal-header">
+                        <h3>Verify all pending products?</h3>
+                        <button
+                            type="button"
+                            class="modal-close"
+                            aria-label="Close"
+                            @click="closeVerifyAll"
+                        >
+                            <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <path d="M5 5l10 10M15 5 5 15" />
+                            </svg>
+                        </button>
+                    </div>
+                    <p class="modal-desc">
+                        This will mark
+                        <strong>{{ summary.pending }}</strong>
+                        product{{ summary.pending === 1 ? '' : 's' }}
+                        currently pending review as verified and made active —
+                        the same as verifying each one individually. Every
+                        affected seller will be notified. This cannot be undone
+                        in bulk; you'd need to remove any of them individually
+                        afterward.
+                    </p>
+                    <div class="modal-actions">
+                        <button
+                            type="button"
+                            class="btn-outline"
+                            style="flex: 1"
+                            @click="closeVerifyAll"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            class="btn-primary"
+                            style="flex: 1"
+                            :disabled="verifyingAll"
+                            @click="confirmVerifyAll"
+                        >
+                            {{
+                                verifyingAll
+                                    ? 'Verifying...'
+                                    : 'Yes, verify all'
+                            }}
+                        </button>
+                    </div>
                 </div>
+            </div>
+        </Transition>
 
-                <div class="mt-5 flex justify-end gap-2">
+        <!-- Full-size photo lightbox, opened from the photo grid above -->
+        <Transition name="modal-fade">
+            <div
+                v-if="lightboxIndex !== null"
+                class="modal-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Product photo preview"
+                @click.self="closeLightbox"
+            >
+                <div class="image-lightbox">
                     <button
                         type="button"
-                        class="btn-outline"
-                        @click="closeAction"
+                        class="modal-close lightbox-close"
+                        aria-label="Close preview"
+                        @click="closeLightbox"
                     >
-                        Cancel
+                        <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path d="M18 6 6 18" />
+                            <path d="m6 6 12 12" />
+                        </svg>
                     </button>
                     <button
-                        type="submit"
-                        class="btn-primary"
-                        :disabled="saving"
+                        v-if="viewingProduct?.images?.length > 1"
+                        type="button"
+                        class="lightbox-nav prev"
+                        aria-label="Previous photo"
+                        @click="prevImage"
                     >
-                        {{ saving ? 'Saving...' : 'Confirm action' }}
+                        <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path d="m15 18-6-6 6-6" />
+                        </svg>
+                    </button>
+                    <img
+                        :src="lightboxImage"
+                        :alt="`${viewingProduct?.name} photo ${lightboxIndex + 1}`"
+                    />
+                    <button
+                        v-if="viewingProduct?.images?.length > 1"
+                        type="button"
+                        class="lightbox-nav next"
+                        aria-label="Next photo"
+                        @click="nextImage"
+                    >
+                        <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path d="m9 18 6-6-6-6" />
+                        </svg>
                     </button>
                 </div>
-            </form>
-        </div>
+            </div>
+        </Transition>
+
+        <Transition name="modal-fade">
+            <div
+                v-if="selectedProduct"
+                class="modal-overlay"
+                @click.self="closeAction"
+            >
+                <form class="modal-panel" @submit.prevent="submitAction">
+                    <div class="modal-header">
+                        <h3 class="capitalize">
+                            {{ actionLabels[selectedAction] }}
+                        </h3>
+                        <button
+                            type="button"
+                            class="modal-close"
+                            aria-label="Close"
+                            @click="closeAction"
+                        >
+                            <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <path d="M5 5l10 10M15 5 5 15" />
+                            </svg>
+                        </button>
+                    </div>
+                    <p class="modal-desc">
+                        Product: {{ selectedProduct.name }} · Seller:
+                        {{ selectedProduct.seller?.full_name }}
+                    </p>
+
+                    <div
+                        v-if="!['verify', 'restore'].includes(selectedAction)"
+                        class="mt-4"
+                    >
+                        <label class="field-label" for="compliance-reason">
+                            Violation or reason
+                        </label>
+                        <textarea
+                            id="compliance-reason"
+                            v-model="reason"
+                            class="field-input"
+                            rows="4"
+                            required
+                            minlength="5"
+                            placeholder="Describe the prohibited content, category issue, or policy violation..."
+                        ></textarea>
+                    </div>
+
+                    <div class="mt-4">
+                        <label class="field-label" for="compliance-notes">
+                            Internal notes
+                        </label>
+                        <textarea
+                            id="compliance-notes"
+                            v-model="notes"
+                            class="field-input"
+                            rows="3"
+                            placeholder="Optional notes for other administrators..."
+                        ></textarea>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button
+                            type="button"
+                            class="btn-outline"
+                            style="flex: 1"
+                            @click="closeAction"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            class="btn-primary"
+                            style="flex: 1"
+                            :disabled="saving"
+                        >
+                            {{ saving ? 'Saving...' : 'Confirm action' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </Transition>
     </div>
 </template>
 
@@ -404,6 +723,10 @@ const loading = ref(false);
 const saving = ref(false);
 const selectedProduct = ref(null);
 const selectedAction = ref('');
+const viewingProduct = ref(null);
+const lightboxIndex = ref(null);
+const verifyAllOpen = ref(false);
+const verifyingAll = ref(false);
 const reason = ref('');
 const notes = ref('');
 const message = ref('');
@@ -430,12 +753,30 @@ const summaryCards = computed(() => [
     { label: 'Warnings issued', value: summary.value.warnings },
 ]);
 
+const lightboxImage = computed(() => {
+    if (lightboxIndex.value === null) {
+        return null;
+    }
+
+    const image = viewingProduct.value?.images?.[lightboxIndex.value];
+
+    return image?.url || image || null;
+});
+
 const actionLabels = {
     verify: 'Verify product',
-    warn: 'Issue warning',
+    warn: 'Flag product',
     remove: 'Remove prohibited product',
     restore: 'Restore archived product',
     suspend: 'Suspend seller',
+};
+
+const historyActionLabels = {
+    verify: 'Verified',
+    warn: 'Flagged',
+    remove: 'Removed',
+    restore: 'Restored',
+    suspend: 'Suspended',
 };
 
 function statusBadgeClass(status) {
@@ -472,6 +813,10 @@ function historyAction(product) {
             ['verify', 'remove'].includes(action.action),
         ) || null
     );
+}
+
+function historyActionLabel(action) {
+    return historyActionLabels[action] || 'Reviewed';
 }
 
 function formatDate(value) {
@@ -537,11 +882,78 @@ async function loadProducts(page = 1) {
     }
 }
 
+function openView(product) {
+    viewingProduct.value = product;
+}
+
+function closeView() {
+    viewingProduct.value = null;
+    lightboxIndex.value = null;
+}
+
+function openLightbox(index) {
+    lightboxIndex.value = index;
+}
+
+function closeLightbox() {
+    lightboxIndex.value = null;
+}
+
+function prevImage() {
+    const total = viewingProduct.value?.images?.length || 0;
+    lightboxIndex.value = (lightboxIndex.value - 1 + total) % total;
+}
+
+function nextImage() {
+    const total = viewingProduct.value?.images?.length || 0;
+    lightboxIndex.value = (lightboxIndex.value + 1) % total;
+}
+
 function openAction(product, action) {
     selectedProduct.value = product;
     selectedAction.value = action;
     reason.value = '';
     notes.value = '';
+}
+
+function verifyFromView() {
+    const product = viewingProduct.value;
+    closeView();
+    openAction(product, 'verify');
+}
+
+function openVerifyAll() {
+    verifyAllOpen.value = true;
+}
+
+function closeVerifyAll() {
+    verifyAllOpen.value = false;
+}
+
+async function confirmVerifyAll() {
+    verifyingAll.value = true;
+
+    try {
+        const params = new URLSearchParams();
+
+        if (search.value.trim()) {
+            params.set('search', search.value.trim());
+        }
+
+        const response = await adminFetch(
+            `/api/admin/compliance/products/verify-all?${params.toString()}`,
+            { method: 'POST' },
+        );
+        const payload = await response.json();
+
+        closeVerifyAll();
+        showMessage(payload.message);
+        await loadProducts(1);
+    } catch (error) {
+        showMessage(error.message, 'error');
+    } finally {
+        verifyingAll.value = false;
+    }
 }
 
 function closeAction() {
@@ -626,11 +1038,193 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
     color: #334155;
     vertical-align: top;
 }
-.modal-card {
-    border-radius: 0.85rem;
-    background: white;
-    box-shadow: 0 24px 64px rgb(15 23 42 / 25%);
+/* ---- modal system, matched to the seller portal's .modal-* pattern
+   (resources/css/seller/layout.css) so admin dialogs share the same
+   feel: blurred backdrop, rounded panel, fade + settle transition,
+   ghost X close button instead of a text "Close" button. ---- */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(2px);
 }
+.modal-panel {
+    width: 28rem;
+    max-width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 1.5rem;
+    border-radius: 1rem;
+    background: white;
+    box-shadow: 0 20px 50px rgb(15 23 42 / 25%);
+}
+.modal-panel-lg {
+    width: 40rem;
+}
+.modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+.modal-header h3 {
+    margin: 0;
+    color: #134e4a;
+    font-weight: 800;
+    font-size: 1rem;
+}
+.modal-subtitle {
+    margin: 0.15rem 0 0;
+    color: #64748b;
+    font-size: 0.8rem;
+}
+.modal-desc {
+    margin-bottom: 1rem;
+    color: #64748b;
+    font-size: 0.85rem;
+    line-height: 1.45;
+}
+.modal-actions {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 1.25rem;
+}
+.modal-close {
+    flex-shrink: 0;
+    padding: 0.25rem;
+    border: none;
+    border-radius: 0.4rem;
+    background: none;
+    color: #94a3b8;
+    cursor: pointer;
+}
+.modal-close:hover {
+    background: #f1f5f9;
+    color: #334155;
+}
+
+/* ---- product photo grid + lightbox, matched to the seller Feedback
+   page's .feedback-image-thumb / .feedback-image-modal pattern ---- */
+.photo-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+.photo-thumb {
+    width: 4.5rem;
+    height: 4.5rem;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    background: #f1f5f9;
+    cursor: pointer;
+}
+.photo-thumb:hover {
+    border-color: #14b8a6;
+}
+.photo-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.image-lightbox {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: min(90vw, 40rem);
+    max-height: 85vh;
+}
+.image-lightbox img {
+    max-width: 100%;
+    max-height: 85vh;
+    border-radius: 0.75rem;
+    background: #0f172a;
+    object-fit: contain;
+}
+.lightbox-close {
+    position: absolute;
+    top: -2.5rem;
+    right: 0;
+    background: rgba(15, 23, 42, 0.6);
+    color: white;
+}
+.lightbox-close:hover {
+    background: rgba(15, 23, 42, 0.8);
+}
+.lightbox-nav {
+    position: absolute;
+    top: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.4rem;
+    height: 2.4rem;
+    border: none;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.55);
+    color: white;
+    cursor: pointer;
+    transform: translateY(-50%);
+}
+.lightbox-nav:hover {
+    background: rgba(15, 23, 42, 0.75);
+}
+.lightbox-nav.prev {
+    left: -1.2rem;
+}
+.lightbox-nav.next {
+    right: -1.2rem;
+}
+
+/* ---- modal enter/leave: backdrop fades, panel fades + settles in ---- */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+    transition: opacity 0.2s ease;
+}
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+    opacity: 0;
+}
+.modal-fade-enter-active .modal-panel,
+.modal-fade-enter-active .image-lightbox,
+.modal-fade-leave-active .modal-panel,
+.modal-fade-leave-active .image-lightbox {
+    transition:
+        opacity 0.2s ease,
+        transform 0.2s ease;
+}
+.modal-fade-enter-from .modal-panel,
+.modal-fade-enter-from .image-lightbox,
+.modal-fade-leave-to .modal-panel,
+.modal-fade-leave-to .image-lightbox {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+}
+@media (prefers-reduced-motion: reduce) {
+    .modal-fade-enter-active .modal-panel,
+    .modal-fade-enter-active .image-lightbox,
+    .modal-fade-leave-active .modal-panel,
+    .modal-fade-leave-active .image-lightbox {
+        transition: opacity 0.15s ease;
+    }
+    .modal-fade-enter-from .modal-panel,
+    .modal-fade-enter-from .image-lightbox,
+    .modal-fade-leave-to .modal-panel,
+    .modal-fade-leave-to .image-lightbox {
+        transform: none;
+    }
+}
+
 .btn-outline,
 .btn-success,
 .btn-warning,
@@ -660,6 +1254,22 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
     border: 1px solid #fecaca;
     background: #fef2f2;
     color: #b91c1c;
+}
+.btn-icon-danger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    border: 1px solid #fecaca;
+    border-radius: 0.4rem;
+    background: #fef2f2;
+    color: #b91c1c;
+    cursor: pointer;
+}
+.btn-icon-danger:hover {
+    background: #fee2e2;
+    border-color: #fca5a5;
 }
 button:disabled {
     cursor: not-allowed;

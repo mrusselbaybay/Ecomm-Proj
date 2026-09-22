@@ -103,6 +103,7 @@ Route::middleware(['supabase.auth', 'admin'])
         Route::post('/staff', [StaffAccountController::class, 'store'])->name('staff.store');
 
         Route::get('/compliance/products', [SellerComplianceController::class, 'index'])->name('compliance.products.index');
+        Route::post('/compliance/products/verify-all', [SellerComplianceController::class, 'verifyAll'])->name('compliance.products.verify-all');
         Route::post('/compliance/products/{product}/actions', [SellerComplianceController::class, 'store'])->name('compliance.products.actions.store');
 
         Route::get('/complaints', [ComplaintController::class, 'index'])->name('complaints.index');
