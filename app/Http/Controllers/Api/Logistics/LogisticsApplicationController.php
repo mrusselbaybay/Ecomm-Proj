@@ -263,18 +263,10 @@ class LogisticsApplicationController extends Controller
      */
     private function companyIdForProfile(string $profileId): ?string
     {
-        $ownedCompanyId = LogisticsCompany::query()
-            ->where('owner_profile_id', $profileId)
+        $companyId = LogisticsCompany::query()
+            ->forMember($profileId)
             ->value('id');
 
-        if (is_string($ownedCompanyId)) {
-            return $ownedCompanyId;
-        }
-
-        $staffCompanyId = DB::table('logistics_admin_details')
-            ->where('profile_id', $profileId)
-            ->value('logistics_company_id');
-
-        return is_string($staffCompanyId) ? $staffCompanyId : null;
+        return is_string($companyId) ? $companyId : null;
     }
 }

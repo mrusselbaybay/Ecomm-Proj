@@ -6,6 +6,8 @@ import tailwindcss from '@tailwindcss/vite';
 
 const inputs = [
     'resources/js/app.js',
+    'resources/js/app-logistics.js',
+    'resources/js/invite/accept-invite.js',
     'resources/css/app.css',
     'resources/js/admin/admin.js',
     'resources/js/logistics/logistics.js',

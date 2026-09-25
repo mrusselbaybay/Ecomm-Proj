@@ -281,7 +281,7 @@
                 <!-- ====================================================
                  COMPANY DETAILS — incl. courier-recruitment controls
                  ==================================================== -->
-                <section id="section-company" class="card acct-section">
+                <section v-if="!isTeamMember" id="section-company" class="card acct-section">
                     <div class="acct-section-head">
                         <div>
                             <h3>Company Details</h3>
@@ -440,7 +440,7 @@
                 <!-- ====================================================
                  COMPANY ADDRESS
                  ==================================================== -->
-                <section id="section-address" class="card acct-section">
+                <section v-if="!isTeamMember" id="section-address" class="card acct-section">
                     <div class="acct-section-head">
                         <div>
                             <h3>Company Address</h3>
@@ -1072,11 +1072,19 @@ import {
     onMounted,
     onBeforeUnmount,
 } from 'vue';
-import { getSupabase } from '../composables/useLogistics';
+import { getSupabase, useLogistics } from '../composables/useLogistics';
 import { useLogisticsProfile } from '../composables/useLogisticsProfile';
 import { usePsgc } from '../composables/usePsgc';
 import AvatarCropper from './AvatarCropper.vue';
 import NavIcon from './NavIcon.vue';
+
+// Company details belong to the owner; invited team members only manage
+// their own profile here. Unknown (still resolving) counts as owner so the
+// owner's page doesn't flicker.
+const { teamRole } = useLogistics();
+const isTeamMember = computed(
+    () => teamRole.value !== null && teamRole.value !== 'owner',
+);
 
 const {
     profile,

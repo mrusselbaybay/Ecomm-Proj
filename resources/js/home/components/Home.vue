@@ -361,6 +361,7 @@ onBeforeUnmount(() => {
             <div class="btw-nav-center">
                 <a href="#preview" class="btw-link-quiet btw-nav-preview">Preview</a>
                 <a href="#faq" class="btw-link-quiet btw-nav-questions">Questions</a>
+                <a href="/logistics-login" class="btw-link-quiet btw-nav-ship">Ship with us</a>
             </div>
 
             <div class="btw-nav-actions">
@@ -392,6 +393,7 @@ onBeforeUnmount(() => {
 
             <a href="#preview" @click="mobileMenuOpen = false">Preview</a>
             <a href="#faq" @click="mobileMenuOpen = false">Questions</a>
+            <a href="/logistics-login" @click="mobileMenuOpen = false">Ship with us</a>
 
             <template v-if="!isLoggedIn">
                 <a href="/login">Log In</a>

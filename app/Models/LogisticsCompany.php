@@ -67,8 +67,27 @@ class LogisticsCompany extends Model
         return $query->where('account_status', 'active');
     }
 
+    /**
+     * The company this profile works for — as owner, or as an active
+     * (non-suspended) team member.
+     */
+    public function scopeForMember($query, string $profileId)
+    {
+        return $query->where(fn ($q) => $q
+            ->where('owner_profile_id', $profileId)
+            ->orWhereIn('id', LogisticsAdminDetail::query()
+                ->select('logistics_company_id')
+                ->where('profile_id', $profileId)
+                ->where('status', 'active')));
+    }
+
     public function admins()
     {
         return $this->hasMany(LogisticsAdminDetail::class, 'logistics_company_id', 'id');
+    }
+
+    public function invitations()
+    {
+        return $this->hasMany(LogisticsInvitation::class, 'logistics_company_id', 'id');
     }
 }

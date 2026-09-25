@@ -47,6 +47,8 @@ export { getSupabase };
 
 const companyId = ref(null);
 const companyName = ref('');
+// 'owner' | 'admin' | 'manager' | 'operator' | 'viewer' | 'suspended' | null
+const teamRole = ref(null);
 const applications = ref([]);
 // The accepted-rider roster, in the same LogisticsApplicationResource
 // shape as `applications` — its own list (and cache key) so the Riders
@@ -237,6 +239,7 @@ async function logout() {
             'buytheway_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
         companyId.value = null;
         companyName.value = '';
+        teamRole.value = null;
         logisticsProfile.value = null;
         isAuthenticated.value = false;
         resetCache();
@@ -351,22 +354,28 @@ async function resolveCompany(uid = null) {
         if (owned) {
             companyId.value = owned.id;
             companyName.value = owned.company_name;
+            teamRole.value = 'owner';
 
             return owned.id;
         }
 
         const { data: staff } = await supabase
             .from('logistics_admin_details')
-            .select('logistics_company_id, logistics_companies(company_name)')
+            .select('logistics_company_id, role, status, logistics_companies(company_name)')
             .eq('profile_id', profileId)
             .maybeSingle();
 
-        if (staff) {
+        // Suspended members keep their row (so they can be reactivated)
+        // but get no company — the layout shows the no-access state.
+        if (staff?.status === 'active') {
             companyId.value = staff.logistics_company_id;
             companyName.value = staff.logistics_companies?.company_name || '';
+            teamRole.value = staff.role;
 
             return staff.logistics_company_id;
         }
+
+        teamRole.value = staff ? 'suspended' : null;
 
         return null;
     } catch (error) {
@@ -1259,6 +1268,7 @@ export function useLogistics() {
         supabase: getSupabase(),
         companyId,
         companyName,
+        teamRole,
         applications,
         acceptedRiders,
         acceptedRidersMeta,

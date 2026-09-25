@@ -23,6 +23,25 @@ Route::get('/', function () {
 Route::get('/login', [AuthController::class, 'index'])->name('login');
 Route::get('/signup', [AuthController::class, 'index'])->name('signup');
 
+// Dedicated logistics auth page — "Ship with us" in the landing header
+// links here. Buyer/seller/courier accounts are rejected on this page
+// (and vice versa on /login, /signup) — see AuthController::logisticsIndex()
+// and the portalMismatch checks in resources/js/app-logistics.js.
+Route::get('/logistics-login', [AuthController::class, 'logisticsIndex'])->name('logistics.login');
+Route::get('/logistics-signup', [AuthController::class, 'logisticsIndex'])->name('logistics.signup');
+
+// Logistics team invitation landing page (link from the invite email).
+// The page itself is public; all checks happen in the
+// /api/logistics/invitations/{token} endpoints it calls.
+Route::get('/accept-invite', function () {
+    return view('auth.accept-invite', [
+        'config' => [
+            'supabase_url' => config('services.supabase.url'),
+            'supabase_anon_key' => config('services.supabase.anon_key'),
+        ],
+    ]);
+})->name('logistics.accept-invite');
+
 // ---------- Google Sign-In (Socialite handshake -> Supabase session) ----------
 // Socialite only talks to Google here; handleGoogleCallback() exchanges the
 // resulting identity for a real Supabase session so the rest of the app

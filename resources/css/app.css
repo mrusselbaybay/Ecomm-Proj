@@ -147,20 +147,23 @@
 }
 
 /* Password Strength Meter — 4-segment bar (see PasswordStrength in app.js) */
-#auth-app .pw-strength {
+#auth-app .pw-strength,
+#invite-app .pw-strength {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.35rem;
 }
 
-#auth-app .pw-strength-track {
+#auth-app .pw-strength-track,
+#invite-app .pw-strength-track {
   display: flex;
   flex: 1;
   gap: 0.25rem;
 }
 
-#auth-app .pw-strength-seg {
+#auth-app .pw-strength-seg,
+#invite-app .pw-strength-seg {
   flex: 1;
   height: 4px;
   border-radius: 9999px;
@@ -168,7 +171,8 @@
   transition: background 0.15s ease;
 }
 
-#auth-app .pw-strength-label {
+#auth-app .pw-strength-label,
+#invite-app .pw-strength-label {
   flex-shrink: 0;
   font-size: 0.65rem;
   font-weight: 700;
@@ -176,15 +180,23 @@
   text-transform: uppercase;
 }
 
-#auth-app .pw-strength--weak .pw-strength-seg.filled { background: #ef4444; }
-#auth-app .pw-strength--fair .pw-strength-seg.filled { background: #f59e0b; }
-#auth-app .pw-strength--good .pw-strength-seg.filled { background: #eab308; }
-#auth-app .pw-strength--strong .pw-strength-seg.filled { background: #22c55e; }
+#auth-app .pw-strength--weak .pw-strength-seg.filled,
+#invite-app .pw-strength--weak .pw-strength-seg.filled { background: #ef4444; }
+#auth-app .pw-strength--fair .pw-strength-seg.filled,
+#invite-app .pw-strength--fair .pw-strength-seg.filled { background: #f59e0b; }
+#auth-app .pw-strength--good .pw-strength-seg.filled,
+#invite-app .pw-strength--good .pw-strength-seg.filled { background: #eab308; }
+#auth-app .pw-strength--strong .pw-strength-seg.filled,
+#invite-app .pw-strength--strong .pw-strength-seg.filled { background: #22c55e; }
 
-#auth-app .pw-strength--weak .pw-strength-label { color: #dc2626; }
-#auth-app .pw-strength--fair .pw-strength-label { color: #d97706; }
-#auth-app .pw-strength--good .pw-strength-label { color: #a16207; }
-#auth-app .pw-strength--strong .pw-strength-label { color: #16a34a; }
+#auth-app .pw-strength--weak .pw-strength-label,
+#invite-app .pw-strength--weak .pw-strength-label { color: #dc2626; }
+#auth-app .pw-strength--fair .pw-strength-label,
+#invite-app .pw-strength--fair .pw-strength-label { color: #d97706; }
+#auth-app .pw-strength--good .pw-strength-label,
+#invite-app .pw-strength--good .pw-strength-label { color: #a16207; }
+#auth-app .pw-strength--strong .pw-strength-label,
+#invite-app .pw-strength--strong .pw-strength-label { color: #16a34a; }
 
 /* Select Dropdowns */
 #auth-app select.field-input {

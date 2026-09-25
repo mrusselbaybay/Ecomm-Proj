@@ -480,7 +480,7 @@ class MessageController extends Controller
         $profileId = $request->user()->id;
 
         $attributes = Cache::remember("logistics_company_for:{$profileId}", now()->addMinute(), fn () => LogisticsCompany::query()
-            ->where('owner_profile_id', $profileId)
+            ->forMember($profileId)
             ->where('status', 'approved')
             ->where('account_status', 'active')
             ->firstOrFail()

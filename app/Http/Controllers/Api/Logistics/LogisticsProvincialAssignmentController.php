@@ -205,7 +205,7 @@ class LogisticsProvincialAssignmentController extends Controller
         $profile = $request->user();
 
         return LogisticsCompany::query()
-            ->where('owner_profile_id', $profile->id)
+            ->forMember($profile->id)
             ->where('status', 'approved')
             ->where('account_status', 'active')
             ->firstOrFail();

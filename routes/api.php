@@ -19,6 +19,8 @@ use App\Http\Controllers\Api\Logistics\LogisticsBarangayAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsProvincialAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsRegionalAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
+use App\Http\Controllers\Api\Logistics\InvitationController as LogisticsInvitationController;
+use App\Http\Controllers\Api\Logistics\TeamController as LogisticsTeamController;
 use App\Http\Controllers\Api\Logistics\ParcelAssignmentController;
 use App\Http\Controllers\Api\Logistics\ParcelInventoryController;
 use App\Http\Controllers\Api\Logistics\ResignationRequestController as LogisticsResignationRequestController;
@@ -205,10 +207,43 @@ Route::prefix('logistics')->name('logistics.')->group(function () {
         ->name('resignation-requests.reject');
 });
 
+// Team invitations — the public /accept-invite page. The token in the URL
+// is the credential, so these are throttled.
+Route::prefix('logistics/invitations/{token}')
+    ->name('logistics.invitations.')
+    ->middleware('throttle:20,1')
+    ->group(function () {
+        Route::get('/', [LogisticsInvitationController::class, 'show'])->name('show');
+        Route::post('/register', [LogisticsInvitationController::class, 'acceptNew'])->name('register');
+        Route::post('/accept', [LogisticsInvitationController::class, 'accept'])
+            ->middleware('supabase.auth')
+            ->name('accept');
+        Route::post('/request-renewal', [LogisticsInvitationController::class, 'requestRenewal'])->name('request-renewal');
+    });
+
 Route::middleware(['supabase.auth', 'logistics'])
     ->prefix('logistics')
     ->name('logistics.')
     ->group(function () {
+        // Team — roster, invitations, membership (TeamController enforces
+        // owner/admin permissions per action).
+        Route::prefix('team')->name('team.')->group(function () {
+            Route::get('/', [LogisticsTeamController::class, 'index'])->name('index');
+            Route::post('/invitations', [LogisticsTeamController::class, 'invite'])
+                ->middleware('throttle:30,1')
+                ->name('invitations.store');
+            Route::post('/invitations/{invitation}/resend', [LogisticsTeamController::class, 'resendInvitation'])
+                ->middleware('throttle:30,1')
+                ->name('invitations.resend');
+            Route::delete('/invitations/{invitation}', [LogisticsTeamController::class, 'revokeInvitation'])->name('invitations.revoke');
+            Route::patch('/members/{profileId}', [LogisticsTeamController::class, 'updateRole'])->name('members.update');
+            Route::post('/members/{profileId}/suspend', [LogisticsTeamController::class, 'suspend'])->name('members.suspend');
+            Route::post('/members/{profileId}/reactivate', [LogisticsTeamController::class, 'reactivate'])->name('members.reactivate');
+            Route::delete('/members/{profileId}', [LogisticsTeamController::class, 'remove'])->name('members.remove');
+            Route::post('/leave', [LogisticsTeamController::class, 'leave'])->name('leave');
+            Route::post('/transfer-ownership', [LogisticsTeamController::class, 'transferOwnership'])->name('transfer-ownership');
+        });
+
         Route::apiResource('barangay-assignments', LogisticsBarangayAssignmentController::class)
             ->except('show');
         Route::post('/barangay-assignments/bulk', [LogisticsBarangayAssignmentController::class, 'bulkCreate'])

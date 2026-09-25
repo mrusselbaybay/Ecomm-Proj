@@ -6,6 +6,20 @@
         ></div>
         <p>Checking your logistics account…</p>
     </div>
+    <!-- Signed in, but not (or no longer) on any company's team — removed
+         or suspended members land here instead of an empty portal. -->
+    <div v-else-if="isAuthenticated && noCompanyAccess" class="portal-state">
+        <NavIcon name="team" :size="32" />
+        <h2>{{ teamRole === 'suspended' ? 'Access suspended' : 'No company access' }}</h2>
+        <p>
+            {{
+                teamRole === 'suspended'
+                    ? 'Your access to this company has been suspended. Contact your team admin.'
+                    : "Your account isn't part of a logistics company. Ask an admin to invite you."
+            }}
+        </p>
+        <button type="button" class="btn-outline" @click="logout">Log out</button>
+    </div>
     <div v-else-if="isAuthenticated" class="logistics-shell">
         <a href="#main-content" class="skip-link">Skip to main content</a>
 
@@ -245,12 +259,14 @@ const AccountSettings = defineAsyncComponent(
 );
 const Messages = defineAsyncComponent(() => import('./Messages.vue'));
 const Reports = defineAsyncComponent(() => import('./Reports.vue'));
+const Team = defineAsyncComponent(() => import('./Team.vue'));
 const CustomerServicePage = defineAsyncComponent(
     () => import('../../shared/CustomerServicePage.vue'),
 );
 
 const {
     companyName,
+    teamRole,
     pendingCount,
     pendingResignationCount,
     pendingTransferCount,
@@ -265,6 +281,7 @@ const {
 const { toasts, dismissToast, confirmState, resolveConfirm } = useLogisticsUi();
 
 const activeTab = ref('dashboard');
+const noCompanyAccess = ref(false);
 const sidebarOpen = ref(false);
 const isMobile = ref(false);
 const showLogoutConfirm = ref(false);
@@ -294,6 +311,7 @@ const navGroups = [
                 icon: 'support',
             },
             { key: 'reports', label: 'Reports', icon: 'reports' },
+            { key: 'team', label: 'Team', icon: 'team' },
             { key: 'account', label: 'Account Settings', icon: 'account' },
         ],
     },
@@ -308,6 +326,7 @@ const TAB_COMPONENTS = {
     applications: Applications,
     messages: Messages,
     reports: Reports,
+    team: Team,
     'customer-service': CustomerServicePage,
     account: AccountSettings,
 };
@@ -348,7 +367,7 @@ function badgeFor(key) {
 const profileName = computed(
     () =>
         `${logisticsProfile.value?.first_name || ''} ${logisticsProfile.value?.last_name || ''}`.trim() ||
-        'Logistics Owner',
+        'Logistics User',
 );
 const profileInitials = computed(
     () =>
@@ -412,7 +431,11 @@ onMounted(async () => {
 
     // checkAuth already resolved the signed-in profile — hand its id
     // straight over so resolveCompany skips a second auth.getUser() call.
-    await resolveCompany(logisticsProfile.value?.id);
+    if (!(await resolveCompany(logisticsProfile.value?.id))) {
+        noCompanyAccess.value = true;
+
+        return;
+    }
 
     // Best-effort — powers the Parcel Sorting sidebar badge before that
     // tab has been opened. The page itself refetches on mount.

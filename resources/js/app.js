@@ -23,6 +23,16 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // ---------- PSGC API Base ----------
 const PSGC_BASE = '/api/psgc';
 
+// ---------- Portal ----------
+// This auth page is the buyer/seller portal. Logistics companies have
+// their own dedicated auth page (resources/js/app-logistics.js) — an
+// account whose role belongs to the other portal is blocked at login
+// with a redirect prompt instead of being let in here. See
+// isLogisticsRole()/completeLogin() below.
+function isLogisticsRole(role) {
+    return role === 'logistics' || role === 'logistics_admin';
+}
+
 // ---------- Cookie Helpers ----------
 function setCookie(name, value, days = 7) {
     const d = new Date();
@@ -397,6 +407,10 @@ const App = {
                 : null,
         );
         const isLogisticsSignup = ref(false);
+        // Set when a login here belongs to the other portal (logistics)
+        // instead of this one — shows a warning modal with a link to
+        // the correct auth page instead of letting the login through.
+        const portalMismatch = ref(false);
         // Set when a Google sign-in lands on an account with no `profiles`
         // row yet — see completeLogin()/beginGoogleOnboarding() below. It
         // trims the normal buyer/seller/courier wizard down to the fields
@@ -706,18 +720,6 @@ const App = {
                 label: 'Seller',
                 desc: 'Open your store, reach customers',
                 icon: 'house',
-            },
-            {
-                id: 'courier',
-                label: 'Courier',
-                desc: 'Deliver & earn on your schedule',
-                icon: 'truck',
-            },
-            {
-                id: 'logistics',
-                label: 'Logistics',
-                desc: 'Run a logistics company & manage your fleet',
-                icon: 'building',
             },
         ];
 
@@ -2724,6 +2726,13 @@ const App = {
             const userRole =
                 profile?.role || user.user_metadata?.role || 'buyer';
 
+            if (isLogisticsRole(userRole)) {
+                await supabase.auth.signOut();
+                portalMismatch.value = true;
+
+                return;
+            }
+
             loggedInUser.value = {
                 email: user.email,
                 role: userRole,
@@ -3172,16 +3181,20 @@ const App = {
                 return;
             }
 
+            if (isLogisticsRole(userData.role)) {
+                deleteCookie('buytheway_session');
+                await supabase.auth.signOut();
+                portalMismatch.value = true;
+
+                return;
+            }
+
             loggedInUser.value = userData;
 
             // Redirect based on role
             switch (userData.role) {
                 case 'admin':
                     window.location.href = '/admin/dashboard';
-                    break;
-                case 'logistics':
-                case 'logistics_admin':
-                    window.location.href = '/logistics/dashboard';
                     break;
                 case 'seller':
                     window.location.href = '/seller/dashboard';
@@ -3209,6 +3222,7 @@ const App = {
             errorMsg,
             successMsg,
             loggedInUser,
+            portalMismatch,
             roles,
             ID_TYPES,
             selectedRole,
@@ -3289,6 +3303,19 @@ const App = {
     // ---------- Template ----------
     template: `
   <div class="min-h-screen flex flex-col md:flex-row" style="height:100vh;overflow:hidden;">
+
+    <!-- PORTAL MISMATCH MODAL -->
+    <div v-if="portalMismatch" class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 px-4">
+      <div class="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 text-center">
+        <div class="w-14 h-14 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+        </div>
+        <p class="text-slate-800 font-semibold mb-1">This looks like a logistics account.</p>
+        <p class="text-slate-500 text-sm mb-6">Buyer and seller accounts sign in here. Please proceed to the Logistics Portal.</p>
+        <a href="/logistics-login" class="btn-gradient block w-full text-white font-semibold py-2.5 rounded-lg mb-2">Go to Logistics Login →</a>
+        <button type="button" @click="portalMismatch = false" class="w-full text-slate-500 text-sm font-medium py-2">Cancel</button>
+      </div>
+    </div>
 
     <!-- LEFT PANEL -->
     <div class="side-panel md:w-[42%] w-full text-white px-8 py-10 md:px-12 md:py-14 flex flex-col justify-between" style="height:100vh;overflow:hidden;">

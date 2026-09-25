@@ -51,6 +51,22 @@ class AuthController extends Controller
     }
 
     /**
+     * The dedicated logistics sign in/up page — same Supabase-backed auth,
+     * just a separate SPA (resources/js/app-logistics.js) that only offers
+     * the logistics role and rejects buyer/seller/courier logins.
+     */
+    public function logisticsIndex()
+    {
+        return view('auth.logistics', [
+            'config' => [
+                'supabase_url' => config('services.supabase.url'),
+                'supabase_anon_key' => config('services.supabase.anon_key'),
+                'google_oauth_base' => config('services.google.oauth_base'),
+            ],
+        ]);
+    }
+
+    /**
      * Send the browser to Google. Socialite's job stops at getting a
      * verified Google identity back in handleGoogleCallback() below — it
      * never logs anyone into a Laravel session. This app's real auth stays
