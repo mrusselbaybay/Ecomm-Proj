@@ -24,8 +24,11 @@ class UserAccountController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $roles = $request->user()->managedRoles();
+
         $query = Profile::query()
             ->where('status', 'approved')
+            ->whereIn('role', $roles)
             ->with(['sellerDetail', 'courierDetail', 'driverDetail']);
 
         if ($role = $request->string('role')->toString()) {
@@ -55,6 +58,7 @@ class UserAccountController extends Controller
         // scans over the same approved-accounts set.
         $summary = Profile::query()
             ->where('status', 'approved')
+            ->whereIn('role', $roles)
             ->selectRaw(
                 'count(*) as total, '
                 ."coalesce(sum(case when account_status = 'active' then 1 else 0 end), 0) as active, "
@@ -74,8 +78,10 @@ class UserAccountController extends Controller
         ]);
     }
 
-    public function show(Profile $profile): JsonResponse
+    public function show(Request $request, Profile $profile): JsonResponse
     {
+        $this->ensureManaged($request, $profile);
+
         $profile->load([
             'address',
             'sellerDetail',
@@ -97,6 +103,8 @@ class UserAccountController extends Controller
         $action = $request->validated('action');
         $reason = $request->validated('reason');
         $newStatus = self::ACTION_TO_STATUS[$action];
+
+        $this->ensureManaged($request, $profile);
 
         if ($profile->id === $request->user()->id) {
             return response()->json([
@@ -154,6 +162,11 @@ class UserAccountController extends Controller
     /**
      * @return array{id: string, company_name: string, region: ?string, company_email: ?string, company_contact_no: ?string}|null
      */
+    private function ensureManaged(Request $request, Profile $profile): void
+    {
+        abort_unless(in_array($profile->role, $request->user()->managedRoles(), true), 404);
+    }
+
     private function courierEmployer(Profile $profile): ?array
     {
         if ($profile->role !== 'courier') {

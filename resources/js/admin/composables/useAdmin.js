@@ -5,7 +5,11 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Regular client for normal operations (RLS-protected, safe for the browser)
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Shared per page: the logistics portal also creates one (see
+// logistics/composables/useLogistics.js) before mounting this admin panel,
+// and two clients on the same auth storage key conflict.
+window.__btwSupabase ??= window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabase = window.__btwSupabase;
 
 // NOTE: There is intentionally no client-side "supabaseAdmin" / service-role
 // client here. The service role key bypasses RLS entirely, so it must never
@@ -33,6 +37,33 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // at the moment AdminLayout.vue itself last fetched it — never anyone
 // else's update.
 // ------------------------------------------------------------
+// Which admin panel this bundle is serving. 'platform' is /admin (buyers &
+// sellers); 'logistics' is the logistics admin mounted inside the logistics
+// portal (couriers, drivers & logistics companies). Set once, before mount,
+// via setAdminScope() — see resources/js/logistics/logistics.js.
+const ADMIN_SCOPES = {
+    platform: {
+        role: 'admin',
+        roleLabel: 'Platform Administrator',
+        apiBase: '/api/admin',
+        pathBase: '/admin',
+    },
+    logistics: {
+        role: 'logistics_admin',
+        roleLabel: 'Logistics Administrator',
+        apiBase: '/api/logistics-admin',
+        pathBase: '/logistics',
+    },
+};
+let scope = ADMIN_SCOPES.platform;
+const adminScope = ref('platform');
+
+function setAdminScope(name) {
+    scope = ADMIN_SCOPES[name] || ADMIN_SCOPES.platform;
+    adminScope.value = ADMIN_SCOPES[name] ? name : 'platform';
+    adminProfile.value.role = scope.roleLabel;
+}
+
 const isLoading = ref(true);
 const isAuthenticated = ref(false);
 const isAdmin = ref(false);
@@ -79,7 +110,7 @@ async function checkAuth() {
             .eq('id', user.id)
             .single();
 
-        if (profileError || !profile || profile.role !== 'admin') {
+        if (profileError || !profile || profile.role !== scope.role) {
             window.location.href = '/';
 
             return;
@@ -91,7 +122,7 @@ async function checkAuth() {
         adminProfile.value = {
             name: `${profile.first_name || 'Admin'} ${profile.last_name || 'User'}`,
             email: profile.email || user.email,
-            role: 'Platform Administrator',
+            role: scope.roleLabel,
             avatar_url: adminProfile.value.avatar_url,
         };
 
@@ -136,6 +167,12 @@ async function adminFetch(url, options = {}) {
     headers.set('Accept', 'application/json');
     headers.set('Authorization', `Bearer ${session.access_token}`);
 
+    // Components call the /api/admin/* paths; the logistics admin serves the
+    // same endpoints from /api/logistics-admin/*, scoped to its accounts.
+    if (url.startsWith('/api/admin/')) {
+        url = scope.apiBase + url.slice('/api/admin'.length);
+    }
+
     const response = await fetch(url, {
         ...options,
         headers,
@@ -165,27 +202,43 @@ async function loadStats() {
         const response = await adminFetch('/api/admin/dashboard/stats');
         const data = await response.json();
 
+        const isLogistics = adminScope.value === 'logistics';
+
         stats.value = [
             {
                 label: 'Total Users',
                 value: data.total_users,
-                delta: 'All registered accounts',
+                delta: isLogistics
+                    ? 'Couriers, drivers & partners'
+                    : 'Buyers & sellers',
             },
-            {
-                label: 'Active Sellers',
-                value: data.active_sellers,
-                delta: 'Approved and active',
-            },
+            isLogistics
+                ? {
+                      label: 'Active Couriers',
+                      value: data.active_couriers,
+                      delta: 'Approved and active',
+                  }
+                : {
+                      label: 'Active Sellers',
+                      value: data.active_sellers,
+                      delta: 'Approved and active',
+                  },
             {
                 label: 'Pending Registrations',
                 value: data.pending_registrations,
                 delta: 'Awaiting review',
             },
-            {
-                label: 'Open Complaints',
-                value: data.open_complaints,
-                delta: 'Awaiting resolution',
-            },
+            isLogistics
+                ? {
+                      label: 'Logistics Partners',
+                      value: data.active_logistics_companies,
+                      delta: 'Active companies',
+                  }
+                : {
+                      label: 'Open Complaints',
+                      value: data.open_complaints,
+                      delta: 'Awaiting resolution',
+                  },
         ];
 
         pendingCount.value = data.pending_registrations;
@@ -255,8 +308,11 @@ function formatDate(date) {
     });
 }
 
+export { setAdminScope };
+
 export function useAdmin() {
     return {
+        adminScope,
         isLoading,
         isAuthenticated,
         isAdmin,

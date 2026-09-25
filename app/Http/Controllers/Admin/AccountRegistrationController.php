@@ -20,8 +20,10 @@ class AccountRegistrationController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $roles = $request->user()->managedRegistrableRoles();
+
         $query = Profile::query()
-            ->whereIn('role', Profile::REGISTRABLE_ROLES)
+            ->whereIn('role', $roles)
             ->whereIn('status', ['pending', 'rejected'])
             ->with([
                 'address', 'sellerDetail', 'courierDetail.logisticsCompany',
@@ -54,7 +56,7 @@ class AccountRegistrationController extends Controller
         // One conditional-aggregation query replaces two separate COUNT(*)
         // scans over the same registrable-roles set.
         $counts = Profile::query()
-            ->whereIn('role', Profile::REGISTRABLE_ROLES)
+            ->whereIn('role', $roles)
             ->selectRaw(
                 "coalesce(sum(case when status = 'pending' then 1 else 0 end), 0) as pending, "
                 ."coalesce(sum(case when status = 'rejected' then 1 else 0 end), 0) as rejected",
@@ -70,9 +72,9 @@ class AccountRegistrationController extends Controller
         ]);
     }
 
-    public function show(Profile $profile): JsonResponse
+    public function show(Request $request, Profile $profile): JsonResponse
     {
-        $this->ensureRegistrable($profile);
+        $this->ensureRegistrable($request, $profile);
 
         $profile->load([
             'address',
@@ -91,7 +93,7 @@ class AccountRegistrationController extends Controller
 
     public function approve(Request $request, Profile $profile): JsonResponse
     {
-        $this->ensureRegistrable($profile);
+        $this->ensureRegistrable($request, $profile);
 
         DB::transaction(function () use ($request, $profile): void {
             $oldStatus = $profile->account_status;
@@ -146,7 +148,7 @@ class AccountRegistrationController extends Controller
         RejectRegistrationRequest $request,
         Profile $profile,
     ): JsonResponse {
-        $this->ensureRegistrable($profile);
+        $this->ensureRegistrable($request, $profile);
 
         $reason = $request->validated('reason');
 
@@ -190,6 +192,12 @@ class AccountRegistrationController extends Controller
         DocumentReviewRequest $request,
         Document $document,
     ): JsonResponse {
+        // Company documents belong to a logistics owner; personal ones to their profile.
+        $ownerRole = $document->logistics_company_id
+            ? 'logistics'
+            : Profile::query()->whereKey($document->profile_id)->value('role');
+        abort_unless(in_array($ownerRole, $request->user()->managedRoles(), true), 404);
+
         $document->update([
             'status' => $request->validated('status'),
             'reviewed_by' => $request->user()->id,
@@ -201,8 +209,11 @@ class AccountRegistrationController extends Controller
         ]);
     }
 
-    private function ensureRegistrable(Profile $profile): void
+    private function ensureRegistrable(Request $request, Profile $profile): void
     {
+        // Accounts outside this admin's scope are invisible to it.
+        abort_unless(in_array($profile->role, $request->user()->managedRoles(), true), 404);
+
         if (! in_array($profile->role, Profile::REGISTRABLE_ROLES, true)) {
             throw ValidationException::withMessages([
                 'profile' => 'This profile does not use the registration review workflow.',

@@ -30,10 +30,12 @@ function getSupabase() {
             );
         }
 
-        _supabase = window.supabase.createClient(
+        // Shared with the admin panel's client (see admin/composables/useAdmin.js).
+        window.__btwSupabase ??= window.supabase.createClient(
             SUPABASE_URL,
             SUPABASE_ANON_KEY,
         );
+        _supabase = window.__btwSupabase;
     }
 
     return _supabase;

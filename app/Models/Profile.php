@@ -46,6 +46,19 @@ class Profile extends Model
 
     public const ROLE_ADMIN = 'admin';
 
+    public const ROLE_LOGISTICS_ADMIN = 'logistics_admin';
+
+    // Staff roles that can use the admin panel. Each one only manages the
+    // accounts in its own scope below.
+    public const ADMIN_ROLES = [self::ROLE_ADMIN, self::ROLE_LOGISTICS_ADMIN];
+
+    // Accounts each admin role reviews and manages. The platform admin owns
+    // buyers/sellers; the logistics admin owns couriers/drivers/logistics.
+    public const ADMIN_SCOPES = [
+        self::ROLE_ADMIN => ['buyer', 'seller', self::ROLE_ADMIN],
+        self::ROLE_LOGISTICS_ADMIN => ['courier', 'driver', 'logistics', self::ROLE_LOGISTICS_ADMIN],
+    ];
+
     // How recently `last_active_at` must have been touched for the
     // messaging UI to show this profile as "Online" rather than "Offline".
     // Kept above AuthenticateSupabaseUser's write-throttle window (60s) —
@@ -74,6 +87,23 @@ class Profile extends Model
                 );
             }
         });
+    }
+
+    /** @return list<string> Roles this admin manages (empty for non-admins). */
+    public function managedRoles(): array
+    {
+        return self::ADMIN_SCOPES[$this->role] ?? [];
+    }
+
+    /** @return list<string> Registrable roles this admin reviews. */
+    public function managedRegistrableRoles(): array
+    {
+        return array_values(array_intersect(self::REGISTRABLE_ROLES, $this->managedRoles()));
+    }
+
+    public function isLogisticsAdmin(): bool
+    {
+        return $this->role === self::ROLE_LOGISTICS_ADMIN;
     }
 
     public function address(): HasOne

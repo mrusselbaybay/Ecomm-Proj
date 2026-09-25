@@ -8,7 +8,7 @@
                 </p>
             </div>
             <button class="btn-primary" @click="openStaffModal">
-                Add platform admin
+                Add {{ staffLabel }}
             </button>
         </div>
 
@@ -55,13 +55,13 @@
                 @change="loadAccounts(1)"
             >
                 <option value="">All roles</option>
-                <option value="buyer">Buyer</option>
-                <option value="seller">Seller</option>
-                <option value="courier">Courier</option>
-                <option value="driver">Driver</option>
-                <option value="logistics">Logistics owner</option>
-                <option value="logistics_admin">Logistics admin</option>
-                <option value="admin">Administrator</option>
+                <option
+                    v-for="role in roleOptions"
+                    :key="role.value"
+                    :value="role.value"
+                >
+                    {{ role.label }}
+                </option>
             </select>
             <select
                 v-model="accountStatusFilter"
@@ -555,10 +555,10 @@
                 @submit.prevent="createStaffAccount"
             >
                 <h3 class="text-lg font-bold text-slate-900">
-                    Add platform admin
+                    Add {{ staffLabel }}
                 </h3>
                 <p class="mt-1 text-sm text-slate-500">
-                    Create a new platform administrator account.
+                    Create a new {{ staffLabel }} account.
                 </p>
 
                 <div class="mt-5 grid gap-4 sm:grid-cols-2">
@@ -650,7 +650,7 @@
                         {{
                             creatingStaff
                                 ? 'Creating...'
-                                : 'Create platform admin'
+                                : `Create ${staffLabel}`
                         }}
                     </button>
                 </div>
@@ -664,8 +664,23 @@ import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 import SkeletonRows from './SkeletonRows.vue';
 
-const { accounts, statusBadgeClass, formatDate, adminFetch, supabase } =
+const { accounts, statusBadgeClass, formatDate, adminFetch, supabase, adminScope } =
     useAdmin();
+
+const isLogisticsAdmin = adminScope.value === 'logistics';
+const staffLabel = isLogisticsAdmin ? 'logistics admin' : 'platform admin';
+const roleOptions = isLogisticsAdmin
+    ? [
+          { value: 'courier', label: 'Courier' },
+          { value: 'driver', label: 'Driver' },
+          { value: 'logistics', label: 'Logistics owner' },
+          { value: 'logistics_admin', label: 'Logistics admin' },
+      ]
+    : [
+          { value: 'buyer', label: 'Buyer' },
+          { value: 'seller', label: 'Seller' },
+          { value: 'admin', label: 'Administrator' },
+      ];
 
 const search = ref('');
 const roleFilter = ref('');
@@ -701,7 +716,7 @@ const pagination = ref({
     last_page: 1,
 });
 const staffForm = ref({
-    role: 'admin',
+    role: isLogisticsAdmin ? 'logistics_admin' : 'admin',
     first_name: '',
     last_name: '',
     middle_initial: '',

@@ -16,11 +16,16 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class EnsureUserIsAdmin
 {
-    public function handle(Request $request, Closure $next): Response
+    /**
+     * @param  string  ...$roles  Allowed admin roles (e.g. admin:logistics_admin).
+     *                            Defaults to the platform admin.
+     */
+    public function handle(Request $request, Closure $next, string ...$roles): Response
     {
         $profile = $request->user();
+        $roles = $roles ?: ['admin'];
 
-        if (!$profile || $profile->role !== 'admin') {
+        if (! $profile || ! in_array($profile->role, $roles, true)) {
             abort(403, 'Admins only.');
         }
 

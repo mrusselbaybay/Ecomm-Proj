@@ -156,6 +156,5 @@ Route::prefix('buyer')->name('buyer.')->group(function () {
 });
 
 // ---------- Fallback Route ----------
-Route::get('/{any}', function () {
-    return view('auth.app');
-})->where('any', '.*');
+// Goes through AuthController so the view gets its $config (Supabase keys).
+Route::get('/{any}', [AuthController::class, 'index'])->where('any', '.*');

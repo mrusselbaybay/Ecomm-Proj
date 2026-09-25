@@ -20,6 +20,8 @@ class StaffAccountController extends Controller
     {
         $data = $request->validated();
         $email = strtolower(trim($data['email']));
+        // Staff get the same admin role as their creator.
+        $role = $request->user()->role;
         $userId = null;
 
         try {
@@ -29,7 +31,7 @@ class StaffAccountController extends Controller
                     'password' => $data['password'],
                     'email_confirm' => true,
                     'user_metadata' => [
-                        'role' => 'admin',
+                        'role' => $role,
                         'first_name' => $data['first_name'],
                         'last_name' => $data['last_name'],
                         'middle_initial' => $data['middle_initial'] ?? '',
@@ -49,7 +51,7 @@ class StaffAccountController extends Controller
             $profileResponse = $this->supabaseRequest()
                 ->withHeader('Prefer', 'return=representation')
                 ->patch($this->supabaseUrl("/rest/v1/profiles?id=eq.{$userId}"), [
-                    'role' => 'admin',
+                    'role' => $role,
                     'status' => 'approved',
                     'account_status' => 'active',
                     'first_name' => $data['first_name'],
@@ -68,7 +70,7 @@ class StaffAccountController extends Controller
                 trim("{$data['first_name']} {$data['last_name']}"),
                 $email,
                 $data['password'],
-                'admin',
+                $role,
             ));
 
             return response()->json([
@@ -82,7 +84,7 @@ class StaffAccountController extends Controller
 
             Log::error('Admin staff account creation failed.', [
                 'email' => $email,
-                'role' => 'admin',
+                'role' => $role,
                 'error' => $exception->getMessage(),
             ]);
 

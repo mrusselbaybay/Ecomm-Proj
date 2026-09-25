@@ -106,7 +106,7 @@
                         </div>
                         <div>
                             <p class="logo-text">BuyTheWay</p>
-                            <p class="logo-sub">Admin Panel</p>
+                            <p class="logo-sub">{{ panelLabel }}</p>
                         </div>
                     </div>
 
@@ -173,7 +173,7 @@
                         </div>
                         <div class="profile-info">
                             <p class="profile-name">{{ adminProfile.name }}</p>
-                            <p class="profile-role">Platform Admin</p>
+                            <p class="profile-role">{{ isLogisticsAdmin ? 'Logistics Admin' : 'Platform Admin' }}</p>
                         </div>
                     </div>
                 </div>
@@ -185,7 +185,7 @@
                     <!-- Header -->
                     <div class="content-header">
                         <div>
-                            <p class="header-subtitle">Admin Panel</p>
+                            <p class="header-subtitle">{{ panelLabel }}</p>
                             <h1 class="header-title">{{ sectionLabel }}</h1>
                         </div>
                         <div class="header-actions">
@@ -233,7 +233,7 @@
                         </button>
                     </div>
                     <p class="modal-desc text-center">
-                        You'll need to sign in again to access the admin panel.
+                        You'll need to sign in again to access the {{ panelLabel.toLowerCase() }}.
                     </p>
                     <div class="modal-actions">
                         <button
@@ -316,6 +316,7 @@ const showLogoutConfirm = ref(false);
 
 // Use admin composable
 const {
+    adminScope,
     isLoading,
     isAuthenticated,
     isAdmin,
@@ -327,34 +328,46 @@ const {
     confirmLogout,
 } = useAdmin();
 
-// URL to section mapping
-const pathToSection = {
-    '/admin/dashboard': 'dashboard',
-    '/admin/registrations': 'registrations',
-    '/admin/accounts': 'accounts',
-    '/admin/compliance': 'compliance',
-    '/admin/complaints': 'complaints',
-    '/admin/commission': 'commission',
-    '/admin/reports': 'reports',
-    '/admin/settings': 'settings',
-    '/admin/chat': 'chat',
-    '/admin/customer-service': 'chat',
-    '/admin/profile': 'profile',
+// The logistics admin is served from the logistics portal (/logistics/*)
+// and owns a different set of sections than the platform admin (/admin/*).
+// Scope is fixed before mount, so these are plain constants.
+const isLogisticsAdmin = adminScope.value === 'logistics';
+const pathBase = isLogisticsAdmin ? '/logistics' : '/admin';
+const panelLabel = isLogisticsAdmin ? 'Logistics Admin Panel' : 'Admin Panel';
+
+const SCOPE_SECTIONS = {
+    platform: ['dashboard', 'registrations', 'accounts', 'complaints', 'settings', 'chat', 'profile'],
+    logistics: ['dashboard', 'registrations', 'accounts', 'compliance', 'commission', 'reports', 'profile'],
+};
+const allowedSections = new Set(SCOPE_SECTIONS[adminScope.value]);
+
+// Section to URL slug mapping
+const sectionSlugs = {
+    dashboard: 'dashboard',
+    registrations: 'registrations',
+    accounts: 'accounts',
+    compliance: 'compliance',
+    complaints: 'complaints',
+    commission: 'commission',
+    reports: 'reports',
+    settings: 'settings',
+    chat: 'customer-service',
+    profile: 'profile',
 };
 
-// Section to URL mapping
-const sectionToPath = {
-    dashboard: '/admin/dashboard',
-    registrations: '/admin/registrations',
-    accounts: '/admin/accounts',
-    compliance: '/admin/compliance',
-    complaints: '/admin/complaints',
-    commission: '/admin/commission',
-    reports: '/admin/reports',
-    settings: '/admin/settings',
-    chat: '/admin/customer-service',
-    profile: '/admin/profile',
-};
+const sectionToPath = Object.fromEntries(
+    Object.entries(sectionSlugs)
+        .filter(([section]) => allowedSections.has(section))
+        .map(([section, slug]) => [section, `${pathBase}/${slug}`]),
+);
+
+// URL to section mapping
+const pathToSection = Object.fromEntries(
+    Object.entries(sectionToPath).map(([section, path]) => [path, section]),
+);
+if (allowedSections.has('chat')) {
+    pathToSection[`${pathBase}/chat`] = 'chat';
+}
 
 // Component map
 const componentMap = {
@@ -421,7 +434,7 @@ const navItems = computed(() => [
     { id: 'settings', label: 'Platform Settings', icon: 'settings' },
     { id: 'chat', label: 'Customer Service', icon: 'chat' },
     { id: 'profile', label: 'Account Management', icon: 'userCog' },
-]);
+].filter((item) => allowedSections.has(item.id)));
 
 const adminInitials = computed(() => {
     if (!adminProfile.value?.name) {

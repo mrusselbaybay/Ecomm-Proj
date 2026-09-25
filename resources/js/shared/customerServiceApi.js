@@ -11,7 +11,8 @@ function getClient() {
             );
         }
 
-        client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        window.__btwSupabase ??= window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        client = window.__btwSupabase;
     }
 
     return client;

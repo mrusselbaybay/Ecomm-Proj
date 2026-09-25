@@ -20,11 +20,13 @@
                 @change="loadData()"
             >
                 <option value="">All Roles</option>
-                <option value="buyer">Buyer</option>
-                <option value="seller">Seller</option>
-                <option value="courier">Courier</option>
-                <option value="driver">Driver</option>
-                <option value="logistics">Logistics</option>
+                <option
+                    v-for="role in roleOptions"
+                    :key="role.value"
+                    :value="role.value"
+                >
+                    {{ role.label }}
+                </option>
             </select>
             <select
                 v-model="statusFilter"
@@ -448,7 +450,20 @@ const {
     formatDate,
     adminFetch,
     supabase,
+    adminScope,
 } = useAdmin();
+
+const roleOptions =
+    adminScope.value === 'logistics'
+        ? [
+              { value: 'courier', label: 'Courier' },
+              { value: 'driver', label: 'Driver' },
+              { value: 'logistics', label: 'Logistics' },
+          ]
+        : [
+              { value: 'buyer', label: 'Buyer' },
+              { value: 'seller', label: 'Seller' },
+          ];
 
 const search = ref('');
 const roleFilter = ref('');
