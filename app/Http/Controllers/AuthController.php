@@ -47,6 +47,8 @@ class AuthController extends Controller
         'driver' => 'valid_id',
     ];
 
+    private string $loginPath = '/login';
+
     public function index()
     {
         return view('auth.app', [
@@ -77,8 +79,12 @@ class AuthController extends Controller
      * Supabase-only (see routes/web.php), the same as every other login
      * path.
      */
-    public function redirectToGoogle()
+    public function redirectToGoogle(Request $request)
     {
+        // Remember which portal started the handshake so the callback
+        // lands the user back on it (logistics vs buyer/seller).
+        $request->session()->put('google_portal', $request->query('portal') === 'logistics' ? 'logistics' : 'main');
+
         return Socialite::driver('google')
             ->scopes(['openid', 'email', 'profile'])
             ->redirect();
@@ -102,6 +108,8 @@ class AuthController extends Controller
      */
     public function handleGoogleCallback(Request $request)
     {
+        $this->loginPath = $request->session()->pull('google_portal') === 'logistics' ? '/logistics-login' : '/login';
+
         try {
             $googleUser = Socialite::driver('google')->user();
         } catch (\Throwable $e) {
@@ -178,7 +186,7 @@ class AuthController extends Controller
      */
     private function redirectToLogin(array $query = [], ?string $fragment = null)
     {
-        $url = rtrim(config('app.url'), '/').'/login';
+        $url = rtrim(config('app.url'), '/').$this->loginPath;
 
         if ($query) {
             $url .= '?'.http_build_query($query);

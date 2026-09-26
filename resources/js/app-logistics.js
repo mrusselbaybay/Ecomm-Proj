@@ -2775,7 +2775,7 @@ const App = {
             // Google's part is done. Leave GOOGLE_OAUTH_BASE unset in
             // production so this stays a same-origin relative redirect.
             const base = window.CONFIG?.GOOGLE_OAUTH_BASE || '';
-            window.location.href = base + '/auth/google/redirect';
+            window.location.href = base + '/auth/google/redirect?portal=logistics';
         }
 
         // ---------- Password Reset Functions ----------

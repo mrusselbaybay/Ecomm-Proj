@@ -48,8 +48,9 @@ class FileStorage
             throw new \RuntimeException("Could not store \"{$path}\".");
         }
 
+        // Host-independent, so callers can store it (e.g. products.images).
         return $this->isPublic($bucket)
-            ? $this->publicUrl($bucket, $path)
+            ? $this->relativeUrl($bucket, $path)
             : (string) $this->createSignedUrl($bucket, $path);
     }
 
@@ -58,8 +59,17 @@ class FileStorage
         return $this->disk($bucket)->exists($this->key($bucket, $path));
     }
 
-    /** Root-relative so stored URLs keep working across hosts. */
+    /**
+     * Absolute URL on the host serving the current request (the mobile
+     * app can't resolve root-relative paths). Use relativeUrl() for values
+     * stored in the database, so they keep working across hosts.
+     */
     public function publicUrl(string $bucket, string $path): string
+    {
+        return url($this->relativeUrl($bucket, $path));
+    }
+
+    public function relativeUrl(string $bucket, string $path): string
     {
         $encoded = implode('/', array_map('rawurlencode', explode('/', ltrim($path, '/'))));
 

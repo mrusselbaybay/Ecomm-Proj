@@ -113,9 +113,10 @@ class ProductImage
             return $raw;
         }
 
-        // Root-relative asset path (e.g. the placeholder itself).
+        // Root-relative path (stored uploads, the placeholder): make it
+        // absolute so the mobile app can load it too.
         if (str_starts_with($raw, '/')) {
-            return $raw;
+            return url($raw);
         }
 
         // Otherwise it's a path inside the product image bucket.

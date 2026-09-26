@@ -37,6 +37,9 @@ class AuthSession
             'id' => $profile->id,
             'email' => $profile->email,
             'email_confirmed_at' => $profile->email_verified_at?->toIso8601String(),
+            // Top-level copies read by the mobile app.
+            'role' => $profile->role,
+            'name' => $profile->full_name,
             'app_metadata' => ['provider' => $profile->auth_provider ?: 'email'],
             'user_metadata' => [
                 'role' => $profile->role,
