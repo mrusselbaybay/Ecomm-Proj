@@ -737,6 +737,23 @@ async function cancelOrder(orderId, reason) {
     }
 }
 
+// Buyer confirms a courier-delivered order arrived (releases escrow).
+async function receiveOrder(orderId) {
+    const number = String(orderId || '').replace(/^#/, '');
+
+    try {
+        const updated = await apiFetch(`/buyer/orders/${encodeURIComponent(number)}/receive`, { method: 'POST' });
+
+        await loadOrders();
+
+        return { order: updated, error: null };
+    } catch (err) {
+        console.error('Error confirming receipt:', err);
+
+        return { order: null, error: err?.message || 'Could not confirm receipt.' };
+    }
+}
+
 /*
 |--------------------------------------------------------------------------
 | Reviews
@@ -992,6 +1009,7 @@ export function useBuyer() {
         getOrderById,
         placeOrder,
         cancelOrder,
+        receiveOrder,
 
         reviews,
         isLoadingReviews,

@@ -39,6 +39,12 @@
             </div>
         </header>
 
+        <CashFlowPanel
+            endpoint="/api/logistics/cash-flow"
+            title="Shipping earnings"
+            description="Your leg of each delivery's shipping fee (after the 5% platform cut), released once the buyer confirms receipt."
+        />
+
         <div v-if="loadError" class="callout-red callout-block" role="alert">
             <NavIcon name="alert" :size="18" />
             <div>
@@ -261,6 +267,7 @@ import {
 import { useLogistics } from '../composables/useLogistics';
 import { useLogisticsUi } from '../composables/useLogisticsUi';
 import NavIcon from './NavIcon.vue';
+import CashFlowPanel from '../../shared/CashFlowPanel.vue';
 
 Chart.register(
     BarController,

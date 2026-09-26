@@ -9,6 +9,7 @@ use App\Http\Controllers\Seller\SellerNotificationController;
 use App\Http\Controllers\Seller\SellerOrderController;
 use App\Http\Controllers\Seller\SellerCourierController;
 use App\Http\Controllers\Seller\SellerProductController;
+use App\Http\Controllers\CashFlowController;
 use App\Http\Controllers\Seller\SellerReportController;
 use Illuminate\Support\Facades\Route;
 
@@ -101,6 +102,7 @@ Route::middleware(['auth.token', 'seller'])->prefix('api/seller')->name('api.sel
     Route::get('/reports/product-performance', [SellerReportController::class, 'productPerformance'])->name('reports.product-performance');
     Route::get('/reports/inventory', [SellerReportController::class, 'inventory'])->name('reports.inventory');
     Route::get('/reports/returns', [SellerReportController::class, 'returns'])->name('reports.returns');
+    Route::get('/reports/cash-flow', [CashFlowController::class, 'seller'])->name('reports.cash-flow');
     Route::get('/reports/download', [SellerReportController::class, 'download'])->name('reports.download');
 
     // Delivery Confirmations (SellerDeliveryController) — read/monitor

@@ -3150,6 +3150,10 @@ const App = {
                 return;
             }
 
+            // The cookie may be left over from a different account (e.g. a
+            // co-user) — trust the live session's role, not the cookie's.
+            userData = { ...userData, email: session.user.email ?? userData.email, role: session.user.role ?? userData.role };
+
             if (!isLogisticsRole(userData.role)) {
                 deleteCookie('buytheway_session');
                 await supabase.auth.signOut();
@@ -3158,6 +3162,7 @@ const App = {
                 return;
             }
 
+            setCookie('buytheway_session', JSON.stringify(userData), 1);
             loggedInUser.value = userData;
             window.location.href = '/logistics/dashboard';
         });

@@ -13,6 +13,13 @@
             </div>
         </header>
 
+        <CashFlowPanel
+            endpoint="/api/seller/reports/cash-flow"
+            title="Cash flow"
+            description="Your share of each order (goods × 95%), released from escrow once the buyer confirms receipt."
+            style="margin-bottom: 20px"
+        />
+
         <!-- ============ TOOLBAR (date range + export) ============
              Relocated here from the old KPI-report layout: hourly volume
              and new-vs-returning buyers below are both scoped to this
@@ -430,6 +437,7 @@ import {
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useOrders } from '../composables/useOrders';
 import { useReports } from '../composables/useReports';
+import CashFlowPanel from '../../shared/CashFlowPanel.vue';
 
 Chart.register(LinearScale, CategoryScale, Tooltip, Legend, LineController, LineElement, PointElement, Filler);
 

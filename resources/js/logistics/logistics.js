@@ -6,23 +6,41 @@ import { fetchOwnProfile } from '../shared/accountApi';
 // for `logistics_admin` accounts, the logistics admin panel (the same admin
 // SPA as /admin, scoped to couriers, drivers and logistics companies). Each
 // bundle — and its stylesheet — only downloads for the role that needs it.
+//
+// A transient profile-fetch failure must not silently mount the company
+// portal for a logistics_admin, so retry, then fall back to the role the
+// auth session itself carries (it belongs to the same token).
 async function resolveRole() {
+    let session = null;
+
     try {
         const supabase = getSupabase();
-        const {
+        ({
             data: { session },
-        } = await supabase.auth.getSession();
+        } = await supabase.auth.getSession());
 
         if (!session?.user) {
             return null;
         }
 
-        const { data } = await fetchOwnProfile(supabase);
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const { data, error } = await fetchOwnProfile(supabase);
 
-        return data?.role ?? null;
+            if (data?.role) {
+                return data.role;
+            }
+
+            if (error?.status === 401) {
+                break;
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+        }
     } catch {
-        return null;
+        // fall through to the session's own role
     }
+
+    return session?.user?.role ?? session?.user?.user_metadata?.role ?? null;
 }
 
 async function mount() {

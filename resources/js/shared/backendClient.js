@@ -114,6 +114,16 @@ function createAuth() {
 
         history.replaceState(null, '', window.location.pathname + window.location.search);
 
+        // A redirect sign-in replaces whoever was signed in on this device —
+        // never fall back to (or keep) the previous account's session.
+        const previous = session?.access_token;
+        session = null;
+        writeStored(null);
+
+        if (previous && previous !== token) {
+            request('/api/auth/logout', { method: 'POST', token: previous }).catch(() => {});
+        }
+
         try {
             const user = await request('/api/auth/user', { token });
             setSession(

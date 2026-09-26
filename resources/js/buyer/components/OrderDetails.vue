@@ -63,6 +63,7 @@ const emit = defineEmits([
 const {
     ORDER_STATUSES,
     cancelOrder,
+    receiveOrder,
     submitReview,
     submitReturnRequest
 } = useBuyer();
@@ -86,9 +87,59 @@ const canReviewOrder = computed(() => {
     return props.order?.status === ORDER_STATUSES.DELIVERED;
 });
 
-const canRequestReturn = computed(() => {
-    return props.order?.status === ORDER_STATUSES.DELIVERED;
+// Courier marked it delivered, buyer hasn't confirmed yet (Rule 2: the
+// confirm action only exists from here). Auto-confirms after 7 days.
+const awaitingReceipt = computed(() => {
+    return props.order?.status === ORDER_STATUSES.DELIVERED && !props.order?.receivedAt;
 });
+
+const canRequestReturn = computed(() => {
+    return props.order?.status === ORDER_STATUSES.DELIVERED && Boolean(props.order?.receivedAt);
+});
+
+const refundableItemIndex = computed(() => {
+    return (props.order?.items || []).findIndex((item) => !item.returnRequest);
+});
+
+const isReceiving = ref(false);
+
+async function handleReceiveOrder() {
+    if (!awaitingReceipt.value || isReceiving.value) {
+        return;
+    }
+
+    const confirmed = await confirm({
+        title: 'Confirm order received?',
+        message: 'This confirms your items arrived and releases payment to the seller and couriers. You can still request a refund afterwards.',
+        confirmLabel: 'Yes, I received it',
+        cancelLabel: 'Not yet'
+    });
+
+    if (!confirmed) {
+        return;
+    }
+
+    isReceiving.value = true;
+    const { order: updated, error } = await receiveOrder(props.order.orderId);
+    isReceiving.value = false;
+
+    if (!updated) {
+        toastError(error);
+
+        return;
+    }
+
+    Object.assign(props.order, { receivedAt: updated.receivedAt, escrow_status: updated.escrow_status });
+    success('Thanks for confirming! Payment has been released.');
+}
+
+function handleRequestRefund() {
+    const index = refundableItemIndex.value;
+
+    if (index >= 0) {
+        openReturnModal(props.order.items[index], index);
+    }
+}
 
 const isCancelled = computed(() => {
     return props.order?.status === ORDER_STATUSES.CANCELLED;
@@ -611,8 +662,34 @@ function handleHeaderSelectCategory(category) {
                                 Need Help
                             </a>
                             <button
+                                v-if="awaitingReceipt"
                                 type="button"
-                                class="px-5 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-all flex items-center gap-2"
+                                class="px-5 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] disabled:opacity-60 disabled:cursor-wait transition-all flex items-center gap-2"
+                                :disabled="isReceiving"
+                                @click="handleReceiveOrder"
+                            >
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21.801 10A10 10 0 1 1 17 3.335" /><path d="m9 11 3 3L22 4" />
+                                </svg>
+                                {{ isReceiving ? 'Confirming…' : 'Order Received' }}
+                            </button>
+                            <button
+                                v-else-if="canRequestReturn"
+                                type="button"
+                                class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                                :disabled="refundableItemIndex < 0"
+                                :title="refundableItemIndex < 0 ? 'A refund has already been requested for every item' : ''"
+                                @click="handleRequestRefund"
+                            >
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" />
+                                </svg>
+                                {{ refundableItemIndex < 0 ? 'Refund Requested' : 'Request Refund' }}
+                            </button>
+                            <button
+                                type="button"
+                                class="px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
+                                :class="awaitingReceipt ? 'bg-white border border-slate-200 text-[#0d9488] hover:bg-slate-50' : 'bg-[#0d9488] text-white hover:bg-[#0f766e]'"
                                 style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
                                 @click="emit('track-order')"
                             >

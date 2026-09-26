@@ -35,7 +35,7 @@ class Order extends Model
         'shipping_carrier', 'shipping_service', 'tracking_number',
         'confirmation_token',
         'cancellation_reason', 'cancelled_by', 'cancelled_at',
-        'placed_at',
+        'placed_at', 'received_at', 'received_via',
     ];
 
     /**
@@ -52,6 +52,7 @@ class Order extends Model
         'discount' => 'decimal:2',
         'total' => 'decimal:2',
         'placed_at' => 'datetime',
+        'received_at' => 'datetime',
         'cancelled_at' => 'datetime',
     ];
 

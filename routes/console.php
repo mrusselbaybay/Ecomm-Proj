@@ -13,3 +13,7 @@ Schedule::command('messages:prune-staged-attachments')->daily();
 // See app/Console/Commands/AutoDeliverStaleOrders.php for why this
 // exists and what it does and doesn't rely on.
 Schedule::command('orders:auto-deliver')->daily();
+
+// Buyer never clicked "Order Received" within 7 days of delivery →
+// confirm on their behalf and release escrow.
+Schedule::command('orders:auto-confirm-receipt')->daily();

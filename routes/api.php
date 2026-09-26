@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AccountController;
 use App\Http\Controllers\Admin\AdminNotificationController;
 use App\Http\Controllers\Admin\AdminProfileController;
 use App\Http\Controllers\Admin\CommissionController;
+use App\Http\Controllers\CashFlowController;
 use App\Http\Controllers\Admin\ComplaintController;
 use App\Http\Controllers\Admin\CustomerServiceController as AdminCustomerServiceController;
 use App\Http\Controllers\Admin\DashboardController;
@@ -290,6 +291,8 @@ Route::middleware(['auth.token', 'logistics'])
             Route::post('/transfer-ownership', [LogisticsTeamController::class, 'transferOwnership'])->name('transfer-ownership');
         });
 
+        Route::get('/cash-flow', [CashFlowController::class, 'logistics'])->name('cash-flow');
+
         Route::apiResource('barangay-assignments', LogisticsBarangayAssignmentController::class)
             ->except('show');
         Route::post('/barangay-assignments/bulk', [LogisticsBarangayAssignmentController::class, 'bulkCreate'])
@@ -468,6 +471,7 @@ Route::middleware(['auth.token', 'admin:logistics_admin'])
         Route::post('/compliance/products/{product}/actions', [SellerComplianceController::class, 'store'])->name('compliance.products.actions.store');
 
         Route::get('/commissions', [CommissionController::class, 'index'])->name('commissions.index');
+        Route::get('/commissions/cash-flow', [CashFlowController::class, 'platform'])->name('commissions.cash-flow');
 
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');

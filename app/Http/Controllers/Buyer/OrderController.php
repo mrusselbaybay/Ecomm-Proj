@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\OrderReturnRequest;
 use App\Models\ParcelAssignment;
 use App\Services\OrderCancellationService;
+use App\Services\Payments\OrderReceiptService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -81,6 +82,28 @@ class OrderController extends Controller
         return response()->json(['data' => $this->transform($order)]);
     }
 
+    /**
+     * POST /api/buyer/orders/{id}/receive
+     *
+     * Buyer confirms a courier-delivered order arrived — releases escrow.
+     */
+    public function receive(Request $request, string $id, OrderReceiptService $receipts): JsonResponse
+    {
+        $order = $this->findForBuyer($request, $id);
+
+        if (! $order) {
+            return response()->json(['message' => 'Order not found.'], 404);
+        }
+
+        try {
+            $receipts->confirm($order);
+        } catch (ValidationException $e) {
+            return response()->json(['message' => collect($e->errors())->flatten()->first()], 422);
+        }
+
+        return response()->json(['data' => $this->transform($this->findForBuyer($request, $id))]);
+    }
+
     private function findForBuyer(Request $request, string $id): ?Order
     {
         return Order::with(self::WITH)
@@ -111,6 +134,8 @@ class OrderController extends Controller
             'seller' => $sellerName,
             'payment_method' => $order->payment_method,
             'payment_status' => $order->payment_status,
+            'escrow_status' => $order->escrow_status,
+            'receivedAt' => optional($order->received_at)->toIso8601String(),
             'shipping_method' => $order->shipping_service,
             'shipping_carrier' => $order->shipping_carrier,
             'voucher_code' => null,

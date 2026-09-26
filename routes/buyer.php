@@ -32,6 +32,7 @@ Route::middleware(['auth.token', 'buyer'])->prefix('api/buyer')->name('api.buyer
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{id}', [OrderController::class, 'show'])->name('orders.show');
     Route::post('/orders/{id}/cancel', [OrderController::class, 'cancel'])->name('orders.cancel');
+    Route::post('/orders/{id}/receive', [OrderController::class, 'receive'])->name('orders.receive');
 
     // Self-service account settings for the logged-in buyer. Password
     // changes deliberately reuse the top-level /api/password/* routes

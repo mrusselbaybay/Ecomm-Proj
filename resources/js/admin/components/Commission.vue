@@ -10,6 +10,12 @@
             </p>
         </div>
 
+        <CashFlowPanel
+            endpoint="/api/logistics-admin/commissions/cash-flow"
+            title="Escrow commission (5%)"
+            description="Platform commission actually collected from released escrow, net of refunds."
+        />
+
         <div
             v-if="message"
             class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
@@ -159,6 +165,7 @@
 import { computed, onActivated, onBeforeUnmount, ref } from 'vue';
 import { useAdmin } from '../composables/useAdmin';
 import SkeletonRows from './SkeletonRows.vue';
+import CashFlowPanel from '../../shared/CashFlowPanel.vue';
 
 const { adminFetch } = useAdmin();
 const orders = ref([]);

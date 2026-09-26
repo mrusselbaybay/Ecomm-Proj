@@ -54,6 +54,12 @@ class ReturnController extends Controller
             ]);
         }
 
+        if (! $orderItem->order->received_at) {
+            throw ValidationException::withMessages([
+                'order_item_id' => 'Confirm you received this order before requesting a refund.',
+            ]);
+        }
+
         if ($data['quantity'] > (int) $orderItem->quantity) {
             throw ValidationException::withMessages([
                 'quantity' => "You only ordered {$orderItem->quantity} of this item.",
