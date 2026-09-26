@@ -2,11 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasUuidPrimaryKey;
 use Illuminate\Database\Eloquent\Model;
 
 class Address extends Model
 {
+    use HasUuidPrimaryKey;
+
     protected $table = 'addresses';
+    public $incrementing = false;
     protected $keyType = 'string';
 
     protected $fillable = [

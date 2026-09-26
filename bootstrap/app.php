@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Middleware\AuthenticateSupabaseUser;
+use App\Http\Middleware\AuthenticateApiToken;
 use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Middleware\EnsureUserIsBuyer;
 use App\Http\Middleware\EnsureUserIsDriver;
@@ -20,6 +20,12 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    // Private channel auth (POST /api/broadcasting/auth) with the same
+    // bearer token as the rest of the API.
+    ->withBroadcasting(__DIR__.'/../routes/channels.php', [
+        'prefix' => 'api',
+        'middleware' => ['auth.token'],
+    ])
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->trustProxies(
             at: '*',
@@ -38,7 +44,7 @@ return Application::configure(basePath: dirname(__DIR__))
             // Verifies the Supabase bearer token and resolves it to a
             // public.profiles row on the request (see routes/seller.php
             // and routes/buyer.php for the contract this promises).
-            'supabase.auth' => AuthenticateSupabaseUser::class,
+            'auth.token' => AuthenticateApiToken::class,
             'admin' => EnsureUserIsAdmin::class,
             'seller' => EnsureUserIsSeller::class,
             'buyer' => EnsureUserIsBuyer::class,

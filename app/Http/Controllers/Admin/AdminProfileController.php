@@ -12,9 +12,10 @@ use App\Models\StatusAuditLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Hash;
+use App\Services\FileStorage;
 
 /**
  * Self-service account settings for the logged-in admin: view/edit their
@@ -102,18 +103,9 @@ class AdminProfileController extends Controller
         $file = $request->file('avatar');
         $path = $profile->id.'/avatar.'.$file->getClientOriginalExtension();
 
-        $response = Http::withHeaders([
-            'apikey' => config('services.supabase.service_role_key'),
-            'Authorization' => 'Bearer '.config('services.supabase.service_role_key'),
-            'Content-Type' => $file->getClientMimeType(),
-            'x-upsert' => 'true',
-        ])->withBody(
-            file_get_contents($file->getRealPath()),
-            $file->getClientMimeType(),
-        )->post(config('services.supabase.url')."/storage/v1/object/avatars/{$path}");
-
-        if (!$response->successful()) {
-            Log::error('Avatar upload failed', ['body' => $response->body()]);
+        try {
+            app(FileStorage::class)->upload('avatars', $path, file_get_contents($file->getRealPath()), $file->getClientMimeType());
+        } catch (\RuntimeException) {
 
             return response()->json(['message' => 'Failed to upload profile picture.'], 500);
         }
@@ -170,49 +162,20 @@ class AdminProfileController extends Controller
             new AccountStatusChanged($profile->full_name, 'deactivated', 'Self-deactivated by admin from account settings')
         );
 
-        // Best-effort: end the current Supabase session immediately so the
-        // deactivation takes effect without waiting for token expiry. A
-        // failure here shouldn't undo the deactivation that already
-        // committed above — the account_status + EnsureUserIsAdmin check
-        // still blocks every subsequent admin-gated request either way.
-        try {
-            Http::withHeaders([
-                'apikey' => config('services.supabase.anon_key'),
-                'Authorization' => 'Bearer '.$request->bearerToken(),
-                'Content-Type' => 'application/json',
-            ])->post(config('services.supabase.url').'/auth/v1/logout');
-        } catch (\Throwable $e) {
-            Log::warning('Supabase logout after self-deactivation failed', ['error' => $e->getMessage()]);
-        }
+        // Sign the deactivated account out everywhere.
+        $profile->tokens()->delete();
 
         return response()->json([
             'message' => 'Your account has been deactivated.',
         ]);
     }
 
-    /**
-     * Verifies a password by attempting a real Supabase password-grant
-     * sign-in — the same mechanism AuthController::login uses. Supabase
-     * never exposes password hashes to us, so this is the only correct
-     * way to check "is this the current password" server-side.
-     */
+    /** Checks a password against the account's stored (bcrypt) hash. */
     private function verifyPassword(string $email, string $password): bool
     {
-        try {
-            $response = Http::withHeaders([
-                'apikey' => config('services.supabase.anon_key'),
-                'Content-Type' => 'application/json',
-            ])->post(config('services.supabase.url').'/auth/v1/token?grant_type=password', [
-                'email' => $email,
-                'password' => $password,
-            ]);
+        $hash = Profile::where('email', $email)->value('password');
 
-            return $response->successful();
-        } catch (\Throwable $e) {
-            Log::error('Password verification request failed', ['error' => $e->getMessage()]);
-
-            return false;
-        }
+        return is_string($hash) && Hash::check($password, $hash);
     }
 
     /**

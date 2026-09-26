@@ -9,16 +9,14 @@ import '../css/app.css';
 // importing the esm-bundler build directly restores template compilation
 // without going back to the unpkg.com CDN build this replaced.
 import { createApp, ref, computed, onMounted } from 'vue/dist/vue.esm-bundler.js';
+import { fetchOwnProfile } from './shared/accountApi';
+import { createClient } from './shared/backendClient';
 
 // ---------- Configuration ----------
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-console.log('✅ Supabase URL:', SUPABASE_URL);
-console.log('✅ Supabase Key:', SUPABASE_ANON_KEY ? 'Loaded' : '❌ Missing');
 
 // ---------- Initialize Supabase ----------
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabase = createClient();
 
 // ---------- PSGC API Base ----------
 const PSGC_BASE = '/api/psgc';
@@ -2633,13 +2631,7 @@ const App = {
         // shared by email/password login and Google login, since both
         // land here via the SIGNED_IN listener in onMounted() below.
         async function completeLogin(user, remember) {
-            const { data: profile, error: profileError } = await supabase
-                .from('profiles')
-                .select(
-                    'role, first_name, last_name, email, account_status, status',
-                )
-                .eq('id', user.id)
-                .single();
+            const { data: profile, error: profileError } = await fetchOwnProfile(supabase);
 
             if (profileError) {
                 // PGRST116 = "no rows" — kept as a defensive fallback, but

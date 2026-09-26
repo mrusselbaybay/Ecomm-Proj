@@ -12,7 +12,7 @@ use App\Models\Profile;
 use App\Services\ParcelAutoAssignService;
 use App\Services\ParcelIntakeService;
 use App\Services\SellerNotifier;
-use App\Services\SupabaseStorageService;
+use App\Services\FileStorage;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -63,12 +63,12 @@ class DriverDeliveryController extends Controller
 {
     // Private (not publicly browsable) — proof-of-pickup/delivery/transfer
     // photos are only ever handed out as short-lived signed URLs (see
-    // [photo]/[pickupPhoto]), same pattern SupabaseStorageService's
+    // [photo]/[pickupPhoto]), same pattern FileStorage's
     // docblock already uses for message-attachments.
     private const PHOTOS_BUCKET = 'delivery-photos';
 
     public function __construct(
-        private readonly SupabaseStorageService $supabaseStorage,
+        private readonly FileStorage $files,
         private readonly ParcelIntakeService $parcelIntake,
         private readonly ParcelAutoAssignService $autoAssign,
     ) {}
@@ -349,10 +349,9 @@ class DriverDeliveryController extends Controller
         $photoPath = "profile/{$profile->id}/pickups/{$assignment->id}/".(string) Str::uuid().'.'.$extension;
 
         try {
-            $this->supabaseStorage->ensureBucket(self::PHOTOS_BUCKET, false);
-            $this->supabaseStorage->upload(self::PHOTOS_BUCKET, $photoPath, file_get_contents($file->getRealPath()), $file->getMimeType());
+            $this->files->upload(self::PHOTOS_BUCKET, $photoPath, file_get_contents($file->getRealPath()), $file->getMimeType());
         } catch (\Throwable $e) {
-            Log::error('Pickup photo upload to Supabase failed: '.$e->getMessage());
+            Log::error('Pickup photo upload failed: '.$e->getMessage());
 
             return response()->json(['message' => 'Failed to upload the pickup photo. Please try again.'], 500);
         }
@@ -461,10 +460,9 @@ class DriverDeliveryController extends Controller
         $photoPath = "profile/{$profile->id}/deliveries/{$assignment->id}/".(string) Str::uuid().'.'.$extension;
 
         try {
-            $this->supabaseStorage->ensureBucket(self::PHOTOS_BUCKET, false);
-            $this->supabaseStorage->upload(self::PHOTOS_BUCKET, $photoPath, file_get_contents($file->getRealPath()), $file->getMimeType());
+            $this->files->upload(self::PHOTOS_BUCKET, $photoPath, file_get_contents($file->getRealPath()), $file->getMimeType());
         } catch (\Throwable $e) {
-            Log::error('Delivery photo upload to Supabase failed: '.$e->getMessage());
+            Log::error('Delivery photo upload failed: '.$e->getMessage());
 
             return response()->json(['message' => 'Failed to upload the delivery photo. Please try again.'], 500);
         }
@@ -574,10 +572,9 @@ class DriverDeliveryController extends Controller
         $photoPath = "profile/{$profile->id}/transfers/{$assignment->id}/".(string) Str::uuid().'.'.$extension;
 
         try {
-            $this->supabaseStorage->ensureBucket(self::PHOTOS_BUCKET, false);
-            $this->supabaseStorage->upload(self::PHOTOS_BUCKET, $photoPath, file_get_contents($file->getRealPath()), $file->getMimeType());
+            $this->files->upload(self::PHOTOS_BUCKET, $photoPath, file_get_contents($file->getRealPath()), $file->getMimeType());
         } catch (\Throwable $e) {
-            Log::error('Transfer photo upload to Supabase failed: '.$e->getMessage());
+            Log::error('Transfer photo upload failed: '.$e->getMessage());
 
             return response()->json(['message' => 'Failed to upload the transfer photo. Please try again.'], 500);
         }
@@ -630,7 +627,7 @@ class DriverDeliveryController extends Controller
             return response()->json(['message' => 'No delivery photo on file for this parcel.'], 404);
         }
 
-        $url = $this->supabaseStorage->createSignedUrl(self::PHOTOS_BUCKET, $assignment->delivery_photo_path);
+        $url = $this->files->createSignedUrl(self::PHOTOS_BUCKET, $assignment->delivery_photo_path);
         if (! $url) {
             return response()->json(['message' => 'Could not generate a link to the delivery photo right now.'], 502);
         }
@@ -656,7 +653,7 @@ class DriverDeliveryController extends Controller
             return response()->json(['message' => 'No pickup photo on file for this parcel.'], 404);
         }
 
-        $url = $this->supabaseStorage->createSignedUrl(self::PHOTOS_BUCKET, $assignment->pickup_photo_path);
+        $url = $this->files->createSignedUrl(self::PHOTOS_BUCKET, $assignment->pickup_photo_path);
         if (! $url) {
             return response()->json(['message' => 'Could not generate a link to the pickup photo right now.'], 502);
         }

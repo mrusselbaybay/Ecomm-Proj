@@ -8,7 +8,7 @@ use App\Models\LogisticsAdminDetail;
 use App\Models\LogisticsCompany;
 use App\Models\LogisticsInvitation;
 use App\Models\Profile;
-use App\Services\SupabaseAdmin;
+use App\Services\AccountRegistrar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +18,7 @@ use Illuminate\Support\Str;
 /**
  * The /accept-invite page's API. The raw token is the credential; only its
  * sha256 is stored. show/acceptNew/requestRenewal are public, accept()
- * needs the invitee signed in (supabase.auth).
+ * needs the invitee signed in (auth.token).
  */
 class InvitationController extends Controller
 {
@@ -42,7 +42,7 @@ class InvitationController extends Controller
     }
 
     /** New user: create the account and join in one step. */
-    public function acceptNew(Request $request, string $token, SupabaseAdmin $supabase): JsonResponse
+    public function acceptNew(Request $request, string $token, AccountRegistrar $accounts): JsonResponse
     {
         $data = $request->validate([
             'first_name' => ['required', 'string', 'max:100'],
@@ -71,7 +71,7 @@ class InvitationController extends Controller
         }
 
         try {
-            $user = $supabase->createUser($invitation->email, $data['password'], [
+            $user = $accounts->createUser($invitation->email, $data['password'], [
                 'role' => 'logistics',
                 'first_name' => $data['first_name'],
                 'last_name' => $data['last_name'],
@@ -86,8 +86,7 @@ class InvitationController extends Controller
 
         try {
             DB::transaction(function () use ($invitation, $user, $data) {
-                // The auth.users trigger normally creates the profile from
-                // metadata; this makes the approved/active state explicit.
+                // createUser() made the profile; this makes the approved/active state explicit.
                 DB::table('profiles')->updateOrInsert(['id' => $user['id']], [
                     'email' => $invitation->email,
                     'role' => 'logistics',
@@ -117,7 +116,7 @@ class InvitationController extends Controller
                 $this->join($invitation, $user['id']);
             });
         } catch (\Throwable $e) {
-            $supabase->deleteUser($user['id']);
+            $accounts->deleteUser($user['id']);
 
             throw $e;
         }

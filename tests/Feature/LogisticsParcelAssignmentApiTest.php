@@ -110,7 +110,7 @@ beforeEach(function () {
         'created_at' => now(),
         'updated_at' => now(),
     ]);
-    Http::fake(['*' => Http::response(['id' => '10000000-0000-0000-0000-000000000001'])]);
+    fakeApiTokens(fn () => '10000000-0000-0000-0000-000000000001');
 });
 
 it('receives an in-transit parcel and automatically matches its area and rider', function () {

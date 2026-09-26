@@ -1,62 +1,62 @@
-# Graph Report - BuyTheWay - Web  (2026-09-25)
+# Graph Report - BuyTheWay - Web  (2026-09-26)
 
 ## Corpus Check
-- 726 files · ~751,354 words
+- 745 files · ~753,861 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 85 file(s) not represented in the graph (top: .csv 53, (none) 18, .css 10)
 
 ## Summary
-- 8500 nodes · 15296 edges · 495 communities (303 shown, 192 thin omitted)
-- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 456 edges (avg confidence: 0.85)
+- 8601 nodes · 15649 edges · 478 communities (311 shown, 167 thin omitted)
+- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 434 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `be628b28`
+- Built from commit: `8d60ce3b`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- .store
+- LogisticsBarangayAssignment
 - Order
-- design_system.py
+- cip/generate.py
 - BarangayAssignments.vue
 - Inventory.vue
-- cip/generate.py
+- design_system.py
 - admin/components/Profile.vue
 - Profile
 - search
-- Controller
+- StatusAuditLog
 - ParcelAssignment
-- InventoryService
+- Conversation
 - Illuminate\Foundation\Http\FormRequest
 - Team.vue
-- Illuminate\Database\Eloquent\Relations\BelongsTo
-- icon/generate.py
+- Illuminate\Database\Migrations\Migration
+- generate_icon
 - Applications.vue
 - Cart.vue
-- Illuminate\Validation\Rule
+- Illuminate\Contracts\Validation\ValidationRule
 - AcceptInvite.vue
-- Illuminate\Http\Request
+- AuthController
 - AccountSettings.vue
 - bootstrap/app.php
-- CustomerServiceController.php
+- SupportTicket
 - seller/components/Profile.vue
-- Illuminate\Http\JsonResponse
+- FileStorage
 - SearchableSelect.vue
 - useLogistics.js
 - useBuyer.js
 - ParcelOperations.vue
 - CommissionCalculator
-- TestShadcnInstaller
+- ShadcnInstaller
 - DesignSystemGenerator
 - CourierApplication
 - Account.vue
 - MessageController
-- Illuminate\Database\Eloquent\Model
+- Illuminate\Database\Eloquent\Relations\BelongsTo
 - validate_data.py
 - PrepareOrders.vue
 - useSellerProducts.js
-- Illuminate\Database\Eloquent\Relations\HasMany
+- Product
 - buyer/components/Dashboard.vue
 - CourierHandover.vue
 - seller/components/Messages.vue
@@ -70,24 +70,24 @@
 - logistics/components/Messages.vue
 - Feedback.vue
 - QrCode
-- useBuyerChat.js
+- Illuminate\Support\Str
 - test_design_system_mode.py
-- TeamController
+- Illuminate\Http\Request
 - useReports.js
 - SellerLayout.vue
-- vue
+- LogisticsLayout.vue
 - PickupCourierLayout.vue
 - slide_search_core.py
 - Tailwind CSS Utility Reference
 - app.js
 - Registrations.vue
 - Checkout.vue
-- ShadcnInstaller
-- Detection Checklist
+- Illuminate\Database\Schema\Blueprint
+- Eloquent Best Practices
 - package.json
 - buyer/components/OrderDetails.vue
 - wayfinder/index.ts
-- .check_shadcn_config
+- Illuminate\Support\Facades\Schema
 - useOrders.js
 - Users.vue
 - js/seller/composables/useSeller.js
@@ -97,29 +97,29 @@
 - Riders.vue
 - Design
 - Canvas Design System
-- logistics/components/Reports.vue
-- SupportTicket
+- logistics/components/Dashboard.vue
+- SellerFeedbackController
 - BM25
 - OrderTracking.vue
 - seller/components/Orders.vue
 - Complaints.vue
 - useDeliveries.js
 - AGENTS.md
-- Illuminate\Bus\Queueable
+- Illuminate\Queue\SerializesModels
 - Form & Input Components
 - Tailwind CSS Responsive Design
 - Wishlist.vue
 - CategoryListing.vue
-- .update
+- useBuyerPayments.js
 - Typography Specifications
-- SellerDeliveryController
-- logo/core.py
+- Illuminate\Http\JsonResponse
+- BM25
 - Illuminate\Support\Facades\DB
 - ProductReviewsDrawer.vue
 - Compliance.vue
-- Conversation
-- PaymentMethods.vue
-- Illuminate\Support\Facades\Schema
+- useMessaging
+- search_stack
+- MessageController
 - Logo Usage Rules
 - Component Specifications
 - html-token-validator.py
@@ -128,10 +128,10 @@
 - useMessaging.js
 - Inertia v3 Features
 - useBuyerAccount.js
-- Illuminate\Database\Eloquent\Factories\HasFactory
+- generate_design_system
 - SavedAddresses.vue
-- MessageAttachment
-- Illuminate\Database\Eloquent\Builder
+- Message
+- PaymentMethods.vue
 - Asset Approval Checklist
 - Logo AI Prompt Engineering
 - ReturnRequestModal.vue
@@ -141,16 +141,16 @@
 - CIP Deliverable Guide
 - States and Variants
 - UI Styling Skill
-- LogisticsProvincialAssignment
+- SellerDeliveryController
 - Workflow
-- Illuminate\Database\Migrations\Migration
+- SellerProductController
 - OrderJourneyMap.vue
 - Design System
 - Tailwind CSS Customization
 - AdminLayout.vue
-- Illuminate\Database\Eloquent\Relations\HasOne
+- admin/components/Chat.vue
 - useFeedback.js
-- openEditProductSheet
+- loadCategoryConfig
 - generate-slide.py
 - spacing
 - CustomerServicePage.vue
@@ -165,26 +165,26 @@
 - Routing by Task Type
 - shadcn/ui Theming & Customization
 - Pest 5 Features
-- ComplaintStatusChanged
+- getSupabase
 - Asset Organization Guide
 - Primary Color Meanings
 - Core Logo Types
 - fetch-background.py
 - color
-- TestThresholdGate
+- test_relevance_evaluator.py
 - applyDragValue
 - useProductReviews.js
 - useLogisticsProfile.js
 - useLogisticsUi.js
-- app-logistics.js
+- vue
 - SupportTicketController
-- PasswordResetController
-- useBuyerChat
+- ComplaintStatusChanged
+- useBuyerChat.js
 - Brand Consistency Checklist
 - CIP Mockup Prompt Engineering
 - Color Semantics
 - buyer/components/Orders.vue
-- OrderTrackingService
+- backendClient.js
 - Design Principles
 - Design Principles
 - fontSize
@@ -198,7 +198,7 @@
 - Copywriting Formulas
 - CatalogRefreshTest
 - devDependencies
-- admin/components/Chat.vue
+- apiWithMeta
 - Banner Design - Multi-Format Creative Banner System
 - Messaging Framework
 - Brand Voice Framework
@@ -210,8 +210,8 @@
 - Layout Patterns
 - Tailwind CSS Development
 - ReviewModal.vue
-- openConversation
-- apiWithMeta
+- scrollToBottom
+- useCouriers.js
 - update.md
 - Logo Design Reference
 - Token Architecture
@@ -220,7 +220,7 @@
 - laravel-best-practices/SKILL.md
 - Socialite Authentication
 - fetchProvinces
-- .test_add_all_components_success
+- Complaint
 - useFeedback
 - ConfirmActionDialog.vue
 - Primitive Tokens
@@ -230,8 +230,8 @@
 - .generate_config_string
 - require-dev
 - Architecture Best Practices
-- MessageController
-- Events & Notifications Best Practices
+- buyer.php
+- AppServiceProvider.php
 - Core Visual Elements
 - inject-brand-context.cjs
 - CIP Design Style Guide
@@ -254,14 +254,14 @@
 - Advanced Query Patterns
 - Database Performance Best Practices
 - Wayfinder Development
-- PreventAdminSelfRegistrationTest
+- useBuyerAddresses.js
 - TestGeneratedConfigIsValidJs
-- LogisticsInvitation
+- InboxChanged
 - Caching Best Practices
 - Migration Best Practices
 - scripts
 - global.d.ts
-- handleSave
+- confirmDeactivate
 - clearDraft
 - input
 - UI/UX Pro Max - Design Intelligence
@@ -270,10 +270,10 @@
 - Error Handling Best Practices
 - Task Scheduling Best Practices
 - Testing Best Practices
-- detect_domain
+- PasswordResetController
 - Slides Reference
 - HTML Slide Template
-- loadConversations
+- SellerNotifier
 - HTML Slide Template
 - Query Contract
 - config
@@ -283,7 +283,7 @@
 - Conventions & Style
 - Validation & Forms Best Practices
 - 2026_09_12_000100_merge_duplicate_buyer_seller_conversations.php
-- Illuminate\Mail\Mailable
+- lg
 - OrderStatusBadge.vue
 - deliveryDetailsPrint.js
 - Slides
@@ -291,42 +291,42 @@
 - Pre-Delivery Checklist
 - Prerequisites
 - LogisticsAutoAssignApiTest.php
-- .handle
-- HandleInertiaRequests
-- adminFetch
-- DeactivateBuyerAccountRequest
-- Review
-- DeactivateDriverAccountRequest
-- Complaint
-- LogisticsNotificationController.php
-- stockStatusOf
+- Illuminate\Mail\Mailable
+- ProfileProvisioner
+- AccountStatusChanged
+- QuantityStepper.vue
+- ReportReviewRequest
+- sm
+- xl
+- none
+- loadConversations
 - Brand Guidelines Template
 - $type
 - radius
 - UpdateBuyerProfileRequest
-- UpdateDriverProfileRequest
+- .update
 - Common Rules for Professional UI
 - Example Workflow
 - psr-4
 - logging.php
 - sanctum.php
 - optionalDependencies
-- useCouriers.js
-- lg
-- sm
+- 16
+- 1
+- StoreSupportTicketInternalNoteRequest
 - padding-y
 - DeactivateAdminAccountRequest
-- uploadAttachment
+- 3
 - Tips for Better Results
 - console.php
 - auth.ts
-- UpdateAdminProfileRequest
-- useReports
+- 8
+- DeactivateBuyerAccountRequest
 - artisan
-- xl
-- none
-- onFilePicked
-- AdjustStockRequest
+- usePsgc.js
+- api.php
+- Detection Checklist
+- Process
 - destructive
 - destructive-foreground
 - muted
@@ -335,26 +335,49 @@
 - secondary-foreground
 - extra
 - laravel-boost
-- 16
-- 1
-- 3
-- 8
-- handleSave
-- StoreSellerComplianceActionRequest
-- StoreReturnRequest
-- UpdateAddressRequest
+- UpdateDriverProfileRequest
+- Illuminate\Validation\Rule
+- Illuminate\Bus\Queueable
+- RespondToReviewRequest
+- ApplicationInterview
+- UpdateAccountStatusRequest
+- OrderItem
+- vite.config.ts
+- UpdateSupportTicketStatusRequest.php
+- addAttachment
+- StartCourierConversationRequest
+- StoreCourierApplicationRequest
+- Controller
+- UpdateAdminProfileRequest
+- DeactivateDriverAccountRequest
+- StoreAddressRequest
+- StorePaymentMethodRequest
+- UpdateConversationStatusRequest
+- UpdatePaymentMethodRequest
 - UpdateProfileRequest
-- Illuminate\Database\Schema\Blueprint
+- syncConversationMeta
+- ReplySupportTicketRequest
+- UpdateConversationStatusRequest
+- setFilter
+- clearNewIncoming
+- fetchConversationParcels
+- AssignTransferCourierRequest
+- ReceiveParcelRequest
 - SendMessageRequest
-- StartDeliveryConversationRequest
-- SendMessageRequest
+- .test_validate_config_valid
+- .test_validate_config_no_content
+- .test_validate_config_empty_theme
+- .test_write_config_invalid_path
+- .test_full_configuration_typescript
+- .test_full_configuration_javascript
+- StoreBarangayAssignmentRequest
 - UpdateBarangayAssignmentRequest
-- StartLogisticsConversationRequest
-- UpdateProductRequest
-- PasswordResetCodeMail
+- ReportBuyerRequest
+- UpdateConversationStatusRequest
+- 2026_08_18_000001_create_hand_made_supabase_tables.php
+- onFilePicked
 - @inertiajs/vue3
 - closePasswordModal
-- startCountdown
 - startCountdown
 - slides-create.md
 - create.md
@@ -363,57 +386,31 @@
 - .test_recommend_plugins
 - .test_generate_typescript_config
 - .test_generate_javascript_config
-- customerServiceApi.js
-- .test_validate_config_no_content
-- .test_validate_config_empty_theme
-- .test_write_config_invalid_path
 - .test_add_spacing
 - .test_recommend_plugins_nextjs
 - .test_default_content_paths_react
 - .test_generate_config_with_colors
 - .test_add_colors
-- .handle
-- User
-- setConversationStatus
-- .test_validate_config_valid
-- vite.config.ts
-- .test_full_configuration_typescript
-- .test_full_configuration_javascript
+- Illuminate\Database\Seeder
 - .test_default_content_paths_nextjs
-- setConversationStatus
-- useBuyerSession.js
-- CategoryMatcher
-- applyPreset
-- TestMetricMath
-- StartConversationRequest
-- utils.ts
-- .temp_project
-- StoreBarangayAssignmentRequest
-- .test_add_components_no_config
-- .test_add_components_already_installed
-- .test_add_components_dry_run
-- .test_add_all_components_dry_run
-- .test_list_installed_empty
-- .test_init_default_project_root
-- .test_get_installed_components_empty
-- .test_add_components_no_components
-- TestFixtureValidation
+- startCountdown
 - fetchBarangays
 - fetchMunicipalities
 - handleCancelClick
 - onCodeInput
+- setConversationStatus
 
 ## God Nodes (most connected - your core abstractions)
-1. `Profile` - 174 edges
-2. `Order` - 114 edges
-3. `Controller` - 111 edges
-4. `vue` - 107 edges
-5. `LogisticsCompany` - 94 edges
+1. `Profile` - 197 edges
+2. `Controller` - 116 edges
+3. `Order` - 114 edges
+4. `vue` - 108 edges
+5. `LogisticsCompany` - 101 edges
 6. `ParcelAssignment` - 92 edges
-7. `Conversation` - 83 edges
+7. `Conversation` - 86 edges
 8. `Product` - 70 edges
-9. `TailwindConfigGenerator` - 58 edges
-10. `CourierApplication` - 58 edges
+9. `CourierApplication` - 62 edges
+10. `TailwindConfigGenerator` - 58 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `CIP: Generate Mockups` --references--> `flash()`  [INFERRED]
@@ -424,25 +421,25 @@
   .cursor/skills/infer-conventions/references/checklist.md → resources/js/buyer/components/QuantityStepper.vue
 - `Models` --references--> `flash()`  [INFERRED]
   .claude/skills/design/references/cip-design.md → resources/js/seller/components/OrderDetails.vue
-- `makeLogisticsCompany()` --references--> `LogisticsCompany`  [EXTRACTED]
-  tests/Feature/SellerHandoverParcelIntakeTest.php → app/Models/LogisticsCompany.php
+- `makeTransferTestCompany()` --references--> `LogisticsCompany`  [EXTRACTED]
+  tests/Feature/CrossRegionTransferTest.php → app/Models/LogisticsCompany.php
 
 ## Import Cycles
 - None detected.
 
-## Communities (495 total, 192 thin omitted)
+## Communities (478 total, 167 thin omitted)
 
-### Community 0 - ".store"
-Cohesion: 0.25
-Nodes (4): StaffAccountController, SupabaseAdmin, Illuminate\Http\Client\PendingRequest, Illuminate\Http\Client\Response
+### Community 0 - "LogisticsBarangayAssignment"
+Cohesion: 0.22
+Nodes (5): ChecksRiderCoverage, LogisticsBarangayAssignmentController, BarangayAssignmentResource, LogisticsBarangayAssignment, Illuminate\Database\QueryException
 
 ### Community 1 - "Order"
-Cohesion: 0.05
-Nodes (15): AutoDeliverStaleOrders, BackfillOrderShippingArea, OrderController, ReturnController, SellerOrderController, Order, OrderItem, OrderStatusHistory (+7 more)
-
-### Community 2 - "design_system.py"
 Cohesion: 0.04
-Nodes (74): argparse, Regression test for sync-brand-to-tokens.cjs. The color parser required a…, main(), Slide Token Validator (Legacy Wrapper) Now delegates to html-token-validator.py…, Delegate to unified html-token-validator.py with --type slides., Path, Regression tests for validate-tokens.cjs. The validator used to skip any line…, A hardcoded hex on the same line as a var() token is still a violation. (+66 more)
+Nodes (15): AutoDeliverStaleOrders, BackfillOrderShippingArea, CopyPgsqlToMysql, SimulateParcelTracking, SellerOrderController, Order, OrderStatusHistory, ParcelLocation (+7 more)
+
+### Community 2 - "cip/generate.py"
+Cohesion: 0.07
+Nodes (39): detect_domain(), get_cip_brief(), _load_csv(), Load CSV and return list of dicts, Core search function using BM25, Auto-detect the most relevant domain from query, Main search function with auto-domain detection, Search across all domains and combine results (+31 more)
 
 ### Community 3 - "BarangayAssignments.vue"
 Cohesion: 0.02
@@ -450,55 +447,55 @@ Nodes (106): activeTab, addingRiders, addressApiError, addRidersTier, assignedRi
 
 ### Community 4 - "Inventory.vue"
 Cohesion: 0.02
-Nodes (68): activeProductId, addVariantError, availableSubcategories, bulkSelectMode, canAddVariant, catalogCeiling, categoryOptionDef(), closeOther() (+60 more)
+Nodes (71): activeProductId, addVariantError, availableSubcategories, bulkSelectMode, canAddVariant, catalogCeiling, categoryOptionDef(), closeOther() (+63 more)
 
-### Community 5 - "cip/generate.py"
-Cohesion: 0.07
-Nodes (43): base64, detect_domain(), get_cip_brief(), _load_csv(), Load CSV and return list of dicts, Core search function using BM25, Auto-detect the most relevant domain from query, Main search function with auto-domain detection (+35 more)
+### Community 5 - "design_system.py"
+Cohesion: 0.04
+Nodes (83): argparse, base64, Regression test for sync-brand-to-tokens.cjs. The color parser required a…, generate_html(), get_deliverable_info(), get_image_base64(), main(), Convert image to base64 for embedding in HTML (+75 more)
 
 ### Community 6 - "admin/components/Profile.vue"
 Cohesion: 0.03
-Nodes (76): addressApiError, addressForm, { adminFetch, adminProfile, confirmLogout, statusBadgeClass }, avatarInput, barangayCache, barangayOptions, cancelEditingPersonal(), canSubmitNewPassword (+68 more)
+Nodes (86): addressApiError, addressForm, { adminFetch, adminProfile, confirmLogout, statusBadgeClass }, avatarInput, barangayCache, barangayOptions, cancelEditingPersonal(), canSubmitNewPassword (+78 more)
 
 ### Community 7 - "Profile"
-Cohesion: 0.03
-Nodes (40): AccountRegistrationController, ComplaintController, UserAccountController, CheckoutController, UploadMessageAttachmentRequest, ConversationParticipant, Message, Product (+32 more)
+Cohesion: 0.05
+Nodes (30): CourierDetail, Profile, User, Illuminate\Database\Eloquent\Attributes\Fillable, Illuminate\Database\Eloquent\Attributes\Hidden, Illuminate\Database\Eloquent\Relations\HasMany, Illuminate\Foundation\Auth\User, Illuminate\Foundation\Testing\RefreshDatabase (+22 more)
 
 ### Community 8 - "search"
-Cohesion: 0.03
-Nodes (61): _contains_phrase(), _domain_keywords(), _exact_match_diagnostic(), _exact_row_identity(), _exact_stack_identifier(), _file_signature(), _get_bm25(), _legacy_successor_guidance() (+53 more)
+Cohesion: 0.04
+Nodes (57): _contains_phrase(), detect_domain(), _domain_keywords(), _exact_match_diagnostic(), _exact_row_identity(), _file_signature(), _get_bm25(), _legacy_successor_guidance() (+49 more)
 
-### Community 9 - "Controller"
+### Community 9 - "StatusAuditLog"
 Cohesion: 0.05
-Nodes (16): DashboardController, SellerComplianceController, AccountController, BuyerProfileController, Controller, DriverProfileController, ParcelLocationController, CategoryConfigController (+8 more)
+Nodes (16): DeleteDummyCouriers, MakeDummyCouriers, AdminProfileController, DashboardController, SellerComplianceController, StaffAccountController, BuyerProfileController, DriverProfileController (+8 more)
 
 ### Community 10 - "ParcelAssignment"
-Cohesion: 0.05
-Nodes (15): ParcelAssignmentController, ParcelInventoryController, ScopesLogisticsCompany, DriverDeliveryController, BarangayAssignmentResource, ParcelAssignmentResource, ParcelInventoryResource, ParcelTransferRequestResource (+7 more)
+Cohesion: 0.06
+Nodes (12): ParcelAssignmentController, ParcelInventoryController, ScopesLogisticsCompany, DriverDeliveryController, LogisticsApplicationResource, ParcelAssignmentResource, ParcelInventoryResource, ParcelTransferRequestResource (+4 more)
+
+### Community 11 - "Conversation"
+Cohesion: 0.07
+Nodes (5): Conversation, ConversationPolicy, DeliveryConversationService, DateTimeInterface, Illuminate\Support\Facades\Broadcast
 
 ### Community 12 - "Illuminate\Foundation\Http\FormRequest"
-Cohesion: 0.04
-Nodes (18): RejectRegistrationRequest, StoreStaffAccountRequest, CheckoutRequest, SendMessageRequest, StartCourierConversationRequest, UpdatePaymentMethodRequest, AssignParcelRequest, AssignTransferCourierRequest (+10 more)
+Cohesion: 0.07
+Nodes (10): RejectRegistrationRequest, CheckoutRequest, SendMessageRequest, StartConversationRequest, AssignParcelRequest, AssignTransferRequest, BulkCreateBarangayAssignmentsRequest, SendSellerMessageRequest (+2 more)
 
 ### Community 13 - "Team.vue"
 Cohesion: 0.09
 Nodes (36): acceptApplication(), doApproveResignation(), removeAssignment(), removeFromTierPool(), submitAssignment(), submitBulkCreate(), Team, busyId (+28 more)
 
-### Community 14 - "Illuminate\Database\Eloquent\Relations\BelongsTo"
-Cohesion: 0.04
-Nodes (6): ComplaintUpdate, InventoryMovement, OrderReturnRequest, ParcelTransferRequest, SellerComplianceAction, Illuminate\Database\Eloquent\Relations\BelongsTo
-
-### Community 15 - "icon/generate.py"
-Cohesion: 0.10
-Nodes (29): apply_color(), apply_viewbox_size(), extract_svgs(), generate_batch(), generate_icon(), generate_sizes(), load_env(), main() (+21 more)
+### Community 15 - "generate_icon"
+Cohesion: 0.19
+Nodes (13): apply_color(), apply_viewbox_size(), extract_svgs(), generate_batch(), generate_icon(), generate_sizes(), main(), Extract SVG code blocks from model response (+5 more)
 
 ### Community 16 - "Applications.vue"
 Cohesion: 0.04
-Nodes (65): boot(), changeResignationsPage(), clearFilters(), closeInterviewModal(), closeRejectModal(), customReason, debouncedLoad(), docsApp (+57 more)
+Nodes (67): boot(), changeResignationsPage(), clearFilters(), closeInterviewModal(), closeRejectModal(), customReason, debouncedLoad(), docsApp (+59 more)
 
 ### Community 17 - "Cart.vue"
-Cohesion: 0.07
-Nodes (37): BLOCKING, canCheckout, {
+Cohesion: 0.06
+Nodes (39): BLOCKING, canCheckout, {
     cart,
     sellers,
     selectedItems,
@@ -522,39 +519,35 @@ Nodes (37): BLOCKING, canCheckout, {
 
     isValidatingCart,
     validateCartAgainstCatalog,
-}, checkout(), { confirm }, emit, handleHeaderSearch(), handleHeaderSelectCategory() (+29 more)
+}, checkout(), { confirm }, emit, handleClearCart(), handleHeaderSearch() (+31 more)
 
-### Community 18 - "Illuminate\Validation\Rule"
-Cohesion: 0.05
-Nodes (11): DocumentReviewRequest, UpdateAccountStatusRequest, StoreAddressRequest, StorePaymentMethodRequest, UpdateConversationStatusRequest, UpdateConversationStatusRequest, UpdateConversationStatusRequest, ReportReviewRequest (+3 more)
+### Community 18 - "Illuminate\Contracts\Validation\ValidationRule"
+Cohesion: 0.06
+Nodes (9): AssignSupportTicketRequest, ReplySupportTicketRequest, ResolveSupportTicketRequest, StoreStaffAccountRequest, StoreSupportTicketRequest, SendMessageRequest, StartDeliveryConversationRequest, StartLogisticsConversationRequest (+1 more)
 
 ### Community 19 - "AcceptInvite.vue"
-Cohesion: 0.05
-Nodes (59): acceptExisting, acceptWith(), addressError, api(), barangays, busy, confirmMismatch, error (+51 more)
-
-### Community 20 - "Illuminate\Http\Request"
-Cohesion: 0.04
-Nodes (16): AdminNotificationController, AdminProfileController, CourierApplicationController, LogisticsCompanyController, AuthController, PaymentMethodController, ReviewController, WishlistController (+8 more)
+Cohesion: 0.07
+Nodes (44): acceptExisting, acceptWith(), addressError, api(), barangays, busy, confirmMismatch, error (+36 more)
 
 ### Community 21 - "AccountSettings.vue"
 Cohesion: 0.03
 Nodes (55): ADDRESS_FIELDS, addressApiError, avatarInput, barangayOptions, canSubmitNewPassword, codeDigits, codeInputs, COMPANY_FIELDS (+47 more)
 
 ### Community 22 - "bootstrap/app.php"
-Cohesion: 0.16
-Nodes (11): EnsureUserIsAdmin, EnsureUserIsBuyer, EnsureUserIsDriver, EnsureUserIsLogistics, EnsureUserIsSeller, Closure, Illuminate\Foundation\Application, Illuminate\Foundation\Configuration\Exceptions (+3 more)
+Cohesion: 0.11
+Nodes (14): AuthenticateApiToken, EnsureUserIsAdmin, EnsureUserIsBuyer, EnsureUserIsDriver, EnsureUserIsLogistics, EnsureUserIsSeller, HandleInertiaRequests, Closure (+6 more)
 
-### Community 23 - "CustomerServiceController.php"
-Cohesion: 0.09
-Nodes (8): CustomerServiceController, AssignSupportTicketRequest, ReplySupportTicketRequest, ResolveSupportTicketRequest, StoreSupportTicketInternalNoteRequest, UpdateSupportTicketStatusRequest, SupportTicketUpdated, Illuminate\Notifications\Notification
+### Community 23 - "SupportTicket"
+Cohesion: 0.11
+Nodes (5): CustomerServiceController, SupportTicket, SupportTicketUpdated, SupportTicketPolicy, Illuminate\Notifications\Notification
 
 ### Community 24 - "seller/components/Profile.vue"
 Cohesion: 0.03
-Nodes (58): ADDRESS_FIELDS, addressApiError, avatarInput, barangayCache, barangayOptions, BUSINESS_FIELDS, canUpdatePassword, closeDeactivateModals() (+50 more)
+Nodes (63): ADDRESS_FIELDS, addressApiError, avatarInput, barangayCache, barangayOptions, BUSINESS_FIELDS, canUpdatePassword, closeDeactivateModals() (+55 more)
 
-### Community 25 - "Illuminate\Http\JsonResponse"
-Cohesion: 0.07
-Nodes (11): AddressController, CatalogController, PsgcProxyController, SellerFeedbackController, SellerReportController, SellerReportService, Carbon\CarbonImmutable, Carbon\Constants\UnitValue (+3 more)
+### Community 25 - "FileStorage"
+Cohesion: 0.06
+Nodes (11): AdminNotificationController, CourierApplicationController, FileController, LogisticsNotificationController, ParcelLocationController, PickupCourierController, FileStorage, Illuminate\Contracts\Filesystem\Filesystem (+3 more)
 
 ### Community 26 - "SearchableSelect.vue"
 Cohesion: 0.14
@@ -566,35 +559,35 @@ Nodes (76): load(), cancelRequest(), confirmAssignment(), load(), load(), submit
 
 ### Community 28 - "useBuyer.js"
 Cohesion: 0.05
-Nodes (67): handleClearCart(), handleDeselectBlocked(), handleQuantity(), handleSelectAll(), handleSellerSelection(), favorited, handleToggleFavorite(), favorited (+59 more)
+Nodes (65): handleDeselectBlocked(), handleQuantity(), handleSelectAll(), handleSellerSelection(), favorited, handleToggleFavorite(), favorited, handleToggleFavorite() (+57 more)
 
 ### Community 29 - "ParcelOperations.vue"
 Cohesion: 0.03
 Nodes (65): acceptRequest(), activeAssignments, assignmentError, assignmentForm, awaitingDispatchDecision, cancelReject(), closeAssignment(), closeTransferRequests() (+57 more)
 
 ### Community 30 - "CommissionCalculator"
-Cohesion: 0.20
-Nodes (4): ReportController, GenerateReportRequest, CommissionCalculator, Symfony\Component\HttpFoundation\StreamedResponse
+Cohesion: 0.19
+Nodes (3): ReportController, GenerateReportRequest, CommissionCalculator
 
-### Community 31 - "TestShadcnInstaller"
-Cohesion: 0.12
-Nodes (9): Test adding components with overwrite flag., Test ShadcnInstaller class., Test listing installed components without config., Test listing installed components when they exist., Test initialization with custom project root., Test initialization with dry run mode., Test checking for existing shadcn config., Test getting installed components when files exist. (+1 more)
+### Community 31 - "ShadcnInstaller"
+Cohesion: 0.04
+Nodes (40): main(), Path, Add all available shadcn/ui components. Args: overwrite: If True, overwrite…, Handle shadcn/ui component installation., List installed components. Returns: Tuple of (success, message with component…, shadcn/ui Component Installer Add shadcn/ui components to project with…, Initialize installer. Args: project_root: Project root directory (default:…, Check if shadcn is initialized in project. Returns: True if components.json… (+32 more)
 
 ### Community 32 - "DesignSystemGenerator"
 Cohesion: 0.05
-Nodes (21): DesignSystemGenerator, Generates design system recommendations from aggregated searches., Load reasoning rules from CSV., Find matching reasoning rule for a category., Apply reasoning rules to search results., Select best matching result based on priority keywords., apply_decision_rules(), _object_without_duplicates() (+13 more)
+Nodes (26): DesignSystemGenerator, Generates design system recommendations from aggregated searches., Load reasoning rules from CSV., Execute searches across multiple domains., Find matching reasoning rule for a category., Apply reasoning rules to search results., Select best matching result based on priority keywords., Extract results list from search result dict. (+18 more)
 
 ### Community 33 - "CourierApplication"
-Cohesion: 0.05
-Nodes (15): DeleteDummyCouriers, CourierProfileController, ResignationRequestController, LogisticsApplicationController, ResignationRequestController, LogisticsApplicationResource, CourierApplication, ResignationRequest (+7 more)
+Cohesion: 0.06
+Nodes (13): CourierProfileController, LogisticsCompanyController, ResignationRequestController, LogisticsApplicationController, Closure, ResignationRequestController, LogisticsCompanyResource, CourierApplication (+5 more)
 
 ### Community 34 - "Account.vue"
 Cohesion: 0.03
 Nodes (55): accountStatusLabel, addressApiError, avatarInput, barangayCache, barangayOptions, canSubmitNewPassword, codeDigits, codeInputs (+47 more)
 
-### Community 36 - "Illuminate\Database\Eloquent\Model"
-Cohesion: 0.07
-Nodes (11): BuyerAddress, BuyerPaymentMethod, HasUuidPrimaryKey, ParcelScanEvent, ProductOption, ReviewReport, SellerDetail, SellerNotification (+3 more)
+### Community 36 - "Illuminate\Database\Eloquent\Relations\BelongsTo"
+Cohesion: 0.03
+Nodes (23): BuyerAddress, BuyerPaymentMethod, ComplaintUpdate, HasUuidPrimaryKey, DriverDetail, OrderReturnRequest, ParcelScanEvent, ParcelTransferRequest (+15 more)
 
 ### Community 37 - "validate_data.py"
 Cohesion: 0.07
@@ -605,8 +598,12 @@ Cohesion: 0.04
 Nodes (52): activePsmStep, activeStage, allPacked, canConfirmReady, canPrepare, clearDraft(), closeModal(), confirmReadyForPickup() (+44 more)
 
 ### Community 39 - "useSellerProducts.js"
+Cohesion: 0.05
+Nodes (61): lowStockItems, lowStockProductsCount, refresh(), confirmDelete(), confirmSave(), handleSave(), inventoryValue, loadStockHistory() (+53 more)
+
+### Community 40 - "Product"
 Cohesion: 0.06
-Nodes (48): confirmDelete(), loadStockHistory(), submitStockAdjustment(), toggleBulkSelectMode(), ADJUST_REASONS, adjustStock(), apiFetch(), authHeaders() (+40 more)
+Nodes (7): SellerInventoryController, InventoryMovement, Product, ProductVariant, CheckoutService, InventoryService, SellerProductService
 
 ### Community 41 - "buyer/components/Dashboard.vue"
 Cohesion: 0.03
@@ -617,8 +614,8 @@ Cohesion: 0.04
 Nodes (43): activeCourier, activeListTab, assignCarrier, assignService, BADGE_PALETTE, boardReady, boardSearch, boardTransit (+35 more)
 
 ### Community 43 - "seller/components/Messages.vue"
-Cohesion: 0.03
-Nodes (63): applyQuickReply(), autosizeTextarea(), canSend, confirmParcelInquiry(), contactLogistics(), {
+Cohesion: 0.04
+Nodes (43): canSend, {
     conversations,
     conversationsMeta,
     isLoadingConversations,
@@ -665,19 +662,19 @@ Nodes (63): applyQuickReply(), autosizeTextarea(), canSend, confirmParcelInquiry
     getDraft,
     saveDraft,
     clearDraft,
-}, deleteError, draftText (+55 more)
+}, deleteError, draftText, fileInputEl, formatDateSeparator(), groupedMessages, hasActiveListFilters (+35 more)
 
 ### Community 44 - "buyer/components/Chat.vue"
 Cohesion: 0.05
-Nodes (37): attachmentError, canSend, clearStagedAttachments(), confirmProductInquiry(), __convTiming(), deleteError, draft, fileInput (+29 more)
+Nodes (39): attachmentError, canSend, clearStagedAttachments(), confirmProductInquiry(), __convTiming(), deleteError, draft, fileInput (+31 more)
 
 ### Community 45 - "seller/components/Dashboard.vue"
 Cohesion: 0.05
 Nodes (49): accountActivityEvents, activeProductsCount, activityClearedAt, bestSellers, completedOrdersCount, deliveredSparkline, deliveredTrendValues, fulfillmentRateLabel (+41 more)
 
 ### Community 46 - "LogisticsCompany"
-Cohesion: 0.05
-Nodes (13): ChecksRiderCoverage, LogisticsBarangayAssignmentController, LogisticsProvincialAssignmentController, LogisticsRegionalAssignmentController, LogisticsBarangayAssignment, LogisticsCompany, ParcelAutoAssignService, ServiceAreaProvisioner (+5 more)
+Cohesion: 0.06
+Nodes (9): LogisticsProvincialAssignmentController, LogisticsRegionalAssignmentController, LogisticsCompany, LogisticsProvincialAssignment, LogisticsRegionalAssignment, ParcelAutoAssignService, ParcelIntakeService, VehicleCategory (+1 more)
 
 ### Community 47 - "gray"
 Cohesion: 0.05
@@ -688,8 +685,8 @@ Cohesion: 0.04
 Nodes (44): accentClass, accentClassFor(), activeImage, activeTab, { addToCart, toggleFavorite, isFavorite }, allOptionsSelected, availableStock, discountPercent (+36 more)
 
 ### Community 49 - "CategoryFieldConfig"
-Cohesion: 0.06
-Nodes (5): ProductController, SellerProductController, SellerProductService, CategoryFieldConfig, ProductImage
+Cohesion: 0.09
+Nodes (3): ProductController, CategoryFieldConfig, ProductImage
 
 ### Community 50 - "seller/components/OrderDetails.vue"
 Cohesion: 0.05
@@ -707,29 +704,46 @@ Nodes (37): canSubmitReport, closePreview(), confirmEditBuyerName, confirmEditId
 Cohesion: 0.09
 Nodes (11): dimension, matrix, path, props, appendBits(), assert(), Ecc, getBit() (+3 more)
 
-### Community 54 - "useBuyerChat.js"
-Cohesion: 0.09
-Nodes (24): activeConversation, activeConversationId, ALLOWED_ATTACHMENT_TYPES, attachmentUrlCache, canPoll(), conversations, conversationsMeta, isChatOpen (+16 more)
+### Community 54 - "Illuminate\Support\Str"
+Cohesion: 0.05
+Nodes (20): ImportSupabaseStorage, ConversationParticipantFactory, LogisticsBarangayAssignmentFactory, ParcelAssignmentFactory, SupportTicketFactory, SupportTicketInternalNoteFactory, UserFactory, Illuminate\Database\Eloquent\Factories\Factory (+12 more)
 
 ### Community 55 - "test_design_system_mode.py"
-Cohesion: 0.05
-Nodes (30): _contrast_ratio(), _derive_dark_palette(), _filter_anti_patterns_for_mode(), _palette_is_dark(), _query_wants_dark(), WCAG relative luminance of a #RRGGBB string, or None if unparseable., True when a colors.csv row's Background is a dark surface., WCAG contrast ratio for two hex colors, or None if either is invalid. (+22 more)
+Cohesion: 0.07
+Nodes (25): _contrast_ratio(), _derive_dark_palette(), _filter_anti_patterns_for_mode(), _palette_is_dark(), _query_wants_dark(), WCAG relative luminance of a #RRGGBB string, or None if unparseable., True when a colors.csv row's Background is a dark surface., WCAG contrast ratio for two hex colors, or None if either is invalid. (+17 more)
+
+### Community 56 - "Illuminate\Http\Request"
+Cohesion: 0.07
+Nodes (9): InvitationController, TeamController, ReviewController, WishlistController, LogisticsAdminDetail, LogisticsInvitation, self, Illuminate\Database\Eloquent\Concerns\HasUuids (+1 more)
 
 ### Community 57 - "useReports.js"
 Cohesion: 0.05
-Nodes (45): activeReport, controllers, customerMix, customerMixError, customFrom, customTo, daysAgoStr(), exportError (+37 more)
+Nodes (69): selectPreset(), submitCustomRange(), activeReport, apiFetch(), applyCustomRange(), applyPreset(), authHeaders(), controllers (+61 more)
 
 ### Community 58 - "SellerLayout.vue"
 Cohesion: 0.05
-Nodes (37): resources_css_seller_layout, activeNavId, componentMap, csvCell(), currentComponent, currentComponentProps, currentSection, exportOrdersCsv() (+29 more)
+Nodes (36): resources_css_seller_layout, activeNavId, componentMap, csvCell(), currentComponent, currentComponentProps, currentSection, exportOrdersCsv() (+28 more)
 
-### Community 59 - "vue"
-Cohesion: 0.06
-Nodes (35): *.vue, vue, resources_css_admin_layout, resources_css_app, resources_css_logistics_logistics, AccountSettings, activeComponent, activeProps (+27 more)
+### Community 59 - "LogisticsLayout.vue"
+Cohesion: 0.04
+Nodes (44): AccountSettings, activeComponent, activeProps, activeTab, allTabs, Applications, BarangayAssignments, {
+    companyName,
+    teamRole,
+    pendingCount,
+    pendingResignationCount,
+    pendingTransferCount,
+    isLoading,
+    isAuthenticated,
+    logisticsProfile,
+    checkAuth,
+    logout,
+    resolveCompany,
+    loadTransferRequests,
+} (+36 more)
 
 ### Community 60 - "PickupCourierLayout.vue"
 Cohesion: 0.05
-Nodes (32): applications, appliedCompanyIds, checkAuth(), closeApplyModal(), companies, coverNote, debouncedLoad(), isAuthenticated (+24 more)
+Nodes (31): applications, appliedCompanyIds, checkAuth(), closeApplyModal(), companies, coverNote, debouncedLoad(), isAuthenticated (+23 more)
 
 ### Community 61 - "slide_search_core.py"
 Cohesion: 0.08
@@ -759,17 +773,13 @@ Nodes (36): appliedVoucher, applyPrefill(), buyerRegion, cardBrand, cardForm, {
     addWallet,
 }, checkoutForm, { confirm } (+28 more)
 
-### Community 66 - "ShadcnInstaller"
-Cohesion: 0.17
-Nodes (8): main(), Path, Handle shadcn/ui component installation., Initialize installer. Args: project_root: Project root directory (default:…, ShadcnInstaller, Test adding all components without config., Test checking for non-existent shadcn config., Test getting installed components without config.
-
-### Community 67 - "Detection Checklist"
-Cohesion: 0.05
-Nodes (36): A. Validation & HTTP input, B. Controllers & routing, C. Authorization, D. Eloquent & models, Detection Checklist, E. Architecture & organization, F. Frontend & views, G. Database & migrations (+28 more)
+### Community 67 - "Eloquent Best Practices"
+Cohesion: 0.18
+Nodes (9): Ground Rules (read before you start), Apply Global Scopes Sparingly, Avoid Hardcoded Table Names in Queries, Cast Date Columns Properly, Define Attribute Casts, Eloquent Best Practices, Use Correct Relationship Types, Use Local Scopes for Reusable Queries (+1 more)
 
 ### Community 68 - "package.json"
-Cohesion: 0.08
-Nodes (28): controlStatements, paddingAroundControl, private, $schema, type, concurrently, eslint, eslint-config-prettier (+20 more)
+Cohesion: 0.07
+Nodes (30): controlStatements, paddingAroundControl, private, $schema, type, clsx, concurrently, eslint (+22 more)
 
 ### Community 69 - "buyer/components/OrderDetails.vue"
 Cohesion: 0.05
@@ -778,10 +788,6 @@ Nodes (28): assignedCourier, canCancelOrder, canRequestReturn, canReviewOrder, c
 ### Community 70 - "wayfinder/index.ts"
 Cohesion: 0.09
 Nodes (17): Controller(), EntriesController, Http, DevTools, Inertia, storage, local, addNestedParams() (+9 more)
-
-### Community 71 - ".check_shadcn_config"
-Cohesion: 0.21
-Nodes (6): Add all available shadcn/ui components. Args: overwrite: If True, overwrite…, List installed components. Returns: Tuple of (success, message with component…, Check if shadcn is initialized in project. Returns: True if components.json…, Get list of already installed components. Returns: List of installed component…, Read shadcn version from project package.json; fall back to a pinned default., Add shadcn/ui components. Args: components: List of component names to add…
 
 ### Community 72 - "useOrders.js"
 Cohesion: 0.09
@@ -792,8 +798,8 @@ Cohesion: 0.07
 Nodes (36): { accounts, statusBadgeClass, formatDate, adminFetch, supabase, adminScope }, accountStatusFilter, accountStatusReasons, canSubmitStatus, closeStaffModal(), closeStatusModal(), createStaffAccount(), creatingStaff (+28 more)
 
 ### Community 74 - "js/seller/composables/useSeller.js"
-Cohesion: 0.07
-Nodes (45): refresh(), handleChangePassword(), handleSave(), onAvatarCropped(), showToast(), stripSavedCode(), validate(), activityLog (+37 more)
+Cohesion: 0.09
+Nodes (37): onAvatarCropped(), activityLog, address, age, changePassword(), checkAuth(), confirmLogout(), docTypeLabel() (+29 more)
 
 ### Community 75 - "Brand Guidelines v1.0"
 Cohesion: 0.05
@@ -804,8 +810,8 @@ Cohesion: 0.06
 Nodes (26): containerEl, controlsVisible, currentTime, duration, hasEnteredView, isFullscreen, isLoading, isMuted (+18 more)
 
 ### Community 77 - "Home.vue"
-Cohesion: 0.07
-Nodes (32): resources_css_home_layout, accountMenuOpen, accountRows, activeSpotlightIndex, closeMenus(), createRevealObserver(), heroControlsActive, heroWrapRef (+24 more)
+Cohesion: 0.08
+Nodes (25): resources_css_home_layout, accountMenuOpen, accountRows, activeSpotlightIndex, closeMenus(), createRevealObserver(), heroControlsActive, heroWrapRef (+17 more)
 
 ### Community 78 - "Riders.vue"
 Cohesion: 0.06
@@ -819,9 +825,9 @@ Nodes (35): Banner Design (Built-in), Banner: Design Rules, Banner: Quick Size R
 Cohesion: 0.06
 Nodes (35): 1. Visual Communication First, 2. Minimal Text Integration, 3. Expert Craftsmanship, 4. Systematic Patterns, Analog Meditation, Approach, Canvas Boundaries, Canvas Design System (+27 more)
 
-### Community 81 - "logistics/components/Reports.vue"
-Cohesion: 0.05
-Nodes (34): chart.js, attentionItems, breakdownCanvasEl, {
+### Community 81 - "logistics/components/Dashboard.vue"
+Cohesion: 0.11
+Nodes (16): chart.js, attentionItems, breakdownCanvasEl, {
     companyName,
     applications,
     assignmentRiders,
@@ -844,11 +850,7 @@ Nodes (34): chart.js, attentionItems, breakdownCanvasEl, {
     initials,
     personName,
     badgeClass,
-} (+26 more)
-
-### Community 82 - "SupportTicket"
-Cohesion: 0.20
-Nodes (3): SupportTicket, SupportTicketPolicy, Illuminate\Contracts\Validation\ValidationRule
+} (+8 more)
 
 ### Community 83 - "BM25"
 Cohesion: 0.08
@@ -860,11 +862,11 @@ Nodes (31): timeline, currentStepDescription, currentStepIcon, currentStepLabel,
 
 ### Community 85 - "seller/components/Orders.vue"
 Cohesion: 0.06
-Nodes (25): activePipelineCount, hasActiveFilters, kanbanColumns, LIST_TABS, listLastPage, listOrders, listPage, listRangeLabel (+17 more)
+Nodes (23): activePipelineCount, hasActiveFilters, kanbanColumns, LIST_TABS, listLastPage, listOrders, listPage, listRangeLabel (+15 more)
 
 ### Community 86 - "Complaints.vue"
-Cohesion: 0.08
-Nodes (26): { adminFetch }, admins, availableStatuses, closeComplaint(), complaints, detailLoading, form, hasLoadedOnce (+18 more)
+Cohesion: 0.07
+Nodes (28): Complaints, { adminFetch }, admins, availableStatuses, closeComplaint(), complaints, detailLoading, form (+20 more)
 
 ### Community 87 - "useDeliveries.js"
 Cohesion: 0.06
@@ -874,9 +876,9 @@ Nodes (50): activeDatePreset, applyCustomDateRange(), applyDatePreset(), BADGE_P
 Cohesion: 0.06
 Nodes (32): APIs & Eloquent Resources, Application Structure & Architecture, Artisan, Conventions, Deployment, Do Things the Laravel Way, Documentation Files, Foundational Context (+24 more)
 
-### Community 89 - "Illuminate\Bus\Queueable"
-Cohesion: 0.11
-Nodes (9): AccountCreated, AccountStatusChanged, ApplicationTerminated, InvitationRenewalRequested, PasswordResetMail, RegistrationApproved, RegistrationRejected, Illuminate\Bus\Queueable (+1 more)
+### Community 89 - "Illuminate\Queue\SerializesModels"
+Cohesion: 0.19
+Nodes (4): ApplicationRejected, InvitationRenewalRequested, RegistrationApproved, Illuminate\Queue\SerializesModels
 
 ### Community 90 - "Form & Input Components"
 Cohesion: 0.06
@@ -894,13 +896,21 @@ Nodes (48): discountPct, emit, hasDiscount, imageError, ISSUE_BANNERS, issueBann
 Cohesion: 0.07
 Nodes (27): { addToCart }, availableBrands, availableConditions, emit, facetOf(), filteredProducts, handleAddToCart(), handleHeaderSearch() (+19 more)
 
+### Community 94 - "useBuyerPayments.js"
+Cohesion: 0.12
+Nodes (29): persistPaymentDetails(), placeOrder(), validatePaymentSelection(), handleCodToggle(), submitForm(), validateCard(), addCard(), addWallet() (+21 more)
+
 ### Community 95 - "Typography Specifications"
 Cohesion: 0.06
 Nodes (30): Accessibility, Base System, Best Practices, Clean & Modern, Common Font Pairings, Contrast Requirements, CSS Implementation, Editorial (+22 more)
 
-### Community 97 - "logo/core.py"
+### Community 96 - "Illuminate\Http\JsonResponse"
 Cohesion: 0.07
-Nodes (29): BM25, detect_domain(), _load_csv(), Load CSV and return list of dicts, Core search function using BM25, Auto-detect the most relevant domain from query, Main search function with auto-domain detection, Search across all domains and combine results (+21 more)
+Nodes (13): AccountController, CatalogController, PsgcProxyController, CategoryConfigController, SellerCourierController, SellerNotificationController, SellerReportController, SellerReportService (+5 more)
+
+### Community 97 - "BM25"
+Cohesion: 0.28
+Nodes (5): BM25, BM25 ranking algorithm for text search, Lowercase, split, remove punctuation, filter short words, Build BM25 index from documents, Score all documents against query
 
 ### Community 99 - "ProductReviewsDrawer.vue"
 Cohesion: 0.10
@@ -910,23 +920,13 @@ Nodes (25): breakdownRows, close(), closeBtnRef, emit, { error: toastError, info
 Cohesion: 0.08
 Nodes (26): Compliance, actionLabels, { adminFetch }, categoryState, closeAction(), hasLoadedOnce, loading, loadProducts() (+18 more)
 
-### Community 102 - "PaymentMethods.vue"
-Cohesion: 0.06
-Nodes (53): persistPaymentDetails(), placeOrder(), validatePaymentSelection(), brandTone, cardForm, {
-    cards,
-    wallets,
-    hasMethods,
-    codEnabled,
-    WALLET_PROVIDERS,
-    luhnValid,
-    parseExpiry,
-    addCard,
-    updateCard,
-    addWallet,
-    removeMethod,
-    setPrimary,
-    setCod
-}, closeForm(), confirmRemoveCard() (+45 more)
+### Community 101 - "useMessaging"
+Cohesion: 0.17
+Nodes (23): confirmReport(), goBackToList(), onListScroll(), runDeleteConversation(), runStatusAction(), apiFetch(), closeActiveConversation(), deleteConversation() (+15 more)
+
+### Community 102 - "search_stack"
+Cohesion: 0.10
+Nodes (10): _exact_stack_identifier(), Resolve a standalone API identifier even when its BM25 IDF is low., Search stack-specific guidelines, search_stack(), Freshness and migration contracts for native, desktop, and 3D stacks., _rows(), TestNativeDesktopStackFreshness, _rows() (+2 more)
 
 ### Community 104 - "Logo Usage Rules"
 Cohesion: 0.07
@@ -949,8 +949,8 @@ Cohesion: 0.07
 Nodes (15): Test adding colors multiple times., Test adding full color palette., Test TailwindConfigGenerator class., Test that adding same plugin twice doesn't duplicate., Test generating config with plugins., Test writing configuration to file., Test initialization for JavaScript config., Test that written config contains expected content. (+7 more)
 
 ### Community 109 - "useMessaging.js"
-Cohesion: 0.06
-Nodes (64): addAttachment(), clearListFilters(), confirmReport(), findStaged(), goBackToList(), onFilePicked(), onListScroll(), onSearchInput() (+56 more)
+Cohesion: 0.07
+Nodes (28): activeConversation, activeConversationError, activeConversationId, ALLOWED_ATTACHMENT_TYPES, attachmentUrlCache, backendMissing, conversationCache, conversations (+20 more)
 
 ### Community 110 - "Inertia v3 Features"
 Cohesion: 0.07
@@ -960,13 +960,13 @@ Nodes (27): Basic Link Component, Basic Usage, Client-Side Navigation, Common Pi
 Cohesion: 0.11
 Nodes (27): closeDeactivateModals(), confirmDeactivate(), draftAge, onAvatarCropped(), saveProfile(), showMessage(), validateProfile(), address (+19 more)
 
-### Community 112 - "Illuminate\Database\Eloquent\Factories\HasFactory"
-Cohesion: 0.11
-Nodes (8): SupportTicketInternalNote, ConversationParticipantFactory, LogisticsBarangayAssignmentFactory, ParcelAssignmentFactory, SupportTicketFactory, SupportTicketInternalNoteFactory, Illuminate\Database\Eloquent\Factories\Factory, Illuminate\Database\Eloquent\Factories\HasFactory
+### Community 112 - "generate_design_system"
+Cohesion: 0.06
+Nodes (28): ansi_ljust(), _detect_page_type(), format_ascii_box(), format_markdown(), format_master_md(), format_page_override_md(), generate_design_system(), _generate_intelligent_overrides() (+20 more)
 
 ### Community 113 - "SavedAddresses.vue"
-Cohesion: 0.08
-Nodes (40): {
+Cohesion: 0.12
+Nodes (23): {
     addresses,
     hasAddresses,
     ADDRESS_LABELS,
@@ -974,15 +974,29 @@ Nodes (40): {
     updateAddress,
     removeAddress,
     setDefault
-}, closeForm(), confirmDelete(), editingId, emit, errors, feedback, form (+32 more)
+}, closeForm(), confirmDelete(), editingId, emit, errors, feedback, form (+15 more)
 
-### Community 114 - "MessageAttachment"
-Cohesion: 0.12
-Nodes (8): PruneStagedMessageAttachments, MessageAttachmentController, MessageAttachment, Illuminate\Console\Attributes\Description, Illuminate\Console\Attributes\Signature, Illuminate\Support\Facades\Storage, Illuminate\Support\Facades\URL, Symfony\Component\HttpFoundation\BinaryFileResponse
+### Community 114 - "Message"
+Cohesion: 0.06
+Nodes (11): PruneStagedMessageAttachments, MessageController, MessageAttachmentController, Message, MessageAttachment, Illuminate\Console\Attributes\Description, Illuminate\Console\Attributes\Signature, Illuminate\Database\Eloquent\SoftDeletes (+3 more)
 
-### Community 115 - "Illuminate\Database\Eloquent\Builder"
-Cohesion: 0.16
-Nodes (3): CommissionController, MessageController, Illuminate\Database\Eloquent\Builder
+### Community 115 - "PaymentMethods.vue"
+Cohesion: 0.10
+Nodes (24): brandTone, cardForm, {
+    cards,
+    wallets,
+    hasMethods,
+    codEnabled,
+    WALLET_PROVIDERS,
+    luhnValid,
+    parseExpiry,
+    addCard,
+    updateCard,
+    addWallet,
+    removeMethod,
+    setPrimary,
+    setCod
+}, closeForm(), confirmRemoveCard(), confirmRemoveWallet(), editingId, emit (+16 more)
 
 ### Community 116 - "Asset Approval Checklist"
 Cohesion: 0.08
@@ -1002,7 +1016,7 @@ Nodes (21): averageRating, { confirm }, editForm, editingId, emit, filteredRevie
 
 ### Community 120 - "seller/components/Reports.vue"
 Cohesion: 0.08
-Nodes (18): activeListingsShare, customFromInput, customRangeError, customToInput, { formatCurrency }, fulfilledSparkPoints, lastUpdatedLabel, prefersReducedMotion() (+10 more)
+Nodes (19): activeListingsShare, customFromInput, customRangeError, customToInput, { formatCurrency }, fulfilledSparkPoints, lastUpdatedLabel, prefersReducedMotion() (+11 more)
 
 ### Community 121 - "Color Palette Management"
 Cohesion: 0.08
@@ -1020,13 +1034,13 @@ Nodes (24): Accessibility, Accessibility Requirements, ARIA States, Color Contra
 Cohesion: 0.08
 Nodes (24): Accessibility Patterns, Alternative: Tailwind-Only Setup, Best Practices, Common Patterns, Component Layer: shadcn/ui, Component Library Guide, Component + Styling Setup, Core Stack (+16 more)
 
-### Community 125 - "LogisticsProvincialAssignment"
-Cohesion: 0.10
-Nodes (6): LogisticsProvincialAssignment, LogisticsRegionalAssignment, ProductOptionValue, Database\Factories\LogisticsProvincialAssignmentFactory, Database\Factories\LogisticsRegionalAssignmentFactory, Illuminate\Database\Eloquent\Relations\BelongsToMany
-
 ### Community 126 - "Workflow"
 Cohesion: 0.08
 Nodes (23): Art Direction Styles (Reuse from Banner), Color & Contrast, Design Best Practices, HTML Design Rules, HTML Template Structure, Option A: Chrome Headless CLI (Recommended — zero dependencies), Option B: chrome-devtools skill, Option C: Playwright script (+15 more)
+
+### Community 127 - "SellerProductController"
+Cohesion: 0.17
+Nodes (3): SellerProductController, StoreProductRequest, UpdateProductRequest
 
 ### Community 128 - "OrderJourneyMap.vue"
 Cohesion: 0.11
@@ -1041,8 +1055,8 @@ Cohesion: 0.09
 Nodes (22): @apply Directive, Best Practices, Color Customization, Complete Tailwind Config, Configuration Examples, Content Configuration, Custom Color Palette, Custom Font Sizes (+14 more)
 
 ### Community 131 - "AdminLayout.vue"
-Cohesion: 0.08
-Nodes (20): adminInitials, {
+Cohesion: 0.07
+Nodes (22): resources_css_admin_layout, adminInitials, {
     adminScope,
     isLoading,
     isAuthenticated,
@@ -1053,19 +1067,19 @@ Nodes (20): adminInitials, {
     loadNotifications,
     checkAuth,
     confirmLogout,
-}, allowedSections, Complaints, componentMap, currentComponent, currentComponentProps, currentSection (+12 more)
+}, allowedSections, componentMap, currentComponent, currentComponentProps, currentSection (+14 more)
 
-### Community 132 - "Illuminate\Database\Eloquent\Relations\HasOne"
-Cohesion: 0.10
-Nodes (3): CourierDetail, DriverDetail, Illuminate\Database\Eloquent\Relations\HasOne
+### Community 132 - "admin/components/Chat.vue"
+Cohesion: 0.12
+Nodes (20): Chat, addNote(), { adminUser }, claimTicket(), errorMessage, filter, isAssignedToMe, isLoading (+12 more)
 
 ### Community 133 - "useFeedback.js"
 Cohesion: 0.09
 Nodes (22): activeProductStat, exportError, filters, hasActiveFilters, hasAnyReviewsAtAll, hasReviews, isExporting, isLoadingProductStats (+14 more)
 
-### Community 134 - "openEditProductSheet"
+### Community 134 - "loadCategoryConfig"
 Cohesion: 0.33
-Nodes (9): addVariant(), blankForm(), blankSpecifications(), clearStaging(), comboKey(), onSubcategoryChange(), openEditProductSheet(), openNewProductSheet() (+1 more)
+Nodes (10): addVariant(), blankForm(), blankSpecifications(), clearStaging(), comboKey(), onSubcategoryChange(), openEditProductSheet(), openNewProductSheet() (+2 more)
 
 ### Community 135 - "generate-slide.py"
 Cohesion: 0.13
@@ -1085,7 +1099,7 @@ Nodes (20): Reports, { adminFetch }, clearDates(), exporting, exportReport(), fr
 
 ### Community 139 - "useAdmin.js"
 Cohesion: 0.11
-Nodes (22): accounts, ADMIN_SCOPES, adminProfile, adminScope, adminUser, checkAuth(), confirmLogout(), formatDate() (+14 more)
+Nodes (23): closeDeactivateModals(), confirmDeactivate(), accounts, ADMIN_SCOPES, adminProfile, adminScope, adminUser, checkAuth() (+15 more)
 
 ### Community 140 - "TailwindConfigGenerator"
 Cohesion: 0.10
@@ -1123,9 +1137,9 @@ Nodes (19): Base Color Presets, Best Practices, Color Customization, Color Forma
 Cohesion: 0.10
 Nodes (19): Architecture Testing, Assertions, Basic Test Structure, Basic Usage, Browser Test Example, Common Pitfalls, Creating Tests, Datasets (+11 more)
 
-### Community 149 - "ComplaintStatusChanged"
-Cohesion: 0.20
-Nodes (6): ComplaintStatusChanged, SellerComplianceNotice, Illuminate\Contracts\Queue\ShouldQueue, Illuminate\Mail\Mailables\Attachment, Illuminate\Mail\Mailables\Content, Illuminate\Mail\Mailables\Envelope
+### Community 149 - "getSupabase"
+Cohesion: 0.36
+Nodes (7): resources_css_logistics_logistics, checkAuth(), getSupabase(), mount(), resolveRole(), mount(), fetchOwnProfile()
 
 ### Community 150 - "Asset Organization Guide"
 Cohesion: 0.11
@@ -1147,6 +1161,10 @@ Nodes (18): generate_css_for_background(), get_background_image(), get_curated_i
 Cohesion: 0.11
 Nodes (19): $type, $value, background, foreground, muted-foreground, primary, primary-hover, secondary (+11 more)
 
+### Community 155 - "test_relevance_evaluator.py"
+Cohesion: 0.12
+Nodes (5): Unit tests for metric math and relevance fixture validation., TestFixtureValidation, TestMetricMath, TestThresholdGate, importlib_util
+
 ### Community 156 - "applyDragValue"
 Cohesion: 0.33
 Nodes (10): applyDragValue(), clampPrice(), onDragMove(), onMaxInputChange(), onMinInputChange(), onThumbKeydown(), onTrackPointerDown(), startDrag() (+2 more)
@@ -1156,24 +1174,24 @@ Cohesion: 0.16
 Nodes (18): activeFilter, buildQuery(), cache, canLoadMore, error, fetchPage(), hydrateFromCache(), isLoading (+10 more)
 
 ### Community 158 - "useLogisticsProfile.js"
-Cohesion: 0.15
-Nodes (18): onAvatarCropped(), address, age, avatarUrl, company, fullName, initials, loadProfileData() (+10 more)
+Cohesion: 0.13
+Nodes (19): onAvatarCropped(), address, age, avatarUrl, company, fullName, initials, loadProfileData() (+11 more)
 
 ### Community 159 - "useLogisticsUi.js"
 Cohesion: 0.16
 Nodes (21): statusOptions, riderName(), currentStatusNote, isParcelActionable(), badgeClass(), confirmState, DATE_OPTS, dismissToast() (+13 more)
 
-### Community 160 - "app-logistics.js"
-Cohesion: 0.12
-Nodes (5): App, CodeInput, FileDropzone, PasswordStrength, supabase
+### Community 160 - "vue"
+Cohesion: 0.07
+Nodes (14): *.vue, vue, resources_css_app, App, CodeInput, FileDropzone, PasswordStrength, supabase (+6 more)
 
-### Community 161 - "SupportTicketController"
-Cohesion: 0.15
-Nodes (3): SupportTicketController, ReplySupportTicketRequest, StoreSupportTicketRequest
+### Community 162 - "ComplaintStatusChanged"
+Cohesion: 0.20
+Nodes (6): ComplaintStatusChanged, SellerComplianceNotice, Illuminate\Contracts\Queue\ShouldQueue, Illuminate\Mail\Mailables\Attachment, Illuminate\Mail\Mailables\Content, Illuminate\Mail\Mailables\Envelope
 
-### Community 163 - "useBuyerChat"
-Cohesion: 0.17
-Nodes (16): closeArchivedView(), handleKeydown(), onListScroll(), openArchivedView(), runDeleteConversation(), closeChat(), conversationsQuery(), deleteConversation() (+8 more)
+### Community 163 - "useBuyerChat.js"
+Cohesion: 0.05
+Nodes (78): laravel-echo, pusher-js, closeArchivedView(), handleKeydown(), loadProductPickerPage(), onFilePicked(), onListScroll(), onThreadScroll() (+70 more)
 
 ### Community 164 - "Brand Consistency Checklist"
 Cohesion: 0.11
@@ -1191,9 +1209,9 @@ Nodes (17): Accent, Applying Semantic Tokens, Background & Foreground, Border & 
 Cohesion: 0.10
 Nodes (13): emit, newsletterEmail, newsletterSubscribed, subscribeNewsletter(), emit, filteredOrders, handleHeaderSearch(), handleHeaderSelectCategory() (+5 more)
 
-### Community 168 - "OrderTrackingService"
-Cohesion: 0.19
-Nodes (3): SimulateParcelTracking, OrderTrackingService, PhilippineGeo
+### Community 168 - "backendClient.js"
+Cohesion: 0.17
+Nodes (19): deleteCookie(), getCookie(), getSupabase(), readSession(), ROLE_DASHBOARDS, useHomeSession(), logout(), createAuth() (+11 more)
 
 ### Community 169 - "Design Principles"
 Cohesion: 0.12
@@ -1208,8 +1226,8 @@ Cohesion: 0.12
 Nodes (16): $type, $value, $type, $value, $type, $value, $type, $value (+8 more)
 
 ### Community 172 - "dependencies"
-Cohesion: 0.12
-Nodes (16): dependencies, chart.js, clsx, concurrently, @inertiajs/vite, @inertiajs/vue3, laravel-vite-plugin, leaflet (+8 more)
+Cohesion: 0.11
+Nodes (18): dependencies, chart.js, clsx, concurrently, @inertiajs/vite, @inertiajs/vue3, laravel-echo, laravel-vite-plugin (+10 more)
 
 ### Community 173 - "useSellerNotifications.js"
 Cohesion: 0.23
@@ -1243,9 +1261,9 @@ Nodes (14): AIDA (Attention-Interest-Desire-Action), Before-After-Bridge, Contra
 Cohesion: 0.13
 Nodes (15): devDependencies, eslint, eslint-config-prettier, eslint-import-resolver-typescript, @eslint/js, eslint-plugin-import, eslint-plugin-vue, @laravel/vite-plugin-wayfinder (+7 more)
 
-### Community 182 - "admin/components/Chat.vue"
-Cohesion: 0.12
-Nodes (20): Chat, addNote(), { adminUser }, claimTicket(), errorMessage, filter, isAssignedToMe, isLoading (+12 more)
+### Community 182 - "apiWithMeta"
+Cohesion: 0.25
+Nodes (14): api(), apiWithMeta(), chronological(), clearStagedAttachments(), closeConversation(), fetchNewMessages(), loadOlderMessages(), onMessageBodyScroll() (+6 more)
 
 ### Community 183 - "Banner Design - Multi-Format Creative Banner System"
 Cohesion: 0.14
@@ -1291,13 +1309,13 @@ Nodes (13): Basic Usage, Common Patterns, Common Pitfalls, CSS-First Configurati
 Cohesion: 0.18
 Nodes (11): closeModal(), comment, displayedRating, emit, handleKeydown(), hoveredRating, productName, props (+3 more)
 
-### Community 194 - "openConversation"
-Cohesion: 0.26
-Nodes (14): openCourierConversation(), openSellerConversation(), sendSellerMessage(), mapConversation(), mapMessage(), openConversation(), refreshUnreadCount(), retryMessage() (+6 more)
+### Community 194 - "scrollToBottom"
+Cohesion: 0.18
+Nodes (15): applyQuickReply(), autosizeTextarea(), confirmParcelInquiry(), contactLogistics(), onDraftInput(), onSend(), prefersReducedMotion(), scrollToBottom() (+7 more)
 
-### Community 195 - "apiWithMeta"
-Cohesion: 0.25
-Nodes (14): api(), apiWithMeta(), chronological(), clearStagedAttachments(), closeConversation(), fetchNewMessages(), loadOlderMessages(), onMessageBodyScroll() (+6 more)
+### Community 195 - "useCouriers.js"
+Cohesion: 0.38
+Nodes (6): authHeaders(), couriers, isLoadingCouriers, loadCouriers(), loadError, useCouriers()
 
 ### Community 196 - "update.md"
 Cohesion: 0.15
@@ -1320,7 +1338,7 @@ Cohesion: 0.15
 Nodes (13): scripts, ci:check, dev, lint, lint:check, post-autoload-dump, post-create-project-cmd, post-root-package-install (+5 more)
 
 ### Community 201 - "laravel-best-practices/SKILL.md"
-Cohesion: 0.15
+Cohesion: 0.17
 Nodes (10): Configuration Best Practices, `env()` Only in Config Files, Use `App::environment()` for Environment Checks, Use Constants and Language Files, Use Encrypted Env or External Secrets, Consistency First, Decision Rules, How to Apply (+2 more)
 
 ### Community 202 - "Socialite Authentication"
@@ -1331,9 +1349,9 @@ Nodes (12): 1. Configure the provider, 2. Create redirect and callback routes, 3
 Cohesion: 0.21
 Nodes (13): applyProvinceList(), cancelEditing(), copyStateToDraft(), dedupeByCodeOrName(), fetchBarangays(), fetchMunicipalities(), fetchProvinces(), onMunicipalityChange() (+5 more)
 
-### Community 204 - ".test_add_all_components_success"
-Cohesion: 0.22
-Nodes (5): Test successful component addition., Test component addition with subprocess error., Test component addition when npx is not found., Test successful addition of all components., patch
+### Community 204 - "Complaint"
+Cohesion: 0.13
+Nodes (4): ComplaintController, Complaint, Illuminate\Database\Eloquent\Collection, Illuminate\Support\Carbon
 
 ### Community 205 - "useFeedback"
 Cohesion: 0.28
@@ -1371,7 +1389,11 @@ Nodes (12): require-dev, fakerphp/faker, larastan/larastan, laravel/boost, larav
 Cohesion: 0.17
 Nodes (11): Architecture Best Practices, Code to Interfaces, Convention Over Configuration, Default Sort by Descending, Single-Purpose Action Classes, Use Atomic Locks for Race Conditions, Use `Concurrency::run()` for Parallel Execution, Use `Context` for Request-Scoped Data (+3 more)
 
-### Community 215 - "Events & Notifications Best Practices"
+### Community 214 - "buyer.php"
+Cohesion: 0.13
+Nodes (4): AddressController, OrderController, PaymentMethodController, Illuminate\Support\Facades\Route
+
+### Community 215 - "AppServiceProvider.php"
 Cohesion: 0.12
 Nodes (13): AppServiceProvider, Always Queue Notifications, Events & Notifications Best Practices, Implement `HasLocalePreference` on Notifiable Models, Rely on Event Discovery, Route Notification Channels to Dedicated Queues, Run `event:cache` in Production Deploy, Use `afterCommit()` on Notifications in Transactions (+5 more)
 
@@ -1400,7 +1422,7 @@ Cohesion: 0.18
 Nodes (10): Always Implement `failed()`, Batch Related Jobs, Implement `ShouldBeUnique`, Queue & Job Best Practices, Rate Limit External API Calls in Jobs, `retryUntil()` Needs `$tries = 0`, Set `retry_after` Greater Than `timeout`, Use Exponential Backoff (+2 more)
 
 ### Community 222 - "Security Best Practices"
-Cohesion: 0.18
+Cohesion: 0.17
 Nodes (11): Audit Dependencies, Authorize Every Action, CSRF Protection, Encrypt Sensitive Database Fields, Escape Output to Prevent XSS, Keep Secrets Out of Code, Mass Assignment Protection, Prevent SQL Injection (+3 more)
 
 ### Community 223 - "compilerOptions"
@@ -1459,17 +1481,17 @@ Nodes (9): Add Database Indexes, Always Eager Load Relationships, Chunk Large Da
 Cohesion: 0.20
 Nodes (9): Common Methods, Common Pitfalls, Documentation, Generate Routes, Import Patterns, Quick Reference, Verification, Wayfinder Development (+1 more)
 
-### Community 238 - "PreventAdminSelfRegistrationTest"
-Cohesion: 0.24
-Nodes (3): Illuminate\Foundation\Testing\TestCase, PreventAdminSelfRegistrationTest, TestCase
+### Community 238 - "useBuyerAddresses.js"
+Cohesion: 0.20
+Nodes (17): submitForm(), validate(), addAddress(), ADDRESS_LABELS, addresses, defaultAddress, fetchAddresses(), hasAddresses (+9 more)
 
 ### Community 239 - "TestGeneratedConfigIsValidJs"
 Cohesion: 0.25
 Nodes (7): Reduce a generated TS/JS config to a bare assignable object so it can be handed…, Regression guard for the missing-comma bug between the ``theme`` block and…, The property preceding ``plugins`` must end with a comma (pure-Python check, so…, The emitted config parses as valid JS via ``node --check``., _strip_to_object(), TestGeneratedConfigIsValidJs, parametrize
 
-### Community 240 - "LogisticsInvitation"
-Cohesion: 0.18
-Nodes (4): InvitationController, LogisticsInvitation, self, Illuminate\Database\Eloquent\Concerns\HasUuids
+### Community 240 - "InboxChanged"
+Cohesion: 0.17
+Nodes (5): ConversationMessageCreated, InboxChanged, ConversationBroadcaster, Illuminate\Broadcasting\PrivateChannel, Illuminate\Contracts\Broadcasting\ShouldBroadcastNow
 
 ### Community 241 - "Caching Best Practices"
 Cohesion: 0.22
@@ -1487,9 +1509,9 @@ Nodes (9): scripts, build, build:ssr, dev, format, format:check, lint, lint:chec
 Cohesion: 0.22
 Nodes (8): ComponentCustomProperties, ImportMeta, ImportMetaEnv, InertiaConfig, @inertiajs/core, vite/client, vue, ref_types_auth
 
-### Community 245 - "handleSave"
-Cohesion: 0.25
-Nodes (9): closeDeactivateModals(), closePasswordModal(), confirmDeactivate(), handleEscape(), handleSave(), showToast(), stripSavedCode(), submitNewPassword() (+1 more)
+### Community 245 - "confirmDeactivate"
+Cohesion: 0.22
+Nodes (10): closeDeactivateModals(), closePasswordModal(), confirmDeactivate(), handleEscape(), handleSave(), showToast(), stripSavedCode(), submitNewPassword() (+2 more)
 
 ### Community 246 - "clearDraft"
 Cohesion: 0.25
@@ -1504,8 +1526,8 @@ Cohesion: 0.25
 Nodes (7): How to Use, Primary Use Cases, Recommended, Rule Categories by Priority, Skip, UI/UX Pro Max - Design Intelligence, When to Apply
 
 ### Community 249 - "require"
-Cohesion: 0.25
-Nodes (8): require, inertiajs/inertia-laravel, laravel/framework, laravel/sanctum, laravel/socialite, laravel/tinker, laravel/wayfinder, php
+Cohesion: 0.22
+Nodes (9): require, inertiajs/inertia-laravel, laravel/framework, laravel/reverb, laravel/sanctum, laravel/socialite, laravel/tinker, laravel/wayfinder (+1 more)
 
 ### Community 250 - "Blade & Views Best Practices"
 Cohesion: 0.25
@@ -1523,9 +1545,9 @@ Nodes (7): Task Scheduling Best Practices, Use `environments()` to Restrict Task
 Cohesion: 0.25
 Nodes (7): Call `Event::fake()` After Factory Setup, Testing Best Practices, Use `Exceptions::fake()` to Assert Exception Reporting, Use Factory States and Sequences, Use `LazilyRefreshDatabase` Over `RefreshDatabase`, Use Model Assertions Over Raw Database Assertions, Use `recycle()` to Share Relationship Instances Across Factories
 
-### Community 254 - "detect_domain"
-Cohesion: 0.23
-Nodes (3): detect_domain(), Auto-detect the most relevant domain from query. Matches are weighted by…, TestDomainDetection
+### Community 254 - "PasswordResetController"
+Cohesion: 0.19
+Nodes (3): PasswordResetController, PasswordResetCodeMail, PasswordResetCode
 
 ### Community 255 - "Slides Reference"
 Cohesion: 0.29
@@ -1535,9 +1557,9 @@ Nodes (6): Key Features, Knowledge Base, Slides Reference, Usage, When to Use, W
 Cohesion: 0.29
 Nodes (6): Animation Classes, Background Images, Base Structure, Chart.js Integration, CSS Variables Reference, HTML Slide Template
 
-### Community 257 - "loadConversations"
-Cohesion: 0.25
-Nodes (8): buildQuery(), loadConversations(), loadMoreConversations(), onListScroll(), onSearchInput(), onVisibilityChange(), setStatusFilter(), syncConversationMeta()
+### Community 257 - "SellerNotifier"
+Cohesion: 0.28
+Nodes (3): CheckoutController, DirectConversationService, SellerNotifier
 
 ### Community 258 - "HTML Slide Template"
 Cohesion: 0.29
@@ -1575,9 +1597,9 @@ Nodes (6): Always Use `validated()`, Array vs. String Notation for Rules, Use Fo
 Cohesion: 0.43
 Nodes (4): backfillMessageContext(), mergeDuplicateConversations(), relabelToDirectIdentity(), up()
 
-### Community 267 - "Illuminate\Mail\Mailable"
-Cohesion: 0.19
-Nodes (4): ApplicationAccepted, TeamInvitation, SignupVerificationCodeMail, Illuminate\Mail\Mailable
+### Community 267 - "lg"
+Cohesion: 0.60
+Nodes (5): lg, $type, $value, lg, lg
 
 ### Community 268 - "OrderStatusBadge.vue"
 Cohesion: 0.29
@@ -1603,17 +1625,33 @@ Nodes (6): Available Domains, Available Stacks, How to Use This Skill, Output Fo
 Cohesion: 0.43
 Nodes (6): Illuminate\Testing\TestResponse, acceptAutoAssignRider(), appointBarangayRider(), computeTransferTrigger(), pressAutoAssign(), queuedParcelFor()
 
-### Community 277 - "adminFetch"
-Cohesion: 0.24
-Nodes (13): closeDeactivateModals(), closePasswordModal(), confirmDeactivate(), handleEscape(), hydrateAddressFromServer(), loadProfile(), onAvatarCropped(), saveAddressSection() (+5 more)
+### Community 275 - "Illuminate\Mail\Mailable"
+Cohesion: 0.19
+Nodes (4): ApplicationTerminated, TeamInvitation, SignupVerificationCodeMail, Illuminate\Mail\Mailable
 
-### Community 282 - "LogisticsNotificationController.php"
-Cohesion: 0.20
-Nodes (3): ApplicationInterview, ApplicationRejected, Carbon\Carbon
+### Community 276 - "ProfileProvisioner"
+Cohesion: 0.28
+Nodes (3): ImportSupabaseAuth, ProfileProvisioner, G. Database & migrations
 
-### Community 283 - "stockStatusOf"
-Cohesion: 0.24
-Nodes (10): lowStockItems, lowStockProductsCount, inventoryValue, lowStockCount, needsAttentionItems, outOfStockCount, stockModalCurrentQty, effectiveStock() (+2 more)
+### Community 278 - "QuantityStepper.vue"
+Cohesion: 0.36
+Nodes (6): clamp(), commit(), draft, emit, props, step()
+
+### Community 280 - "sm"
+Cohesion: 0.60
+Nodes (5): sm, sm, sm, $type, $value
+
+### Community 281 - "xl"
+Cohesion: 0.67
+Nodes (4): xl, xl, $type, $value
+
+### Community 282 - "none"
+Cohesion: 0.67
+Nodes (4): $type, $value, none, none
+
+### Community 283 - "loadConversations"
+Cohesion: 0.25
+Nodes (8): buildQuery(), loadConversations(), loadMoreConversations(), onListScroll(), onSearchInput(), onVisibilityChange(), setStatusFilter(), syncConversationMeta()
 
 ### Community 284 - "Brand Guidelines Template"
 Cohesion: 0.40
@@ -1651,25 +1689,21 @@ Nodes (4): Illuminate\Cookie\Middleware\EncryptCookies, Illuminate\Foundation\Ht
 Cohesion: 0.40
 Nodes (5): optionalDependencies, @laravel/multiplex, lightningcss-linux-x64-gnu, @rollup/rollup-linux-x64-gnu, @tailwindcss/oxide-linux-x64-gnu
 
-### Community 295 - "useCouriers.js"
-Cohesion: 0.38
-Nodes (6): authHeaders(), couriers, isLoadingCouriers, loadCouriers(), loadError, useCouriers()
+### Community 295 - "16"
+Cohesion: 0.67
+Nodes (3): $type, $value, 16
 
-### Community 296 - "lg"
-Cohesion: 0.60
-Nodes (5): lg, $type, $value, lg, lg
-
-### Community 297 - "sm"
-Cohesion: 0.60
-Nodes (5): sm, sm, sm, $type, $value
+### Community 296 - "1"
+Cohesion: 0.67
+Nodes (3): $type, $value, 1
 
 ### Community 298 - "padding-y"
 Cohesion: 0.67
 Nodes (4): padding-y, padding-y, $type, $value
 
-### Community 300 - "uploadAttachment"
-Cohesion: 0.50
-Nodes (5): findStagedAttachment(), onFilePicked(), removeStagedAttachment(), uploadAttachment(), validateAttachment()
+### Community 300 - "3"
+Cohesion: 0.67
+Nodes (3): $type, $value, 3
 
 ### Community 301 - "Tips for Better Results"
 Cohesion: 0.50
@@ -1679,21 +1713,25 @@ Nodes (4): Common Sticking Points, Pre-Delivery Checklist, Query Strategy, Tips 
 Cohesion: 0.50
 Nodes (3): Illuminate\Foundation\Inspiring, Illuminate\Support\Facades\Artisan, Illuminate\Support\Facades\Schedule
 
-### Community 305 - "useReports"
-Cohesion: 0.25
-Nodes (19): apiFetch(), authHeaders(), downloadReport(), exportCsv(), goToReportPage(), initFromUrl(), loadAll(), loadCustomerMix() (+11 more)
-
-### Community 307 - "xl"
+### Community 304 - "8"
 Cohesion: 0.67
-Nodes (4): xl, xl, $type, $value
+Nodes (3): $type, $value, 8
 
-### Community 308 - "none"
-Cohesion: 0.67
-Nodes (4): $type, $value, none, none
+### Community 307 - "usePsgc.js"
+Cohesion: 0.32
+Nodes (11): dedupeByCodeOrName(), fetchBarangays(), fetchJson(), fetchMunicipalities(), fetchProvinces(), inFlight, loadList(), memo (+3 more)
 
-### Community 309 - "onFilePicked"
-Cohesion: 0.50
-Nodes (4): findStagedAttachment(), onFilePicked(), removeStagedAttachment(), validateAttachment()
+### Community 308 - "api.php"
+Cohesion: 0.08
+Nodes (8): AccountRegistrationController, CommissionController, UserAccountController, AccountController, LogisticsAccountController, Document, BelongsTo, SellerDetail
+
+### Community 309 - "Detection Checklist"
+Cohesion: 0.18
+Nodes (10): A. Validation & HTTP input, B. Controllers & routing, C. Authorization, D. Eloquent & models, Detection Checklist, E. Architecture & organization, F. Frontend & views, H. Testing (+2 more)
+
+### Community 310 - "Process"
+Cohesion: 0.18
+Nodes (10): Edge cases, Glob mapping, Infer Conventions, Process, Step 0: Orient, Step 1: Predefined sweep, Step 2: Open-ended pass, Step 3: Confirm (+2 more)
 
 ### Community 311 - "destructive"
 Cohesion: 0.67
@@ -1723,29 +1761,49 @@ Nodes (3): secondary-foreground, $type, $value
 Cohesion: 0.67
 Nodes (3): extra, laravel, dont-discover
 
-### Community 319 - "16"
-Cohesion: 0.67
-Nodes (3): $type, $value, 16
-
-### Community 320 - "1"
-Cohesion: 0.67
-Nodes (3): $type, $value, 1
-
-### Community 321 - "3"
-Cohesion: 0.67
-Nodes (3): $type, $value, 3
-
-### Community 322 - "8"
-Cohesion: 0.67
-Nodes (3): $type, $value, 8
-
-### Community 324 - "handleSave"
-Cohesion: 0.40
-Nodes (5): closeSheet(), confirmDiscard(), confirmSave(), handleCancelClick(), handleSave()
-
-### Community 339 - "Illuminate\Database\Schema\Blueprint"
+### Community 320 - "Illuminate\Validation\Rule"
 Cohesion: 0.07
-Nodes (3): Illuminate\Database\Schema\Blueprint, Illuminate\Http\Client\Request, makeLogisticsCompany()
+Nodes (8): DocumentReviewRequest, StoreSellerComplianceActionRequest, StoreReturnRequest, UpdateAddressRequest, UpdateConversationStatusRequest, AdjustStockRequest, UpdateOrderStatusRequest, Illuminate\Validation\Rule
+
+### Community 321 - "Illuminate\Bus\Queueable"
+Cohesion: 0.19
+Nodes (4): ApplicationAccepted, PasswordResetMail, RegistrationRejected, Illuminate\Bus\Queueable
+
+### Community 325 - "OrderItem"
+Cohesion: 0.11
+Nodes (4): OrderItem, Carbon\CarbonInterface, Illuminate\Database\Eloquent\Relations\HasOne, makeBuyerOrder()
+
+### Community 326 - "vite.config.ts"
+Cohesion: 0.29
+Nodes (6): laravel-vite-plugin, ref_node_fs, @tailwindcss/vite, vite, @vitejs/plugin-vue, inputs
+
+### Community 328 - "addAttachment"
+Cohesion: 0.40
+Nodes (6): addAttachment(), findStaged(), onFilePicked(), authHeaders(), uploadAttachment(), validateAttachment()
+
+### Community 331 - "Controller"
+Cohesion: 0.08
+Nodes (12): ReturnController, Controller, UploadMessageAttachmentRequest, ConversationParticipant, MessageAttachmentService, ServiceAreaProvisioner, ShipmentConversationService, Illuminate\Database\Eloquent\Builder (+4 more)
+
+### Community 339 - "syncConversationMeta"
+Cohesion: 0.50
+Nodes (4): onRealtimeMessageInsert(), onVisibilityChange(), buildQuery(), syncConversationMeta()
+
+### Community 342 - "setFilter"
+Cohesion: 0.67
+Nodes (3): clearListFilters(), onSearchInput(), setFilter()
+
+### Community 343 - "clearNewIncoming"
+Cohesion: 0.67
+Nodes (3): jumpToNewMessages(), onViewportScroll(), clearNewIncoming()
+
+### Community 344 - "fetchConversationParcels"
+Cohesion: 0.67
+Nodes (3): loadParcelPickerPage(), toggleProductPicker(), fetchConversationParcels()
+
+### Community 361 - "onFilePicked"
+Cohesion: 0.50
+Nodes (4): findStagedAttachment(), onFilePicked(), removeStagedAttachment(), validateAttachment()
 
 ### Community 382 - "closePasswordModal"
 Cohesion: 0.67
@@ -1755,49 +1813,33 @@ Nodes (3): closePasswordModal(), handleEscape(), submitNewPassword()
 Cohesion: 0.67
 Nodes (3): requestPasswordCode(), resendCode(), startCountdown()
 
-### Community 384 - "startCountdown"
+### Community 462 - "Illuminate\Database\Seeder"
+Cohesion: 0.25
+Nodes (5): DatabaseSeeder, LogisticsDeliveryAreaSeeder, ParcelAssignmentSeeder, Illuminate\Database\Console\Seeds\WithoutModelEvents, Illuminate\Database\Seeder
+
+### Community 477 - "startCountdown"
 Cohesion: 0.67
 Nodes (3): requestPasswordCode(), resendCode(), startCountdown()
 
-### Community 462 - "User"
-Cohesion: 0.11
-Nodes (13): User, UserFactory, DatabaseSeeder, LogisticsDeliveryAreaSeeder, ParcelAssignmentSeeder, Illuminate\Database\Console\Seeds\WithoutModelEvents, Illuminate\Database\Eloquent\Attributes\Fillable, Illuminate\Database\Eloquent\Attributes\Hidden (+5 more)
-
-### Community 463 - "setConversationStatus"
-Cohesion: 0.67
-Nodes (3): reopenConversation(), runStatusAction(), setConversationStatus()
-
-### Community 465 - "vite.config.ts"
-Cohesion: 0.29
-Nodes (6): laravel-vite-plugin, ref_node_fs, @tailwindcss/vite, vite, @vitejs/plugin-vue, inputs
-
-### Community 475 - "useBuyerSession.js"
-Cohesion: 0.19
-Nodes (14): loadProductPickerPage(), onThreadScroll(), toggleProductPicker(), buyerApiWithMeta(), request(), useBuyerApi(), fetchConversationProducts(), loadOlderMessages() (+6 more)
-
-### Community 484 - "applyPreset"
-Cohesion: 0.33
-Nodes (6): selectPreset(), submitCustomRange(), applyCustomRange(), applyPreset(), resetFilters(), syncUrl()
-
 ## Knowledge Gaps
 - **3086 isolated node(s):** `fs`, `path`, `fs`, `path`, `fs` (+3081 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 4484 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **192 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 4496 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **167 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `vue` connect `vue` to `BarangayAssignments.vue`, `Inventory.vue`, `admin/components/Profile.vue`, `Team.vue`, `Applications.vue`, `Cart.vue`, `AcceptInvite.vue`, `AccountSettings.vue`, `seller/components/Profile.vue`, `SearchableSelect.vue`, `useLogistics.js`, `useBuyer.js`, `ParcelOperations.vue`, `Account.vue`, `PrepareOrders.vue`, `useSellerProducts.js`, `buyer/components/Dashboard.vue`, `CourierHandover.vue`, `seller/components/Messages.vue`, `buyer/components/Chat.vue`, `seller/components/Dashboard.vue`, `ProductDetails.vue`, `seller/components/OrderDetails.vue`, `logistics/components/Messages.vue`, `Feedback.vue`, `QrCode`, `useBuyerChat.js`, `useReports.js`, `SellerLayout.vue`, `PickupCourierLayout.vue`, `app.js`, `Registrations.vue`, `Checkout.vue`, `Detection Checklist`, `package.json`, `buyer/components/OrderDetails.vue`, `useOrders.js`, `Users.vue`, `js/seller/composables/useSeller.js`, `AttachmentVideoPlayer.vue`, `Home.vue`, `Riders.vue`, `logistics/components/Reports.vue`, `OrderTracking.vue`, `seller/components/Orders.vue`, `Complaints.vue`, `useDeliveries.js`, `Wishlist.vue`, `CategoryListing.vue`, `ProductReviewsDrawer.vue`, `Compliance.vue`, `PaymentMethods.vue`, `useMessaging.js`, `useBuyerAccount.js`, `SavedAddresses.vue`, `ReturnRequestModal.vue`, `Reviews.vue`, `seller/components/Reports.vue`, `OrderJourneyMap.vue`, `useFeedback.js`, `CustomerServicePage.vue`, `admin/components/Reports.vue`, `useAdmin.js`, `Commission.vue`, `admin/components/AvatarCropper.vue`, `buyer/components/AvatarCropper.vue`, `logistics/components/AvatarCropper.vue`, `seller/components/AvatarCropper.vue`, `useProductReviews.js`, `useLogisticsProfile.js`, `useLogisticsUi.js`, `app-logistics.js`, `buyer/components/Orders.vue`, `useSellerNotifications.js`, `OrderFilters.vue`, `admin/components/Chat.vue`, `ReviewModal.vue`, `ConfirmActionDialog.vue`, `OrderStatusBadge.vue`, `useCouriers.js`, `useBuyerSession.js`?**
-  _High betweenness centrality (0.511) - this node is a cross-community bridge._
+- **Why does `vue` connect `vue` to `BarangayAssignments.vue`, `Inventory.vue`, `admin/components/Profile.vue`, `Team.vue`, `Applications.vue`, `Cart.vue`, `AcceptInvite.vue`, `AccountSettings.vue`, `seller/components/Profile.vue`, `SearchableSelect.vue`, `useLogistics.js`, `useBuyer.js`, `ParcelOperations.vue`, `Account.vue`, `PrepareOrders.vue`, `useSellerProducts.js`, `buyer/components/Dashboard.vue`, `CourierHandover.vue`, `seller/components/Messages.vue`, `buyer/components/Chat.vue`, `seller/components/Dashboard.vue`, `ProductDetails.vue`, `seller/components/OrderDetails.vue`, `logistics/components/Messages.vue`, `Feedback.vue`, `QrCode`, `useReports.js`, `SellerLayout.vue`, `LogisticsLayout.vue`, `PickupCourierLayout.vue`, `app.js`, `Registrations.vue`, `Checkout.vue`, `package.json`, `buyer/components/OrderDetails.vue`, `useOrders.js`, `Users.vue`, `js/seller/composables/useSeller.js`, `AttachmentVideoPlayer.vue`, `Home.vue`, `Riders.vue`, `logistics/components/Dashboard.vue`, `OrderTracking.vue`, `seller/components/Orders.vue`, `Complaints.vue`, `useDeliveries.js`, `Wishlist.vue`, `CategoryListing.vue`, `useBuyerPayments.js`, `ProductReviewsDrawer.vue`, `Compliance.vue`, `useMessaging.js`, `useBuyerAccount.js`, `SavedAddresses.vue`, `PaymentMethods.vue`, `ReturnRequestModal.vue`, `Reviews.vue`, `seller/components/Reports.vue`, `OrderJourneyMap.vue`, `AdminLayout.vue`, `admin/components/Chat.vue`, `useFeedback.js`, `CustomerServicePage.vue`, `admin/components/Reports.vue`, `useAdmin.js`, `Commission.vue`, `admin/components/AvatarCropper.vue`, `buyer/components/AvatarCropper.vue`, `logistics/components/AvatarCropper.vue`, `seller/components/AvatarCropper.vue`, `getSupabase`, `useProductReviews.js`, `useLogisticsProfile.js`, `useLogisticsUi.js`, `useBuyerChat.js`, `buyer/components/Orders.vue`, `backendClient.js`, `useSellerNotifications.js`, `OrderFilters.vue`, `ReviewModal.vue`, `useCouriers.js`, `ConfirmActionDialog.vue`, `useBuyerAddresses.js`, `OrderStatusBadge.vue`, `QuantityStepper.vue`?**
+  _High betweenness centrality (0.515) - this node is a cross-community bridge._
+- **Why does `G. Database & migrations` connect `ProfileProvisioner` to `Detection Checklist`, `QuantityStepper.vue`?**
+  _High betweenness centrality (0.346) - this node is a cross-community bridge._
+- **Why does `commit()` connect `QuantityStepper.vue` to `ProfileProvisioner`?**
+  _High betweenness centrality (0.346) - this node is a cross-community bridge._
 - **What connects `fs`, `path`, `fs` to the rest of the system?**
   _3086 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Order` be split into smaller, more focused modules?**
-  _Cohesion score 0.04955570745044429 - nodes in this community are weakly interconnected._
-- **Should `design_system.py` be split into smaller, more focused modules?**
-  _Cohesion score 0.04035087719298246 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.04044750430292599 - nodes in this community are weakly interconnected._
+- **Should `cip/generate.py` be split into smaller, more focused modules?**
+  _Cohesion score 0.07419712070874862 - nodes in this community are weakly interconnected._
 - **Should `BarangayAssignments.vue` be split into smaller, more focused modules?**
   _Cohesion score 0.018925763028122086 - nodes in this community are weakly interconnected._
-- **Should `Inventory.vue` be split into smaller, more focused modules?**
-  _Cohesion score 0.02446941323345818 - nodes in this community are weakly interconnected._
-- **Should `cip/generate.py` be split into smaller, more focused modules?**
-  _Cohesion score 0.07215541165587419 - nodes in this community are weakly interconnected._

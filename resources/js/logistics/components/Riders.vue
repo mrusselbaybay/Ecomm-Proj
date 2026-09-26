@@ -608,6 +608,7 @@
 <script setup>
 import { computed, onActivated, onMounted, ref } from 'vue';
 import { useLogistics } from '../composables/useLogistics';
+import { apiRequest } from '../../shared/accountApi';
 import { useLogisticsUi } from '../composables/useLogisticsUi';
 import NavIcon from './NavIcon.vue';
 
@@ -799,12 +800,10 @@ async function openDocuments(rider) {
     docsLoading.value = true;
 
     try {
-        const { data, error } = await supabase
-            .from('documents')
-            .select('*')
-            .eq('owner_kind', 'profile')
-            .eq('profile_id', rider.courier.id)
-            .order('created_at', { ascending: false });
+        const { data, error } = await apiRequest(
+            supabase,
+            `/api/logistics/couriers/${rider.courier.id}/documents`,
+        );
 
         if (error) {
             throw error;

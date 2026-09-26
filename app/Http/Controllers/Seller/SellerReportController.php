@@ -1082,11 +1082,20 @@ class SellerReportController extends Controller
             default => 'day',
         };
 
+        $bucketSql = DB::connection()->getDriverName() === 'pgsql'
+            ? "date_trunc('{$truncUnit}', placed_at)"
+            : match ($truncUnit) {
+                // Same Monday-start weeks / first-of-month buckets as Postgres' date_trunc.
+                'week' => 'DATE(DATE_SUB(placed_at, INTERVAL WEEKDAY(placed_at) DAY))',
+                'month' => "DATE_FORMAT(placed_at, '%Y-%m-01')",
+                default => 'DATE(placed_at)',
+            };
+
         $rows = Order::where('seller_id', $sellerId)
             ->where('status', 'Delivered')
             ->whereBetween('placed_at', [$from, $to])
             ->select(
-                DB::raw("date_trunc('{$truncUnit}', placed_at) as bucket"),
+                DB::raw("{$bucketSql} as bucket"),
                 DB::raw('sum(total) as revenue'),
                 DB::raw('count(*) as order_count'),
             )

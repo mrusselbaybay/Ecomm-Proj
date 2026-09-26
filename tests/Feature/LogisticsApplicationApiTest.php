@@ -82,7 +82,7 @@ beforeEach(function () {
         $table->timestamps();
     });
 
-    Http::fake(['*' => Http::response(['id' => 'logistics-owner'])]);
+    fakeApiTokens(fn () => 'logistics-owner');
 });
 
 it('returns only applications sent to the signed-in logistics company', function () {
@@ -135,18 +135,9 @@ it('returns only applications sent to the signed-in logistics company', function
         ->assertJsonPath('data.0.courier_details.delivery_status', 'available');
 });
 
-it('rejects requests without a Supabase access token', function () {
+it('rejects requests without an access token', function () {
     $this->getJson('/api/logistics/applications')
         ->assertUnauthorized();
-});
-
-it('returns a service unavailable response when Supabase authentication cannot be reached', function () {
-    Http::fake(fn () => throw new ConnectionException('TLS unavailable'));
-
-    $this->withToken('valid-access-token')
-        ->getJson('/api/logistics/applications')
-        ->assertServiceUnavailable()
-        ->assertJsonPath('message', 'The authentication service is temporarily unavailable.');
 });
 
 it('persists a courier application through the Laravel API', function () {

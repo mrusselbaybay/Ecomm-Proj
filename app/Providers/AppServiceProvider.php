@@ -2,6 +2,10 @@
 
 namespace App\Providers;
 
+use App\Models\Conversation;
+use App\Models\ConversationParticipant;
+use App\Models\Message;
+use App\Services\ConversationBroadcaster;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +28,28 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        $this->broadcastChatUpdates();
+    }
+
+    /**
+     * Live chat: push "something changed" signals over Reverb once the
+     * write is committed, so clients never re-fetch ahead of the data.
+     */
+    protected function broadcastChatUpdates(): void
+    {
+        $broadcaster = fn (): ConversationBroadcaster => app(ConversationBroadcaster::class);
+
+        Message::created(fn (Message $message) => DB::afterCommit(
+            fn () => $broadcaster()->messageCreated($message->conversation_id, $message->id)
+        ));
+
+        Conversation::updated(fn (Conversation $conversation) => DB::afterCommit(
+            fn () => $broadcaster()->inboxChanged($conversation->id)
+        ));
+
+        ConversationParticipant::saved(fn (ConversationParticipant $participant) => DB::afterCommit(
+            fn () => $broadcaster()->inboxChanged($participant->conversation_id, [$participant->user_id])
+        ));
     }
 
     /**

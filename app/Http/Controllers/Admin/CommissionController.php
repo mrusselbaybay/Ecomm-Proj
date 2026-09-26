@@ -26,11 +26,11 @@ class CommissionController extends Controller
 
         if ($search = $request->string('search')->trim()->toString()) {
             $query->where(function (Builder $query) use ($search): void {
-                $query->where('order_number', 'ilike', "%{$search}%")
+                $query->whereLike('order_number', "%{$search}%")
                     ->orWhereHas('seller', function (Builder $sellerQuery) use ($search): void {
-                        $sellerQuery->where('first_name', 'ilike', "%{$search}%")
-                            ->orWhere('last_name', 'ilike', "%{$search}%")
-                            ->orWhere('email', 'ilike', "%{$search}%");
+                        $sellerQuery->whereLike('first_name', "%{$search}%")
+                            ->orWhereLike('last_name', "%{$search}%")
+                            ->orWhereLike('email', "%{$search}%");
                     });
             });
         }

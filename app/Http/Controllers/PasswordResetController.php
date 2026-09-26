@@ -9,6 +9,9 @@ use Illuminate\Support\Facades\Log;
 use App\Mail\PasswordResetCodeMail;
 use App\Mail\SignupVerificationCodeMail;
 use App\Models\PasswordResetCode;
+use App\Models\Profile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 class PasswordResetController extends Controller
 {
@@ -177,48 +180,25 @@ public function resendSignupCode(Request $request)
         // Mark as used
         $resetCode->markAsUsed();
 
-        // Get user from Supabase
-        $user = $this->findAuthUser($email);
+        $profile = Profile::where('email', $email)->first();
 
-        if (!$user) {
+        if (!$profile) {
             return response()->json([
                 'message' => 'User not found.'
             ], 422);
         }
 
-        // Update password
-        try {
-            $response = Http::withHeaders([
-                'apikey' => config('services.supabase.service_role_key'),
-                'Authorization' => 'Bearer ' . config('services.supabase.service_role_key'),
-                'Content-Type' => 'application/json',
-            ])->put(
-                config('services.supabase.url') . '/auth/v1/admin/users/' . $user['id'],
-                [
-                    'password' => $request->input('password'),
-                ]
-            );
+        DB::table('profiles')->where('id', $profile->id)->update([
+            'password' => Hash::make($request->input('password')),
+            'updated_at' => now(),
+        ]);
 
-            if (!$response->successful()) {
-                Log::error('Password update failed', [
-                    'status' => $response->status(),
-                    'body' => $response->body()
-                ]);
-                return response()->json([
-                    'message' => 'Failed to update password. Please try again.'
-                ], 500);
-            }
+        // A reset invalidates every existing session.
+        $profile->tokens()->delete();
 
-            return response()->json([
-                'message' => 'Password reset successfully! You can now log in.',
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Password reset error', ['error' => $e->getMessage()]);
-            return response()->json([
-                'message' => 'An error occurred. Please try again.'
-            ], 500);
-        }
+        return response()->json([
+            'message' => 'Password reset successfully! You can now log in.',
+        ]);
     }
 
     public function resendCode(Request $request)
@@ -261,100 +241,10 @@ public function resendSignupCode(Request $request)
     }
 
     /**
-     * Check if a user exists in Supabase
+     * Check if an account exists for this email
      */
     private function checkUserExists($email)
     {
-        try {
-            // Method 1: Check profiles table (use service role key to bypass RLS)
-            $response = Http::withHeaders([
-                'apikey' => config('services.supabase.service_role_key'),
-                'Authorization' => 'Bearer ' . config('services.supabase.service_role_key'),
-            ])->get(
-                config('services.supabase.url') . '/rest/v1/profiles?email=eq.' . urlencode($email) . '&select=id'
-            );
-
-            if ($response->successful()) {
-                $data = $response->json();
-                if (count($data) > 0) {
-                    Log::info('User found in profiles table', ['email' => $email]);
-                    return true;
-                }
-            }
-
-            // Method 2: Check auth.users via admin API
-            $user = $this->findAuthUser($email);
-            if ($user) {
-                Log::info('User found in auth.users', ['email' => $email]);
-                return true;
-            }
-
-            Log::warning('User not found in Supabase', ['email' => $email]);
-            return false;
-
-        } catch (\Exception $e) {
-            Log::error('User check failed', ['error' => $e->getMessage()]);
-            return false;
-        }
-    }
-
-    /**
-     * Find a user in Supabase Auth by email (handles pagination)
-     */
-    private function findAuthUser($email)
-    {
-        $page = 1;
-        $perPage = 1000;
-
-        do {
-            try {
-                $response = Http::withHeaders([
-                    'apikey' => config('services.supabase.service_role_key'),
-                    'Authorization' => 'Bearer ' . config('services.supabase.service_role_key'),
-                ])->get(
-                    config('services.supabase.url') . '/auth/v1/admin/users',
-                    ['page' => $page, 'per_page' => $perPage]
-                );
-
-                if (!$response->successful()) {
-                    Log::error('Supabase admin users request failed', [
-                        'status' => $response->status(),
-                        'body' => $response->body(),
-                    ]);
-                    return null;
-                }
-
-                $body = $response->json();
-                
-                // The key fix: response is wrapped in a "users" key
-                $users = $body['users'] ?? [];
-
-                foreach ($users as $user) {
-                    if (isset($user['email']) && strtolower($user['email']) === $email) {
-                        return $user;
-                    }
-                }
-
-                // Check if there's a next page
-                $hasMore = !empty($body['next_page']);
-                $page++;
-
-            } catch (\Exception $e) {
-                Log::error('findAuthUser error', ['error' => $e->getMessage()]);
-                return null;
-            }
-
-        } while ($hasMore);
-
-        return null;
-    }
-
-    /**
-     * Get user ID from Supabase by email
-     */
-    private function getUserId($email)
-    {
-        $user = $this->findAuthUser($email);
-        return $user['id'] ?? null;
+        return Profile::where('email', $email)->exists();
     }
 }

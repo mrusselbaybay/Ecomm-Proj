@@ -118,16 +118,8 @@ class ProductImage
             return $raw;
         }
 
-        // Otherwise treat it as a Supabase Storage object path.
-        $base = rtrim((string) config('services.supabase.url'), '/');
-
-        if ($base === '') {
-            // No Supabase URL configured — can't build a valid link, so
-            // fall back rather than emit a broken relative URL.
-            return null;
-        }
-
-        return $base.'/storage/v1/object/public/'.self::BUCKET.'/'.ltrim($raw, '/');
+        // Otherwise it's a path inside the product image bucket.
+        return app(\App\Services\FileStorage::class)->publicUrl(self::BUCKET, $raw);
     }
 
     private static function isUrlObject(mixed $value): bool

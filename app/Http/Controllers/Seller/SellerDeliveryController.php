@@ -375,13 +375,13 @@ class SellerDeliveryController extends Controller
 
         if ($search = $request->string('search')->toString()) {
             $query->where(function ($q) use ($search) {
-                $q->where('order_number', 'ilike', "%{$search}%")
-                    ->orWhere('recipient_name', 'ilike', "%{$search}%")
-                    ->orWhere('tracking_number', 'ilike', "%{$search}%")
-                    ->orWhere('shipping_carrier', 'ilike', "%{$search}%")
-                    ->orWhere('shipping_service', 'ilike', "%{$search}%")
+                $q->whereLike('order_number', "%{$search}%")
+                    ->orWhereLike('recipient_name', "%{$search}%")
+                    ->orWhereLike('tracking_number', "%{$search}%")
+                    ->orWhereLike('shipping_carrier', "%{$search}%")
+                    ->orWhereLike('shipping_service', "%{$search}%")
                     ->orWhereHas('items', function ($iq) use ($search) {
-                        $iq->where('product_name', 'ilike', "%{$search}%");
+                        $iq->whereLike('product_name', "%{$search}%");
                     });
             });
         }

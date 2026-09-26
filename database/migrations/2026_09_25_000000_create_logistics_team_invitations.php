@@ -19,7 +19,8 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('logistics_admin_details', function (Blueprint $table) {
+        // Absent on sqlite test runs until a test creates it (see 2026_08_18_000000).
+        if (Schema::hasTable('logistics_admin_details')) Schema::table('logistics_admin_details', function (Blueprint $table) {
             if (! Schema::hasColumn('logistics_admin_details', 'role')) {
                 // Existing rows were "appointed staff" with full access.
                 $table->string('role', 20)->default('admin');
@@ -35,12 +36,17 @@ return new class extends Migration
             }
         });
 
-        DB::statement("ALTER TABLE logistics_admin_details ADD CONSTRAINT logistics_admin_details_role_check CHECK (role IN ('admin','manager','operator','viewer'))");
-        DB::statement("ALTER TABLE logistics_admin_details ADD CONSTRAINT logistics_admin_details_status_check CHECK (status IN ('active','suspended'))");
-        DB::statement('CREATE INDEX IF NOT EXISTS logistics_admin_details_company_idx ON logistics_admin_details (logistics_company_id)');
+        $pgsql = DB::connection()->getDriverName() === 'pgsql';
 
-        Schema::create('logistics_invitations', function (Blueprint $table) {
-            $table->uuid('id')->primary()->default(DB::raw('gen_random_uuid()'));
+        // On MySQL, 2026_08_18_000001 already created role/status as ENUMs and the company index.
+        if ($pgsql) {
+            DB::statement("ALTER TABLE logistics_admin_details ADD CONSTRAINT logistics_admin_details_role_check CHECK (role IN ('admin','manager','operator','viewer'))");
+            DB::statement("ALTER TABLE logistics_admin_details ADD CONSTRAINT logistics_admin_details_status_check CHECK (status IN ('active','suspended'))");
+            DB::statement('CREATE INDEX IF NOT EXISTS logistics_admin_details_company_idx ON logistics_admin_details (logistics_company_id)');
+        }
+
+        Schema::create('logistics_invitations', function (Blueprint $table) use ($pgsql) {
+            $table->uuid('id')->primary()->default(DB::raw($pgsql ? 'gen_random_uuid()' : '(UUID())'));
             $table->uuid('logistics_company_id');
             $table->string('email');
             $table->string('role', 20);
@@ -61,18 +67,26 @@ return new class extends Migration
         DB::statement("ALTER TABLE logistics_invitations ADD CONSTRAINT logistics_invitations_role_check CHECK (role IN ('admin','manager','operator','viewer'))");
         DB::statement("ALTER TABLE logistics_invitations ADD CONSTRAINT logistics_invitations_status_check CHECK (status IN ('pending','accepted','revoked'))");
         // At most one live invitation per email per company; re-inviting updates it.
-        DB::statement("CREATE UNIQUE INDEX logistics_invitations_pending_unique ON logistics_invitations (logistics_company_id, lower(email)) WHERE status = 'pending'");
-        // Server-only table: enabling RLS with no policies hides it from the anon/authenticated Supabase clients.
-        DB::statement('ALTER TABLE logistics_invitations ENABLE ROW LEVEL SECURITY');
+        if ($pgsql) {
+            DB::statement("CREATE UNIQUE INDEX logistics_invitations_pending_unique ON logistics_invitations (logistics_company_id, lower(email)) WHERE status = 'pending'");
+            // Server-only table: enabling RLS with no policies hides it from the anon/authenticated Supabase clients.
+            DB::statement('ALTER TABLE logistics_invitations ENABLE ROW LEVEL SECURITY');
+        } elseif (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            // No partial indexes in MySQL: a generated key that is NULL unless pending (NULLs never collide).
+            DB::statement("ALTER TABLE logistics_invitations ADD pending_email_key VARCHAR(255) GENERATED ALWAYS AS (IF(status = 'pending', LOWER(email), NULL)) STORED");
+            DB::statement('CREATE UNIQUE INDEX logistics_invitations_pending_unique ON logistics_invitations (logistics_company_id, pending_email_key)');
+        }
     }
 
     public function down(): void
     {
         Schema::dropIfExists('logistics_invitations');
 
-        DB::statement('ALTER TABLE logistics_admin_details DROP CONSTRAINT IF EXISTS logistics_admin_details_role_check');
-        DB::statement('ALTER TABLE logistics_admin_details DROP CONSTRAINT IF EXISTS logistics_admin_details_status_check');
-        DB::statement('DROP INDEX IF EXISTS logistics_admin_details_company_idx');
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement('ALTER TABLE logistics_admin_details DROP CONSTRAINT IF EXISTS logistics_admin_details_role_check');
+            DB::statement('ALTER TABLE logistics_admin_details DROP CONSTRAINT IF EXISTS logistics_admin_details_status_check');
+            DB::statement('DROP INDEX IF EXISTS logistics_admin_details_company_idx');
+        }
 
         Schema::table('logistics_admin_details', function (Blueprint $table) {
             $table->dropColumn(['role', 'status', 'invited_by', 'updated_at']);

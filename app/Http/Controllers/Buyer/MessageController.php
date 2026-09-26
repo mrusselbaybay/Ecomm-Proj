@@ -75,7 +75,7 @@ class MessageController extends Controller
                 $q->where('user_id', $buyer->id)->whereNull('left_at');
                 $wantsArchived ? $q->whereNotNull('archived_at') : $q->whereNull('archived_at');
             })
-            ->orderByRaw('last_message_at desc nulls last')
+            ->orderByRaw('last_message_at is null, last_message_at desc')
             ->orderByDesc('created_at');
 
         $perPage = min(
@@ -334,7 +334,7 @@ class MessageController extends Controller
         // findForBuyer() round trip first — cuts this path from 3
         // sequential DB round trips to 2. On this project's remote
         // Supabase pooler each round trip costs ~150-200ms regardless of
-        // query complexity (see AuthenticateSupabaseUser's docblock for the
+        // query complexity (see AuthenticateApiToken's docblock for the
         // same characteristic elsewhere), so this is the dominant cost of
         // opening/polling a thread, not row count. A cursor that doesn't
         // resolve (wrong owner, or the message was deleted) returns no

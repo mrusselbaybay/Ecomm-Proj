@@ -6,11 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BuyTheWay — Admin</title>
 
-    <!-- Supabase JS. `defer` unblocks parsing/painting while it downloads;
-         it still executes before the Vite module bundle below (both run
-         in document order right before DOMContentLoaded), so
-         window.supabase is ready when the admin app needs it. -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
 
     <!-- Tailwind and Vue are bundled through Vite (see admin.js, which now
          imports resources/css/app.css and 'vue' from npm) — the old

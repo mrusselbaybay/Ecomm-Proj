@@ -6,7 +6,7 @@ use App\Models\LogisticsCompany;
 use App\Models\ParcelAssignment;
 use App\Models\ParcelTransferRequest;
 use App\Models\Profile;
-use App\Services\SupabaseStorageService;
+use App\Services\FileStorage;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -90,28 +90,12 @@ beforeEach(function () {
         });
     }
 
-    // The shared actingAsSeller()/actingAsDriver()/actingAsTransferCompanyOwner()
-    // helpers each fake the exact same GoTrue URL — fine when a test only
-    // ever acts as one identity, but Http::fake() calls accumulate rather
-    // than replace, so switching identities mid-test (seller, then
-    // logistics, then the courier) would keep resolving to whichever
-    // identity was faked *first*. Registering this generic decoder first
-    // — before any of those helpers run — wins that resolution race for
-    // every request in this file, since every test token here is shaped
-    // exactly 'test-token-<profile id>'.
-    Http::fake(function ($request) {
-        $header = $request->header('Authorization');
-        $token = str_replace('Bearer ', '', is_array($header) ? ($header[0] ?? '') : (string) $header);
-        $id = str_starts_with($token, 'test-token-') ? substr($token, strlen('test-token-')) : null;
+    // Tokens here are shaped 'test-token-<profile id>'.
+    fakeApiTokens(fn (string $token) => str_starts_with($token, 'test-token-') ? substr($token, strlen('test-token-')) : null);
 
-        return $id
-            ? Http::response(['id' => $id])
-            : Http::response(['message' => 'invalid token'], 401);
-    });
-
-    $this->mock(SupabaseStorageService::class, function ($mock) {
-        $mock->shouldReceive('upload')->andReturnNull();
-        $mock->shouldReceive('signedUrl')->andReturn('https://example.test/photo.jpg');
+    $this->mock(FileStorage::class, function ($mock) {
+        $mock->shouldReceive('upload')->andReturn('/storage/test-file');
+        $mock->shouldReceive('createSignedUrl')->andReturn('https://example.test/photo.jpg');
     });
 });
 
@@ -562,16 +546,8 @@ function actingAsTransferCompanyOwner(LogisticsCompany $company): void
         ['role' => 'logistics', 'status' => 'approved', 'account_status' => 'active', 'first_name' => 'Logistics', 'last_name' => 'Owner']
     );
 
+    // Resolved by this file's fakeApiTokens() decoder.
     $token = 'test-token-'.$owner->id;
-
-    config([
-        'services.supabase.url' => 'https://unit-test.supabase.co',
-        'services.supabase.anon_key' => 'test-anon-key',
-    ]);
-
-    Http::fake([
-        'https://unit-test.supabase.co/auth/v1/user' => Http::response(['id' => $owner->id], 200),
-    ]);
 
     test()->withHeader('Authorization', 'Bearer '.$token);
 }

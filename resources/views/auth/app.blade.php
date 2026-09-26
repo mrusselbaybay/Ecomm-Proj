@@ -8,18 +8,10 @@
     <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ asset('css/style.css') }}" />
 
-    <!-- Supabase JS. `defer` lets the browser parse/paint the page while
-         this downloads instead of blocking on it; it still runs before the
-         Vite module bundle below (both are executed in document order
-         relative to each other, right before DOMContentLoaded), so
-         window.supabase is guaranteed ready when app.js needs it. -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
 
     <!-- Pass config from Laravel -->
     <script>
         window.CONFIG = {
-            SUPABASE_URL: '{{ $config['supabase_url'] }}',
-            SUPABASE_ANON_KEY: '{{ $config['supabase_anon_key'] }}',
             GOOGLE_OAUTH_BASE: '{{ $config['google_oauth_base'] }}',
         };
     </script>

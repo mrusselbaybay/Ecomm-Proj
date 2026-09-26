@@ -6,8 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Logistics\LogisticsApplicationResource;
 use App\Mail\Logistics\ApplicationTerminated;
 use App\Models\CourierApplication;
+use App\Models\Document;
 use App\Models\LogisticsCompany;
-use App\Services\SupabaseStorageService;
+use App\Services\FileStorage;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
@@ -17,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use App\Services\AuthSession;
 
 class LogisticsApplicationController extends Controller
 {
@@ -24,7 +26,7 @@ class LogisticsApplicationController extends Controller
     // lives in — see PickupCourierController's matching constant.
     private const DOCUMENTS_BUCKET = 'documents';
 
-    public function __construct(private readonly SupabaseStorageService $supabaseStorage) {}
+    public function __construct(private readonly FileStorage $files) {}
 
     /**
      * Return a short-lived signed URL for a courier's resume, scoped to the
@@ -51,7 +53,7 @@ class LogisticsApplicationController extends Controller
             return response()->json(['message' => 'Resume not found.'], 404);
         }
 
-        $url = $this->supabaseStorage->createSignedUrl(self::DOCUMENTS_BUCKET, $courierApplication->resume_path);
+        $url = $this->files->createSignedUrl(self::DOCUMENTS_BUCKET, $courierApplication->resume_path);
         if (! $url) {
             return response()->json(['message' => 'Could not generate a link to the resume right now.'], 502);
         }
@@ -85,7 +87,7 @@ class LogisticsApplicationController extends Controller
             return response()->json(['message' => "Driver's license not found."], 404);
         }
 
-        $url = $this->supabaseStorage->createSignedUrl(self::DOCUMENTS_BUCKET, $courierApplication->license_path);
+        $url = $this->files->createSignedUrl(self::DOCUMENTS_BUCKET, $courierApplication->license_path);
         if (! $url) {
             return response()->json(['message' => "Could not generate a link to the driver's license right now."], 502);
         }
@@ -217,6 +219,110 @@ class LogisticsApplicationController extends Controller
         ]);
     }
 
+    public function accept(Request $request, string $application): JsonResponse
+    {
+        return $this->review($request, $application, fn () => [
+            'status' => CourierApplication::STATUS_ACCEPTED,
+        ]);
+    }
+
+    public function reject(Request $request, string $application): JsonResponse
+    {
+        return $this->review($request, $application, fn () => [
+            'status' => 'rejected',
+            'rejection_reason' => $request->validate([
+                'rejection_reason' => ['required', 'string', 'max:2000'],
+            ])['rejection_reason'],
+        ]);
+    }
+
+    /** interview_scheduled_at is a floating local time — stored exactly as picked. */
+    public function interview(Request $request, string $application): JsonResponse
+    {
+        return $this->review($request, $application, function () use ($request) {
+            $data = $request->validate([
+                'interview_scheduled_at' => ['required', 'string', 'max:40'],
+            ]);
+
+            return [
+                'interview_invited_at' => now(),
+                'interview_scheduled_at' => $data['interview_scheduled_at'],
+            ];
+        }, stampReviewer: false);
+    }
+
+    /** Verification documents of a courier who applied to this company. */
+    public function courierDocuments(Request $request, string $courier): JsonResponse
+    {
+        $companyId = $this->resolveCompanyId($request);
+        if ($companyId instanceof JsonResponse) {
+            return $companyId;
+        }
+
+        $applied = CourierApplication::query()
+            ->where('logistics_company_id', $companyId)
+            ->where('courier_profile_id', $courier)
+            ->exists();
+
+        if (! $applied) {
+            return response()->json(['message' => 'Courier not found.'], 404);
+        }
+
+        return response()->json([
+            'data' => Document::query()
+                ->where('owner_kind', 'profile')
+                ->where('profile_id', $courier)
+                ->latest('created_at')
+                ->get(),
+        ]);
+    }
+
+    /**
+     * Apply a status change to one of this company's pending applications.
+     *
+     * @param  \Closure(): array<string, mixed>  $changes  runs after the ownership check so validation errors never leak other companies' rows
+     */
+    private function review(Request $request, string $application, \Closure $changes, bool $stampReviewer = true): JsonResponse
+    {
+        $companyId = $this->resolveCompanyId($request, $profileId);
+        if ($companyId instanceof JsonResponse) {
+            return $companyId;
+        }
+
+        $courierApplication = CourierApplication::query()
+            ->whereKey($application)
+            ->where('logistics_company_id', $companyId)
+            ->first();
+
+        if (! $courierApplication) {
+            return response()->json(['message' => 'Application not found.'], 404);
+        }
+
+        if ($courierApplication->status !== 'pending') {
+            return response()->json(['message' => 'Only pending applications can be updated.'], 422);
+        }
+
+        $courierApplication->update([
+            ...$changes(),
+            ...($stampReviewer ? ['reviewed_by' => $profileId, 'reviewed_at' => now()] : []),
+        ]);
+
+        return response()->json(['data' => $courierApplication->only([
+            'id', 'status', 'rejection_reason', 'interview_invited_at', 'interview_scheduled_at',
+        ])]);
+    }
+
+    private function resolveCompanyId(Request $request, ?string &$profileId = null): string|JsonResponse
+    {
+        $profileId = $this->authenticatedProfileId($request);
+        if ($profileId instanceof JsonResponse) {
+            return $profileId;
+        }
+
+        return $this->companyIdForProfile($profileId)
+            ?? response()->json(['message' => 'No logistics company is associated with this account.'], 403);
+    }
+
     /**
      * Validate the Supabase access token and return its profile ID.
      */
@@ -227,31 +333,9 @@ class LogisticsApplicationController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $supabaseRequest = Http::timeout(10)
-            ->withHeaders([
-                'apikey' => config('services.supabase.anon_key'),
-                'Authorization' => "Bearer {$token}",
-            ]);
+        $profileId = app(AuthSession::class)->resolve($token)?->id;
 
-        if (! config('services.supabase.verify_ssl', true)) {
-            $supabaseRequest->withoutVerifying();
-        }
-
-        try {
-            $response = $supabaseRequest->get(
-                rtrim((string) config('services.supabase.url'), '/').'/auth/v1/user'
-            );
-        } catch (ConnectionException $exception) {
-            report($exception);
-
-            return response()->json([
-                'message' => 'The authentication service is temporarily unavailable.',
-            ], 503);
-        }
-
-        $profileId = $response->successful() ? $response->json('id') : null;
-
-        if (! is_string($profileId) || $profileId === '') {
+        if (! $profileId) {
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 

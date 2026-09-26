@@ -6,12 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\CourierApplication;
 use App\Models\LogisticsCompany;
 use App\Models\Profile;
-use App\Services\SupabaseStorageService;
+use App\Services\FileStorage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use App\Services\AuthSession;
 
 class CourierApplicationController extends Controller
 {
@@ -19,7 +20,7 @@ class CourierApplicationController extends Controller
     // lives in — see PickupCourierController's matching constant.
     private const DOCUMENTS_BUCKET = 'documents';
 
-    public function __construct(private readonly SupabaseStorageService $supabaseStorage) {}
+    public function __construct(private readonly FileStorage $files) {}
 
     /** Return the signed-in profile that can use the courier work flow. */
     private function authenticatedProfile(Request $request): Profile|JsonResponse
@@ -29,16 +30,7 @@ class CourierApplicationController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $authResponse = Http::withHeaders([
-            'apikey' => config('services.supabase.anon_key'),
-            'Authorization' => 'Bearer '.$token,
-        ])->get(config('services.supabase.url').'/auth/v1/user');
-
-        if (! $authResponse->successful()) {
-            return response()->json(['message' => 'Unauthenticated.'], 401);
-        }
-
-        $profile = Profile::query()->find($authResponse->json('id'));
+        $profile = app(AuthSession::class)->resolve($token);
         if (! $profile) {
             return response()->json([
                 'message' => 'Your courier profile has not been set up yet. Please complete courier registration first.',
@@ -134,10 +126,9 @@ class CourierApplicationController extends Controller
         $resumeStoragePath = "profile/{$profile->id}/resumes/".(string) Str::uuid().'.'.$resumeExtension;
 
         try {
-            $this->supabaseStorage->ensureBucket(self::DOCUMENTS_BUCKET, false);
-            $this->supabaseStorage->upload(self::DOCUMENTS_BUCKET, $resumeStoragePath, file_get_contents($resumeFile->getRealPath()), $resumeFile->getMimeType());
+            $this->files->upload(self::DOCUMENTS_BUCKET, $resumeStoragePath, file_get_contents($resumeFile->getRealPath()), $resumeFile->getMimeType());
         } catch (\Throwable $e) {
-            Log::error('Resume upload to Supabase failed: '.$e->getMessage());
+            Log::error('Resume upload failed: '.$e->getMessage());
 
             return response()->json(['message' => 'Failed to upload your resume. Please try again.'], 500);
         }
@@ -147,10 +138,9 @@ class CourierApplicationController extends Controller
         $licenseStoragePath = "profile/{$profile->id}/licenses/".(string) Str::uuid().'.'.$licenseExtension;
 
         try {
-            $this->supabaseStorage->ensureBucket(self::DOCUMENTS_BUCKET, false);
-            $this->supabaseStorage->upload(self::DOCUMENTS_BUCKET, $licenseStoragePath, file_get_contents($licenseFile->getRealPath()), $licenseFile->getMimeType());
+            $this->files->upload(self::DOCUMENTS_BUCKET, $licenseStoragePath, file_get_contents($licenseFile->getRealPath()), $licenseFile->getMimeType());
         } catch (\Throwable $e) {
-            Log::error("Driver's license upload to Supabase failed: ".$e->getMessage());
+            Log::error("Driver's license upload failed: ".$e->getMessage());
 
             return response()->json(['message' => "Failed to upload your driver's license. Please try again."], 500);
         }
@@ -242,7 +232,7 @@ class CourierApplicationController extends Controller
             return response()->json(['message' => 'No resume on file for this application.'], 404);
         }
 
-        $url = $this->supabaseStorage->createSignedUrl(self::DOCUMENTS_BUCKET, $courierApplication->resume_path);
+        $url = $this->files->createSignedUrl(self::DOCUMENTS_BUCKET, $courierApplication->resume_path);
         if (! $url) {
             return response()->json(['message' => 'Could not generate a link to your resume right now.'], 502);
         }
@@ -270,7 +260,7 @@ class CourierApplicationController extends Controller
             return response()->json(['message' => "No driver's license on file for this application."], 404);
         }
 
-        $url = $this->supabaseStorage->createSignedUrl(self::DOCUMENTS_BUCKET, $courierApplication->license_path);
+        $url = $this->files->createSignedUrl(self::DOCUMENTS_BUCKET, $courierApplication->license_path);
         if (! $url) {
             return response()->json(['message' => "Could not generate a link to your driver's license right now."], 502);
         }

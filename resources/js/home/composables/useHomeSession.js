@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue';
+import { createClient } from '../../shared/backendClient';
 
 /*
 |--------------------------------------------------------------------------
@@ -41,17 +42,12 @@ function readSession() {
     }
 }
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 let _supabase = null;
 function getSupabase() {
     if (!_supabase) {
-        if (!window.supabase) {
-            throw new Error('window.supabase is not defined. Make sure the Supabase CDN <script> tag is present before @vite(...) in home.blade.php.');
-        }
 
-        _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        _supabase = createClient();
     }
 
     return _supabase;

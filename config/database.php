@@ -59,9 +59,46 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            // Data migrated from Postgres is stored in UTC (app.timezone); don't let the server zone shift it.
+            'timezone' => env('DB_TIMEZONE', '+00:00'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
+        ],
+
+        // Old Supabase Postgres, read by the one-time migration commands
+        // (db:copy-pgsql-to-mysql, auth/storage import). The transaction
+        // pooler needs emulated prepares.
+        'supabase_source' => [
+            'driver' => 'pgsql',
+            'host' => env('SUPABASE_DB_HOST'),
+            'port' => env('SUPABASE_DB_PORT', '6543'),
+            'database' => env('SUPABASE_DB_DATABASE', 'postgres'),
+            'username' => env('SUPABASE_DB_USERNAME'),
+            'password' => env('SUPABASE_DB_PASSWORD', ''),
+            'charset' => 'utf8',
+            'prefix' => '',
+            'search_path' => 'public',
+            'sslmode' => 'require',
+            'options' => extension_loaded('pdo_pgsql') ? [PDO::ATTR_EMULATE_PREPARES => true] : [],
+        ],
+
+        // Target of the Supabase -> MySQL migration (db:copy-pgsql-to-mysql).
+        'mysql_target' => [
+            'driver' => 'mysql',
+            'host' => env('MYSQL_HOST', '127.0.0.1'),
+            'port' => env('MYSQL_PORT', '3306'),
+            'database' => env('MYSQL_DATABASE', 'buytheway'),
+            'username' => env('MYSQL_USERNAME', 'root'),
+            'password' => env('MYSQL_PASSWORD', ''),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => 'InnoDB',
+            // Match Postgres/app (UTC) so TIMESTAMP columns aren't shifted by the server's zone.
+            'timezone' => '+00:00',
         ],
 
         'mariadb' => [

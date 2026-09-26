@@ -23,8 +23,8 @@ return new class extends Migration
     {
         // products isn't a Laravel-migrated table (it lives in the
         // Supabase/pgsql database only) — nothing to alter on sqlite,
-        // where it doesn't exist.
-        if (Schema::getConnection()->getDriverName() !== 'pgsql') {
+        // where it doesn't exist. MySQL gets it from the baseline create.
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
             return;
         }
 

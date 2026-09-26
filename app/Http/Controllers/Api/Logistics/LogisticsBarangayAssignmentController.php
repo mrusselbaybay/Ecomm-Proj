@@ -288,7 +288,7 @@ class LogisticsBarangayAssignmentController extends Controller
                 $query->where(function (Builder $q) use ($needle): void {
                     $q->whereRaw('LOWER(profiles.first_name) LIKE ?', [$needle])
                         ->orWhereRaw('LOWER(profiles.last_name) LIKE ?', [$needle])
-                        ->orWhereRaw("LOWER(profiles.first_name || ' ' || profiles.last_name) LIKE ?", [$needle]);
+                        ->orWhereRaw("LOWER(CONCAT(profiles.first_name, ' ', profiles.last_name)) LIKE ?", [$needle]);
                 });
             })
             ->with(['courierDetail', 'address'])

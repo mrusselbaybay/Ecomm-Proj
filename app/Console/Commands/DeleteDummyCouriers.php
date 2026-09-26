@@ -8,10 +8,9 @@ use App\Models\CourierDetail;
 use App\Models\LogisticsBarangayAssignment;
 use App\Models\Profile;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use RuntimeException;
 use Throwable;
+use App\Services\AccountRegistrar;
 
 /**
  * Dev-only counterpart to logistics:make-dummy-couriers — removes dummy
@@ -61,7 +60,7 @@ class DeleteDummyCouriers extends Command
                 CourierDetail::query()->where('profile_id', $profile->id)->delete();
                 Address::query()->where('owner_kind', 'profile')->where('profile_id', $profile->id)->delete();
 
-                $this->deleteSupabaseAuthUser($profile->id);
+                app(AccountRegistrar::class)->deleteUser($profile->id);
 
                 $this->line("  \xE2\x9C\x93 {$profile->email} ({$profile->first_name} {$profile->last_name})");
             } catch (Throwable $exception) {
@@ -73,32 +72,6 @@ class DeleteDummyCouriers extends Command
         return self::SUCCESS;
     }
 
-    private function deleteSupabaseAuthUser(string $userId): void
-    {
-        $response = $this->supabaseRequest()->delete($this->supabaseUrl("/auth/v1/admin/users/{$userId}"));
 
-        if (! $response->successful() && $response->status() !== 404) {
-            throw new RuntimeException("Supabase auth delete failed: {$response->body()}");
-        }
-    }
 
-    private function supabaseRequest()
-    {
-        $serviceRoleKey = config('services.supabase.service_role_key');
-
-        if (! is_string($serviceRoleKey) || $serviceRoleKey === '') {
-            throw new RuntimeException('Supabase service-role credentials are not configured.');
-        }
-
-        return Http::withHeaders([
-            'apikey' => $serviceRoleKey,
-            'Authorization' => "Bearer {$serviceRoleKey}",
-            'Content-Type' => 'application/json',
-        ]);
-    }
-
-    private function supabaseUrl(string $path): string
-    {
-        return rtrim((string) config('services.supabase.url'), '/').$path;
-    }
 }

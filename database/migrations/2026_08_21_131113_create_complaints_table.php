@@ -28,7 +28,8 @@ return new class extends Migration
             $table->string('type', 40)->default('complaint');
             $table->string('subject', 160);
             $table->text('description');
-            $table->json('evidence')->default('[]');
+            // MySQL only accepts JSON defaults as an expression.
+            $table->json('evidence')->default(DB::connection()->getDriverName() === 'mysql' ? DB::raw('(JSON_ARRAY())') : '[]');
             $table->string('status', 40)->default('pending');
             $table->string('priority', 20)->default('normal');
             $table->text('resolution')->nullable();

@@ -41,9 +41,9 @@ class AccountRegistrationController extends Controller
 
         if ($search = $request->string('search')->trim()->toString()) {
             $query->where(function ($query) use ($search): void {
-                $query->where('first_name', 'ilike', "%{$search}%")
-                    ->orWhere('last_name', 'ilike', "%{$search}%")
-                    ->orWhere('email', 'ilike', "%{$search}%");
+                $query->whereLike('first_name', "%{$search}%")
+                    ->orWhereLike('last_name', "%{$search}%")
+                    ->orWhereLike('email', "%{$search}%");
             });
         }
 

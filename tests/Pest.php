@@ -14,6 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Tests\TestCase;
+use App\Services\AuthSession;
 
 /*
 |--------------------------------------------------------------------------
@@ -66,10 +67,9 @@ function something()
 | Buyer API test helpers
 |--------------------------------------------------------------------------
 |
-| The buyer API sits behind 'supabase.auth' (verifies a Supabase bearer
-| token against GoTrue) + 'buyer' (approved, active buyer). These helpers
-| stand up a buyer/seller profile and fake the GoTrue lookup so a test
-| request authenticates as that buyer.
+| The buyer API sits behind 'auth.token' (a Sanctum bearer token) +
+| 'buyer' (approved, active buyer). These helpers stand up a profile and
+| issue it a real token so a test request authenticates as that profile.
 |
 */
 
@@ -291,35 +291,41 @@ function actingAsSeller(Profile $seller): void
     actingAsProfile($seller);
 }
 
+/**
+ * Accept hand-written bearer tokens in a test: `$tokenToProfileId` maps a
+ * token to the profile id it stands for (null = fall back to real Sanctum
+ * token lookup). Profiles that only exist as ids in a test resolve to an
+ * unsaved Profile with that id.
+ */
+function fakeApiTokens(callable $tokenToProfileId): void
+{
+    app()->instance(AuthSession::class, new class($tokenToProfileId) extends AuthSession
+    {
+        public function __construct(private $map) {}
+
+        public function resolve(?string $bearerToken): ?Profile
+        {
+            $id = $bearerToken ? ($this->map)($bearerToken) : null;
+
+            if (! $id) {
+                return parent::resolve($bearerToken);
+            }
+
+            return Profile::find($id) ?? (new Profile)->forceFill(['id' => $id]);
+        }
+    });
+}
+
 function actingAsProfile(Profile $profile): void
 {
-    $token = 'test-token-'.$profile->id;
-    $supabaseUrl = 'https://unit-test-'.$profile->id.'.supabase.co';
-
-    config([
-        'services.supabase.url' => $supabaseUrl,
-        'services.supabase.anon_key' => 'test-anon-key',
-    ]);
-
-    Http::fake([
-        $supabaseUrl.'/auth/v1/user' => Http::response(['id' => $profile->id], 200),
-    ]);
+    $token = app(AuthSession::class)->issue($profile)['access_token'];
 
     test()->withHeader('Authorization', 'Bearer '.$token);
 }
 
 function actingAsDriver(Profile $driver): void
 {
-    $token = 'test-token-'.$driver->id;
-
-    config([
-        'services.supabase.url' => 'https://unit-test.supabase.co',
-        'services.supabase.anon_key' => 'test-anon-key',
-    ]);
-
-    Http::fake([
-        'https://unit-test.supabase.co/auth/v1/user' => Http::response(['id' => $driver->id], 200),
-    ]);
+    $token = app(AuthSession::class)->issue($driver)['access_token'];
 
     test()->withHeader('Authorization', 'Bearer '.$token);
 }

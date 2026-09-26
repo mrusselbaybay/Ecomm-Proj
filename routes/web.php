@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\FileController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
 use App\Http\Controllers\Logistics\ParcelLocationController;
 use App\Http\Controllers\PickupCourierController;
@@ -36,8 +37,6 @@ Route::get('/logistics-signup', [AuthController::class, 'logisticsIndex'])->name
 Route::get('/accept-invite', function () {
     return view('auth.accept-invite', [
         'config' => [
-            'supabase_url' => config('services.supabase.url'),
-            'supabase_anon_key' => config('services.supabase.anon_key'),
         ],
     ]);
 })->name('logistics.accept-invite');
@@ -112,7 +111,7 @@ Route::prefix('api/logistics')->name('api.logistics.')->group(function () {
     // Courier GPS ping ingest for live parcel tracking. See
     // ParcelLocationController for the (documented) scoping caveat.
     Route::post('/orders/{orderNumber}/location', [ParcelLocationController::class, 'store'])
-        ->middleware('supabase.auth')
+        ->middleware('auth.token')
         ->name('orders.location.store');
 });
 
@@ -155,6 +154,13 @@ Route::prefix('buyer')->name('buyer.')->group(function () {
     })->where('any', '.*')->name('dashboard');
 });
 
+// Private uploaded files (documents, delivery photos, ...) — only reachable
+// through a signed, expiring URL from FileStorage::createSignedUrl().
+Route::get('/files/{bucket}/{path}', [FileController::class, 'show'])
+    ->where('path', '.*')
+    ->middleware('signed')
+    ->name('files.show');
+
 // ---------- Fallback Route ----------
-// Goes through AuthController so the view gets its $config (Supabase keys).
+// Goes through AuthController so the view gets its $config.
 Route::get('/{any}', [AuthController::class, 'index'])->where('any', '.*');

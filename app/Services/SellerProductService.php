@@ -18,7 +18,7 @@ class SellerProductService
 
     public function __construct(
         private readonly InventoryService $inventory,
-        private readonly SupabaseStorageService $storage,
+        private readonly FileStorage $storage,
     ) {}
 
     /**
@@ -483,7 +483,6 @@ class SellerProductService
             return null;
         }
 
-        $this->storage->ensureBucket(self::IMAGES_BUCKET);
         $ext = $this->storage->extensionForMime($decoded['mime']);
         $path = "{$sellerId}/".(string) Str::uuid().".{$ext}";
         $publicUrl = $this->storage->upload(self::IMAGES_BUCKET, $path, $decoded['binary'], $decoded['mime']);

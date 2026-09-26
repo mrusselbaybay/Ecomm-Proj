@@ -10,10 +10,6 @@
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 
-    <!-- Supabase client (UMD build) — used only to read the signed-in
-         session and to sign out from the header account menu; this page
-         has no login form of its own (see /login, /signup). -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     @vite(['resources/css/home/layout.css', 'resources/js/home/home.js'])
 </head>

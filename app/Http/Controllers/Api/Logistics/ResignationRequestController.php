@@ -6,12 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\CourierApplication;
 use App\Models\LogisticsCompany;
 use App\Models\ResignationRequest;
-use App\Services\SupabaseStorageService;
+use App\Services\FileStorage;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use App\Services\AuthSession;
 
 /**
  * The logistics-portal side of the resignation flow (the "Resignation
@@ -26,7 +27,7 @@ class ResignationRequestController extends Controller
     // lives in — see PickupCourierController's matching constant.
     private const DOCUMENTS_BUCKET = 'documents';
 
-    public function __construct(private readonly SupabaseStorageService $supabaseStorage) {}
+    public function __construct(private readonly FileStorage $files) {}
 
     /**
      * Resignation requests addressed to the signed-in company (pending
@@ -85,7 +86,7 @@ class ResignationRequestController extends Controller
             return response()->json(['message' => 'Resignation letter not found.'], 404);
         }
 
-        $url = $this->supabaseStorage->createSignedUrl(self::DOCUMENTS_BUCKET, $resignation->letter_path);
+        $url = $this->files->createSignedUrl(self::DOCUMENTS_BUCKET, $resignation->letter_path);
         if (! $url) {
             return response()->json(['message' => 'Could not generate a link to the letter right now.'], 502);
         }
@@ -223,28 +224,9 @@ class ResignationRequestController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $supabaseRequest = Http::timeout(10)->withHeaders([
-            'apikey' => config('services.supabase.anon_key'),
-            'Authorization' => "Bearer {$token}",
-        ]);
+        $profileId = app(AuthSession::class)->resolve($token)?->id;
 
-        if (! config('services.supabase.verify_ssl', true)) {
-            $supabaseRequest->withoutVerifying();
-        }
-
-        try {
-            $response = $supabaseRequest->get(
-                rtrim((string) config('services.supabase.url'), '/').'/auth/v1/user'
-            );
-        } catch (ConnectionException $exception) {
-            report($exception);
-
-            return response()->json(['message' => 'The authentication service is temporarily unavailable.'], 503);
-        }
-
-        $profileId = $response->successful() ? $response->json('id') : null;
-
-        if (! is_string($profileId) || $profileId === '') {
+        if (! $profileId) {
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 

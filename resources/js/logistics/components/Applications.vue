@@ -858,6 +858,7 @@
 <script setup>
 import { ref, reactive, computed, onActivated, onMounted } from 'vue';
 import { useLogistics } from '../composables/useLogistics';
+import { apiRequest } from '../../shared/accountApi';
 import { useLogisticsUi } from '../composables/useLogisticsUi';
 import NavIcon from './NavIcon.vue';
 
@@ -1174,10 +1175,10 @@ async function submitRejection() {
     closeRejectModal();
 
     try {
-        const { error } = await supabase
-            .from('courier_applications')
-            .update({ status: 'rejected', rejection_reason: message })
-            .eq('id', app.id);
+        const { error } = await apiRequest(supabase, `/api/logistics/applications/${app.id}/reject`, {
+            method: 'POST',
+            body: { rejection_reason: message },
+        });
 
         if (error) {
             throw error;
@@ -1249,13 +1250,10 @@ async function submitInterview() {
     closeInterviewModal();
 
     try {
-        const { error } = await supabase
-            .from('courier_applications')
-            .update({
-                interview_invited_at: invitedAt,
-                interview_scheduled_at: scheduledAt,
-            })
-            .eq('id', app.id);
+        const { error } = await apiRequest(supabase, `/api/logistics/applications/${app.id}/interview`, {
+            method: 'POST',
+            body: { interview_scheduled_at: scheduledAt },
+        });
 
         if (error) {
             throw error;
@@ -1291,10 +1289,9 @@ async function acceptApplication(app) {
     }
 
     try {
-        const { error } = await supabase
-            .from('courier_applications')
-            .update({ status: 'accepted' })
-            .eq('id', app.id);
+        const { error } = await apiRequest(supabase, `/api/logistics/applications/${app.id}/accept`, {
+            method: 'POST',
+        });
 
         if (error) {
             throw error;
@@ -1333,12 +1330,10 @@ async function openDocuments(app) {
     docsLoading.value = true;
 
     try {
-        const { data, error } = await supabase
-            .from('documents')
-            .select('*')
-            .eq('owner_kind', 'profile')
-            .eq('profile_id', app.courier.id)
-            .order('created_at', { ascending: false });
+        const { data, error } = await apiRequest(
+            supabase,
+            `/api/logistics/couriers/${app.courier.id}/documents`,
+        );
 
         if (error) {
             throw error;

@@ -381,13 +381,13 @@ class SellerFeedbackController extends Controller
 
         if ($search = $request->string('search')->toString()) {
             $query->where(function ($q) use ($search) {
-                $q->where('product_name', 'ilike', "%{$search}%")
-                    ->orWhere('comment', 'ilike', "%{$search}%")
+                $q->whereLike('product_name', "%{$search}%")
+                    ->orWhereLike('comment', "%{$search}%")
                     ->orWhereHas('buyer', function ($bq) use ($search) {
-                        $bq->where(DB::raw("(first_name || ' ' || last_name)"), 'ilike', "%{$search}%");
+                        $bq->whereLike(DB::raw("CONCAT(first_name, ' ', last_name)"), "%{$search}%");
                     })
                     ->orWhereHas('orderItem.order', function ($oq) use ($search) {
-                        $oq->where('order_number', 'ilike', "%{$search}%");
+                        $oq->whereLike('order_number', "%{$search}%");
                     });
             });
         }

@@ -83,7 +83,7 @@ beforeEach(function () {
         'updated_at' => now(),
     ]);
 
-    Http::fake(['*' => Http::response(['id' => AA_OWNER])]);
+    fakeApiTokens(fn () => AA_OWNER);
 });
 
 /** Accepts a rider into the company roster, on shift unless told otherwise. */

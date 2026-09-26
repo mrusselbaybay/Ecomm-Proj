@@ -23,7 +23,11 @@ return new class extends Migration
         }
 
         $driver = DB::connection()->getDriverName();
-        $jsonDefault = $driver === 'pgsql' ? DB::raw("'[]'::jsonb") : '[]';
+        $jsonDefault = match ($driver) {
+            'pgsql' => DB::raw("'[]'::jsonb"),
+            'mysql' => DB::raw('(JSON_ARRAY())'),
+            default => '[]',
+        };
 
         Schema::create('messages', function (Blueprint $table) use ($driver, $jsonDefault) {
             if ($driver === 'pgsql') {

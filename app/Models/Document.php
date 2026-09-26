@@ -22,11 +22,10 @@ class Document extends Model
         'created_at' => 'datetime',
     ];
 
-    // Configure a 'supabase' disk (S3-compatible) in config/filesystems.php
-    // pointing at your Supabase Storage bucket "documents".
-    public function getUrlAttribute(): string
+    /** Short-lived signed link to the private file. */
+    public function getUrlAttribute(): ?string
     {
-        return Storage::disk('supabase')->temporaryUrl($this->storage_path, now()->addMinutes(10));
+        return app(\App\Services\FileStorage::class)->createSignedUrl('documents', $this->storage_path, 600);
     }
 
     public function reviewer(): \Illuminate\Database\Eloquent\Relations\BelongsTo

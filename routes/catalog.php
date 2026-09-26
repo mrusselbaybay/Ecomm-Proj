@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Route;
  *
  * Public, unauthenticated read-only product/category browsing for the
  * BuyTheWay marketing homepage (resources/js/home). Deliberately has no
- * 'supabase.auth' middleware — a visitor who hasn't signed in yet still
+ * 'auth.token' middleware — a visitor who hasn't signed in yet still
  * needs to see products before buying any. See CatalogController's
  * class docblock for why this is separate from the seller-scoped
  * /api/seller/products routes in routes/seller.php.

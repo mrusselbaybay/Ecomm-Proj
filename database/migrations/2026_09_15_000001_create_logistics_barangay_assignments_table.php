@@ -39,7 +39,7 @@ return new class extends Migration
             $table->timestampsTz();
 
             $table->unique(['logistics_company_id', 'municipality_name', 'barangay'], 'logistics_barangay_unique');
-            $table->index(['logistics_company_id', 'is_active']);
+            $table->index(['logistics_company_id', 'is_active'], 'logistics_barangay_company_active_index');
             $table->index('rider_profile_id');
         });
     }

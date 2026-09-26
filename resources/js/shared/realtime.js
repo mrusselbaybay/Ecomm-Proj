@@ -1,129 +1,128 @@
 /*
 |--------------------------------------------------------------------------
-| Supabase Realtime helpers — messaging
+| Realtime helpers — messaging (Laravel Reverb via Echo)
 |--------------------------------------------------------------------------
 |
-| Thin wrappers around supabase-js's postgres_changes channels, shared by
-| buyer/seller/logistics messaging composables. Each role already has its
-| own `getSupabase()` singleton client (useBuyerSession.js / useSeller.js /
-| useLogistics.js) carrying that user's real Supabase session — pass it in
-| rather than creating a client here.
+| Shared by buyer/seller/logistics messaging. Each subscription is only a
+| "something changed, go fetch the delta" trigger: the caller re-runs its
+| existing `?after=<cursor>` fetch or conversation-list sync, and this
+| module only decides *when* to call it. Events carry ids, never message
+| content (see App\Events\ConversationMessageCreated / InboxChanged).
 |
-| These deliberately don't try to hand the caller a ready-to-render message.
-| A postgres_changes payload is the raw `messages` row (no signed attachment
-| URLs, no sender display fields) — reshaping it correctly here would
-| duplicate each backend's transformMessage()/transformParcel() logic and
-| risk drifting from it. Instead every subscription is just a "something
-| changed, go fetch the delta" trigger: the caller re-runs its existing
-| `?after=<cursor>` fetch (already incremental, already deduped) or its
-| existing conversation-list sync, and this module only decides *when* to
-| call it.
+| `client` is the page's backend client (shared/backendClient.js); its
+| session token authorizes the private channels.
 |
 */
 
+import Echo from 'laravel-echo';
+import Pusher from 'pusher-js';
+
+let echo = null;
+let echoToken = null;
+
+function getEcho(client) {
+    const token = client?.auth?.token?.();
+
+    if (!token || !import.meta.env.VITE_REVERB_APP_KEY) {
+        return null;
+    }
+
+    // A new sign-in means a new token: reconnect with it.
+    if (echo && echoToken !== token) {
+        echo.disconnect();
+        echo = null;
+    }
+
+    if (!echo) {
+        window.Pusher = Pusher;
+        echoToken = token;
+        echo = new Echo({
+            broadcaster: 'reverb',
+            key: import.meta.env.VITE_REVERB_APP_KEY,
+            wsHost: import.meta.env.VITE_REVERB_HOST,
+            wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
+            wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
+            forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
+            enabledTransports: ['ws', 'wss'],
+            authEndpoint: '/api/broadcasting/auth',
+            auth: { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
+        });
+    }
+
+    return echo;
+}
+
 /**
- * Subscribe to new messages INSERTed into one conversation. `onInsert` is
- * called (debounced) for every INSERT event; `onReconnect` fires when the
- * channel reaches SUBSCRIBED after having previously dropped (network
- * blip, tab resume, etc.) — NOT on the very first connect, since the
- * caller already does its own initial fetch before subscribing.
- *
- * Returns `{ unsubscribe }`.
+ * Listen on one private channel. `onEvent` is debounced; `onReconnect`
+ * fires when the socket comes back after dropping (not on first connect,
+ * since callers do their own initial fetch).
  */
-export function subscribeToConversationMessages(supabase, conversationId, { onInsert, onReconnect, debounceMs = 150 } = {}) {
-    if (!supabase || !conversationId) {
+function subscribe(client, channelName, eventName, { onEvent, onReconnect, debounceMs }) {
+    const instance = getEcho(client);
+
+    if (!instance) {
         return { unsubscribe() {} };
     }
 
     let debounceTimer = null;
-    let hasConnectedOnce = false;
     let destroyed = false;
+    let wasDisconnected = false;
 
-    function debouncedInsert() {
-        if (!onInsert) return;
+    const trigger = () => {
+        if (!onEvent) return;
         clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(onInsert, debounceMs);
-    }
+        debounceTimer = setTimeout(onEvent, debounceMs);
+    };
 
-    const channel = supabase
-        .channel(`messages:${conversationId}`)
-        .on(
-            'postgres_changes',
-            { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
-            debouncedInsert,
-        )
-        .subscribe(status => {
-            if (destroyed) return;
+    instance.private(channelName).listen(`.${eventName}`, trigger);
 
-            if (status === 'SUBSCRIBED') {
-                if (hasConnectedOnce) {
-                    onReconnect?.();
-                }
-                hasConnectedOnce = true;
-            }
-        });
+    const connection = instance.connector.pusher.connection;
+    const onStateChange = ({ current }) => {
+        if (destroyed) return;
+
+        if (current === 'connected' && wasDisconnected) {
+            wasDisconnected = false;
+            onReconnect?.();
+        } else if (current === 'unavailable' || current === 'disconnected') {
+            wasDisconnected = true;
+        }
+    };
+    connection.bind('state_change', onStateChange);
 
     return {
         unsubscribe() {
             destroyed = true;
             clearTimeout(debounceTimer);
-            supabase.removeChannel(channel);
+            connection.unbind('state_change', onStateChange);
+            instance.leave(channelName);
         },
     };
 }
 
-/**
- * Subscribe to conversation-row changes (new conversations, last_message_*
- * / unread_count updates on existing ones) for the inbox list. No
- * column-equality filter is possible here (a user can be the buyer, the
- * seller, the logistics owner, or a courier participant — there's no single
- * FK to filter on across roles), so this relies entirely on the table's
- * Postgres RLS policy to only deliver rows the signed-in user actually
- * participates in.
- */
-export function subscribeToInbox(supabase, { onChange, onReconnect, debounceMs = 150 } = {}) {
-    if (!supabase) {
+/** New messages in one conversation. Returns `{ unsubscribe }`. */
+export function subscribeToConversationMessages(client, conversationId, { onInsert, onReconnect, debounceMs = 150 } = {}) {
+    if (!conversationId) {
         return { unsubscribe() {} };
     }
 
-    let debounceTimer = null;
-    let hasConnectedOnce = false;
-    let destroyed = false;
+    return subscribe(client, `conversation.${conversationId}`, 'message.created', {
+        onEvent: onInsert,
+        onReconnect,
+        debounceMs,
+    });
+}
 
-    function debouncedChange() {
-        if (!onChange) return;
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(onChange, debounceMs);
+/** The signed-in user's conversation list changed. Returns `{ unsubscribe }`. */
+export function subscribeToInbox(client, { onChange, onReconnect, debounceMs = 150 } = {}) {
+    const userId = client?.auth?.userId?.();
+
+    if (!userId) {
+        return { unsubscribe() {} };
     }
 
-    const channel = supabase
-        .channel('inbox:conversations')
-        .on(
-            'postgres_changes',
-            { event: 'INSERT', schema: 'public', table: 'conversations' },
-            debouncedChange,
-        )
-        .on(
-            'postgres_changes',
-            { event: 'UPDATE', schema: 'public', table: 'conversations' },
-            debouncedChange,
-        )
-        .subscribe(status => {
-            if (destroyed) return;
-
-            if (status === 'SUBSCRIBED') {
-                if (hasConnectedOnce) {
-                    onReconnect?.();
-                }
-                hasConnectedOnce = true;
-            }
-        });
-
-    return {
-        unsubscribe() {
-            destroyed = true;
-            clearTimeout(debounceTimer);
-            supabase.removeChannel(channel);
-        },
-    };
+    return subscribe(client, `inbox.${userId}`, 'inbox.changed', {
+        onEvent: onChange,
+        onReconnect,
+        debounceMs,
+    });
 }

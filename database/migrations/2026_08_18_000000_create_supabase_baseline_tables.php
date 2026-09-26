@@ -44,6 +44,8 @@ return new class extends Migration
                 $table->string('contact_no')->nullable();
                 $table->date('birthday')->nullable();
                 $table->string('email')->nullable();
+                $table->text('rejection_reason')->nullable();
+                $table->string('avatar_path')->nullable();
                 $table->timestampsTz();
             });
         }

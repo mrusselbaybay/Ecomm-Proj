@@ -2,76 +2,68 @@
 
 namespace Tests\Feature\Auth;
 
-use Illuminate\Support\Facades\Http;
+use App\Models\Profile;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class PreventAdminSelfRegistrationTest extends TestCase
 {
+    use RefreshDatabase;
+
     /**
-     * The core bug: role was forwarded unfiltered to Supabase user_metadata,
-     * so `role=admin` in the request body created a real admin profile.
+     * The core bug: role was forwarded unfiltered, so `role=admin` in the
+     * request body created a real admin profile.
      */
     public function test_register_rejects_admin_role_with_validation_error(): void
     {
-        Http::fake(); // if any Supabase call is made, we can assert it wasn't
-
         $response = $this->postJson('/api/auth/register', [
-            'email'    => 'wannabe-admin@example.com',
+            'email' => 'wannabe-admin@example.com',
             'password' => 'password123',
-            'role'     => 'admin',
+            'role' => 'admin',
             'first_name' => 'Would',
-            'last_name'  => 'BeAdmin',
+            'last_name' => 'BeAdmin',
         ]);
 
         $response->assertStatus(422);
         $response->assertJsonValidationErrors('role');
 
-        // The Supabase admin-user-creation call must never have fired.
-        Http::assertNothingSent();
+        $this->assertDatabaseMissing('profiles', ['email' => 'wannabe-admin@example.com']);
     }
 
     public function test_register_rejects_roles_outside_the_registrable_whitelist(): void
     {
-        Http::fake();
-
         $response = $this->postJson('/api/auth/register', [
-            'email'    => 'staff@example.com',
+            'email' => 'staff@example.com',
             'password' => 'password123',
-            'role'     => 'staff', // not buyer/seller/courier
+            'role' => 'staff', // not buyer/seller/courier
         ]);
 
         $response->assertStatus(422);
         $response->assertJsonValidationErrors('role');
-        Http::assertNothingSent();
+
+        $this->assertDatabaseMissing('profiles', ['email' => 'staff@example.com']);
     }
 
     /**
      * Even without a `role` field, extra request keys (e.g. trying to sneak
-     * in `status` or `account_status`) must not leak into user_metadata.
+     * in `status` or `account_status`) must not reach the profile.
      */
     public function test_register_ignores_unexpected_fields_in_metadata(): void
     {
-        Http::fake([
-            '*/auth/v1/admin/users' => Http::response(['id' => 'fake-uuid-123'], 201),
-        ]);
+        $this->postJson('/api/auth/register', [
+            'email' => 'buyer@example.com',
+            'password' => 'password123',
+            'role' => 'buyer',
+            'status' => 'approved',        // attempted injection
+            'account_status' => 'active',  // attempted injection
+        ])->assertStatus(201);
 
-        $response = $this->postJson('/api/auth/register', [
-            'email'          => 'buyer@example.com',
-            'password'       => 'password123',
-            'role'           => 'buyer',
-            'status'         => 'approved',   // attempted injection
-            'account_status' => 'active',     // attempted injection
-        ]);
+        $profile = Profile::where('email', 'buyer@example.com')->firstOrFail();
 
-        $response->assertStatus(201);
-
-        Http::assertSent(function ($request) {
-            $metadata = $request->data()['user_metadata'] ?? [];
-
-            return $metadata['role'] === 'buyer'
-                && $metadata['status'] === 'pending' // server-controlled, not client-controlled
-                && ! array_key_exists('account_status', $metadata);
-        });
+        $this->assertSame('buyer', $profile->role);
+        $this->assertSame('pending', $profile->status); // server-controlled
+        $this->assertNotSame('active', $profile->account_status);
     }
 
     /**
@@ -79,20 +71,18 @@ class PreventAdminSelfRegistrationTest extends TestCase
      */
     public function test_register_still_allows_valid_registrable_roles(): void
     {
-        Http::fake([
-            '*/auth/v1/admin/users' => Http::response(['id' => 'fake-uuid-456'], 201),
-        ]);
-
-        $response = $this->postJson('/api/auth/register', [
-            'email'    => 'seller@example.com',
+        $this->postJson('/api/auth/register', [
+            'email' => 'seller@example.com',
             'password' => 'password123',
-            'role'     => 'seller',
+            'role' => 'seller',
             'first_name' => 'Jane',
-            'last_name'  => 'Doe',
-        ]);
+            'last_name' => 'Doe',
+        ])->assertStatus(201);
 
-        $response->assertStatus(201);
-        Http::assertSentCount(1);
+        $profile = Profile::where('email', 'seller@example.com')->firstOrFail();
+
+        $this->assertSame('seller', $profile->role);
+        $this->assertTrue(Hash::check('password123', $profile->password));
     }
 
     /**
@@ -101,17 +91,11 @@ class PreventAdminSelfRegistrationTest extends TestCase
      */
     public function test_register_defaults_missing_role_to_buyer(): void
     {
-        Http::fake([
-            '*/auth/v1/admin/users' => Http::response(['id' => 'fake-uuid-789'], 201),
-        ]);
-
         $this->postJson('/api/auth/register', [
-            'email'    => 'noroletest@example.com',
+            'email' => 'noroletest@example.com',
             'password' => 'password123',
         ])->assertStatus(201);
 
-        Http::assertSent(function ($request) {
-            return ($request->data()['user_metadata']['role'] ?? null) === 'buyer';
-        });
+        $this->assertSame('buyer', Profile::where('email', 'noroletest@example.com')->value('role'));
     }
 }

@@ -6,11 +6,6 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Logistics Dashboard — BuyTheWay</title>
 
-    <!-- Supabase client (UMD build). `defer` unblocks parsing/painting while
-         it downloads; it still executes before the Vite module bundle below
-         (both run in document order right before DOMContentLoaded), so
-         window.supabase is ready when the logistics app needs it. -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
 
     @vite('resources/js/logistics/logistics.js')
 </head>

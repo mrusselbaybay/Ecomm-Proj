@@ -37,11 +37,16 @@ export default defineConfig({
         vue(),
         tailwindcss(),
     ],
-    server: {
-        hmr: {
-            host: 'buythewaymarket.shop',
-            protocol: 'https',
-            port: 443,
-        },
-    },
+    // Hot reload through a public tunnel: set VITE_HMR_HOST (e.g.
+    // buythewaymarket.shop). Vite keeps listening locally; only the
+    // browser's HMR connection goes through the tunnel on 443.
+    server: process.env.VITE_HMR_HOST
+        ? {
+              hmr: {
+                  host: process.env.VITE_HMR_HOST,
+                  protocol: 'wss',
+                  clientPort: 443,
+              },
+          }
+        : {},
 });

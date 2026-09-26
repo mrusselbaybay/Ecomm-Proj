@@ -2,11 +2,12 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
 /**
  * @property string $id
@@ -20,9 +21,11 @@ use Illuminate\Notifications\Notifiable;
  * @property string|null $contact_no
  * @property-read string $full_name
  */
-class Profile extends Model
+class Profile extends Authenticatable
 {
-    use Notifiable;
+    // Profiles are the login accounts (password or Google); API requests
+    // carry Sanctum tokens issued by App\Services\AuthSession.
+    use HasApiTokens, Notifiable;
 
     protected $table = 'profiles';
 
@@ -36,8 +39,11 @@ class Profile extends Model
         'contact_no', 'birthday', 'email', 'avatar_path',
     ];
 
+    protected $hidden = ['password', 'remember_token', 'google_id'];
+
     protected $casts = [
         'birthday' => 'date',
+        'email_verified_at' => 'datetime',
         'last_active_at' => 'datetime',
     ];
 
@@ -61,7 +67,7 @@ class Profile extends Model
 
     // How recently `last_active_at` must have been touched for the
     // messaging UI to show this profile as "Online" rather than "Offline".
-    // Kept above AuthenticateSupabaseUser's write-throttle window (60s) —
+    // Kept above AuthenticateApiToken's write-throttle window (60s) —
     // 90s gives a 1.5x margin so a genuinely active user never flickers
     // offline between two throttled writes, while staying as tight as that
     // margin allows.
@@ -252,7 +258,7 @@ class Profile extends Model
     /**
      * Activity-based presence for the messaging thread header: true if this
      * profile has touched any authenticated endpoint within the last
-     * ONLINE_THRESHOLD_SECONDS (see AuthenticateSupabaseUser).
+     * ONLINE_THRESHOLD_SECONDS (see AuthenticateApiToken).
      */
     public function isOnline(): bool
     {
@@ -271,7 +277,6 @@ class Profile extends Model
             return null;
         }
 
-        return rtrim(config('services.supabase.url'), '/')
-            .'/storage/v1/object/public/avatars/'.$this->avatar_path;
+        return app(\App\Services\FileStorage::class)->publicUrl('avatars', $this->avatar_path);
     }
 }

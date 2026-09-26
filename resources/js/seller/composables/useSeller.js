@@ -1,27 +1,18 @@
 // resources/js/seller/composables/useSeller.js
 import { ref, computed } from 'vue';
+import { apiRequest, fetchOwnProfile } from '../../shared/accountApi';
+import { createClient, publicFileUrl } from '../../shared/backendClient';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Lazy singleton — created on first use, not at module-eval time.
 // Avoids a race condition where this module runs before the
-// window.supabase CDN script has finished loading (same pattern as
+// page has finished setting up (same pattern as
 // resources/js/logistics/composables/useLogistics.js).
 let _supabase = null;
 function getSupabase() {
     if (!_supabase) {
-        if (!window.supabase) {
-            throw new Error(
-                'window.supabase is not defined. Make sure the Supabase CDN <script> tag ' +
-                    'is present in the <head> of seller/dashboard.blade.php, before @vite(...).',
-            );
-        }
 
-        _supabase = window.supabase.createClient(
-            SUPABASE_URL,
-            SUPABASE_ANON_KEY,
-        );
+        _supabase = createClient();
     }
 
     return _supabase;
@@ -95,7 +86,7 @@ const avatarUrl = computed(() => {
         return null;
     }
 
-    return `${SUPABASE_URL}/storage/v1/object/public/avatars/${profile.value.avatar_path}`;
+    return publicFileUrl('avatars', profile.value.avatar_path);
 });
 
 // The sign-in email lives on the Supabase auth user, not public.profiles
@@ -153,11 +144,7 @@ async function checkAuth() {
             return;
         }
 
-        const { data: prof, error: profileError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single();
+        const { data: prof, error: profileError } = await fetchOwnProfile(supabase);
 
         if (profileError || !prof || prof.role !== 'seller') {
             window.location.href = '/';
@@ -182,55 +169,27 @@ async function loadProfileData() {
         return;
     }
 
-    const supabase = getSupabase();
-    const uid = sellerUser.value.id;
+    const { data, error } = await apiRequest(getSupabase(), '/api/account/seller');
 
-    const [{ data: addr }, { data: details }, { data: docs }] =
-        await Promise.all([
-            supabase
-                .from('addresses')
-                .select('*')
-                .eq('profile_id', uid)
-                .eq('owner_kind', 'profile')
-                .maybeSingle(),
-            supabase
-                .from('seller_details')
-                .select('*')
-                .eq('profile_id', uid)
-                .maybeSingle(),
-            supabase
-                .from('documents')
-                .select('*')
-                .eq('profile_id', uid)
-                .order('created_at', { ascending: false }),
-        ]);
+    if (error) {
+        console.error('Error loading seller account:', error);
 
-    address.value = addr || null;
-    sellerDetails.value = details || null;
-    documents.value = docs || [];
-}
-
-async function loadActivityLog() {
-    if (!sellerUser.value) {
         return;
     }
 
-    const supabase = getSupabase();
-    const { data, error } = await supabase
-        .from('status_audit_log')
-        .select('*')
-        .eq('entity_type', 'profile')
-        .eq('entity_id', sellerUser.value.id)
-        .order('created_at', { ascending: false })
-        .limit(8);
+    address.value = data.address || null;
+    sellerDetails.value = data.seller_details || null;
+    documents.value = data.documents || [];
+    activityLog.value = data.activity || [];
+}
 
-    if (!error) {
-        activityLog.value = data || [];
-    }
+// The activity log arrives with the rest of the account data (one request).
+async function loadActivityLog() {
+    await loadProfileData();
 }
 
 async function refreshAll() {
-    await Promise.all([loadProfileData(), loadActivityLog()]);
+    await loadProfileData();
 }
 
 async function saveProfile(payload) {
@@ -239,30 +198,20 @@ async function saveProfile(payload) {
     saveSuccess.value = '';
 
     try {
-        const supabase = getSupabase();
-        const uid = sellerUser.value.id;
-
-        const { error: profileErr } = await supabase
-            .from('profiles')
-            .update({
-                last_name: payload.last_name,
-                first_name: payload.first_name,
-                middle_initial: payload.middle_initial,
-                sex: payload.sex,
-                contact_no: payload.contact_no,
-                birthday: payload.birthday,
-                updated_at: new Date().toISOString(),
-            })
-            .eq('id', uid);
-
-        if (profileErr) {
-            throw profileErr;
-        }
-
-        if (address.value?.id) {
-            const { error: addrErr } = await supabase
-                .from('addresses')
-                .update({
+        // line_of_business is deliberately not sent — it's the seller's fixed
+        // product category, shown read-only; changing it goes through support.
+        const { data: prof, error: saveErr } = await apiRequest(
+            getSupabase(),
+            '/api/account/seller',
+            {
+                method: 'PUT',
+                body: {
+                    last_name: payload.last_name,
+                    first_name: payload.first_name,
+                    middle_initial: payload.middle_initial,
+                    sex: payload.sex,
+                    contact_no: payload.contact_no,
+                    birthday: payload.birthday,
                     region_code: payload.region_code,
                     region_name: payload.region_name,
                     province_code: payload.province_code,
@@ -272,62 +221,17 @@ async function saveProfile(payload) {
                     barangay: payload.barangay,
                     street: payload.street,
                     house_no: payload.house_no,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', address.value.id);
+                    business_name: payload.business_name,
+                },
+            },
+        );
 
-            if (addrErr) {
-                throw addrErr;
-            }
-        } else {
-            const { error: addrInsertErr } = await supabase
-                .from('addresses')
-                .insert({
-                    owner_kind: 'profile',
-                    profile_id: uid,
-                    region_code: payload.region_code,
-                    region_name: payload.region_name,
-                    province_code: payload.province_code,
-                    province_name: payload.province_name,
-                    municipality_code: payload.municipality_code,
-                    municipality_name: payload.municipality_name,
-                    barangay: payload.barangay,
-                    street: payload.street,
-                    house_no: payload.house_no,
-                });
-
-            if (addrInsertErr) {
-                throw addrInsertErr;
-            }
+        if (saveErr) {
+            throw saveErr;
         }
 
-        // line_of_business is deliberately NOT written here — it's the
-        // seller's fixed product category (CategoryConfigController +
-        // the enforce_seller_product_category DB trigger). It's shown
-        // read-only on the account page; changing it goes through
-        // support.
-        const { error: detailsErr } = await supabase
-            .from('seller_details')
-            .update({
-                business_name: payload.business_name,
-                updated_at: new Date().toISOString(),
-            })
-            .eq('profile_id', uid);
-
-        if (detailsErr) {
-            throw detailsErr;
-        }
-
+        profile.value = prof;
         await refreshAll();
-        const { data: prof } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', uid)
-            .single();
-
-        if (prof) {
-            profile.value = prof;
-        }
 
         saveSuccess.value = 'Profile updated successfully.';
     } catch (err) {
@@ -379,10 +283,10 @@ async function uploadAvatar(file) {
             throw uploadErr;
         }
 
-        const { error: updateErr } = await supabase
-            .from('profiles')
-            .update({ avatar_path: path, updated_at: new Date().toISOString() })
-            .eq('id', uid);
+        const { error: updateErr } = await apiRequest(supabase, '/api/account/avatar', {
+            method: 'PATCH',
+            body: { avatar_path: path },
+        });
 
         if (updateErr) {
             throw updateErr;

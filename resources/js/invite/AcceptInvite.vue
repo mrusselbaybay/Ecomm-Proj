@@ -205,6 +205,7 @@
 </template>
 
 <script setup>
+import { createClient } from '../shared/backendClient';
 import { computed, defineComponent, h, onMounted, reactive, ref } from 'vue';
 import { usePsgc } from '../logistics/composables/usePsgc';
 import PasswordStrength from '../shared/PasswordStrength.vue';
@@ -387,7 +388,7 @@ const confirmMismatch = computed(
 
 let supabase = null;
 function getSupabase() {
-    supabase ??= window.supabase.createClient(window.CONFIG.SUPABASE_URL, window.CONFIG.SUPABASE_ANON_KEY);
+    supabase ??= createClient();
 
     return supabase;
 }

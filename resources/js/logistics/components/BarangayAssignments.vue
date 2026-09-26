@@ -1395,6 +1395,7 @@
 <script setup>
 import { computed, onActivated, onMounted, reactive, ref, watch } from 'vue';
 import { useLogistics } from '../composables/useLogistics';
+import { apiRequest } from '../../shared/accountApi';
 import { useLogisticsUi } from '../composables/useLogisticsUi';
 import { usePsgc } from '../composables/usePsgc';
 import NavIcon from './NavIcon.vue';
@@ -1689,14 +1690,7 @@ async function fetchCompanyAddressForAutofill() {
         return null;
     }
 
-    const { data } = await supabase
-        .from('addresses')
-        .select(
-            'province_code, province_name, municipality_code, municipality_name',
-        )
-        .eq('logistics_company_id', companyId.value)
-        .eq('owner_kind', 'logistics_company')
-        .maybeSingle();
+    const { data } = await apiRequest(supabase, '/api/logistics/company-address');
 
     companyAddressCache = data || null;
 

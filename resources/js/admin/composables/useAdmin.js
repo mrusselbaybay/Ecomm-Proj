@@ -1,14 +1,14 @@
 // resources/js/admin/composables/useAdmin.js
 import { ref } from 'vue';
+import { fetchOwnProfile } from '../../shared/accountApi';
+import { createClient } from '../../shared/backendClient';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Regular client for normal operations (RLS-protected, safe for the browser)
 // Shared per page: the logistics portal also creates one (see
 // logistics/composables/useLogistics.js) before mounting this admin panel,
 // and two clients on the same auth storage key conflict.
-window.__btwSupabase ??= window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+window.__btwSupabase ??= createClient();
 const supabase = window.__btwSupabase;
 
 // NOTE: There is intentionally no client-side "supabaseAdmin" / service-role
@@ -104,11 +104,7 @@ async function checkAuth() {
             return;
         }
 
-        const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('role, first_name, last_name, email')
-            .eq('id', user.id)
-            .single();
+        const { data: profile, error: profileError } = await fetchOwnProfile(supabase);
 
         if (profileError || !profile || profile.role !== scope.role) {
             window.location.href = '/';

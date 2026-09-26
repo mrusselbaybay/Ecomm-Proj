@@ -9,6 +9,7 @@ use App\Models\ResignationRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use App\Services\AuthSession;
 
 class CourierProfileController extends Controller
 {
@@ -20,16 +21,7 @@ class CourierProfileController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $authResponse = Http::withHeaders([
-            'apikey' => config('services.supabase.anon_key'),
-            'Authorization' => 'Bearer '.$token,
-        ])->get(config('services.supabase.url').'/auth/v1/user');
-
-        if (! $authResponse->successful()) {
-            return response()->json(['message' => 'Unauthenticated.'], 401);
-        }
-
-        $profile = Profile::query()->find($authResponse->json('id'));
+        $profile = app(AuthSession::class)->resolve($token);
         if (! $profile) {
             return response()->json([
                 'message' => 'Your courier profile has not been set up yet. Please complete courier registration first.',

@@ -1,14 +1,13 @@
 // resources/js/logistics/composables/useLogisticsProfile.js
 //
 // Backs the logistics portal's Account Settings page (AccountSettings.vue).
-// Talks to Supabase straight from the browser under the signed-in
-// logistics owner's session + RLS — the same approach the seller account
-// page (resources/js/seller/composables/useSeller.js) uses, rather than
-// going through a Laravel endpoint.
+// Data goes through the Laravel API (/api/logistics/account); Supabase is
+// only used for the session token and the avatar file upload.
 import { ref, computed } from 'vue';
 import { getSupabase } from './useLogistics';
+import { apiRequest } from '../../shared/accountApi';
+import { publicFileUrl } from '../../shared/backendClient';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 // ---- shared state across all Account Settings sub-components ----
 const profile = ref(null); // row from public.profiles (the owner)
@@ -51,7 +50,7 @@ const avatarUrl = computed(() => {
         return null;
     }
 
-    return `${SUPABASE_URL}/storage/v1/object/public/avatars/${profile.value.avatar_path}`;
+    return publicFileUrl('avatars', profile.value.avatar_path);
 });
 
 const age = computed(() => {
@@ -86,45 +85,17 @@ const age = computed(() => {
  * for an editable settings form.
  */
 async function loadProfileData() {
-    const supabase = getSupabase();
+    const { data, error } = await apiRequest(getSupabase(), '/api/logistics/account');
 
-    const {
-        data: { user },
-        error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-        return;
-    }
-
-    const uid = user.id;
-
-    const [{ data: prof }, { data: comp }] = await Promise.all([
-        supabase.from('profiles').select('*').eq('id', uid).single(),
-        supabase
-            .from('logistics_companies')
-            .select('*')
-            .eq('owner_profile_id', uid)
-            .maybeSingle(),
-    ]);
-
-    profile.value = prof || null;
-    company.value = comp || null;
-
-    if (!comp?.id) {
-        address.value = null;
+    if (error) {
+        console.error('Error loading logistics account:', error);
 
         return;
     }
 
-    const { data: addr } = await supabase
-        .from('addresses')
-        .select('*')
-        .eq('logistics_company_id', comp.id)
-        .eq('owner_kind', 'logistics_company')
-        .maybeSingle();
-
-    address.value = addr || null;
+    profile.value = data.profile || null;
+    company.value = data.company || null;
+    address.value = data.address || null;
 }
 
 async function refreshAll() {
@@ -141,52 +112,27 @@ async function saveProfile(payload) {
     saveSuccess.value = '';
 
     try {
-        const supabase = getSupabase();
-        const uid = profile.value.id;
-
-        const { error: profileErr } = await supabase
-            .from('profiles')
-            .update({
+        const { data, error: saveErr } = await apiRequest(getSupabase(), '/api/logistics/account', {
+            method: 'PUT',
+            body: {
                 last_name: payload.last_name,
                 first_name: payload.first_name,
                 middle_initial: payload.middle_initial,
                 sex: payload.sex,
                 contact_no: payload.contact_no,
                 birthday: payload.birthday,
-                updated_at: new Date().toISOString(),
-            })
-            .eq('id', uid);
-
-        if (profileErr) {
-            throw profileErr;
-        }
-
-        if (company.value?.id) {
-            const { error: companyErr } = await supabase
-                .from('logistics_companies')
-                .update({
-                    company_name: payload.company_name,
-                    company_email: payload.company_email,
-                    company_contact_no: payload.company_contact_no,
-                    region: payload.region,
-                    description: payload.description,
-                    // Empty input -> NULL rather than 0, so "no salary set"
-                    // and "offering ₱0" stay distinguishable.
-                    monthly_salary:
-                        payload.monthly_salary === '' ||
-                        payload.monthly_salary === null
-                            ? null
-                            : Number(payload.monthly_salary),
-                    is_hiring: !!payload.is_hiring,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', company.value.id);
-
-            if (companyErr) {
-                throw companyErr;
-            }
-
-            const addressPayload = {
+                company_name: payload.company_name,
+                company_email: payload.company_email,
+                company_contact_no: payload.company_contact_no,
+                region: payload.region,
+                description: payload.description,
+                // Empty input -> NULL rather than 0, so "no salary set"
+                // and "offering ₱0" stay distinguishable.
+                monthly_salary:
+                    payload.monthly_salary === '' || payload.monthly_salary === null
+                        ? null
+                        : Number(payload.monthly_salary),
+                is_hiring: !!payload.is_hiring,
                 province_code: payload.province_code,
                 province_name: payload.province_name,
                 municipality_code: payload.municipality_code,
@@ -194,36 +140,16 @@ async function saveProfile(payload) {
                 barangay: payload.barangay,
                 street: payload.street,
                 house_no: payload.house_no,
-            };
+            },
+        });
 
-            if (address.value?.id) {
-                const { error: addrErr } = await supabase
-                    .from('addresses')
-                    .update({
-                        ...addressPayload,
-                        updated_at: new Date().toISOString(),
-                    })
-                    .eq('id', address.value.id);
-
-                if (addrErr) {
-                    throw addrErr;
-                }
-            } else {
-                const { error: addrInsertErr } = await supabase
-                    .from('addresses')
-                    .insert({
-                        owner_kind: 'logistics_company',
-                        logistics_company_id: company.value.id,
-                        ...addressPayload,
-                    });
-
-                if (addrInsertErr) {
-                    throw addrInsertErr;
-                }
-            }
+        if (saveErr) {
+            throw saveErr;
         }
 
-        await refreshAll();
+        profile.value = data.profile || null;
+        company.value = data.company || null;
+        address.value = data.address || null;
 
         saveSuccess.value = 'Account updated successfully.';
     } catch (err) {
@@ -262,10 +188,10 @@ async function uploadAvatar(file) {
             throw uploadErr;
         }
 
-        const { error: updateErr } = await supabase
-            .from('profiles')
-            .update({ avatar_path: path, updated_at: new Date().toISOString() })
-            .eq('id', uid);
+        const { error: updateErr } = await apiRequest(supabase, '/api/account/avatar', {
+            method: 'PATCH',
+            body: { avatar_path: path },
+        });
 
         if (updateErr) {
             throw updateErr;

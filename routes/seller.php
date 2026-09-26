@@ -15,9 +15,9 @@ use Illuminate\Support\Facades\Route;
 /**
  * Included from routes/web.php.
  *
- * 'supabase.auth' -> verifies the Supabase access token sent as a Bearer
+ * 'auth.token' -> verifies the Supabase access token sent as a Bearer
  *                    header and resolves the matching public.profiles row
- *                    onto the request (see AuthenticateSupabaseUser).
+ *                    onto the request (see AuthenticateApiToken).
  * 'seller'        -> requires that resolved profile to be an active seller
  *                    (see EnsureUserIsSeller).
  *
@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Route;
  * SellerProductService), which isn't possible if the SPA writes directly
  * to Supabase, so products moved onto this same pattern as orders below.
  */
-Route::middleware(['supabase.auth', 'seller'])->prefix('api/seller')->name('api.seller.')->group(function () {
+Route::middleware(['auth.token', 'seller'])->prefix('api/seller')->name('api.seller.')->group(function () {
     Route::get('/orders', [SellerOrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{id}', [SellerOrderController::class, 'show'])->name('orders.show');
     Route::get('/orders/{id}/tracking', [SellerOrderController::class, 'tracking'])->name('orders.tracking');

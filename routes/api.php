@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AccountRegistrationController;
+use App\Http\Controllers\Api\AccountController;
 use App\Http\Controllers\Admin\AdminNotificationController;
 use App\Http\Controllers\Admin\AdminProfileController;
 use App\Http\Controllers\Admin\CommissionController;
@@ -18,6 +19,7 @@ use App\Http\Controllers\Api\Courier\ResignationRequestController as CourierResi
 use App\Http\Controllers\Api\Logistics\LogisticsBarangayAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsProvincialAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsRegionalAssignmentController;
+use App\Http\Controllers\Api\Logistics\LogisticsAccountController;
 use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
 use App\Http\Controllers\Api\Logistics\InvitationController as LogisticsInvitationController;
 use App\Http\Controllers\Api\Logistics\TeamController as LogisticsTeamController;
@@ -26,6 +28,7 @@ use App\Http\Controllers\Api\Logistics\ParcelInventoryController;
 use App\Http\Controllers\Api\Logistics\ResignationRequestController as LogisticsResignationRequestController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CustomerService\SupportTicketController;
+use App\Http\Controllers\FileController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
 use App\Http\Controllers\Logistics\MessageController as LogisticsMessageController;
 use App\Http\Controllers\Messaging\MessageAttachmentController;
@@ -54,6 +57,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/google/token', [AuthController::class, 'loginWithGoogleIdToken']);
     Route::get('/user', [AuthController::class, 'user']);
+    Route::put('/user', [AuthController::class, 'updateUser'])->middleware('throttle:10,1');
     Route::post('/logout', [AuthController::class, 'logout']);
 });
 
@@ -67,7 +71,7 @@ Route::get('/products/{id}/reviews', [ProductController::class, 'reviews'])->nam
 // ============================================================
 // CUSTOMER SERVICE (all active public account roles)
 // ============================================================
-Route::middleware('supabase.auth')
+Route::middleware('auth.token')
     ->prefix('customer-service')
     ->name('customer-service.')
     ->group(function () {
@@ -85,6 +89,36 @@ Route::middleware('supabase.auth')
         Route::post('/tickets/{ticket}/close', [SupportTicketController::class, 'close'])->name('tickets.close');
         Route::post('/tickets/{ticket}/reopen', [SupportTicketController::class, 'reopen'])->name('tickets.reopen');
     });
+
+// ============================================================
+// OWN ACCOUNT (every role) — replaces direct Supabase table access
+// ============================================================
+Route::middleware('auth.token')
+    ->prefix('account')
+    ->name('account.')
+    ->group(function () {
+        Route::get('/profile', [AccountController::class, 'profile'])->name('profile');
+        Route::patch('/profile', [AccountController::class, 'updateProfile'])->name('profile.update');
+        Route::patch('/avatar', [AccountController::class, 'updateAvatar'])->name('avatar.update');
+        Route::post('/deactivate', [AccountController::class, 'deactivate'])
+            ->middleware('throttle:5,1')
+            ->name('deactivate');
+        Route::get('/seller', [AccountController::class, 'sellerAccount'])->name('seller');
+        Route::put('/seller', [AccountController::class, 'updateSellerAccount'])->name('seller.update');
+    });
+
+// File uploads / signed links for the browser's storage client.
+Route::middleware('auth.token')->prefix('storage/{bucket}')->name('storage.')->group(function () {
+    Route::post('/', [FileController::class, 'upload'])->middleware('throttle:30,1')->name('upload');
+    Route::get('/signed-url', [FileController::class, 'signedUrl'])->name('signed-url');
+});
+
+// Which company a logistics user belongs to. Outside the 'logistics'
+// middleware on purpose: suspended members must get a "suspended" answer,
+// not a 403.
+Route::get('/logistics/membership', [LogisticsAccountController::class, 'membership'])
+    ->middleware('auth.token')
+    ->name('logistics.membership');
 
 // ============================================================
 // PASSWORD RESET ROUTES
@@ -194,6 +228,14 @@ Route::prefix('logistics')->name('logistics.')->group(function () {
     // "Fire" an accepted courier from the Rider Applications page.
     Route::post('/applications/{application}/terminate', [LogisticsApplicationController::class, 'terminate'])
         ->name('applications.terminate');
+    Route::post('/applications/{application}/accept', [LogisticsApplicationController::class, 'accept'])
+        ->name('applications.accept');
+    Route::post('/applications/{application}/reject', [LogisticsApplicationController::class, 'reject'])
+        ->name('applications.reject');
+    Route::post('/applications/{application}/interview', [LogisticsApplicationController::class, 'interview'])
+        ->name('applications.interview');
+    Route::get('/couriers/{courier}/documents', [LogisticsApplicationController::class, 'courierDocuments'])
+        ->name('couriers.documents');
 
     // Resignation requests addressed to the signed-in logistics company
     // (the "Resignation requests" panel on the Rider Applications page).
@@ -216,15 +258,19 @@ Route::prefix('logistics/invitations/{token}')
         Route::get('/', [LogisticsInvitationController::class, 'show'])->name('show');
         Route::post('/register', [LogisticsInvitationController::class, 'acceptNew'])->name('register');
         Route::post('/accept', [LogisticsInvitationController::class, 'accept'])
-            ->middleware('supabase.auth')
+            ->middleware('auth.token')
             ->name('accept');
         Route::post('/request-renewal', [LogisticsInvitationController::class, 'requestRenewal'])->name('request-renewal');
     });
 
-Route::middleware(['supabase.auth', 'logistics'])
+Route::middleware(['auth.token', 'logistics'])
     ->prefix('logistics')
     ->name('logistics.')
     ->group(function () {
+        Route::get('/account', [LogisticsAccountController::class, 'account'])->name('account');
+        Route::put('/account', [LogisticsAccountController::class, 'updateAccount'])->name('account.update');
+        Route::get('/company-address', [LogisticsAccountController::class, 'companyAddress'])->name('company-address');
+
         // Team — roster, invitations, membership (TeamController enforces
         // owner/admin permissions per action).
         Route::prefix('team')->name('team.')->group(function () {
@@ -386,7 +432,7 @@ $sharedAdminRoutes = function (): void {
 };
 
 // Platform admin: buyers & sellers.
-Route::middleware(['supabase.auth', 'admin'])
+Route::middleware(['auth.token', 'admin'])
     ->prefix('admin')
     ->name('admin.')
     ->group(function () use ($sharedAdminRoutes): void {
@@ -412,7 +458,7 @@ Route::middleware(['supabase.auth', 'admin'])
 // Logistics admin (served inside the logistics portal): couriers, drivers &
 // logistics companies. Also owns seller compliance, commissions and reports,
 // which moved here from the platform admin.
-Route::middleware(['supabase.auth', 'admin:logistics_admin'])
+Route::middleware(['auth.token', 'admin:logistics_admin'])
     ->prefix('logistics-admin')
     ->name('logistics-admin.')
     ->group(function () use ($sharedAdminRoutes): void {

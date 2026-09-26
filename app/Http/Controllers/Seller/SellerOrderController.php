@@ -89,8 +89,8 @@ class SellerOrderController extends Controller
 
         if ($search = $request->string('search')->toString()) {
             $base->where(function ($q) use ($search) {
-                $q->where('order_number', 'ilike', "%{$search}%")
-                    ->orWhere('recipient_name', 'ilike', "%{$search}%");
+                $q->whereLike('order_number', "%{$search}%")
+                    ->orWhereLike('recipient_name', "%{$search}%");
             });
         }
 

@@ -6,12 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\CourierApplication;
 use App\Models\Profile;
 use App\Models\ResignationRequest;
-use App\Services\SupabaseStorageService;
+use App\Services\FileStorage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use App\Services\AuthSession;
 
 /**
  * The courier-facing side of the resignation flow (Flutter "Find Work" ->
@@ -25,7 +26,7 @@ class ResignationRequestController extends Controller
     // lives in — see PickupCourierController's matching constant.
     private const DOCUMENTS_BUCKET = 'documents';
 
-    public function __construct(private readonly SupabaseStorageService $supabaseStorage) {}
+    public function __construct(private readonly FileStorage $files) {}
 
     private function authenticatedProfile(Request $request): Profile|JsonResponse
     {
@@ -34,16 +35,7 @@ class ResignationRequestController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $authResponse = Http::withHeaders([
-            'apikey' => config('services.supabase.anon_key'),
-            'Authorization' => 'Bearer '.$token,
-        ])->get(config('services.supabase.url').'/auth/v1/user');
-
-        if (! $authResponse->successful()) {
-            return response()->json(['message' => 'Unauthenticated.'], 401);
-        }
-
-        $profile = Profile::query()->find($authResponse->json('id'));
+        $profile = app(AuthSession::class)->resolve($token);
         if (! $profile) {
             return response()->json(['message' => 'Your courier profile has not been set up yet.'], 422);
         }
@@ -124,10 +116,9 @@ class ResignationRequestController extends Controller
         $path = "profile/{$profile->id}/resignations/".(string) Str::uuid().'.'.$extension;
 
         try {
-            $this->supabaseStorage->ensureBucket(self::DOCUMENTS_BUCKET, false);
-            $this->supabaseStorage->upload(self::DOCUMENTS_BUCKET, $path, file_get_contents($file->getRealPath()), $file->getMimeType());
+            $this->files->upload(self::DOCUMENTS_BUCKET, $path, file_get_contents($file->getRealPath()), $file->getMimeType());
         } catch (\Throwable $e) {
-            Log::error('Resignation letter upload to Supabase failed: '.$e->getMessage());
+            Log::error('Resignation letter upload failed: '.$e->getMessage());
 
             return response()->json(['message' => 'Failed to upload your resignation letter. Please try again.'], 500);
         }
@@ -193,7 +184,7 @@ class ResignationRequestController extends Controller
             return response()->json(['message' => 'No resignation letter on file.'], 404);
         }
 
-        $url = $this->supabaseStorage->createSignedUrl(self::DOCUMENTS_BUCKET, $resignation->letter_path);
+        $url = $this->files->createSignedUrl(self::DOCUMENTS_BUCKET, $resignation->letter_path);
         if (! $url) {
             return response()->json(['message' => 'Could not generate a link to the letter right now.'], 502);
         }

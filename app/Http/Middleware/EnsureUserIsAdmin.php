@@ -8,7 +8,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Mirrors App\Http\Middleware\EnsureUserIsSeller: assumes a Profile has
- * already been resolved onto the request (see AuthenticateSupabaseUser)
+ * already been resolved onto the request (see AuthenticateApiToken)
  * and checks the role. Also blocks admins whose account isn't active —
  * without this, a self-deactivated (or admin-suspended) admin account
  * would keep passing every admin-gated route since account_status was

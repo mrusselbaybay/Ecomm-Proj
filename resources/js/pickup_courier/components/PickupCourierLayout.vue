@@ -376,12 +376,12 @@
 </template>
 
 <script setup>
+import { createClient } from '../../shared/backendClient';
+import { fetchOwnProfile } from '../../shared/accountApi';
 import { ref, computed, onMounted } from 'vue';
 import CustomerServicePage from '../../shared/CustomerServicePage.vue';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabase = createClient();
 
 const isLoading = ref(true);
 const isAuthenticated = ref(false);
@@ -509,11 +509,7 @@ async function checkAuth() {
       return;
     }
 
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role, first_name, last_name, email, account_status, status, id')
-      .eq('id', authUser.id)
-      .single();
+    const { data: profile, error: profileError } = await fetchOwnProfile(supabase);
 
     if (profileError || !profile) {
       isAuthenticated.value = false;
@@ -583,54 +579,8 @@ async function loadData() {
 
   } catch (error) {
     console.error('Error loading data:', error);
-    await loadDataDirect();
   } finally {
     loading.value = false;
-  }
-}
-
-async function loadDataDirect() {
-  try {
-    const userId = user.value.id;
-    
-    let query = supabase
-      .from('logistics_companies')
-      .select('*')
-      .eq('account_status', 'active')
-      .order('company_name');
-
-    if (selectedRegion.value !== 'All Regions') {
-      query = query.eq('region', selectedRegion.value);
-    }
-    if (search.value) {
-      query = query.or(`company_name.ilike.%${search.value}%,company_email.ilike.%${search.value}%`);
-    }
-
-    const { data: companiesData } = await query;
-    companies.value = companiesData || [];
-
-    const { data: regionsData } = await supabase
-      .from('logistics_companies')
-      .select('region')
-      .not('region', 'is', null)
-      .neq('region', '')
-      .order('region');
-
-    const uniqueRegions = [...new Set(regionsData?.map(r => r.region) || [])];
-    regions.value = uniqueRegions;
-
-    const { data: appsData } = await supabase
-      .from('courier_applications')
-      .select('*, company:logistics_companies(*)')
-      .eq('courier_profile_id', userId)
-      .neq('status', 'withdrawn')
-      .order('applied_at', { ascending: false });
-
-    applications.value = appsData || [];
-    appliedCompanyIds.value = applications.value.map(a => a.logistics_company_id);
-
-  } catch (error) {
-    console.error('Error loading data directly:', error);
   }
 }
 

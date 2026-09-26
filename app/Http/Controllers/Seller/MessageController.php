@@ -220,7 +220,7 @@ class MessageController extends Controller
         $rows = $this->applyStatusFilter(clone $base, $status)
             ->select('conversations.*')
             ->with(['buyer', 'order', 'product'])
-            ->orderByRaw('conversations.last_message_at desc nulls last')
+            ->orderByRaw('conversations.last_message_at is null, conversations.last_message_at desc')
             ->orderByDesc('conversations.created_at')
             ->forPage($page, $perPage)
             ->get();
@@ -261,7 +261,7 @@ class MessageController extends Controller
         )
             ->select('conversations.*')
             ->with(['buyer', 'order'])
-            ->orderByRaw('conversations.last_message_at desc nulls last')
+            ->orderByRaw('conversations.last_message_at is null, conversations.last_message_at desc')
             ->orderByDesc('conversations.created_at')
             ->get();
 
@@ -742,15 +742,15 @@ class MessageController extends Controller
 
         if ($search = $request->string('search')->toString()) {
             $query->where(function (Builder $q) use ($search) {
-                $q->where('conversations.subject', 'ilike', "%{$search}%")
-                    ->orWhere('conversations.last_message_preview', 'ilike', "%{$search}%")
+                $q->whereLike('conversations.subject', "%{$search}%")
+                    ->orWhereLike('conversations.last_message_preview', "%{$search}%")
                     ->orWhereHas('buyer', function (Builder $bq) use ($search) {
-                        $bq->where(DB::raw("(first_name || ' ' || last_name)"), 'ilike', "%{$search}%");
+                        $bq->whereLike(DB::raw("CONCAT(first_name, ' ', last_name)"), "%{$search}%");
                     })
                     ->orWhereHas('logisticsCompany', fn (Builder $logisticsQuery) => $logisticsQuery
-                        ->where('company_name', 'ilike', "%{$search}%"))
+                        ->whereLike('company_name', "%{$search}%"))
                     ->orWhereHas('order', function (Builder $oq) use ($search) {
-                        $oq->where('order_number', 'ilike', "%{$search}%");
+                        $oq->whereLike('order_number', "%{$search}%");
                     });
             });
         }

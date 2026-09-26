@@ -12,6 +12,7 @@
         "php": "^8.3",
         "inertiajs/inertia-laravel": "^3.0",
         "laravel/framework": "^13.17",
+        "laravel/reverb": "^1.12",
         "laravel/sanctum": "^4.0",
         "laravel/socialite": "^5.30",
         "laravel/tinker": "^3.0",
@@ -53,7 +54,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1 --timeout=0\" \"npm run dev\" --names='server,queue,vite'"
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74,#86efac\" \"php artisan serve\" \"php artisan queue:listen --tries=1 --timeout=0\" \"npm run dev\" \"php artisan reverb:start\" --names='server,queue,vite,reverb'"
         ],
         "lint": [
             "pint --parallel"
@@ -95,6 +96,11 @@
         ],
         "pre-package-uninstall": [
             "Illuminate\\Foundation\\ComposerScripts::prePackageUninstall"
+        ],
+        "tunnel": [
+            "Composer\\Config::disableProcessTimeout",
+            "npm run build",
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#86efac\" \"php artisan serve\" \"php artisan queue:listen --tries=1 --timeout=0\" \"php artisan reverb:start\" --names='server,queue,reverb'"
         ]
     },
     "extra": {

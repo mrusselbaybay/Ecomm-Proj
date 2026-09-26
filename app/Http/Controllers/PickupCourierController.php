@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CourierApplication;
 use App\Models\LogisticsCompany;
-use App\Services\SupabaseStorageService;
+use App\Services\FileStorage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -19,7 +19,7 @@ class PickupCourierController extends Controller
     // viewing counterparts).
     private const DOCUMENTS_BUCKET = 'documents';
 
-    public function __construct(private readonly SupabaseStorageService $supabaseStorage)
+    public function __construct(private readonly FileStorage $files)
     {
     }
 
@@ -66,21 +66,9 @@ class PickupCourierController extends Controller
         // Fourth: Try to get from Authorization header (Bearer token)
         $token = $request->bearerToken();
         if ($token) {
-            try {
-                $response = \Illuminate\Support\Facades\Http::withHeaders([
-                    'apikey' => config('services.supabase.anon_key'),
-                    'Authorization' => 'Bearer ' . $token,
-                ])->get(config('services.supabase.url') . '/auth/v1/user');
-                
-                if ($response->successful()) {
-                    $user = $response->json();
-                    if (isset($user['id'])) {
-                        Log::info('User ID from bearer token:', ['user_id' => $user['id']]);
-                        return $user['id'];
-                    }
-                }
-            } catch (\Exception $e) {
-                Log::error('Error verifying token: ' . $e->getMessage());
+            $profileId = app(\App\Services\AuthSession::class)->resolve($token)?->id;
+            if ($profileId) {
+                return $profileId;
             }
         }
         
@@ -162,7 +150,7 @@ class PickupCourierController extends Controller
             return response()->json(['error' => 'No resume on file for this application.'], 404);
         }
 
-        $url = $this->supabaseStorage->createSignedUrl(self::DOCUMENTS_BUCKET, $application->resume_path);
+        $url = $this->files->createSignedUrl(self::DOCUMENTS_BUCKET, $application->resume_path);
         if (! $url) {
             return response()->json(['error' => 'Could not generate a link to your resume right now.'], 502);
         }
@@ -237,10 +225,9 @@ class PickupCourierController extends Controller
         $storagePath = "profile/{$userId}/resumes/" . (string) Str::uuid() . '.' . $extension;
 
         try {
-            $this->supabaseStorage->ensureBucket(self::DOCUMENTS_BUCKET, false);
-            $this->supabaseStorage->upload(self::DOCUMENTS_BUCKET, $storagePath, file_get_contents($file->getRealPath()), $file->getMimeType());
+            $this->files->upload(self::DOCUMENTS_BUCKET, $storagePath, file_get_contents($file->getRealPath()), $file->getMimeType());
         } catch (\Throwable $e) {
-            Log::error('Resume upload to Supabase failed: ' . $e->getMessage());
+            Log::error('Resume upload failed: ' . $e->getMessage());
 
             return response()->json(['error' => 'Failed to upload your resume. Please try again.'], 500);
         }

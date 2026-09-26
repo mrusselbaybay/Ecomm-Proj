@@ -3,7 +3,7 @@
 use App\Models\CourierApplication;
 use App\Models\LogisticsCompany;
 use App\Models\ResignationRequest;
-use App\Services\SupabaseStorageService;
+use App\Services\FileStorage;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -49,9 +49,9 @@ beforeEach(function () {
         $table->timestamps();
     });
 
-    $this->mock(SupabaseStorageService::class, function ($mock) {
-        $mock->shouldReceive('upload')->andReturnNull();
-        $mock->shouldReceive('signedUrl')->andReturn('https://example.test/letter.pdf');
+    $this->mock(FileStorage::class, function ($mock) {
+        $mock->shouldReceive('upload')->andReturn('/storage/test-file');
+        $mock->shouldReceive('createSignedUrl')->andReturn('https://example.test/letter.pdf');
     });
 });
 
@@ -82,11 +82,7 @@ function makeEmployedCourier(): array
 
 function actingAsLogisticsOwner(): void
 {
-    config([
-        'services.supabase.url' => 'https://unit-test.supabase.co',
-        'services.supabase.anon_key' => 'test-anon-key',
-    ]);
-    Http::fake(['https://unit-test.supabase.co/auth/v1/user' => Http::response(['id' => 'logistics-owner'], 200)]);
+    fakeApiTokens(fn (string $token) => $token === 'logistics-token' ? 'logistics-owner' : null);
     test()->withHeader('Authorization', 'Bearer logistics-token');
 }
 

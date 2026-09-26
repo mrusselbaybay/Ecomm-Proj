@@ -127,7 +127,7 @@ class LogisticsProvincialAssignmentController extends Controller
             ->join('courier_details', 'courier_details.profile_id', '=', 'profiles.id')
             ->where('courier_applications.logistics_company_id', $company->id)
             ->where('courier_applications.status', CourierApplication::STATUS_ACCEPTED)
-            ->whereIn(DB::raw('LOWER(courier_details.vehicle::text)'), ['car', 'van', 'truck'])
+            ->whereIn('courier_details.vehicle', ['Car', 'Van', 'Truck'])
             ->whereNotExists(function ($query) use ($company): void {
                 $query->select(DB::raw('1'))
                     ->from('logistics_barangay_assignments')
@@ -153,7 +153,7 @@ class LogisticsProvincialAssignmentController extends Controller
                 $query->where(function (Builder $q) use ($needle): void {
                     $q->whereRaw('LOWER(profiles.first_name) LIKE ?', [$needle])
                         ->orWhereRaw('LOWER(profiles.last_name) LIKE ?', [$needle])
-                        ->orWhereRaw("LOWER(profiles.first_name || ' ' || profiles.last_name) LIKE ?", [$needle]);
+                        ->orWhereRaw("LOWER(CONCAT(profiles.first_name, ' ', profiles.last_name)) LIKE ?", [$needle]);
                 });
             })
             ->with(['courierDetail', 'address'])

@@ -4,7 +4,7 @@ use App\Models\LogisticsCompany;
 use App\Models\Order;
 use App\Models\ParcelAssignment;
 use App\Models\ParcelScanEvent;
-use App\Services\SupabaseStorageService;
+use App\Services\FileStorage;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Schema;
@@ -35,9 +35,9 @@ beforeEach(function () {
         });
     }
 
-    $this->mock(SupabaseStorageService::class, function ($mock) {
-        $mock->shouldReceive('upload')->andReturnNull();
-        $mock->shouldReceive('signedUrl')->andReturn('https://example.test/photo.jpg');
+    $this->mock(FileStorage::class, function ($mock) {
+        $mock->shouldReceive('upload')->andReturn('/storage/test-file');
+        $mock->shouldReceive('createSignedUrl')->andReturn('https://example.test/photo.jpg');
     });
 });
 

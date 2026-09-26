@@ -13,14 +13,14 @@ use Illuminate\Support\Facades\Route;
  * buyer/seller route includes). The api.php entry point already prefixes
  * everything here with `api/`, so this file itself only adds `driver/`.
  *
- * 'supabase.auth' -> verifies the Supabase access token sent as a Bearer
+ * 'auth.token' -> verifies the Supabase access token sent as a Bearer
  *                    header and resolves the matching public.profiles row
- *                    onto the request (see AuthenticateSupabaseUser).
+ *                    onto the request (see AuthenticateApiToken).
  * 'driver'        -> requires that resolved profile to be an active driver
  *                    OR courier (see EnsureUserIsDriver) — both roles share
  *                    the driver mobile app and this Settings screen.
  */
-Route::middleware(['supabase.auth', 'driver'])->prefix('driver')->name('api.driver.')->group(function () {
+Route::middleware(['auth.token', 'driver'])->prefix('driver')->name('api.driver.')->group(function () {
     // Self-service Settings for the logged-in driver/courier. Password
     // changes deliberately reuse the top-level /api/password/* routes
     // (email verification code flow) rather than a duplicate here — same

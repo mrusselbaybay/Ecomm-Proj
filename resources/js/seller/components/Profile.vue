@@ -741,6 +741,7 @@ import {
     onBeforeUnmount,
 } from 'vue';
 import { useSeller, getSupabase } from '../composables/useSeller';
+import { apiRequest } from '../../shared/accountApi';
 import AvatarCropper from './AvatarCropper.vue';
 
 const {
@@ -1672,10 +1673,9 @@ async function confirmDeactivate() {
             throw new Error('Current password is incorrect.');
         }
 
-        const { error: updateErr } = await supabase
-            .from('profiles')
-            .update({ account_status: 'deactivated' })
-            .eq('id', profile.value.id);
+        const { error: updateErr } = await apiRequest(supabase, '/api/account/deactivate', {
+            method: 'POST',
+        });
 
         if (updateErr) {
             throw updateErr;

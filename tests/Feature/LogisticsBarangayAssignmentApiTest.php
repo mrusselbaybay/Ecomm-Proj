@@ -126,9 +126,7 @@ beforeEach(function () {
         'province_name' => 'Laguna',
     ]);
 
-    Http::fake([
-        '*' => Http::response(['id' => '10000000-0000-0000-0000-000000000001']),
-    ]);
+    fakeApiTokens(fn () => '10000000-0000-0000-0000-000000000001');
 });
 
 it('creates a barangay assignment with no rider required', function () {

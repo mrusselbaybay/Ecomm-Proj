@@ -34,15 +34,15 @@ class ProductController extends Controller
 
         if ($search = $request->string('search')->toString()) {
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'ilike', "%{$search}%")
-                    ->orWhere('description', 'ilike', "%{$search}%")
-                    ->orWhere('category', 'ilike', "%{$search}%");
+                $q->whereLike('name', "%{$search}%")
+                    ->orWhereLike('description', "%{$search}%")
+                    ->orWhereLike('category', "%{$search}%");
             });
         }
 
         if ($category = $request->string('category')->toString()) {
             if (strtolower($category) !== 'all') {
-                $query->where('category', 'ilike', $category);
+                $query->whereLike('category', $category);
             }
         }
 
@@ -225,7 +225,7 @@ class ProductController extends Controller
                     ->selectRaw('count(*)')
                     ->whereColumn('reviews.product_id', 'products.id'),
                 'reviews_avg_rating' => Review::query()
-                    ->selectRaw('round(avg(rating)::numeric, 1)')
+                    ->selectRaw('round(avg(rating), 1)')
                     ->whereColumn('reviews.product_id', 'products.id'),
             ])
             ->active()

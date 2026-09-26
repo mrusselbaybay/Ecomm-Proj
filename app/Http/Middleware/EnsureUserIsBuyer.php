@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Must run after 'supabase.auth' (see routes/buyer.php), which resolves
+ * Must run after 'auth.token' (see routes/buyer.php), which resolves
  * $request->user() to a public.profiles row. Requires that profile to be
  * an approved, active buyer.
  */

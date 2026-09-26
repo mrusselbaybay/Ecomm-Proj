@@ -44,7 +44,7 @@ return new class extends Migration
             $table->foreign('delivery_area_id')
                 ->references('id')->on('logistics_delivery_areas')
                 ->onDelete('cascade');
-            $table->unique(['delivery_area_id', 'municipality_name']);
+            $table->unique(['delivery_area_id', 'municipality_name'], 'ldam_area_municipality_unique');
         });
 
         // Carry every existing area's single municipality/barangay over as

@@ -34,15 +34,15 @@ class ComplaintController extends Controller
 
         if ($search = $request->string('search')->trim()->toString()) {
             $query->where(function ($query) use ($search): void {
-                $query->where('subject', 'ilike', "%{$search}%")
-                    ->orWhere('description', 'ilike', "%{$search}%")
+                $query->whereLike('subject', "%{$search}%")
+                    ->orWhereLike('description', "%{$search}%")
                     ->orWhereHas('complainant', function ($profileQuery) use ($search): void {
-                        $profileQuery->where('first_name', 'ilike', "%{$search}%")
-                            ->orWhere('last_name', 'ilike', "%{$search}%")
-                            ->orWhere('email', 'ilike', "%{$search}%");
+                        $profileQuery->whereLike('first_name', "%{$search}%")
+                            ->orWhereLike('last_name', "%{$search}%")
+                            ->orWhereLike('email', "%{$search}%");
                     })
                     ->orWhereHas('order', fn ($orderQuery) => $orderQuery
-                        ->where('order_number', 'ilike', "%{$search}%"));
+                        ->whereLike('order_number', "%{$search}%"));
             });
         }
 

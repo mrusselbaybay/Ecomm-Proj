@@ -1,17 +1,11 @@
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+import { createClient } from './backendClient';
 
 let client = null;
 
 function getClient() {
     if (!client) {
-        if (!window.supabase) {
-            throw new Error(
-                'The authentication client is unavailable. Refresh the page and try again.',
-            );
-        }
 
-        window.__btwSupabase ??= window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        window.__btwSupabase ??= createClient();
         client = window.__btwSupabase;
     }
 

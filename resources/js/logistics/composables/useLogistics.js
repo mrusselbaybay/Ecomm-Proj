@@ -16,25 +16,16 @@
 // Anything that genuinely invalidates other data calls `invalidate()` for
 // just those keys, so the next reader refetches and nothing else does.
 import { computed, ref } from 'vue';
+import { apiRequest, fetchOwnProfile } from '../../shared/accountApi';
+import { createClient } from '../../shared/backendClient';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 let _supabase = null;
 function getSupabase() {
     if (!_supabase) {
-        if (!window.supabase) {
-            throw new Error(
-                'window.supabase is not defined. Make sure the Supabase CDN <script> tag ' +
-                    'is present in the <head> of dashboard.blade.php, before @vite(...).',
-            );
-        }
 
         // Shared with the admin panel's client (see admin/composables/useAdmin.js).
-        window.__btwSupabase ??= window.supabase.createClient(
-            SUPABASE_URL,
-            SUPABASE_ANON_KEY,
-        );
+        window.__btwSupabase ??= createClient();
         _supabase = window.__btwSupabase;
     }
 
@@ -196,13 +187,7 @@ async function checkAuth() {
             return false;
         }
 
-        const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select(
-                'id, role, first_name, last_name, email, status, account_status',
-            )
-            .eq('id', user.id)
-            .single();
+        const { data: profile, error: profileError } = await fetchOwnProfile(supabase);
 
         if (
             profileError ||
@@ -327,7 +312,7 @@ async function readJson(response, fallbackMessage) {
  * after checkAuth) so this doesn't make a second auth.getUser() round-trip
  * for a user it was just handed.
  */
-async function resolveCompany(uid = null) {
+async function resolveCompany() {
     if (companyId.value) {
         return companyId.value;
     }
@@ -336,48 +321,21 @@ async function resolveCompany(uid = null) {
     loadingCompany.value = true;
 
     try {
-        let profileId = uid;
+        // Owner, active staff member, or suspended ("suspended" role, no company).
+        const { data: membership, error } = await apiRequest(supabase, '/api/logistics/membership');
 
-        if (!profileId) {
-            const { data: userData } = await supabase.auth.getUser();
-            profileId = userData?.user?.id;
+        if (error) {
+            throw error;
         }
 
-        if (!profileId) {
-            return null;
+        teamRole.value = membership?.team_role ?? null;
+
+        if (membership?.company_id) {
+            companyId.value = membership.company_id;
+            companyName.value = membership.company_name;
+
+            return membership.company_id;
         }
-
-        const { data: owned } = await supabase
-            .from('logistics_companies')
-            .select('id, company_name')
-            .eq('owner_profile_id', profileId)
-            .maybeSingle();
-
-        if (owned) {
-            companyId.value = owned.id;
-            companyName.value = owned.company_name;
-            teamRole.value = 'owner';
-
-            return owned.id;
-        }
-
-        const { data: staff } = await supabase
-            .from('logistics_admin_details')
-            .select('logistics_company_id, role, status, logistics_companies(company_name)')
-            .eq('profile_id', profileId)
-            .maybeSingle();
-
-        // Suspended members keep their row (so they can be reactivated)
-        // but get no company — the layout shows the no-access state.
-        if (staff?.status === 'active') {
-            companyId.value = staff.logistics_company_id;
-            companyName.value = staff.logistics_companies?.company_name || '';
-            teamRole.value = staff.role;
-
-            return staff.logistics_company_id;
-        }
-
-        teamRole.value = staff ? 'suspended' : null;
 
         return null;
     } catch (error) {

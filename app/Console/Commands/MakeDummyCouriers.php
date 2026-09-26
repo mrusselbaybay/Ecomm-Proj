@@ -7,11 +7,11 @@ use App\Models\CourierApplication;
 use App\Models\CourierDetail;
 use App\Models\LogisticsCompany;
 use App\Models\Profile;
+use App\Services\ProfileProvisioner;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use RuntimeException;
 use Throwable;
+use App\Services\AccountRegistrar;
 
 /**
  * Dev-only helper: creates real, logged-in-able courier accounts (Supabase
@@ -80,7 +80,7 @@ class MakeDummyCouriers extends Command
             $userId = null;
 
             try {
-                $userId = $this->createSupabaseAuthUser($email, $password, [
+                $userId = $this->createAccount($email, $password, [
                     'role' => 'courier',
                     'first_name' => $firstName,
                     'last_name' => $lastName,
@@ -125,7 +125,7 @@ class MakeDummyCouriers extends Command
                 $this->line("  ✓ {$email} ({$firstName} {$lastName})");
             } catch (Throwable $exception) {
                 if ($userId) {
-                    $this->deleteSupabaseAuthUser($userId);
+                    $this->deleteAccount($userId);
                 }
 
                 $this->error("  ✗ Failed to create courier #{$i}: {$exception->getMessage()}");
@@ -145,78 +145,25 @@ class MakeDummyCouriers extends Command
         return self::SUCCESS;
     }
 
-    private function createSupabaseAuthUser(string $email, string $password, array $metadata): string
+    private function createAccount(string $email, string $password, array $metadata): string
     {
-        $response = $this->supabaseRequest()
-            ->post($this->supabaseUrl('/auth/v1/admin/users'), [
-                'email' => $email,
-                'password' => $password,
-                'email_confirm' => true,
-                'user_metadata' => $metadata,
-            ]);
-
-        if (! $response->successful()) {
-            $error = $response->json();
-
-            throw new RuntimeException($error['msg'] ?? $error['message'] ?? 'Failed to create the Supabase auth user.');
-        }
-
-        $userId = $response->json('id');
-
-        if (! is_string($userId) || $userId === '') {
-            throw new RuntimeException('Supabase did not return a user id.');
-        }
-
-        return $userId;
+        return app(AccountRegistrar::class)->createUser($email, $password, $metadata)['id'];
     }
 
     private function activateProfile(string $userId, string $email, string $firstName, string $lastName): void
     {
-        $response = $this->supabaseRequest()
-            ->withHeader('Prefer', 'return=representation')
-            ->patch($this->supabaseUrl("/rest/v1/profiles?id=eq.{$userId}"), [
-                'role' => 'courier',
-                'status' => 'approved',
-                'account_status' => 'active',
-                'first_name' => $firstName,
-                'last_name' => $lastName,
-                'email' => $email,
-            ]);
-
-        if (! $response->successful() || $response->json() === []) {
-            throw new RuntimeException('Unable to activate the dummy courier profile.');
-        }
-    }
-
-    private function deleteSupabaseAuthUser(string $userId): void
-    {
-        try {
-            $this->supabaseRequest()->delete($this->supabaseUrl("/auth/v1/admin/users/{$userId}"));
-        } catch (Throwable $exception) {
-            Log::error('Failed to roll back dummy courier Supabase user.', [
-                'user_id' => $userId,
-                'error' => $exception->getMessage(),
-            ]);
-        }
-    }
-
-    private function supabaseRequest()
-    {
-        $serviceRoleKey = config('services.supabase.service_role_key');
-
-        if (! is_string($serviceRoleKey) || $serviceRoleKey === '') {
-            throw new RuntimeException('Supabase service-role credentials are not configured.');
-        }
-
-        return Http::withHeaders([
-            'apikey' => $serviceRoleKey,
-            'Authorization' => "Bearer {$serviceRoleKey}",
-            'Content-Type' => 'application/json',
+        app(ProfileProvisioner::class)->provision($userId, $email, ['role' => 'courier'], [
+            'status' => 'approved',
+            'account_status' => 'active',
+            'first_name' => $firstName,
+            'last_name' => $lastName,
         ]);
     }
 
-    private function supabaseUrl(string $path): string
+    private function deleteAccount(string $userId): void
     {
-        return rtrim((string) config('services.supabase.url'), '/').$path;
+        app(AccountRegistrar::class)->deleteUser($userId);
     }
+
+
 }

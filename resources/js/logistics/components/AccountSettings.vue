@@ -1073,6 +1073,7 @@ import {
     onBeforeUnmount,
 } from 'vue';
 import { getSupabase, useLogistics } from '../composables/useLogistics';
+import { apiRequest } from '../../shared/accountApi';
 import { useLogisticsProfile } from '../composables/useLogisticsProfile';
 import { usePsgc } from '../composables/usePsgc';
 import AvatarCropper from './AvatarCropper.vue';
@@ -2048,10 +2049,9 @@ async function confirmDeactivate() {
             throw new Error('Current password is incorrect.');
         }
 
-        const { error: updateErr } = await supabase
-            .from('profiles')
-            .update({ account_status: 'deactivated' })
-            .eq('id', profile.value.id);
+        const { error: updateErr } = await apiRequest(supabase, '/api/account/deactivate', {
+            method: 'POST',
+        });
 
         if (updateErr) {
             throw updateErr;

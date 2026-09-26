@@ -3,11 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Models\Profile;
+use App\Services\ProfileProvisioner;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Laravel\Socialite\Facades\Socialite;
+use App\Services\AuthSession;
+use Illuminate\Support\Facades\Hash;
+use App\Services\AccountRegistrar;
+use App\Services\FileStorage;
 
 class AuthController extends Controller
 {
@@ -43,8 +51,6 @@ class AuthController extends Controller
     {
         return view('auth.app', [
             'config' => [
-                'supabase_url' => config('services.supabase.url'),
-                'supabase_anon_key' => config('services.supabase.anon_key'),
                 'google_oauth_base' => config('services.google.oauth_base'),
             ],
         ]);
@@ -59,8 +65,6 @@ class AuthController extends Controller
     {
         return view('auth.logistics', [
             'config' => [
-                'supabase_url' => config('services.supabase.url'),
-                'supabase_anon_key' => config('services.supabase.anon_key'),
                 'google_oauth_base' => config('services.google.oauth_base'),
             ],
         ]);
@@ -98,62 +102,66 @@ class AuthController extends Controller
      */
     public function handleGoogleCallback(Request $request)
     {
-        // Socialite's own user() call maps the token endpoint's response
-        // down to a plain User object (access_token, refresh_token,
-        // expires_in, scope) and throws the rest away — id_token included,
-        // which is the one field this method actually needs. So the token
-        // endpoint is hit directly via getAccessTokenResponse() instead,
-        // with the CSRF state check user() would otherwise have done for
-        // us replicated here (same session key, same comparison it uses).
-        $state = $request->session()->pull('state');
-
-        if (empty($state) || ! hash_equals((string) $state, (string) $request->input('state', ''))) {
-            Log::warning('Google callback state mismatch');
-
-            return $this->redirectToLogin(['google_error' => 1]);
-        }
-
         try {
-            $tokenResponse = Socialite::driver('google')
-                ->getAccessTokenResponse($request->input('code'));
+            $googleUser = Socialite::driver('google')->user();
         } catch (\Throwable $e) {
             Log::error('Google Socialite callback failed', ['error' => $e->getMessage()]);
 
             return $this->redirectToLogin(['google_error' => 1]);
         }
 
-        $idToken = $tokenResponse['id_token'] ?? null;
+        $profile = $this->profileForGoogleIdentity($googleUser->getId(), $googleUser->getEmail());
 
-        if (! $idToken) {
-            Log::error('Google callback missing id_token', ['response_keys' => array_keys($tokenResponse ?? [])]);
-
+        if (! $profile) {
             return $this->redirectToLogin(['google_error' => 1]);
         }
 
-        $response = Http::withHeaders([
-            'apikey' => config('services.supabase.anon_key'),
-            'Content-Type' => 'application/json',
-        ])->post(config('services.supabase.url').'/auth/v1/token?grant_type=id_token', [
-            'provider' => 'google',
-            'id_token' => $idToken,
-        ]);
+        // Same fragment shape an OAuth redirect produces; the login page's
+        // auth client reads it and signs the user in.
+        $session = app(AuthSession::class)->issue($profile);
 
-        if (! $response->successful()) {
-            Log::error('Supabase id_token exchange failed', ['body' => $response->body()]);
-
-            return $this->redirectToLogin(['google_error' => 1]);
-        }
-
-        $session = $response->json();
-
-        $fragment = http_build_query([
+        return $this->redirectToLogin([], http_build_query([
             'access_token' => $session['access_token'],
             'refresh_token' => $session['refresh_token'],
             'expires_in' => $session['expires_in'],
-            'token_type' => $session['token_type'] ?? 'bearer',
+            'expires_at' => $session['expires_at'],
+            'token_type' => 'bearer',
+        ]));
+    }
+
+    /**
+     * Find the profile for a verified Google identity (by Google id, then by
+     * email — linking it), or create a stub one for a first-time sign-in.
+     * A stub has no names yet, which the login page treats as "needs to
+     * finish onboarding" (completeGoogleSignup / completeGoogleLogistics).
+     */
+    private function profileForGoogleIdentity(?string $googleId, ?string $email): ?Profile
+    {
+        $email = strtolower(trim((string) $email));
+
+        if (! $googleId || $email === '') {
+            return null;
+        }
+
+        $profile = Profile::where('google_id', $googleId)->first()
+            ?? Profile::where('email', $email)->first();
+
+        if ($profile) {
+            if (! $profile->google_id) {
+                DB::table('profiles')->where('id', $profile->id)->update(['google_id' => $googleId]);
+            }
+
+            return $profile;
+        }
+
+        $id = (string) Str::uuid();
+        app(ProfileProvisioner::class)->provision($id, $email, [], [
+            'auth_provider' => 'google',
+            'google_id' => $googleId,
+            'email_verified_at' => now(),
         ]);
 
-        return $this->redirectToLogin([], $fragment);
+        return Profile::find($id);
     }
 
     /**
@@ -204,25 +212,10 @@ class AuthController extends Controller
      */
     public function completeGoogleSignup(Request $request)
     {
-        $token = $request->bearerToken();
-
-        if (! $token) {
-            return response()->json(['message' => 'Not authenticated.'], 401);
-        }
-
-        $userResponse = Http::withHeaders([
-            'apikey' => config('services.supabase.anon_key'),
-            'Authorization' => 'Bearer '.$token,
-        ])->get(config('services.supabase.url').'/auth/v1/user');
-
-        if (! $userResponse->successful()) {
-            return response()->json(['message' => 'Not authenticated.'], 401);
-        }
-
-        $authUser = $userResponse->json();
-        $userId = $authUser['id'] ?? null;
-        $email = $authUser['email'] ?? null;
-        $provider = $authUser['app_metadata']['provider'] ?? null;
+        $authProfile = app(AuthSession::class)->resolve($request->bearerToken());
+        $userId = $authProfile?->id;
+        $email = $authProfile?->email;
+        $provider = $authProfile?->auth_provider;
 
         if (! $userId || ! $email) {
             return response()->json(['message' => 'Not authenticated.'], 401);
@@ -268,26 +261,6 @@ class AuthController extends Controller
         ]);
 
         try {
-            // Keep user_metadata.role in sync — app.js's completeLogin()
-            // falls back to it if profiles.role is ever missing, same as
-            // for a normal email/password registration.
-            Http::withHeaders([
-                'apikey' => config('services.supabase.service_role_key'),
-                'Authorization' => 'Bearer '.config('services.supabase.service_role_key'),
-                'Content-Type' => 'application/json',
-            ])->put(config('services.supabase.url').'/auth/v1/admin/users/'.$userId, [
-                'user_metadata' => [
-                    'role' => $data['role'],
-                    'first_name' => $data['first_name'],
-                    'last_name' => $data['last_name'],
-                    'middle_initial' => $data['middle_initial'] ?? '',
-                    'sex' => $data['sex'] ?? null,
-                    'contact_no' => $data['contact_no'] ?? null,
-                    'birthday' => $data['birthday'] ?? null,
-                    'status' => 'pending',
-                ],
-            ]);
-
             // Create (or update, if the auth.users trigger already stubbed
             // one out from Google's own metadata) the profiles row
             // directly — safer than assuming that trigger re-fires on an
@@ -393,29 +366,17 @@ class AuthController extends Controller
             ])
             ->all();
 
-        $response = Http::withHeaders([
-            'apikey' => config('services.supabase.service_role_key'),
-            'Authorization' => 'Bearer '.config('services.supabase.service_role_key'),
-            'Content-Type' => 'application/json',
-        ])->post(config('services.supabase.url').'/auth/v1/admin/users', [
-            'email' => strtolower(trim($data['email'])),
-            'password' => $data['password'],
-            'email_confirm' => true,
-            'user_metadata' => $metadata,
-        ]);
-
-        if (! $response->successful()) {
-            Log::error('Supabase register failed', ['body' => $response->body()]);
-            $error = $response->json();
-
-            return response()->json([
-                'message' => $error['msg'] ?? $error['message'] ?? 'Registration failed.',
-            ], $response->status());
+        try {
+            $user = $this->createAccount(strtolower(trim($data['email'])), $data['password'], $metadata);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        $profile = Profile::find($user['id']);
 
         return response()->json([
             'message' => 'Registration successful.',
-            'user' => $response->json(),
+            'user' => app(AuthSession::class)->user($profile),
         ], 201);
     }
 
@@ -474,7 +435,7 @@ class AuthController extends Controller
 
         try {
             // 1. Create the Supabase Auth user (service-role only, server-side)
-            $authUser = $this->createSupabaseAuthUser($email, $data['password'], [
+            $authUser = $this->createAccount($email, $data['password'], [
                 'role' => $data['role'],
                 'first_name' => $data['first_name'],
                 'last_name' => $data['last_name'],
@@ -487,9 +448,8 @@ class AuthController extends Controller
 
             $userId = $authUser['id'];
 
-            // profiles row is expected to be created by your existing Postgres
-            // trigger on auth.users insert (reading raw_user_meta_data) — same
-            // as the old frontend flow relied on. No manual insert needed here.
+            // The profiles row is created by createAccount() (it
+            // replaces the old Postgres trigger on auth.users).
 
             // 2. Address (optional)
             if (! empty($data['province_code']) && ! empty($data['municipality_code']) && ! empty($data['barangay'])) {
@@ -551,7 +511,7 @@ class AuthController extends Controller
 
             // Roll back the auth user so retries don't hit "already exists"
             if ($userId) {
-                $this->deleteSupabaseAuthUser($userId);
+                $this->deleteAccount($userId);
             }
 
             $message = str_contains($e->getMessage(), 'already exists') || str_contains($e->getMessage(), 'already registered')
@@ -601,7 +561,7 @@ class AuthController extends Controller
         $userId = null;
 
         try {
-            $authUser = $this->createSupabaseAuthUser($email, $data['password'], [
+            $authUser = $this->createAccount($email, $data['password'], [
                 'role' => 'logistics',
                 'company_name' => $data['company_name'],
                 'first_name' => $data['owner_first_name'],
@@ -671,7 +631,7 @@ class AuthController extends Controller
             Log::error('registerLogistics failed', ['error' => $e->getMessage()]);
 
             if ($userId) {
-                $this->deleteSupabaseAuthUser($userId);
+                $this->deleteAccount($userId);
             }
 
             $message = str_contains($e->getMessage(), 'already exists') || str_contains($e->getMessage(), 'already registered')
@@ -693,25 +653,10 @@ class AuthController extends Controller
      */
     public function completeGoogleLogistics(Request $request)
     {
-        $token = $request->bearerToken();
-
-        if (! $token) {
-            return response()->json(['message' => 'Not authenticated.'], 401);
-        }
-
-        $userResponse = Http::withHeaders([
-            'apikey' => config('services.supabase.anon_key'),
-            'Authorization' => 'Bearer '.$token,
-        ])->get(config('services.supabase.url').'/auth/v1/user');
-
-        if (! $userResponse->successful()) {
-            return response()->json(['message' => 'Not authenticated.'], 401);
-        }
-
-        $authUser = $userResponse->json();
-        $userId = $authUser['id'] ?? null;
-        $email = $authUser['email'] ?? null;
-        $provider = $authUser['app_metadata']['provider'] ?? null;
+        $authProfile = app(AuthSession::class)->resolve($request->bearerToken());
+        $userId = $authProfile?->id;
+        $email = $authProfile?->email;
+        $provider = $authProfile?->auth_provider;
 
         if (! $userId || ! $email) {
             return response()->json(['message' => 'Not authenticated.'], 401);
@@ -752,25 +697,6 @@ class AuthController extends Controller
         $email = strtolower(trim($email));
 
         try {
-            // Keep user_metadata.role in sync so completeLogin() can route
-            // this account even if the profiles row is ever missing.
-            Http::withHeaders([
-                'apikey' => config('services.supabase.service_role_key'),
-                'Authorization' => 'Bearer '.config('services.supabase.service_role_key'),
-                'Content-Type' => 'application/json',
-            ])->put(config('services.supabase.url').'/auth/v1/admin/users/'.$userId, [
-                'user_metadata' => [
-                    'role' => 'logistics',
-                    'company_name' => $data['company_name'],
-                    'first_name' => $data['owner_first_name'],
-                    'last_name' => $data['owner_last_name'],
-                    'middle_initial' => $data['owner_middle_initial'] ?? '',
-                    'sex' => $data['owner_sex'] ?? null,
-                    'birthday' => $data['owner_birthday'] ?? null,
-                    'status' => 'pending',
-                ],
-            ]);
-
             $this->supabaseUpsertProfile([
                 'id' => $userId,
                 'email' => $email,
@@ -845,36 +771,28 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
-        $request->validate([
+        $data = $request->validate([
             'email' => 'required|email',
             'password' => 'required|string',
         ]);
 
-        $response = Http::withHeaders([
-            'apikey' => config('services.supabase.anon_key'),
-            'Content-Type' => 'application/json',
-        ])->post(config('services.supabase.url').'/auth/v1/token?grant_type=password', [
-            'email' => strtolower(trim($request->email)),
-            'password' => $request->password,
-        ]);
+        $profile = Profile::where('email', strtolower(trim($data['email'])))->first();
 
-        if (! $response->successful()) {
-            $error = $response->json();
-
-            return response()->json([
-                'message' => $error['error_description'] ?? $error['message'] ?? 'Invalid credentials.',
-            ], 401);
+        if (! $profile || ! $profile->password || ! Hash::check($data['password'], $profile->password)) {
+            return response()->json(['message' => 'Invalid login credentials'], 401);
         }
 
-        return response()->json($response->json());
+        // Imported Supabase hashes use bcrypt cost 10; upgrade transparently.
+        if (Hash::needsRehash($profile->password)) {
+            DB::table('profiles')->where('id', $profile->id)->update(['password' => Hash::make($data['password'])]);
+        }
+
+        return response()->json(app(AuthSession::class)->issue($profile, $request->input('device', 'web')));
     }
 
     /**
-     * Native mobile counterpart to handleGoogleCallback(): the Flutter app
-     * gets a Google id_token directly from the device's native Google
-     * Sign-In SDK (no OAuth code/redirect involved), so this just exchanges
-     * that id_token with Supabase the same way the web callback does and
-     * returns the session as JSON instead of redirecting.
+     * Native mobile Google Sign-In: verifies the device's Google id_token
+     * with Google, then signs into (or creates a stub for) that account.
      */
     public function loginWithGoogleIdToken(Request $request)
     {
@@ -882,144 +800,142 @@ class AuthController extends Controller
             'id_token' => 'required|string',
         ]);
 
-        $response = Http::withHeaders([
-            'apikey' => config('services.supabase.anon_key'),
-            'Content-Type' => 'application/json',
-        ])->post(config('services.supabase.url').'/auth/v1/token?grant_type=id_token', [
-            'provider' => 'google',
+        $response = Http::timeout(10)->get('https://oauth2.googleapis.com/tokeninfo', [
             'id_token' => $data['id_token'],
         ]);
 
-        if (! $response->successful()) {
-            Log::error('Supabase Google id_token exchange failed', ['body' => $response->body()]);
+        $audiences = array_filter([config('services.google.client_id'), ...(array) config('services.google.mobile_client_ids', [])]);
+
+        if (! $response->successful()
+            || ! in_array($response->json('aud'), $audiences, true)
+            || $response->json('email_verified') !== 'true') {
+            Log::warning('Google id_token rejected', ['status' => $response->status()]);
 
             return response()->json(['message' => 'Google sign-in failed.'], 401);
         }
 
-        return response()->json($response->json());
+        $profile = $this->profileForGoogleIdentity($response->json('sub'), $response->json('email'));
+
+        if (! $profile) {
+            return response()->json(['message' => 'Google sign-in failed.'], 401);
+        }
+
+        return response()->json(app(AuthSession::class)->issue($profile, 'mobile'));
     }
 
     public function user(Request $request)
     {
-        $token = $request->bearerToken();
+        $profile = app(AuthSession::class)->resolve($request->bearerToken());
 
-        $response = Http::withHeaders([
-            'apikey' => config('services.supabase.anon_key'),
-            'Authorization' => 'Bearer '.$token,
-        ])->get(config('services.supabase.url').'/auth/v1/user');
-
-        if (! $response->successful()) {
+        if (! $profile) {
             return response()->json(['message' => 'Unauthorized.'], 401);
         }
 
-        return response()->json($response->json());
+        return response()->json(app(AuthSession::class)->user($profile));
+    }
+
+    /**
+     * Change the signed-in account's password and/or email (the auth
+     * client's updateUser()).
+     */
+    public function updateUser(Request $request)
+    {
+        $profile = app(AuthSession::class)->resolve($request->bearerToken());
+
+        if (! $profile) {
+            return response()->json(['message' => 'Unauthorized.'], 401);
+        }
+
+        $data = $request->validate([
+            'password' => 'sometimes|string|min:8',
+            'email' => ['sometimes', 'email', Rule::unique('profiles', 'email')->ignore($profile->id)],
+        ]);
+
+        $changes = [];
+
+        if (isset($data['password'])) {
+            $changes['password'] = Hash::make($data['password']);
+        }
+
+        if (isset($data['email'])) {
+            $changes['email'] = strtolower(trim($data['email']));
+        }
+
+        if ($changes) {
+            DB::table('profiles')->where('id', $profile->id)->update([...$changes, 'updated_at' => now()]);
+        }
+
+        return response()->json(app(AuthSession::class)->user($profile->refresh()));
     }
 
     public function logout(Request $request)
     {
-        $token = $request->bearerToken();
-
-        Http::withHeaders([
-            'apikey' => config('services.supabase.anon_key'),
-            'Authorization' => 'Bearer '.$token,
-            'Content-Type' => 'application/json',
-        ])->post(config('services.supabase.url').'/auth/v1/logout');
+        app(AuthSession::class)->revoke($request->bearerToken());
 
         return response()->json(['message' => 'Logged out successfully.']);
     }
 
     /**
-     * Create a Supabase Auth user via the admin API (service role key,
-     * server-side only). Throws on failure.
+     * Create a login account (profiles row with a bcrypt password) for a
+     * new registration. Throws if the email is already registered.
+     *
+     * @return array{id: string}
      */
-    private function createSupabaseAuthUser(string $email, string $password, array $metadata): array
+    private function createAccount(string $email, string $password, array $metadata): array
     {
-        $response = Http::withHeaders([
-            'apikey' => config('services.supabase.service_role_key'),
-            'Authorization' => 'Bearer '.config('services.supabase.service_role_key'),
-            'Content-Type' => 'application/json',
-        ])->post(config('services.supabase.url').'/auth/v1/admin/users', [
-            'email' => $email,
-            'password' => $password,
-            'email_confirm' => true,
-            'user_metadata' => $metadata,
-        ]);
-
-        if (! $response->successful()) {
-            Log::error('Supabase admin createUser failed', ['body' => $response->body()]);
-            $error = $response->json();
-            throw new \RuntimeException($error['msg'] ?? $error['message'] ?? 'Failed to create user.');
-        }
-
-        $user = $response->json();
-
-        if (! isset($user['id'])) {
-            throw new \RuntimeException('Supabase did not return a user id.');
-        }
-
-        return $user;
+        return app(AccountRegistrar::class)->createUser($email, $password, $metadata);
     }
 
     /**
-     * Delete a Supabase Auth user (used to roll back a partially-failed
-     * registration so the email isn't stuck as "already exists").
+     * Remove a partially-registered account so a retry isn't blocked by
+     * "already registered" (cascades to its addresses/details/documents).
      */
-    private function deleteSupabaseAuthUser(string $userId): void
+    private function deleteAccount(string $userId): void
     {
-        try {
-            Http::withHeaders([
-                'apikey' => config('services.supabase.service_role_key'),
-                'Authorization' => 'Bearer '.config('services.supabase.service_role_key'),
-            ])->delete(config('services.supabase.url').'/auth/v1/admin/users/'.$userId);
-        } catch (\Throwable $e) {
-            Log::error('Failed to roll back Supabase auth user', [
-                'user_id' => $userId,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        app(AccountRegistrar::class)->deleteUser($userId);
     }
 
+    /** Tables written during signup whose primary key is a uuid `id`. */
+    private const UUID_ID_TABLES = ['addresses', 'logistics_companies', 'documents'];
+
     /**
-     * Insert a row into a Supabase/Postgres table via PostgREST, using the
-     * service role key to bypass RLS (equivalent to the old supabaseAdmin
-     * `.from(table).insert(...)` calls). Returns the inserted row(s).
+     * Insert a signup row into the app database. Returns the inserted row
+     * wrapped in a list — the shape PostgREST's `return=representation`
+     * gave the callers (e.g. `$company[0]['id']`).
      */
     private function supabaseInsert(string $table, array $payload): array
     {
-        $response = Http::withHeaders([
-            'apikey' => config('services.supabase.service_role_key'),
-            'Authorization' => 'Bearer '.config('services.supabase.service_role_key'),
-            'Content-Type' => 'application/json',
-            'Prefer' => 'return=representation',
-        ])->post(config('services.supabase.url').'/rest/v1/'.$table, $payload);
+        if (in_array($table, self::UUID_ID_TABLES, true) && empty($payload['id'])) {
+            $payload = ['id' => (string) Str::uuid(), ...$payload];
+        }
 
-        if (! $response->successful()) {
-            Log::error("Supabase insert into {$table} failed", ['body' => $response->body()]);
+        $columns = Schema::getColumnListing($table);
+        foreach (['created_at', 'updated_at'] as $timestamp) {
+            if (in_array($timestamp, $columns, true) && ! isset($payload[$timestamp])) {
+                $payload[$timestamp] = now();
+            }
+        }
+
+        try {
+            DB::table($table)->insert($payload);
+        } catch (\Throwable $e) {
+            Log::error("Insert into {$table} failed", ['error' => $e->getMessage()]);
             throw new \RuntimeException("Failed to save {$table} record.");
         }
 
-        return $response->json();
+        return [$payload];
     }
 
     /**
-     * Upsert a row into `profiles` keyed on id — used only for Google
-     * onboarding (see completeGoogleSignup), where the Postgres trigger on
-     * auth.users may or may not have already stubbed the row out from
-     * Google's own metadata (it never saw the role/details collected
-     * here), unlike supabaseInsert()'s plain INSERT used for brand-new
-     * rows everywhere else.
+     * Upsert a `profiles` row keyed on id — used for Google onboarding,
+     * where a stub row may already exist from an earlier partial sign-in.
      */
     private function supabaseUpsertProfile(array $payload): void
     {
-        $response = Http::withHeaders([
-            'apikey' => config('services.supabase.service_role_key'),
-            'Authorization' => 'Bearer '.config('services.supabase.service_role_key'),
-            'Content-Type' => 'application/json',
-            'Prefer' => 'resolution=merge-duplicates,return=minimal',
-        ])->post(config('services.supabase.url').'/rest/v1/profiles?on_conflict=id', $payload);
-
-        if (! $response->successful()) {
-            Log::error('Supabase profiles upsert failed', ['body' => $response->body()]);
+        try {
+            app(ProfileProvisioner::class)->upsert($payload);
+        } catch (\Throwable $e) {
+            Log::error('Profiles upsert failed', ['error' => $e->getMessage()]);
             throw new \RuntimeException('Failed to save profile.');
         }
     }
@@ -1032,7 +948,7 @@ class AuthController extends Controller
     {
         $path = "profile/{$profileId}/{$docType}_".now()->timestamp.'.'.$file->getClientOriginalExtension();
 
-        $this->uploadToSupabaseStorage('documents', $path, $file);
+        $this->storeUpload('documents', $path, $file);
 
         $this->supabaseInsert('documents', [
             'owner_kind' => 'profile',
@@ -1052,7 +968,7 @@ class AuthController extends Controller
     {
         $path = "logistics_company/{$companyId}/{$docType}_".now()->timestamp.'.'.$file->getClientOriginalExtension();
 
-        $this->uploadToSupabaseStorage('documents', $path, $file);
+        $this->storeUpload('documents', $path, $file);
 
         $this->supabaseInsert('documents', [
             'owner_kind' => 'logistics_company',
@@ -1068,21 +984,9 @@ class AuthController extends Controller
     /**
      * Raw upload to Supabase Storage via the service role key.
      */
-    private function uploadToSupabaseStorage(string $bucket, string $path, $file): void
+    private function storeUpload(string $bucket, string $path, $file): void
     {
-        $response = Http::withHeaders([
-            'apikey' => config('services.supabase.service_role_key'),
-            'Authorization' => 'Bearer '.config('services.supabase.service_role_key'),
-            'Content-Type' => $file->getClientMimeType(),
-        ])->withBody(
-            file_get_contents($file->getRealPath()),
-            $file->getClientMimeType()
-        )->post(config('services.supabase.url')."/storage/v1/object/{$bucket}/{$path}");
-
-        if (! $response->successful()) {
-            Log::error('Supabase storage upload failed', ['path' => $path, 'body' => $response->body()]);
-            throw new \RuntimeException('Failed to upload document.');
-        }
+        app(FileStorage::class)->upload($bucket, $path, file_get_contents($file->getRealPath()), $file->getClientMimeType());
     }
 
     /**

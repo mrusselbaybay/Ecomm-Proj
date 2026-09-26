@@ -1,5 +1,6 @@
 // resources/js/logistics/logistics.js
 import { getSupabase } from './composables/useLogistics';
+import { fetchOwnProfile } from '../shared/accountApi';
 
 // The logistics portal serves two apps: the logistics company dashboard and,
 // for `logistics_admin` accounts, the logistics admin panel (the same admin
@@ -16,11 +17,7 @@ async function resolveRole() {
             return null;
         }
 
-        const { data } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', session.user.id)
-            .single();
+        const { data } = await fetchOwnProfile(supabase);
 
         return data?.role ?? null;
     } catch {

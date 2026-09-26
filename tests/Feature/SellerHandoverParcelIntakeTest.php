@@ -172,20 +172,12 @@ it('lets logistics staff scan in a parcel the seller already handed over without
     // second Http::fake() call for the same URL doesn't replace the
     // first, so the seller and logistics requests below are told apart
     // by their own bearer token instead.
-    config([
-        'services.supabase.url' => 'https://unit-test.supabase.co',
-        'services.supabase.anon_key' => 'test-anon-key',
-    ]);
     $sellerToken = 'test-token-'.$seller->id;
     $logisticsToken = 'test-token-'.$companyOwner->id;
-    Http::fake(function (Request $request) use ($sellerToken, $logisticsToken, $seller, $companyOwner) {
-        $auth = $request->header('Authorization')[0] ?? '';
-
-        return match ($auth) {
-            "Bearer {$sellerToken}" => Http::response(['id' => $seller->id], 200),
-            "Bearer {$logisticsToken}" => Http::response(['id' => $companyOwner->id], 200),
-            default => Http::response([], 401),
-        };
+    fakeApiTokens(fn (string $token) => match ($token) {
+        $sellerToken => $seller->id,
+        $logisticsToken => $companyOwner->id,
+        default => null,
     });
 
     $this->withHeader('Authorization', 'Bearer '.$sellerToken)

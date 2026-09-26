@@ -1,8 +1,8 @@
 // resources/js/buyer/composables/useBuyerSession.js
 import { ref } from 'vue';
+import { fetchOwnProfile } from '../../shared/accountApi';
+import { createClient } from '../../shared/backendClient';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Lazy singleton — same pattern as resources/js/seller/composables/useSeller.js,
 // to avoid a race with the Supabase CDN <script> tag in
@@ -10,14 +10,8 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 let _supabase = null;
 function getSupabase() {
     if (!_supabase) {
-        if (!window.supabase) {
-            throw new Error(
-                'window.supabase is not defined. Make sure the Supabase CDN <script> tag ' +
-                    'is present in the <head> of buyer/dashboard.blade.php, before @vite(...).',
-            );
-        }
 
-        _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        _supabase = createClient();
     }
 
     return _supabase;
@@ -46,11 +40,7 @@ async function loadSession() {
             return null;
         }
 
-        const { data: profile, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single();
+        const { data: profile, error } = await fetchOwnProfile(supabase);
 
         if (error || !profile || profile.role !== 'buyer') {
             buyerProfile.value = null;

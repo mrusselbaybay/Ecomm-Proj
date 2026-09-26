@@ -59,7 +59,7 @@ class MessageController extends Controller
         $query = $this->applyStatusFilter(clone $base, $request->string('status')->toString())
             ->select('conversations.*')
             ->with(['seller.sellerDetail', 'order', 'parcelAssignment.rider', 'courier.courierDetail', 'participantRecords'])
-            ->orderByRaw('conversations.last_message_at desc nulls last')
+            ->orderByRaw('conversations.last_message_at is null, conversations.last_message_at desc')
             ->orderByDesc('conversations.created_at');
 
         $perPage = min(
@@ -521,15 +521,15 @@ class MessageController extends Controller
 
         if ($search = $request->string('search')->toString()) {
             $query->where(function (Builder $q) use ($search) {
-                $q->where('conversations.last_message_preview', 'ilike', "%{$search}%")
+                $q->whereLike('conversations.last_message_preview', "%{$search}%")
                     ->orWhereHas('seller', function (Builder $sq) use ($search) {
-                        $sq->where(DB::raw("(first_name || ' ' || last_name)"), 'ilike', "%{$search}%");
+                        $sq->whereLike(DB::raw("CONCAT(first_name, ' ', last_name)"), "%{$search}%");
                     })
                     ->orWhereHas('courier', function (Builder $cq) use ($search) {
-                        $cq->where(DB::raw("(first_name || ' ' || last_name)"), 'ilike', "%{$search}%");
+                        $cq->whereLike(DB::raw("CONCAT(first_name, ' ', last_name)"), "%{$search}%");
                     })
                     ->orWhereHas('order', function (Builder $oq) use ($search) {
-                        $oq->where('order_number', 'ilike', "%{$search}%");
+                        $oq->whereLike('order_number', "%{$search}%");
                     });
             });
         }
