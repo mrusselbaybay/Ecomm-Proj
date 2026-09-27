@@ -8,6 +8,7 @@ import CategoryListing from './CategoryListing.vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
+import OffersCarousel from './OffersCarousel.vue';
 import Orders from './Orders.vue';
 import Account from './Account.vue';
 import Wishlist from './Wishlist.vue';
@@ -23,9 +24,7 @@ import { useBuyerProducts } from '../composables/useBuyerProducts';
 import { useBuyerSession } from '../composables/useBuyerSession';
 import {
     categories,
-    metaFor,
-    discountPercent,
-    formatPrice
+    metaFor
 } from '../composables/useCategoryMeta';
 
 /*
@@ -109,7 +108,8 @@ const filteredProducts = computed(() => {
         const matchesSearch =
             !search ||
             product.name.toLowerCase().includes(search) ||
-            (product.category || '').toLowerCase().includes(search);
+            (product.category || '').toLowerCase().includes(search) ||
+            (product.brand || '').toLowerCase().includes(search);
 
         return matchesCategory && matchesSearch;
     });
@@ -140,7 +140,107 @@ const categoryProducts = computed(() => {
 
 /*
 |--------------------------------------------------------------------------
-| Curated Sections (Flash Deals / Recommended / Best Sellers)
+| Hero Social Proof
+|--------------------------------------------------------------------------
+|
+| A real count summed from every loaded product's reviewCount (see
+| ProductController::transform — reviewCount is a real aggregate from the
+| reviews table, never fabricated), not an invented marketing number.
+| Whatever real total this ends up as is what's shown.
+|
+*/
+
+const totalReviews = computed(() =>
+    products.value.reduce((sum, product) => sum + (product.reviewCount || 0), 0)
+);
+
+/*
+|--------------------------------------------------------------------------
+| Hero Slider
+|--------------------------------------------------------------------------
+|
+| Three themed slides, each with a real landscape product photo (sourced
+| from Unsplash — free/commercial-use license) and a real destination:
+| the live Flash Deals section, the real "Electronics and Gadgets"
+| category, and the real "Woman's Apparel" category. No invented sitewide
+| discount is claimed anywhere in the copy.
+|
+*/
+
+function scrollToSection(id) {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+const heroSlides = [
+    {
+        theme: 'sage',
+        eyebrow: "Today's Best Deals",
+        headline: 'Flash Deals, Live Now',
+        sub: 'Real markdowns on in-stock favorites, while supplies last.',
+        ctaLabel: 'View Flash Deals',
+        image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&q=80&w=1600',
+        action: () => scrollToSection('flash-deals')
+    },
+    {
+        theme: 'sapphire',
+        eyebrow: 'Featured Category',
+        headline: 'Next-Gen Tech & Gadgets',
+        sub: 'Smart devices and accessories from verified local sellers.',
+        ctaLabel: 'Shop Electronics',
+        image: 'https://images.unsplash.com/photo-1577375729078-820d5283031c?auto=format&fit=crop&q=80&w=1600',
+        action: () => selectCategory('Electronics and Gadgets')
+    },
+    {
+        theme: 'terracotta',
+        eyebrow: 'Trending Now',
+        headline: 'Seasonal Apparel Edit',
+        sub: 'Fresh styles and footwear picks from local apparel sellers.',
+        ctaLabel: 'Shop Apparel',
+        image: 'https://images.unsplash.com/photo-1631542204051-7927ce32b94e?auto=format&fit=crop&q=80&w=1600',
+        action: () => selectCategory("Woman's Apparel")
+    }
+];
+
+const heroSlideIndex = ref(0);
+let heroTimer = null;
+
+// Auto-rotating content must not spin under prefers-reduced-motion — see
+// the WAI auto-rotation guidance.
+const heroReducedMotion = typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function heroGoTo(index) {
+    heroSlideIndex.value = (index + heroSlides.length) % heroSlides.length;
+}
+
+function heroNext() {
+    heroGoTo(heroSlideIndex.value + 1);
+}
+
+function heroPrev() {
+    heroGoTo(heroSlideIndex.value - 1);
+}
+
+function heroStopAutoplay() {
+    if (heroTimer) {
+        clearInterval(heroTimer);
+        heroTimer = null;
+    }
+}
+
+function heroStartAutoplay() {
+    heroStopAutoplay();
+
+    if (heroReducedMotion) {
+        return;
+    }
+
+    heroTimer = setInterval(heroNext, 5000);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Curated Sections (Flash Deals / Best Sellers)
 |--------------------------------------------------------------------------
 |
 | There is no orders/sales-aggregation endpoint yet to drive a *real*
@@ -148,46 +248,124 @@ const categoryProducts = computed(() => {
 | sellers), so these are explainable proxies over real data rather than
 | fabricated flags:
 |   - flashDeals: real products currently on sale (has a compare_price)
-|   - recommendedProducts: most recently listed in-stock products
 |   - bestSellers: in-stock products ranked by real review count, then
 |     average rating — the strongest popularity signal available until a
-|     sales aggregate exists.
+|     sales aggregate exists. No longer its own homepage section (see the
+|     All Products sort below for that); kept here because Cart.vue still
+|     uses it for its own real "you might also like" rail.
 | Flagged in the final report as a partial gap, not hidden.
 |
 */
 
+// Slice generous enough for the offers carousel to actually carousel
+// (a horizontally-scrolling row is meant to hold more than fits on
+// screen at once) — image/gallery/discount handling for each card now
+// lives inside OffersCarousel.vue itself, not here.
 const flashDeals = computed(() => {
     return products.value
         .filter(product => product.oldPrice && product.stock > 0)
-        .slice(0, 4);
+        .slice(0, 12);
 });
 
-// Flash-deal cards show the real product photo when the API gave one
-// (normalized `image` string — see ProductController / App\Support\
-// ProductImage), same as ProductCard.vue. Fall back to the category-icon
-// tile for imageless products or if the image 404s. `v-for` renders many
-// cards, so failures are tracked per product id.
-const PLACEHOLDER_IMAGE = '/images/product-placeholder.svg';
-const failedDealImages = ref(new Set());
+/*
+|--------------------------------------------------------------------------
+| Shop by Category
+|--------------------------------------------------------------------------
+|
+| 'All' is a filter state, not a real category — it never gets a tile, and
+| clicking any of these already-real categories doesn't set an "active"
+| tile here (it navigates straight to CategoryListing, so there's no
+| "current category" concept left on this page to highlight).
+|
+| Tiles are ordered by real in-stock product count (most-stocked first),
+| not alphabetically — a category with nothing in stock is still a real,
+| clickable category (CategoryListing handles the empty state honestly),
+| but it shouldn't sit ahead of one a buyer can actually shop right now.
+| Ties keep categories.js's original relative order (stable sort).
+|
+*/
 
-function dealImage(deal) {
-    const src = deal.image;
+const shopCategories = computed(() => {
+    const counts = {};
 
-    if (!src || src === PLACEHOLDER_IMAGE || failedDealImages.value.has(deal.id)) {
+    products.value.forEach(product => {
+        if (product.stock > 0) {
+            counts[product.category] = (counts[product.category] || 0) + 1;
+        }
+    });
+
+    return categories
+        .filter(category => category !== 'All')
+        .map((category, index) => ({ category, index }))
+        .sort((a, b) =>
+            (counts[b.category] || 0) - (counts[a.category] || 0)
+            || a.index - b.index,
+        )
+        .map(entry => entry.category);
+});
+
+// Collapsed to 4 tiles by default so the section doesn't push everything
+// below it down the page; "View All" reveals the rest in place rather
+// than navigating anywhere.
+const showAllCategories = ref(false);
+
+const visibleCategories = computed(() =>
+    showAllCategories.value
+        ? shopCategories.value
+        : shopCategories.value.slice(0, 4),
+);
+
+const failedCategoryImages = ref(new Set());
+
+function categoryImage(category) {
+    const src = metaFor(category).image;
+
+    if (!src || failedCategoryImages.value.has(category)) {
         return '';
     }
 
     return src;
 }
 
-function handleDealImageError(deal) {
-    failedDealImages.value = new Set(failedDealImages.value).add(deal.id);
+function handleCategoryImageError(category) {
+    failedCategoryImages.value = new Set(failedCategoryImages.value).add(category);
 }
 
-const recommendedProducts = computed(() => {
-    return products.value
-        .filter(product => product.stock > 0)
-        .slice(0, 8);
+/*
+|--------------------------------------------------------------------------
+| All Products Sort
+|--------------------------------------------------------------------------
+|
+| Replaces what used to be three separate carousels (Flash Deals stays
+| separate — it's discount-driven, a different real signal) drawing from
+| the same small pool of products and just re-sorting it: "Newest" and
+| "Best Selling" here are the exact same real logic bestSellers below
+| already used, applied on top of the search/category filter instead of a
+| second, unfiltered copy of the catalog. Sorting only ever reorders
+| filteredProducts — it never changes which products are in it.
+|
+*/
+
+const sortMode = ref('newest');
+
+const sortModes = [
+    { id: 'newest', label: 'Newest' },
+    { id: 'bestSelling', label: 'Best Selling' }
+];
+
+const sortedProducts = computed(() => {
+    const list = [...filteredProducts.value];
+
+    if (sortMode.value === 'bestSelling') {
+        return list.sort((a, b) =>
+            (b.reviewCount || 0) - (a.reviewCount || 0)
+            || (b.rating || 0) - (a.rating || 0),
+        );
+    }
+
+    return list.sort((a, b) =>
+        new Date(b.created_at || 0) - new Date(a.created_at || 0),
+    );
 });
 
 const bestSellers = computed(() => {
@@ -201,54 +379,8 @@ const bestSellers = computed(() => {
         .slice(0, 8);
 });
 
-/*
-|--------------------------------------------------------------------------
-| Flash Deal Countdown
-|--------------------------------------------------------------------------
-|
-| Cosmetic only — counts down from a fixed duration on page load. There is
-| no real deal-expiry timestamp from the backend yet, so this does not
-| reflect an actual sale end time.
-|
-*/
-
-const dealHours = ref(2);
-const dealMinutes = ref(45);
-const dealSeconds = ref(18);
-
-let countdownTimer = null;
-
-function tickCountdown() {
-    if (dealSeconds.value > 0) {
-        dealSeconds.value--;
-        return;
-    }
-
-    if (dealMinutes.value > 0) {
-        dealMinutes.value--;
-        dealSeconds.value = 59;
-        return;
-    }
-
-    if (dealHours.value > 0) {
-        dealHours.value--;
-        dealMinutes.value = 59;
-        dealSeconds.value = 59;
-        return;
-    }
-
-    // Reached zero — loop back so the demo banner keeps showing urgency.
-    dealHours.value = 2;
-    dealMinutes.value = 45;
-    dealSeconds.value = 18;
-}
-
-function pad(value) {
-    return String(value).padStart(2, '0');
-}
-
 onMounted(() => {
-    countdownTimer = setInterval(tickCountdown, 1000);
+    heroStartAutoplay();
 
     // per_page bumped to the API's max (see ProductController@index) so
     // CategoryListing — which filters this same in-memory list rather
@@ -265,9 +397,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-    if (countdownTimer) {
-        clearInterval(countdownTimer);
-    }
+    heroStopAutoplay();
 });
 
 /*
@@ -780,6 +910,7 @@ function closePayments() {
         @select-product="viewProduct"
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
+        @view-orders="openOrders"
     />
 
     <!-- ================================================================ -->
@@ -803,72 +934,146 @@ function closePayments() {
         <main class="buyer-main">
 
             <!-- Hero -->
-            <section class="buyer-hero">
+            <section
+                class="hero-slider"
+                aria-roledescription="carousel"
+                aria-label="Featured categories and deals"
+                @mouseenter="heroStopAutoplay"
+                @mouseleave="heroStartAutoplay"
+                @focusin="heroStopAutoplay"
+                @focusout="heroStartAutoplay"
+            >
 
-                <img
-                    class="buyer-hero-image"
-                    src="https://images.unsplash.com/photo-1556910103-1c02745aae4d?auto=format&fit=crop&q=80&w=2000"
-                    alt=""
-                    aria-hidden="true"
+                <div
+                    class="hero-slider-track"
+                    :style="{ transform: `translateX(-${heroSlideIndex * 100}%)` }"
                 >
-
-                <div class="buyer-hero-overlay"></div>
-
-                <div class="buyer-hero-content">
-
-                    <span class="buyer-hero-badge">
-                        NEXMART Marketplace
-                    </span>
-
-                    <h1>
-                        Shop Local, <br>
-                        <span>Delivered To You</span>
-                    </h1>
-
-                    <p>
-                        Discover electronics, fashion, home essentials and more from verified local sellers, all in one place.
-                    </p>
-
-                    <a
-                        href="#buyer-products"
-                        class="buyer-hero-cta"
+                    <div
+                        v-for="(slide, index) in heroSlides"
+                        :key="slide.headline"
+                        class="hero-slide"
+                        aria-roledescription="slide"
+                        :aria-label="`${index + 1} of ${heroSlides.length}`"
                     >
-                        Browse Products
-                    </a>
-
+                        <div
+                            class="hero-slide-photo"
+                            :style="{ backgroundImage: `url(${slide.image})` }"
+                            role="img"
+                            :aria-label="slide.headline"
+                        ></div>
+                        <div
+                            class="hero-slide-scrim"
+                            :class="'theme-' + slide.theme"
+                            aria-hidden="true"
+                        ></div>
+                        <div class="hero-slide-inner">
+                            <p class="hero-eyebrow">{{ slide.eyebrow }}</p>
+                            <h1 class="hero-headline">{{ slide.headline }}</h1>
+                            <p class="hero-slide-sub">{{ slide.sub }}</p>
+                            <button
+                                type="button"
+                                class="hero-slide-cta"
+                                @click="slide.action"
+                            >
+                                {{ slide.ctaLabel }}
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
+                            </button>
+                        </div>
+                    </div>
                 </div>
+
+                <button
+                    type="button"
+                    class="hero-nav prev"
+                    aria-label="Previous slide"
+                    @click="heroPrev(); heroStartAutoplay();"
+                >
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+                </button>
+                <button
+                    type="button"
+                    class="hero-nav next"
+                    aria-label="Next slide"
+                    @click="heroNext(); heroStartAutoplay();"
+                >
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+                </button>
+
+                <div
+                    class="hero-dots"
+                    role="tablist"
+                    aria-label="Slides"
+                >
+                    <button
+                        v-for="(slide, index) in heroSlides"
+                        :key="'dot-' + index"
+                        type="button"
+                        class="hero-dot"
+                        role="tab"
+                        :aria-selected="heroSlideIndex === index"
+                        :aria-label="`Show slide ${index + 1}`"
+                        @click="heroGoTo(index); heroStartAutoplay();"
+                    ></button>
+                </div>
+
+                <p class="hero-trust-inline">
+                    <strong>{{ totalReviews > 0 ? `${totalReviews}+` : 'New' }}</strong> real reviews from NEXMART buyers
+                </p>
 
             </section>
 
             <!-- Categories -->
-            <section>
+            <section id="shop-by-category">
 
                 <div class="buyer-section-head">
                     <h2>
-                        Popular Categories
+                        Shop by Category
                     </h2>
+
+                    <button
+                        v-if="shopCategories.length > 4"
+                        type="button"
+                        class="view-all-pill"
+                        @click="showAllCategories = !showAllCategories"
+                    >
+                        {{ showAllCategories ? 'Show Less' : 'View All' }}
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" :style="{ transform: showAllCategories ? 'rotate(-90deg)' : 'rotate(90deg)' }"><path d="m9 18 6-6-6-6" /></svg>
+                    </button>
                 </div>
 
                 <div class="category-grid">
 
                     <button
-                        v-for="category in categories"
+                        v-for="category in visibleCategories"
                         :key="category"
                         type="button"
-                        class="category-card"
+                        class="category-tile"
                         :class="[
                             'accent-' + metaFor(category).accent,
-                            { active: selectedCategory === category }
+                            { 'has-photo': categoryImage(category) }
                         ]"
-                        :aria-pressed="selectedCategory === category"
                         @click="selectCategory(category)"
                     >
+                        <img
+                            v-if="categoryImage(category)"
+                            class="category-tile-photo"
+                            :src="categoryImage(category)"
+                            :alt="category"
+                            loading="lazy"
+                            @error="handleCategoryImageError(category)"
+                        >
                         <span
-                            class="category-card-icon"
+                            v-if="categoryImage(category)"
+                            class="category-tile-scrim"
+                            aria-hidden="true"
+                        ></span>
+
+                        <span
+                            class="category-tile-icon"
                             v-html="metaFor(category).icon"
                         ></span>
 
-                        <span class="category-card-label">
+                        <span class="category-tile-label">
                             {{ category }}
                         </span>
                     </button>
@@ -877,193 +1082,54 @@ function closePayments() {
 
             </section>
 
-            <!-- Flash Deals -->
-            <section v-if="flashDeals.length > 0">
+            <!-- Offers Carousel — tighter gap above: a direct continuation of
+                 the category the buyer just picked, not a fresh topic.
+                 Replaces the old Flash Deals grid + fake countdown (same
+                 real, validated-discount products — see flashDeals above). -->
+            <OffersCarousel
+                id="flash-deals"
+                class="section-gap-tight"
+                :products="flashDeals"
+                @view-product="viewProduct"
+                @shop-deals="scrollToSection('buyer-products')"
+            />
 
-                <div class="flash-deals-card">
-
-                    <div class="flash-deals-head">
-
-                        <div class="flash-deals-title">
-
-                            <h2>
-                                Flash Deals
-                            </h2>
-
-                            <div class="flash-deals-countdown">
-
-                                <span class="flash-deals-countdown-label">
-                                    Ending In:
-                                </span>
-
-                                <div class="flash-deals-countdown-digits">
-                                    <span>{{ pad(dealHours) }}</span>
-                                    <span>{{ pad(dealMinutes) }}</span>
-                                    <span>{{ pad(dealSeconds) }}</span>
-                                </div>
-
-                            </div>
-
-                        </div>
-
-                    </div>
-
-                    <div class="flash-deals-grid">
-
-                        <div
-                            v-for="deal in flashDeals"
-                            :key="deal.id"
-                            class="flash-deal-card"
-                            :class="'accent-' + metaFor(deal.category).accent"
-                            @click="viewProduct(deal)"
-                        >
-
-                            <div class="flash-deal-image">
-                                <span class="flash-deal-badge">
-                                    -{{ discountPercent(deal) }}%
-                                </span>
-                                <img
-                                    v-if="dealImage(deal)"
-                                    class="flash-deal-photo"
-                                    :src="dealImage(deal)"
-                                    :alt="deal.name"
-                                    loading="lazy"
-                                    @error="handleDealImageError(deal)"
-                                >
-                                <span
-                                    v-else
-                                    class="flash-deal-icon"
-                                    v-html="metaFor(deal.category).icon"
-                                ></span>
-                            </div>
-
-                            <div class="flash-deal-info">
-
-                                <h3>
-                                    {{ deal.name }}
-                                </h3>
-
-                                <div class="flash-deal-price-row">
-                                    <span class="flash-deal-price">
-                                        {{ formatPrice(deal.price) }}
-                                    </span>
-                                    <span class="flash-deal-old-price">
-                                        {{ formatPrice(deal.oldPrice) }}
-                                    </span>
-                                </div>
-
-                                <div class="flash-deal-stock-row">
-                                    <span class="flash-deal-stock-label">
-                                        Selling Fast
-                                    </span>
-                                    <span class="flash-deal-stock-value">
-                                        {{ discountPercent(deal) }}%
-                                    </span>
-                                </div>
-
-                                <div class="flash-deal-stock-bar">
-                                    <div
-                                        class="flash-deal-stock-fill"
-                                        :style="{ width: discountPercent(deal) + '%' }"
-                                    ></div>
-                                </div>
-
-                            </div>
-
-                        </div>
-
-                    </div>
-
-                </div>
-
-            </section>
-
-            <!-- Recommended For You -->
-            <section v-if="recommendedProducts.length > 0">
-
-                <div class="buyer-section-head">
-                    <h2>
-                        Recommended For You
-                    </h2>
-                </div>
-
-                <div class="product-grid">
-
-                    <ProductCard
-                        v-for="product in recommendedProducts"
-                        :key="product.id"
-                        :product="product"
-                        @view="viewProduct"
-                    />
-
-                </div>
-
-            </section>
-
-            <!-- Info Banner -->
-            <section class="info-banner">
-
-                <div class="info-banner-left">
-
-                    <div class="info-banner-icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/>
-                            <path d="M15 18H9"/>
-                            <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/>
-                            <circle cx="17" cy="18" r="2"/>
-                            <circle cx="7" cy="18" r="2"/>
-                        </svg>
-                    </div>
-
-                    <div class="info-banner-text">
-
-                        <h3>
-                            Reliable Delivery, Every Order
-                        </h3>
-
-                        <p>
-                            We work with trusted local sellers and couriers to get your orders to your door safely.
-                        </p>
-
-                    </div>
-
-                </div>
-
-            </section>
-
-            <!-- Best Sellers -->
-            <section v-if="bestSellers.length > 0">
-
-                <div class="buyer-section-head">
-                    <h2>
-                        Best Sellers
-                    </h2>
-                </div>
-
-                <div class="product-grid">
-
-                    <ProductCard
-                        v-for="product in bestSellers"
-                        :key="product.id"
-                        :product="product"
-                        @view="viewProduct"
-                    />
-
-                </div>
-
-            </section>
-
-            <!-- All Products -->
+            <!-- All Products — replaces the former New Arrivals / Best
+                 Sellers / All Products trio. Same real logic, sort pills
+                 instead of three separate carousels of the same catalog. -->
             <section id="buyer-products">
 
-                <div class="buyer-section-head">
-                    <h2>
-                        All Products
-                    </h2>
+                <div class="products-head">
 
-                    <span class="buyer-section-tag">
-                        {{ filteredProducts.length }} items
-                    </span>
+                    <div>
+                        <h2>
+                            All Products
+                        </h2>
+
+                        <span class="buyer-section-tag">
+                            {{ filteredProducts.length }} items
+                        </span>
+                    </div>
+
+                    <div
+                        v-if="filteredProducts.length > 0"
+                        class="sort-pills"
+                        role="tablist"
+                        aria-label="Sort products"
+                    >
+                        <button
+                            v-for="mode in sortModes"
+                            :key="mode.id"
+                            type="button"
+                            role="tab"
+                            :class="{ active: sortMode === mode.id }"
+                            :aria-selected="sortMode === mode.id"
+                            @click="sortMode = mode.id"
+                        >
+                            {{ mode.label }}
+                        </button>
+                    </div>
+
                 </div>
 
                 <!-- Loading -->
@@ -1116,13 +1182,41 @@ function closePayments() {
                 >
 
                     <ProductCard
-                        v-for="product in filteredProducts"
+                        v-for="product in sortedProducts"
                         :key="product.id"
                         :product="product"
                         @view="viewProduct"
                     />
 
                 </div>
+
+            </section>
+
+            <!-- Trust strip — replaces the old standalone Info Banner
+                 interstitial. Same real delivery-trust copy, condensed into
+                 a slim strip with a CTA back to category discovery instead
+                 of a full-width section breaking up product browsing. -->
+            <section class="trust-strip">
+
+                <p class="trust-strip-text">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/>
+                        <path d="M15 18H9"/>
+                        <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/>
+                        <circle cx="17" cy="18" r="2"/>
+                        <circle cx="7" cy="18" r="2"/>
+                    </svg>
+                    Reliable delivery from trusted local sellers and couriers, every order.
+                </p>
+
+                <button
+                    type="button"
+                    class="trust-strip-cta"
+                    @click="scrollToSection('shop-by-category')"
+                >
+                    Browse Categories
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
+                </button>
 
             </section>
 

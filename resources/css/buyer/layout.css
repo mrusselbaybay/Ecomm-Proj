@@ -17,20 +17,77 @@
 }
 
 /* =========================
-   TOP BAR
+   ANNOUNCEMENT TICKER
 ========================= */
 
-.buyer-topbar {
-    padding: 8px 16px;
+.ticker-bar {
+    height: 34px;
 
-    background: var(--nx-accent);
+    display: flex;
+    align-items: center;
+
+    overflow: hidden;
+
+    background: #1b5e20;
+}
+
+.ticker-track {
+    display: flex;
+    width: max-content;
+
+    animation: ticker-scroll 32s linear infinite;
+}
+
+.ticker-bar:hover .ticker-track {
+    animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ticker-track {
+        animation: none;
+    }
+}
+
+.ticker-seq {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.ticker-item {
+    padding: 0 20px;
+
     color: #ffffff;
 
-    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
 
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: 0.2px;
+.ticker-plus {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+@keyframes ticker-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+}
+
+.sr-only {
+    position: absolute;
+
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+
+    overflow: hidden;
+
+    white-space: nowrap;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
 }
 
 /* =========================
@@ -46,8 +103,8 @@
     border-bottom: 1px solid #f1f5f9;
 }
 
-.buyer-header {
-    height: 76px;
+.main-nav {
+    height: 72px;
 
     display: flex;
     align-items: center;
@@ -57,6 +114,162 @@
 
     padding: 0 40px;
     gap: 30px;
+}
+
+.brand-word {
+    flex-shrink: 0;
+
+    color: var(--nx-ink);
+
+    font-size: 21px;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    text-decoration: none;
+    text-transform: uppercase;
+}
+
+.nav-links {
+    flex: 1;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+}
+
+.nav-drop {
+    position: relative;
+}
+
+.nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+
+    border: none;
+    background: none;
+    padding: 0;
+
+    color: var(--nx-ink);
+
+    font-size: 14px;
+    font-weight: 500;
+
+    cursor: pointer;
+
+    transition: color 0.15s ease;
+}
+
+.nav-link:hover,
+.nav-link[aria-expanded="true"] {
+    color: var(--nx-accent);
+}
+
+.nav-link .plus {
+    font-weight: 600;
+}
+
+.nav-dropdown {
+    position: absolute;
+    top: calc(100% + 18px);
+    left: 50%;
+    z-index: 25;
+
+    min-width: 220px;
+
+    padding: 14px;
+
+    background: #ffffff;
+    border: 1px solid var(--nx-border);
+    border-radius: 14px;
+
+    box-shadow: 0 18px 34px -14px rgba(15, 23, 42, 0.22);
+
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateX(-50%) translateY(-6px);
+
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+}
+
+.nav-drop.open .nav-dropdown {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nav-dropdown {
+        transition: none;
+    }
+}
+
+.nav-dropdown-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px 16px;
+}
+
+.nav-dropdown-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.nav-dropdown button {
+    display: block;
+    width: 100%;
+
+    border: none;
+    background: none;
+    padding: 7px 8px;
+    border-radius: 8px;
+
+    color: var(--nx-muted);
+    text-align: left;
+
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+
+    cursor: pointer;
+
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nav-dropdown button:hover,
+.nav-dropdown button.active {
+    color: var(--nx-accent);
+    background: var(--nx-accent-soft);
+}
+
+.search-row {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 40px;
+
+    max-height: 0;
+    overflow: hidden;
+
+    transition: max-height 0.2s ease, padding 0.2s ease;
+}
+
+.search-row.open {
+    max-height: 80px;
+    padding-bottom: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .search-row {
+        transition: none;
+    }
+}
+
+.search-row .buyer-search {
+    width: 100%;
+    margin: 0 auto;
 }
 
 .buyer-logo {
@@ -201,7 +414,8 @@
     transition: background 0.15s ease, color 0.15s ease;
 }
 
-.buyer-actions button:hover {
+.buyer-actions button:hover,
+.buyer-actions button[aria-expanded="true"] {
     background: #f1f5f9;
     color: var(--nx-accent);
 }
@@ -230,55 +444,6 @@
     line-height: 1;
 }
 
-/* Secondary category nav (in-header) */
-
-.buyer-subnav {
-    display: flex;
-    align-items: center;
-    gap: 26px;
-
-    max-width: 1400px;
-    margin: 0 auto;
-
-    padding: 10px 40px 14px;
-
-    overflow-x: auto;
-    scrollbar-width: none;
-}
-
-.buyer-subnav::-webkit-scrollbar {
-    display: none;
-}
-
-.buyer-subnav-link {
-    flex-shrink: 0;
-
-    padding-bottom: 4px;
-
-    border: none;
-    border-bottom: 2px solid transparent;
-    background: none;
-
-    color: #64748b;
-
-    font-size: 13.5px;
-    font-weight: 600;
-
-    cursor: pointer;
-
-    transition: color 0.15s ease, border-color 0.15s ease;
-    white-space: nowrap;
-}
-
-.buyer-subnav-link:hover {
-    color: var(--nx-accent);
-}
-
-.buyer-subnav-link.active {
-    color: var(--nx-ink);
-    border-bottom-color: var(--nx-accent);
-}
-
 /* =========================
    MAIN
 ========================= */
@@ -288,138 +453,11 @@
 
     margin: 0 auto;
 
-    padding: 32px 40px;
+    padding: 48px 40px;
 
     display: flex;
     flex-direction: column;
-    gap: 48px;
-}
-
-/* =========================
-   HERO
-========================= */
-
-.buyer-hero {
-    position: relative;
-    overflow: hidden;
-
-    border-radius: 24px;
-
-    aspect-ratio: 21 / 9;
-    min-height: 260px;
-
-    display: flex;
-    align-items: center;
-
-    background: var(--nx-ink);
-}
-
-.buyer-hero-image {
-    position: absolute;
-    inset: 0;
-
-    width: 100%;
-    height: 100%;
-
-    object-fit: cover;
-
-    opacity: 0.55;
-}
-
-.buyer-hero-overlay {
-    position: absolute;
-    inset: 0;
-
-    background: linear-gradient(90deg, rgba(2, 6, 23, 0.88) 0%, rgba(2, 6, 23, 0.55) 45%, rgba(2, 6, 23, 0.1) 100%);
-}
-
-.buyer-hero-content {
-    position: relative;
-    z-index: 1;
-
-    max-width: 560px;
-
-    padding: 0 32px;
-}
-
-@media (min-width: 700px) {
-    .buyer-hero-content {
-        padding: 0 56px;
-    }
-}
-
-.buyer-hero-badge {
-    display: inline-block;
-
-    padding: 6px 16px;
-
-    margin-bottom: 20px;
-
-    border-radius: 999px;
-
-    background: var(--nx-deal);
-    color: #ffffff;
-
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 1.2px;
-    text-transform: uppercase;
-}
-
-.buyer-hero h1 {
-    margin: 0 0 20px;
-
-    color: #ffffff;
-
-    font-size: 32px;
-    font-weight: 800;
-    line-height: 1.12;
-}
-
-@media (min-width: 700px) {
-    .buyer-hero h1 {
-        font-size: 48px;
-    }
-}
-
-.buyer-hero h1 span {
-    color: #5eead4;
-}
-
-.buyer-hero p {
-    margin: 0 0 28px;
-    max-width: 420px;
-
-    color: #cbd5e1;
-
-    font-size: 15px;
-    line-height: 1.6;
-}
-
-.buyer-hero-cta {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-
-    padding: 13px 26px;
-
-    border-radius: 12px;
-
-    background: var(--nx-accent);
-    color: #ffffff;
-
-    font-size: 14px;
-    font-weight: 700;
-    text-decoration: none;
-
-    box-shadow: 0 8px 20px -6px rgba(13, 148, 136, 0.5);
-
-    transition: background 0.15s ease, transform 0.15s ease;
-}
-
-.buyer-hero-cta:hover {
-    background: var(--nx-accent-dark);
-    transform: translateY(-2px);
+    gap: 64px;
 }
 
 /* =========================
@@ -431,7 +469,56 @@
     align-items: baseline;
     justify-content: space-between;
 
-    margin-bottom: 20px;
+    margin-bottom: 24px;
+}
+
+/* Pulls a section 32px closer to the one above it (against .buyer-main's
+   flat 64px gap) for pairs that are one continuous idea rather than a
+   fresh topic — e.g. Flash Deals directly continuing Shop by Category. */
+.section-gap-tight {
+    margin-top: -32px;
+}
+
+/* Toggles Shop by Category between a collapsed (4-tile) and expanded
+   view in place — no navigation, so the chevron just flips instead of
+   the button becoming a different control. */
+.view-all-pill {
+    flex-shrink: 0;
+
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    padding: 8px 16px;
+
+    border: 1px solid var(--nx-border);
+    border-radius: 999px;
+    background: #ffffff;
+
+    color: var(--nx-ink);
+
+    font-size: 12.5px;
+    font-weight: 700;
+
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.view-all-pill:hover {
+    border-color: var(--nx-accent);
+    color: var(--nx-accent-dark);
+}
+
+.view-all-pill svg {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .view-all-pill svg {
+        transition: none;
+    }
 }
 
 .buyer-section-head h2 {
@@ -457,74 +544,364 @@
 }
 
 /* =========================
+   HERO SLIDER
+========================= */
+
+.hero-slider {
+    position: relative;
+
+    overflow: hidden;
+    border-radius: 32px;
+
+    height: 480px;
+}
+
+.hero-slider-track {
+    display: flex;
+
+    width: 100%;
+    height: 100%;
+
+    transition: transform 600ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.hero-slide {
+    position: relative;
+
+    flex: 0 0 100%;
+    width: 100%;
+}
+
+.hero-slide-photo {
+    position: absolute;
+    inset: 0;
+
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+}
+
+.hero-slide-scrim {
+    position: absolute;
+    inset: 0;
+}
+
+.hero-slide-scrim.theme-sage {
+    background: linear-gradient(100deg, rgba(30, 66, 35, 0.88) 0%, rgba(30, 66, 35, 0.55) 42%, rgba(30, 66, 35, 0.15) 68%, rgba(30, 66, 35, 0) 88%);
+}
+
+.hero-slide-scrim.theme-sapphire {
+    background: linear-gradient(100deg, rgba(14, 26, 68, 0.88) 0%, rgba(14, 26, 68, 0.55) 42%, rgba(14, 26, 68, 0.15) 68%, rgba(14, 26, 68, 0) 88%);
+}
+
+.hero-slide-scrim.theme-terracotta {
+    background: linear-gradient(100deg, rgba(90, 42, 15, 0.88) 0%, rgba(90, 42, 15, 0.55) 42%, rgba(90, 42, 15, 0.15) 68%, rgba(90, 42, 15, 0) 88%);
+}
+
+.hero-slide-inner {
+    position: relative;
+    z-index: 1;
+
+    height: 100%;
+    max-width: 560px;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+
+    padding: 0 64px;
+}
+
+.hero-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    margin: 0 0 18px;
+
+    color: rgba(255, 255, 255, 0.86);
+
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+
+.hero-eyebrow::before {
+    content: "";
+    flex-shrink: 0;
+
+    width: 18px;
+    height: 1.5px;
+
+    background: currentColor;
+}
+
+.hero-headline {
+    margin: 0;
+
+    color: #ffffff;
+
+    font-size: clamp(28px, 3.6vw, 46px);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+    text-wrap: balance;
+}
+
+.hero-slide-sub {
+    max-width: 380px;
+    margin: 16px 0 0;
+
+    color: rgba(255, 255, 255, 0.9);
+
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+.hero-slide-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+
+    margin-top: 26px;
+    padding: 13px 28px;
+
+    border: none;
+    border-radius: 9999px;
+    background: #ffffff;
+
+    color: #14110c;
+
+    font-size: 13.5px;
+    font-weight: 700;
+
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.hero-slide-cta:hover {
+    transform: translateY(-2px);
+}
+
+.hero-slide-cta svg {
+    width: 15px;
+    height: 15px;
+}
+
+.hero-nav {
+    position: absolute;
+    top: 50%;
+    z-index: 2;
+
+    width: 40px;
+    height: 40px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border: none;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+
+    color: #ffffff;
+
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(-50%);
+    transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+.hero-slider:hover .hero-nav,
+.hero-nav:focus-visible {
+    opacity: 1;
+}
+
+.hero-nav:hover {
+    background: rgba(255, 255, 255, 0.32);
+}
+
+.hero-nav.prev {
+    left: 24px;
+}
+
+.hero-nav.next {
+    right: 24px;
+}
+
+.hero-dots {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    z-index: 2;
+
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    transform: translateX(-50%);
+}
+
+.hero-dot {
+    width: 8px;
+    height: 8px;
+    padding: 0;
+
+    border: none;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.4);
+
+    cursor: pointer;
+    transition: width 0.25s ease, background 0.25s ease;
+}
+
+.hero-dot[aria-selected="true"] {
+    width: 32px;
+    background: #ffffff;
+}
+
+/* Folded into the hero itself (was a separate, own-gap section below it)
+   so it reads as one continuous idea instead of a second micro-section. */
+.hero-trust-inline {
+    position: absolute;
+    right: 28px;
+    bottom: 26px;
+    z-index: 2;
+
+    margin: 0;
+
+    color: rgba(255, 255, 255, 0.92);
+
+    font-size: 12.5px;
+    text-align: right;
+}
+
+.hero-trust-inline strong {
+    color: #ffffff;
+}
+
+@media (max-width: 560px) {
+    .hero-trust-inline {
+        position: static;
+        margin-top: 10px;
+
+        color: var(--nx-muted);
+        text-align: right;
+    }
+
+    .hero-trust-inline strong {
+        color: var(--nx-deal);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hero-slider-track {
+        transition: none;
+    }
+}
+
+@media (max-width: 900px) {
+    .hero-slider {
+        height: auto;
+    }
+
+    .hero-slide-inner {
+        max-width: none;
+        padding: 48px 28px;
+    }
+
+    .hero-slide-scrim.theme-sage,
+    .hero-slide-scrim.theme-sapphire,
+    .hero-slide-scrim.theme-terracotta {
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.35) 0%, rgba(15, 23, 42, 0.78) 65%, rgba(15, 23, 42, 0.9) 100%);
+    }
+
+    .hero-slide {
+        min-height: 420px;
+    }
+
+    .hero-nav {
+        display: none;
+    }
+}
+
+@media (max-width: 560px) {
+    .hero-slide-inner {
+        padding: 40px 20px;
+    }
+}
+
+/* =========================
    CATEGORIES
 ========================= */
 
 .category-grid {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
 
-    gap: 12px;
+    gap: 20px;
 }
 
-.category-card {
+@media (min-width: 640px) {
+    .category-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+.category-tile {
     position: relative;
+
+    aspect-ratio: 1 / 1;
 
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
+    justify-content: center;
+    gap: 14px;
 
-    /* 2 columns by default; see breakpoints below. Flex (not grid) so a
-       trailing partial row centers itself instead of leaving a row of
-       "phantom" empty columns hanging off to one side. */
-    flex: 0 0 calc((100% - 12px) / 2);
-
-    padding: 18px 10px;
+    padding: 20px 12px;
 
     border: 1px solid var(--nx-border);
-    border-radius: 16px;
+    border-radius: 20px;
 
     background: #ffffff;
+    overflow: hidden;
 
     cursor: pointer;
 
-    transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-.category-card:hover {
+.category-tile:hover {
     border-color: var(--accent-fg, var(--nx-accent));
-    transform: translateY(-2px);
-    box-shadow: 0 10px 20px -14px rgba(15, 23, 42, 0.35);
+    transform: translateY(-3px);
+    box-shadow: 0 16px 28px -14px rgba(15, 23, 42, 0.3);
 }
 
-.category-card:focus-visible {
-    outline: 2px solid var(--accent-fg, var(--nx-accent));
-    outline-offset: 2px;
+.category-tile:focus-visible {
+    outline: 3px solid var(--accent-fg, var(--nx-accent));
+    outline-offset: 3px;
 }
 
-.category-card.active {
-    border-color: var(--accent-fg, var(--nx-accent));
-    background: var(--accent-bg, var(--nx-accent-soft));
-    box-shadow: 0 10px 20px -14px rgba(15, 23, 42, 0.25);
-}
-
-.category-card.active::after {
-    content: "";
-
+.category-tile-photo {
     position: absolute;
-    top: 10px;
-    right: 10px;
+    inset: 0;
 
-    width: 8px;
-    height: 8px;
+    width: 100%;
+    height: 100%;
 
-    border-radius: 999px;
-    background: var(--accent-fg, var(--nx-accent));
+    object-fit: cover;
 }
 
-.category-card-icon {
+.category-tile-scrim {
+    position: absolute;
+    inset: 0;
+
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.18) 55%, rgba(0, 0, 0, 0) 78%);
+}
+
+.category-tile-icon {
     width: 52px;
     height: 52px;
 
@@ -539,33 +916,63 @@
 
     font-size: 24px;
 
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transition: transform 0.15s ease;
 }
 
-.category-card-icon svg {
+.category-tile-icon svg {
     width: 26px;
     height: 26px;
 }
 
-.category-card:hover .category-card-icon {
+.category-tile:hover .category-tile-icon {
     transform: scale(1.08);
 }
 
-.category-card.active .category-card-icon {
-    box-shadow: 0 0 0 3px #ffffff, 0 0 0 4px var(--accent-fg, var(--nx-accent));
-}
-
-.category-card-label {
+.category-tile-label {
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 700;
     color: #374151;
     text-align: center;
     line-height: 1.3;
 }
 
-.category-card.active .category-card-label {
-    color: var(--accent-fg, var(--nx-accent));
-    font-weight: 700;
+/* Photo variant: icon shrinks into a corner badge, label becomes a
+   bottom-left overlay on the scrim, same real navigation either way. */
+
+.category-tile.has-photo {
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 0;
+}
+
+.category-tile.has-photo .category-tile-icon {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 2;
+
+    width: 36px;
+    height: 36px;
+
+    background: #ffffff;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.25);
+}
+
+.category-tile.has-photo .category-tile-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.category-tile.has-photo .category-tile-label {
+    position: relative;
+    z-index: 2;
+
+    width: 100%;
+    padding: 16px;
+
+    color: #ffffff;
+    text-align: left;
+    font-size: 14px;
 }
 
 /* Category / product accent color pairs */
@@ -580,142 +987,39 @@
 .accent-indigo { --accent-bg: #eef2ff; --accent-fg: #4f46e5; }
 .accent-orange { --accent-bg: #fff7ed; --accent-fg: #ea580c; }
 
-@media (min-width: 480px) {
-    .category-card {
-        flex-basis: calc((100% - 2 * 12px) / 3);
-    }
-}
-
-@media (min-width: 700px) {
-    .category-card {
-        flex-basis: calc((100% - 3 * 12px) / 4);
-    }
-}
-
-@media (min-width: 1000px) {
-    .category-card {
-        flex-basis: calc((100% - 6 * 12px) / 7);
-    }
-}
-
 /* =========================
-   FLASH DEALS
+   OFFERS CAROUSEL
 ========================= */
 
-.flash-deals-card {
+/* Replaces the old Flash Deals grid + fake countdown (see Dashboard.vue)
+   — same real, validated-discount products, presented as an offer panel
+   + horizontally scrollable row instead of a static 4-up grid. No
+   invented deadline this time: the countdown was already flagged as
+   cosmetic-only, and this brief explicitly rules out fabricated
+   promotional deadlines, so it's dropped rather than carried over. */
+.offers-carousel {
+    display: grid;
+    grid-template-columns: minmax(220px, 300px) 1fr;
+    gap: 32px;
+
+    padding: 28px;
+
     background: #ffffff;
     border: 1px solid var(--nx-border);
     border-radius: 24px;
-    padding: 28px;
 }
 
-.flash-deals-head {
+.offers-panel {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-
-    margin-bottom: 24px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
 }
 
-.flash-deals-title {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
-}
-
-.flash-deals-title h2 {
-    margin: 0;
-
-    color: var(--nx-ink);
-
-    font-size: 22px;
-    font-weight: 800;
-}
-
-.flash-deals-countdown {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.flash-deals-countdown-label {
-    color: var(--nx-muted);
-
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.flash-deals-countdown-digits {
-    display: flex;
-    gap: 5px;
-}
-
-.flash-deals-countdown-digits span {
-    min-width: 30px;
-
-    padding: 6px 4px;
-
-    border-radius: 8px;
-
-    background: var(--nx-deal-soft);
-    color: var(--nx-deal);
-
-    font-weight: 700;
-    font-size: 13px;
-    text-align: center;
-}
-
-.flash-deals-grid {
-    display: grid;
-
-    grid-template-columns: 1fr;
-    gap: 20px;
-}
-
-@media (min-width: 640px) {
-    .flash-deals-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-@media (min-width: 1100px) {
-    .flash-deals-grid {
-        grid-template-columns: repeat(4, 1fr);
-    }
-}
-
-.flash-deal-card {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-
-    padding: 14px;
-
-    border: 1px solid var(--nx-border);
-    border-radius: 16px;
-
-    background: #f8fafc;
-
-    cursor: pointer;
-
-    transition: border-color 0.15s ease;
-}
-
-.flash-deal-card:hover {
-    border-color: var(--accent-fg, var(--nx-accent));
-}
-
-.flash-deal-image {
-    position: relative;
-    flex-shrink: 0;
-
-    width: 88px;
-    height: 88px;
+.offers-icon {
+    width: 40px;
+    height: 40px;
+    margin-bottom: 4px;
 
     display: flex;
     align-items: center;
@@ -723,52 +1027,183 @@
 
     border-radius: 12px;
 
-    background: var(--accent-bg, #f1f5f9);
-
-    font-size: 32px;
+    background: var(--nx-deal-soft);
+    color: var(--nx-deal);
 }
 
-.flash-deal-photo {
+.offers-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.offers-panel h2 {
+    margin: 0;
+
+    color: var(--nx-ink);
+
+    font-size: 21px;
+    font-weight: 800;
+    line-height: 1.2;
+}
+
+.offers-panel p {
+    margin: 0;
+    max-width: 30ch;
+
+    color: var(--nx-muted);
+
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.offers-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+
+    padding: 11px 18px;
+
+    border: none;
+    border-radius: 999px;
+
+    background: var(--nx-ink);
+    color: #ffffff;
+
+    font-size: 13px;
+    font-weight: 700;
+
+    cursor: pointer;
+    transition: background 0.15s ease, gap 0.15s ease;
+}
+
+.offers-cta svg {
+    width: 15px;
+    height: 15px;
+    transition: transform 0.15s ease;
+}
+
+.offers-cta:hover {
+    gap: 11px;
+    background: var(--nx-accent-dark);
+}
+
+.offers-cta:hover svg {
+    transform: translateX(2px);
+}
+
+.offers-carousel-viewport {
+    position: relative;
+    min-width: 0;
+}
+
+.offers-track {
+    display: flex;
+    gap: 16px;
+
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+
+    padding: 2px 2px 4px;
+}
+
+.offers-track::-webkit-scrollbar {
+    display: none;
+}
+
+.offer-card {
+    flex: 0 0 190px;
+    scroll-snap-align: start;
+
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+
+    border: 1px solid var(--nx-border);
+    border-radius: 16px;
+    background: #ffffff;
+    overflow: hidden;
+
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.offer-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 14px 26px -12px rgba(15, 23, 42, 0.16);
+    border-color: var(--accent-fg, var(--nx-accent));
+}
+
+.offer-card:focus-visible {
+    outline: 2px solid var(--nx-accent);
+    outline-offset: 2px;
+}
+
+.offer-card-image {
+    position: relative;
+
+    aspect-ratio: 1 / 1;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: var(--accent-bg, #f1f5f9);
+}
+
+.offer-card-image img {
     position: absolute;
     inset: 0;
 
     width: 100%;
     height: 100%;
 
-    border-radius: 12px;
-
     object-fit: cover;
 }
 
-.flash-deal-badge {
+.offer-card-badge {
     position: absolute;
-    top: 4px;
-    left: 4px;
+    top: 8px;
+    left: 8px;
 
-    padding: 2px 6px;
+    padding: 3px 7px;
 
-    border-radius: 6px;
+    border-radius: 999px;
 
     background: var(--nx-deal);
     color: #ffffff;
 
-    font-size: 9px;
+    font-size: 9.5px;
     font-weight: 700;
 }
 
-.flash-deal-info {
+.offer-card-info {
+    padding: 12px 14px 14px;
+
+    display: flex;
+    flex-direction: column;
     flex: 1;
-    min-width: 0;
 }
 
-.flash-deal-info h3 {
-    margin: 0;
+.offer-card-label {
+    color: var(--nx-muted);
+
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.offer-card-name {
+    margin: 4px 0 6px;
 
     color: var(--nx-ink);
 
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 700;
-    line-height: 1.35;
+    line-height: 1.3;
 
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -777,62 +1212,118 @@
     overflow: hidden;
 }
 
-.flash-deal-price-row {
+.offer-card-rating {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 6px;
+
+    color: var(--nx-muted);
+
+    font-size: 10.5px;
+}
+
+.offer-card-rating .product-rating-stars {
+    font-size: 11px;
+}
+
+.offer-card-price-row {
+    margin-top: auto;
+
     display: flex;
     align-items: baseline;
-    gap: 8px;
-
-    margin: 6px 0 10px;
+    gap: 7px;
 }
 
-.flash-deal-price {
+.offer-card-price {
     color: var(--nx-ink);
-    font-size: 16px;
+
+    font-size: 15px;
     font-weight: 800;
+    font-variant-numeric: tabular-nums;
 }
 
-.flash-deal-old-price {
+.offer-card-old-price {
     color: #94a3b8;
-    font-size: 11px;
+
+    font-size: 10.5px;
     font-weight: 600;
     text-decoration: line-through;
 }
 
-.flash-deal-stock-row {
+.offers-nav {
+    position: absolute;
+    top: 40%;
+    z-index: 5;
+
+    width: 38px;
+    height: 38px;
+
     display: flex;
-    justify-content: space-between;
+    align-items: center;
+    justify-content: center;
 
-    margin-bottom: 4px;
-
-    font-size: 10px;
-    font-weight: 700;
-}
-
-.flash-deal-stock-label {
-    color: var(--nx-deal);
-}
-
-.flash-deal-stock-value {
-    color: var(--nx-muted);
-}
-
-.flash-deal-stock-bar {
-    width: 100%;
-    height: 6px;
-
+    border: none;
     border-radius: 999px;
+    background: #ffffff;
+    color: var(--nx-ink);
 
-    background: #e2e8f0;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+    transform: translateY(-50%);
 
-    overflow: hidden;
+    transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
-.flash-deal-stock-fill {
-    height: 100%;
+.offers-nav:hover:not(:disabled) {
+    transform: translateY(-50%) scale(1.06);
+}
 
-    border-radius: 999px;
+.offers-nav:disabled {
+    opacity: 0;
+    pointer-events: none;
+}
 
-    background: var(--nx-deal);
+.offers-nav.prev { left: -14px; }
+.offers-nav.next { right: -14px; }
+
+@media (max-width: 900px) {
+    .offers-carousel {
+        grid-template-columns: 1fr;
+        gap: 20px;
+        padding: 22px;
+    }
+
+    /* Prev/Next are a desktop affordance — touch relies on native swipe. */
+    .offers-nav {
+        display: none;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Enough of the next card peeks past the viewport edge to signal
+       the row scrolls, per the brief. */
+    .offer-card {
+        flex: 0 0 76%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .offers-track {
+        scroll-behavior: auto;
+    }
+
+    .offer-card {
+        transition: none;
+    }
+
+    .offer-card:hover {
+        transform: none;
+    }
+
+    .offers-cta svg {
+        transition: none;
+    }
 }
 
 /* =========================
@@ -848,41 +1339,88 @@
     gap: 20px;
 }
 
+/* Whole card is the image — full-bleed photo, dark bottom-weighted
+   scrim, all text/controls layered over it. Card lifts + the image
+   zooms on hover/keyboard-focus; the text block shifts up slightly to
+   settle in above the Add to Cart row that fades into the now-favored
+   space beneath it. Price stays visible at all times — only the button
+   reveals. border-radius + overflow:hidden live on this element, the
+   one that actually scales, so nothing can poke past the rounded
+   corners mid-hover. */
 .product-card {
     position: relative;
 
-    display: flex;
-    flex-direction: column;
-
-    background: #ffffff;
-
-    border: 1px solid var(--nx-border);
+    aspect-ratio: 4 / 5;
+    width: 100%;
 
     border-radius: 20px;
-
     overflow: hidden;
 
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    background: var(--accent-bg, #1e293b);
+    color: #ffffff;
+
+    transition:
+        transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+        box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.product-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 16px 28px -10px rgba(15, 23, 42, 0.14);
+.product-card:hover,
+.product-card:focus-within {
+    transform: translateY(-4px) scale(1.015);
+    box-shadow: 0 20px 34px -14px rgba(15, 23, 42, 0.35);
 }
 
-.product-image {
-    position: relative;
+.product-card:focus-within {
+    outline: 2px solid var(--nx-accent);
+    outline-offset: 3px;
+}
 
-    aspect-ratio: 1 / 1;
+/* Full-size, transparent, first in the DOM so every other real control
+   below (logo, badge, favorite, dots, add-to-cart) naturally paints
+   above it and receives its own click. */
+.product-card-hitzone {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+
+    border: none;
+    padding: 0;
+    background: none;
+    cursor: pointer;
+}
+
+.product-card-photo {
+    position: absolute;
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+
+    transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.product-card:hover .product-card-photo,
+.product-card:focus-within .product-card-photo {
+    transform: scale(1.08);
+}
+
+.product-card-fallback {
+    position: absolute;
+    inset: 0;
 
     display: flex;
-
     align-items: center;
     justify-content: center;
 
-    background: var(--accent-bg, #f1f5f9);
+    background: var(--accent-bg, #1e293b);
 }
 
+/* Shared fallback-icon tile — used here, by ProductDetails.vue
+   (.product-image-icon--lg), and by Cart.vue / Checkout.vue's own line
+   -item thumbnails (.cart-item-card-image / .checkout-item-image
+   override just the size). */
 .product-image-icon {
     width: 68px;
     height: 68px;
@@ -906,28 +1444,60 @@
     transform: scale(1.08);
 }
 
-/* Real product photo — fills the same square tile the icon sat in, so the
-   card layout is unchanged whether a product has an image or not. */
-.product-image-photo {
+/* Darkest immediately behind the text block at the bottom, fading to
+   nothing by mid-card — keeps name/seller/description/price readable
+   over any real photo (dark, colorful, or a plain white product shot)
+   without needing a full-image tint that would flatten the photography
+   the brief asks to keep front and center. */
+.product-card-scrim {
     position: absolute;
     inset: 0;
 
-    width: 100%;
-    height: 100%;
+    background: linear-gradient(
+        to top,
+        rgba(15, 23, 42, 0.88) 0%,
+        rgba(15, 23, 42, 0.55) 32%,
+        rgba(15, 23, 42, 0.1) 58%,
+        transparent 75%
+    );
 
-    object-fit: cover;
-
-    transition: transform 0.3s ease;
+    pointer-events: none;
 }
 
-.product-card:hover .product-image-photo {
-    transform: scale(1.05);
+/* Seller/brand mark — omitted entirely unless a real logo URL exists on
+   the product (see sellerLogo in ProductCard.vue); no backend field for
+   this exists yet, so this stays dormant rather than showing a
+   fabricated placeholder avatar. */
+.product-card-logo {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 2;
+
+    width: 32px;
+    height: 32px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.85);
+
+    overflow: hidden;
+}
+
+.product-card-logo img {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
 }
 
 .product-discount-badge {
     position: absolute;
     top: 12px;
     left: 12px;
+    z-index: 2;
 
     padding: 4px 9px;
 
@@ -942,10 +1512,60 @@
     box-shadow: 0 4px 10px -3px rgba(234, 88, 12, 0.5);
 }
 
+.product-card-logo ~ .product-discount-badge {
+    left: 50px;
+}
+
+/* Shared with ProductDetails.vue's own category label — ProductCard
+   itself no longer shows a category label on the card face. */
+.product-category {
+    font-size: 11px;
+    font-weight: 600;
+
+    color: var(--nx-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* Shared with ProductDetails.vue's own big price display (see its
+   .product-details-price) — not this card's own price text, which uses
+   .product-card-old-price below (white-on-photo, not muted-on-white). */
+.product-old-price {
+    color: #94a3b8;
+
+    font-size: 10.5px;
+    font-weight: 600;
+    text-decoration: line-through;
+}
+
+/* Shared with ProductDetails.vue's own rating row — this card doesn't
+   show a rating (the brief's content list for this design omits it;
+   flagged in the summary rather than silently carried over). */
+.product-rating {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+
+    margin-bottom: 10px;
+}
+
+.product-rating-stars {
+    color: #fb923c;
+    font-size: 12px;
+    letter-spacing: 1px;
+}
+
+.product-rating-count {
+    color: #94a3b8;
+    font-size: 10.5px;
+    font-weight: 600;
+}
+
 .product-favorite-button {
     position: absolute;
     top: 10px;
     right: 10px;
+    z-index: 2;
 
     width: 34px;
     height: 34px;
@@ -969,244 +1589,374 @@
     transform: scale(1.08);
 }
 
+.product-favorite-button:active {
+    transform: scale(0.94);
+}
+
 .product-favorite-button.is-favorite {
     color: #ef4444;
 }
 
-.product-quick-add-wrap {
+.product-card-dots {
     position: absolute;
-    left: 14px;
-    right: 14px;
-    bottom: 14px;
+    left: 0;
+    right: 0;
+    top: 12px;
 
-    opacity: 0;
-    transform: translateY(8px);
+    display: flex;
+    justify-content: center;
+    gap: 5px;
 
-    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 2;
 }
 
-.product-card:hover .product-quick-add-wrap {
-    opacity: 1;
-    transform: translateY(0);
-}
-
-.product-quick-add-button {
-    width: 100%;
-
-    padding: 10px;
+.product-card-dots button {
+    width: 6px;
+    height: 6px;
+    padding: 0;
 
     border: none;
-    border-radius: 12px;
+    border-radius: 999px;
 
-    background: var(--nx-accent);
-    color: #ffffff;
-
-    font-size: 12px;
-    font-weight: 700;
+    background: rgba(255, 255, 255, 0.5);
 
     cursor: pointer;
-
-    box-shadow: 0 8px 18px -6px rgba(13, 148, 136, 0.55);
-
-    transition: background 0.15s ease;
 }
 
-.product-quick-add-button:hover {
-    background: var(--nx-accent-dark);
+.product-card-dots button.active {
+    width: 14px;
+    background: #ffffff;
 }
 
-.product-info {
-    padding: 16px;
+/* Bottom-anchored text block — shifts up slightly on hover/focus, purely
+   as the settling-into-place motion cue; the Add to Cart row already
+   reveals via opacity, not extra height, so nothing below actually
+   needs the room. */
+.product-card-text {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
 
     display: flex;
     flex-direction: column;
-    flex: 1;
+    gap: 8px;
+
+    padding: 16px;
+
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.product-category {
-    font-size: 11px;
-    font-weight: 600;
-
-    color: var(--nx-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
+.product-card:hover .product-card-text,
+.product-card:focus-within .product-card-text {
+    transform: translateY(-6px);
 }
 
-.product-info h3 {
-    margin: 6px 0;
+.product-card-info {
+    /* Falls through to the hitzone — clicking the name, seller, or
+       description opens the product, same as clicking the photo. */
+    pointer-events: none;
+}
 
-    color: var(--nx-ink);
+.product-card-name {
+    margin: 0;
+
+    color: #ffffff;
 
     font-size: 14.5px;
     font-weight: 700;
-    line-height: 1.35;
+    line-height: 1.3;
 
-    min-height: 2.6em;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
-.product-rating {
-    display: flex;
-    align-items: center;
-    gap: 5px;
+.product-card-seller {
+    margin: 3px 0 0;
 
-    margin-bottom: 10px;
-}
+    color: rgba(255, 255, 255, 0.7);
 
-.product-rating-stars {
-    color: #fb923c;
-    font-size: 12px;
-    letter-spacing: 1px;
-}
-
-.product-rating-count {
-    color: #94a3b8;
     font-size: 10.5px;
-    font-weight: 600;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.product-price-row {
-    margin-top: auto;
+.product-card-desc {
+    margin: 5px 0 0;
+
+    color: rgba(255, 255, 255, 0.75);
+
+    font-size: 11.5px;
+    line-height: 1.45;
+
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.product-card-bottom-row {
+    margin-top: 4px;
 
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 10px;
 
-    gap: 8px;
+    /* Falls through to the hitzone over the price group; the button
+       opts back in below, since it's the one real control here. */
+    pointer-events: none;
 }
 
-.product-price-block {
+.product-card-price-group {
     display: flex;
-    flex-direction: column;
+    align-items: baseline;
+    gap: 7px;
 }
 
-.product-price {
-    color: var(--nx-ink);
+.product-card-price {
+    color: #ffffff;
 
     font-size: 17px;
     font-weight: 800;
+    font-variant-numeric: tabular-nums;
 }
 
-.product-old-price {
-    color: #94a3b8;
+.product-card-old-price {
+    color: rgba(255, 255, 255, 0.55);
 
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: 600;
     text-decoration: line-through;
 }
 
-.view-product-button {
-    width: 36px;
-    height: 36px;
+.product-card-add-button {
     flex-shrink: 0;
 
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    padding: 9px 16px;
 
     border: none;
+    border-radius: 10px;
 
-    border-radius: 11px;
-
-    background: var(--nx-ink);
+    background: var(--nx-accent);
     color: #ffffff;
 
-    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
 
-    transition: background 0.15s ease;
+    cursor: pointer;
+    pointer-events: auto;
+
+    box-shadow: 0 8px 18px -6px rgba(13, 148, 136, 0.55);
+
+    opacity: 0;
+    transform: translateX(8px) scale(0.96);
+    transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.15s ease;
 }
 
-.view-product-button:hover {
-    background: var(--nx-accent);
+.product-card:hover .product-card-add-button,
+.product-card:focus-within .product-card-add-button {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+}
+
+.product-card-add-button:hover:not(:disabled) {
+    background: var(--nx-accent-dark);
+}
+
+.product-card-add-button:active {
+    transform: scale(0.95);
+}
+
+.product-card-add-button:disabled {
+    opacity: 0.7;
+    cursor: default;
+}
+
+/* Touch has no reliable hover to trigger the reveal — the Add to Cart
+   button (and the slight text shift, which has nothing left to reveal
+   without hover anyway) is simply always shown instead of hidden-until-
+   hover, a distinct mobile treatment rather than the desktop one
+   reflowed. */
+@media (hover: none), (pointer: coarse) {
+    .product-card-add-button {
+        opacity: 1;
+        transform: none;
+    }
+
+    .product-card:hover .product-card-text,
+    .product-card:focus-within .product-card-text {
+        transform: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .product-card,
+    .product-card-photo,
+    .product-favorite-button,
+    .product-image-icon,
+    .product-card-text,
+    .product-card-add-button {
+        transition: none;
+    }
 }
 
 /* =========================
-   INFO BANNER
+   ALL PRODUCTS HEAD / SORT
 ========================= */
 
-.info-banner {
-    position: relative;
-    overflow: hidden;
-
+.products-head {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-end;
     justify-content: space-between;
-    gap: 24px;
+    flex-wrap: wrap;
+    gap: 16px;
 
-    padding: 32px;
-
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
-    border-radius: 24px;
+    margin-bottom: 24px;
 }
 
-/* A quiet brand-accent wash bleeding off the right edge — keeps the card
-   from reading as an empty gray box once the icon is no longer an
-   attention-grabbing emoji. */
-.info-banner::before {
-    content: "";
-
-    position: absolute;
-    top: 50%;
-    right: -70px;
-    transform: translateY(-50%);
-
-    width: 240px;
-    height: 240px;
-
-    border-radius: 999px;
-    background: radial-gradient(circle at 35% 35%, var(--nx-accent-soft), transparent 70%);
-
-    pointer-events: none;
-}
-
-.info-banner-left {
-    position: relative;
-    z-index: 1;
-
-    display: flex;
-    align-items: center;
-    gap: 20px;
-}
-
-.info-banner-icon {
-    flex-shrink: 0;
-
-    width: 56px;
-    height: 56px;
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    border-radius: 16px;
-
-    background: var(--nx-accent-soft);
-    color: var(--nx-accent-dark);
-
-    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
-}
-
-.info-banner-icon svg {
-    width: 28px;
-    height: 28px;
-}
-
-.info-banner-text h3 {
+.products-head h2 {
     margin: 0;
 
     color: var(--nx-ink);
 
-    font-size: 17px;
+    font-size: 22px;
     font-weight: 800;
 }
 
-.info-banner-text p {
-    margin: 4px 0 0;
+.sort-pills {
+    display: inline-flex;
+    gap: 4px;
+
+    padding: 4px;
+
+    border-radius: 999px;
+    background: #f1f5f9;
+}
+
+.sort-pills button {
+    border: none;
+    padding: 8px 16px;
+
+    border-radius: 999px;
+    background: transparent;
 
     color: var(--nx-muted);
 
+    font-size: 12.5px;
+    font-weight: 700;
+
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sort-pills button.active {
+    background: #ffffff;
+    color: var(--nx-ink);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+/* =========================
+   TRUST STRIP
+========================= */
+
+/* Was a full-width standalone banner wedged mid-scroll between two
+   product sections; condensed to a slim strip with a real CTA so it
+   doesn't interrupt product browsing. */
+.trust-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+
+    padding: 18px 24px;
+
+    background: #ffffff;
+    border: 1px solid var(--nx-border);
+    border-radius: 16px;
+}
+
+.trust-strip-text {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+
+    color: var(--nx-muted);
+
+    font-size: 13.5px;
+}
+
+.trust-strip-text svg {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    color: var(--nx-accent-dark);
+}
+
+.trust-strip-cta {
+    flex-shrink: 0;
+
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+
+    padding: 10px 20px;
+
+    border: none;
+    border-radius: 999px;
+    background: var(--nx-ink);
+    color: #ffffff;
+
     font-size: 13px;
+    font-weight: 700;
+
+    cursor: pointer;
+    transition: background 0.15s ease, gap 0.15s ease;
+}
+
+.trust-strip-cta svg {
+    width: 15px;
+    height: 15px;
+    transition: transform 0.15s ease;
+}
+
+.trust-strip-cta:hover {
+    gap: 11px;
+    background: var(--nx-accent-dark);
+}
+
+.trust-strip-cta:hover svg {
+    transform: translateX(2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .trust-strip-cta svg {
+        transition: none;
+    }
+}
+
+@media (max-width: 640px) {
+    .trust-strip {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .trust-strip-cta {
+        width: 100%;
+        justify-content: center;
+    }
 }
 
 /* =========================
@@ -1448,15 +2198,19 @@
 
 @media (max-width: 768px) {
 
-    .buyer-topbar {
-        font-size: 12px;
-        padding: 7px 12px;
+    .ticker-item {
+        padding: 0 14px;
+        font-size: 10px;
     }
 
-    .buyer-header {
+    .main-nav {
         padding: 0 15px;
 
         gap: 10px;
+    }
+
+    .nav-links {
+        display: none;
     }
 
     .buyer-logo {
@@ -1467,40 +2221,32 @@
         font-size: 18px;
     }
 
-    .buyer-search {
-        display: none;
+    .search-row {
+        padding-left: 15px;
+        padding-right: 15px;
     }
 
-    .buyer-subnav {
-        padding: 8px 15px 12px;
-        gap: 18px;
+    .search-row.open {
+        padding-bottom: 14px;
     }
 
     .buyer-main {
-        padding: 20px 15px;
-        gap: 36px;
+        padding: 24px 15px;
+        gap: 44px;
     }
 
-    .buyer-hero {
-        aspect-ratio: auto;
-        min-height: 320px;
-    }
-
-    .buyer-hero-content {
-        padding: 0 22px;
-    }
-
-    .category-card {
-        padding: 14px 6px;
-    }
-
-    .category-card-icon {
+    .category-tile-icon {
         width: 44px;
         height: 44px;
         font-size: 20px;
     }
 
-    .category-card-label {
+    .category-tile.has-photo .category-tile-icon {
+        width: 32px;
+        height: 32px;
+    }
+
+    .category-tile-label {
         font-size: 11.5px;
     }
 
@@ -1513,8 +2259,8 @@
             repeat(2, minmax(0, 1fr));
     }
 
-    .info-banner {
-        padding: 24px;
+    .trust-strip {
+        padding: 16px;
     }
 
     .buyer-footer-top {

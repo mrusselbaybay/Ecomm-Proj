@@ -20,8 +20,9 @@
 | prop watcher.
 |
 | Filters/sort are all real, computed from whatever's actually on these
-| products (brand, condition, stock, price) — nothing here is fabricated.
-| Two things the original reference had are deliberately left out:
+| products (brand, condition, stock, price, and now color/size) — nothing
+| here is fabricated. Two things the original reference had are
+| deliberately left out:
 |   - Customer Rating filter: there's no reviews aggregation wired into
 |     the product catalog endpoint yet (see ProductController::transform),
 |     so a rating filter would have nothing real to filter by.
@@ -33,13 +34,28 @@
 | Both are real gaps, not hidden ones — worth wiring up if/when reviews
 | and order aggregation exist.
 |
+| Color/Size are likewise real: every product carries `options` (the same
+| {name, values} shape ProductDetails.vue reads to build its variant
+| picker — see ProductController::transform()), so these facets are built
+| from whichever option names a product actually has, exactly like the
+| brand/condition facets below. A product with no "Color"/"Size" option
+| simply doesn't contribute to those facets — never invented.
+|
+| The sidebar's order-tracking widget is the honest version of the
+| reference's live map: this app has no courier GPS data (see
+| OrderTracking.vue's own note on this), so instead of faking a map it
+| surfaces the buyer's most recent in-progress order using the same
+| trackingSteps/stepLabels data OrderTracking.vue's real timeline uses,
+| with a link into the real order list.
+|
 */
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
 import { useBuyer } from '../composables/useBuyer';
 import { metaFor, formatPrice } from '../composables/useCategoryMeta';
+import { trackingSteps, stepLabels, isTrackingStepCompleted } from '../composables/useOrderTimeline';
 
 const props = defineProps({
     category: {
@@ -69,10 +85,15 @@ const emit = defineEmits([
     'account-click',
     'select-product',
     'browse-all',
-    'browse-categories'
+    'browse-categories',
+    'view-orders'
 ]);
 
-const { addToCart } = useBuyer();
+const { addToCart, orders, isLoadingOrders, loadOrders, ORDER_STATUSES } = useBuyer();
+
+onMounted(() => {
+    loadOrders();
+});
 
 const PER_PAGE = 12;
 
@@ -86,6 +107,8 @@ const priceMin = ref('');
 const priceMax = ref('');
 const selectedBrands = ref([]);
 const selectedConditions = ref([]);
+const selectedColors = ref([]);
+const selectedSizes = ref([]);
 const inStockOnly = ref(false);
 
 const sortBy = ref('newest');
@@ -96,7 +119,9 @@ const sectionsOpen = ref({
     price: true,
     brand: true,
     availability: true,
-    condition: true
+    condition: true,
+    color: true,
+    size: true
 });
 
 function toggleSection(key) {
@@ -136,14 +161,107 @@ function facetOf(field) {
         .sort((a, b) => a.value.localeCompare(b.value));
 }
 
+// Color/Size facets, built the same honest way but sourced from each
+// product's real variant `options` (see ProductController::transform —
+// options is [{name, values: [{value}]}]) rather than a flat field, since
+// that's where this data actually lives.
+function variantOptionFacet(optionName) {
+    const counts = new Map();
+
+    for (const product of props.products) {
+        const option = (product.options || []).find(
+            o => (o.name || '').toLowerCase() === optionName
+        );
+
+        if (!option) {
+            continue;
+        }
+
+        const seenOnThisProduct = new Set();
+
+        for (const { value } of option.values || []) {
+            if (!value || seenOnThisProduct.has(value)) {
+                continue;
+            }
+
+            seenOnThisProduct.add(value);
+            counts.set(value, (counts.get(value) || 0) + 1);
+        }
+    }
+
+    return [...counts.entries()].map(([value, count]) => ({ value, count }));
+}
+
+function productHasOptionValue(product, optionName, selectedValues) {
+    if (selectedValues.length === 0) {
+        return true;
+    }
+
+    const option = (product.options || []).find(
+        o => (o.name || '').toLowerCase() === optionName
+    );
+
+    if (!option) {
+        return false;
+    }
+
+    return option.values.some(v => selectedValues.includes(v.value));
+}
+
 const availableBrands = computed(() => facetOf('brand'));
 const availableConditions = computed(() => facetOf('condition'));
+
+const availableColors = computed(() =>
+    variantOptionFacet('color').sort((a, b) => a.value.localeCompare(b.value))
+);
+
+// Common apparel scale first, then anything unrecognized falls back to a
+// natural alphanumeric sort rather than being dropped.
+const SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL'];
+
+const availableSizes = computed(() =>
+    variantOptionFacet('size').sort((a, b) => {
+        const ai = SIZE_ORDER.indexOf(a.value.toUpperCase());
+        const bi = SIZE_ORDER.indexOf(b.value.toUpperCase());
+
+        if (ai !== -1 && bi !== -1) {
+            return ai - bi;
+        }
+
+        if (ai !== -1) {
+            return -1;
+        }
+
+        if (bi !== -1) {
+            return 1;
+        }
+
+        return a.value.localeCompare(b.value, undefined, { numeric: true });
+    })
+);
+
+// A small curated set of real CSS colors for common apparel color names, so
+// the swatch actually reflects the named color instead of guessing. Names
+// outside this set still show as a plain labeled chip — never a wrong hue.
+const COLOR_SWATCH_MAP = {
+    black: '#111111', white: '#ffffff', red: '#ef4444', blue: '#3b82f6',
+    navy: '#1e3a8a', green: '#22c55e', brown: '#92400e', gray: '#9ca3af',
+    grey: '#9ca3af', beige: '#e7d8c9', yellow: '#eab308', orange: '#f97316',
+    pink: '#ec4899', purple: '#a855f7', gold: '#ca8a04', silver: '#c0c0c0',
+    tan: '#d2b48c', cream: '#fffdf0', maroon: '#7f1d1d', teal: '#0d9488'
+};
+
+function swatchColor(name) {
+    return COLOR_SWATCH_MAP[(name || '').toLowerCase().trim()] || null;
+}
 
 const hasActiveFilters = computed(() =>
     priceMin.value !== '' ||
     priceMax.value !== '' ||
     selectedBrands.value.length > 0 ||
     selectedConditions.value.length > 0 ||
+    selectedColors.value.length > 0 ||
+    selectedSizes.value.length > 0 ||
     inStockOnly.value
 );
 
@@ -152,8 +270,119 @@ function clearAllFilters() {
     priceMax.value = '';
     selectedBrands.value = [];
     selectedConditions.value = [];
+    selectedColors.value = [];
+    selectedSizes.value = [];
     inStockOnly.value = false;
     page.value = 1;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Active Filter Chips
+|--------------------------------------------------------------------------
+*/
+
+const activeFilterChips = computed(() => {
+    const chips = [];
+
+    if (priceMin.value !== '' || priceMax.value !== '') {
+        chips.push({
+            type: 'price',
+            value: null,
+            label: `${formatPrice(sliderMin.value)} – ${formatPrice(sliderMax.value)}`
+        });
+    }
+
+    for (const value of selectedBrands.value) {
+        chips.push({ type: 'brand', value, label: value });
+    }
+
+    for (const value of selectedConditions.value) {
+        chips.push({ type: 'condition', value, label: value });
+    }
+
+    for (const value of selectedColors.value) {
+        chips.push({ type: 'color', value, label: value });
+    }
+
+    for (const value of selectedSizes.value) {
+        chips.push({ type: 'size', value, label: value });
+    }
+
+    if (inStockOnly.value) {
+        chips.push({ type: 'stock', value: null, label: 'In Stock Only' });
+    }
+
+    return chips;
+});
+
+function removeChip(chip) {
+    if (chip.type === 'price') {
+        priceMin.value = '';
+        priceMax.value = '';
+    } else if (chip.type === 'stock') {
+        inStockOnly.value = false;
+    } else if (chip.type === 'brand') {
+        selectedBrands.value = selectedBrands.value.filter(v => v !== chip.value);
+    } else if (chip.type === 'condition') {
+        selectedConditions.value = selectedConditions.value.filter(v => v !== chip.value);
+    } else if (chip.type === 'color') {
+        selectedColors.value = selectedColors.value.filter(v => v !== chip.value);
+    } else if (chip.type === 'size') {
+        selectedSizes.value = selectedSizes.value.filter(v => v !== chip.value);
+    }
+
+    resetPage();
+}
+
+/*
+|--------------------------------------------------------------------------
+| Price Range Slider
+|--------------------------------------------------------------------------
+|
+| Two overlapping <input type="range"> elements sharing one track — the
+| standard dual-thumb approach, since there's no native two-handle range
+| input. Only the thumbs are interactive (the transparent track underneath
+| has pointer-events disabled) so they don't fight each other for clicks.
+|
+*/
+
+const sliderMin = computed(() =>
+    priceMin.value !== '' ? Number(priceMin.value) : priceBounds.value.min
+);
+
+const sliderMax = computed(() =>
+    priceMax.value !== '' ? Number(priceMax.value) : priceBounds.value.max
+);
+
+const minPricePercent = computed(() => {
+    const { min, max } = priceBounds.value;
+
+    if (max === min) {
+        return 0;
+    }
+
+    return ((sliderMin.value - min) / (max - min)) * 100;
+});
+
+const maxPricePercent = computed(() => {
+    const { min, max } = priceBounds.value;
+
+    if (max === min) {
+        return 100;
+    }
+
+    return ((sliderMax.value - min) / (max - min)) * 100;
+});
+
+function onMinSlide(rawValue) {
+    priceMin.value = String(Math.min(Number(rawValue), sliderMax.value));
+    resetPage();
+}
+
+function onMaxSlide(rawValue) {
+    priceMax.value = String(Math.max(Number(rawValue), sliderMin.value));
+    resetPage();
 }
 
 /*
@@ -173,6 +402,8 @@ const filteredProducts = computed(() => {
         if (max !== null && price > max) return false;
         if (selectedBrands.value.length > 0 && !selectedBrands.value.includes(product.brand)) return false;
         if (selectedConditions.value.length > 0 && !selectedConditions.value.includes(product.condition)) return false;
+        if (!productHasOptionValue(product, 'color', selectedColors.value)) return false;
+        if (!productHasOptionValue(product, 'size', selectedSizes.value)) return false;
         if (inStockOnly.value && !(product.stock > 0)) return false;
 
         return true;
@@ -261,6 +492,34 @@ function handleAddToCart(product) {
 
 /*
 |--------------------------------------------------------------------------
+| Order Tracking Widget
+|--------------------------------------------------------------------------
+|
+| The honest stand-in for the reference's live map — real order data,
+| no invented courier position. Shows whichever of the buyer's orders is
+| still in progress (not yet delivered or cancelled) and was placed most
+| recently; "view-orders" routes to the real My Orders list, same as every
+| other "Track Order" entry point in this app (Header account menu,
+| OrderDetails, etc.).
+|
+*/
+
+const latestActiveOrder = computed(() => {
+    const active = orders.value.filter(
+        o => o.status !== ORDER_STATUSES.DELIVERED && o.status !== ORDER_STATUSES.CANCELLED
+    );
+
+    if (active.length === 0) {
+        return null;
+    }
+
+    return [...active].sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    )[0];
+});
+
+/*
+|--------------------------------------------------------------------------
 | Header Relay
 |--------------------------------------------------------------------------
 |
@@ -330,14 +589,16 @@ function handleHeaderSelectCategory(category) {
             >
 
                 <!-- ==================================================== -->
-                <!-- SIDEBAR FILTERS -->
+                <!-- SIDEBAR: FILTERS + ORDER TRACKING -->
                 <!-- ==================================================== -->
 
-                <aside
-                    v-if="products.length > 0"
-                    class="w-full lg:w-72 shrink-0 space-y-6"
-                >
-                    <div class="bg-white rounded-3xl border border-slate-100 p-6" style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);">
+                <aside class="w-full lg:w-72 shrink-0 space-y-6">
+
+                    <div
+                        v-if="products.length > 0"
+                        class="bg-white rounded-3xl border border-slate-100 p-6"
+                        style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                    >
 
                         <div class="flex items-center justify-between mb-6">
                             <h2 class="text-lg font-bold text-slate-900">Filter Products</h2>
@@ -364,6 +625,48 @@ function handleHeaderSelectCategory(category) {
                                 </svg>
                             </button>
                             <div v-show="sectionsOpen.price">
+
+                                <!-- Dual-thumb slider -->
+                                <div class="relative h-1.5 mt-2 mb-4">
+                                    <div class="absolute inset-0 top-1/2 -translate-y-1/2 h-1.5 bg-slate-100 rounded-full"></div>
+                                    <div
+                                        class="absolute top-1/2 -translate-y-1/2 h-1.5 bg-[#0d9488] rounded-full"
+                                        :style="{ left: minPricePercent + '%', right: (100 - maxPricePercent) + '%' }"
+                                    ></div>
+                                    <input
+                                        type="range"
+                                        :min="priceBounds.min"
+                                        :max="priceBounds.max"
+                                        :value="sliderMin"
+                                        class="absolute inset-0 w-full h-1.5 m-0 appearance-none bg-transparent pointer-events-none
+                                               [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none
+                                               [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full
+                                               [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#0d9488]
+                                               [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
+                                               [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:border-0
+                                               [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full
+                                               [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:ring-2 [&::-moz-range-thumb]:ring-[#0d9488]
+                                               [&::-moz-range-thumb]:cursor-pointer"
+                                        @input="onMinSlide($event.target.value)"
+                                    >
+                                    <input
+                                        type="range"
+                                        :min="priceBounds.min"
+                                        :max="priceBounds.max"
+                                        :value="sliderMax"
+                                        class="absolute inset-0 w-full h-1.5 m-0 appearance-none bg-transparent pointer-events-none
+                                               [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none
+                                               [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full
+                                               [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#0d9488]
+                                               [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
+                                               [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:border-0
+                                               [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full
+                                               [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:ring-2 [&::-moz-range-thumb]:ring-[#0d9488]
+                                               [&::-moz-range-thumb]:cursor-pointer"
+                                        @input="onMaxSlide($event.target.value)"
+                                    >
+                                </div>
+
                                 <div class="flex gap-4 mb-2">
                                     <div class="flex-1">
                                         <span class="text-[10px] text-slate-400 font-bold uppercase block mb-1">Min</span>
@@ -431,6 +734,95 @@ function handleHeaderSelectCategory(category) {
                             </div>
                         </div>
 
+                        <!-- Color -->
+                        <div
+                            v-if="availableColors.length > 0"
+                            class="mb-8"
+                        >
+                            <button
+                                type="button"
+                                class="flex justify-between items-center w-full mb-4"
+                                @click="toggleSection('color')"
+                            >
+                                <h3 class="text-sm font-bold text-slate-900">Color</h3>
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 transition-transform" :class="{ 'rotate-180': !sectionsOpen.color }">
+                                    <path d="m18 15-6-6-6 6" />
+                                </svg>
+                            </button>
+                            <div
+                                v-show="sectionsOpen.color"
+                                class="flex flex-wrap gap-3"
+                            >
+                                <label
+                                    v-for="color in availableColors"
+                                    :key="color.value"
+                                    class="group cursor-pointer"
+                                    :title="`${color.value} (${color.count})`"
+                                >
+                                    <input
+                                        v-model="selectedColors"
+                                        type="checkbox"
+                                        :value="color.value"
+                                        class="sr-only peer"
+                                        @change="resetPage"
+                                    >
+                                    <span
+                                        v-if="swatchColor(color.value)"
+                                        class="flex w-8 h-8 rounded-full ring-1 ring-slate-200 ring-offset-2 items-center justify-center transition-all peer-checked:ring-2 peer-checked:ring-[#0d9488]"
+                                        :style="{ background: swatchColor(color.value) }"
+                                    ></span>
+                                    <span
+                                        v-else
+                                        class="flex items-center px-3 h-8 rounded-full border text-xs font-semibold transition-colors"
+                                        :class="selectedColors.includes(color.value)
+                                            ? 'border-[#0d9488] bg-teal-50 text-[#0d9488]'
+                                            : 'border-slate-200 text-slate-500 group-hover:border-slate-300'"
+                                    >
+                                        {{ color.value }}
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Size -->
+                        <div
+                            v-if="availableSizes.length > 0"
+                            class="mb-8"
+                        >
+                            <button
+                                type="button"
+                                class="flex justify-between items-center w-full mb-4"
+                                @click="toggleSection('size')"
+                            >
+                                <h3 class="text-sm font-bold text-slate-900">Size</h3>
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 transition-transform" :class="{ 'rotate-180': !sectionsOpen.size }">
+                                    <path d="m18 15-6-6-6 6" />
+                                </svg>
+                            </button>
+                            <div
+                                v-show="sectionsOpen.size"
+                                class="grid grid-cols-4 gap-2"
+                            >
+                                <label
+                                    v-for="size in availableSizes"
+                                    :key="size.value"
+                                    class="cursor-pointer"
+                                    :title="`${size.count} available`"
+                                >
+                                    <input
+                                        v-model="selectedSizes"
+                                        type="checkbox"
+                                        :value="size.value"
+                                        class="sr-only peer"
+                                        @change="resetPage"
+                                    >
+                                    <span class="flex items-center justify-center h-9 rounded-xl border text-xs font-bold transition-colors peer-checked:border-[#0d9488] peer-checked:bg-[#0d9488] peer-checked:text-white border-slate-200 text-slate-600 hover:border-slate-300">
+                                        {{ size.value }}
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+
                         <!-- Availability -->
                         <div class="mb-8">
                             <button
@@ -492,6 +884,67 @@ function handleHeaderSelectCategory(category) {
                         </div>
 
                     </div>
+
+                    <!-- Order Tracking Widget -->
+                    <div
+                        class="rounded-3xl border border-slate-100 p-6"
+                        style="background: #0f2f2c; box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                    >
+                        <div class="flex items-center gap-3 mb-5">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center text-teal-300 shrink-0" style="background: #16423e;">
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" />
+                                </svg>
+                            </div>
+                            <h3 class="font-bold text-white">Track Your Order</h3>
+                        </div>
+
+                        <p
+                            v-if="isLoadingOrders"
+                            class="text-sm text-teal-100/60"
+                        >
+                            Checking your orders&hellip;
+                        </p>
+
+                        <template v-else-if="latestActiveOrder">
+                            <p class="text-xs text-teal-100/60 mb-3">Order {{ latestActiveOrder.orderId }}</p>
+
+                            <div class="flex items-center gap-1.5 mb-4">
+                                <div
+                                    v-for="(step, index) in trackingSteps"
+                                    :key="step"
+                                    class="flex-1 h-1.5 rounded-full"
+                                    :class="isTrackingStepCompleted(latestActiveOrder, index) ? 'bg-[#2dd4bf]' : 'bg-white/10'"
+                                ></div>
+                            </div>
+
+                            <p class="text-sm font-bold text-white mb-5">
+                                {{ stepLabels[latestActiveOrder.status] || latestActiveOrder.status }}
+                            </p>
+
+                            <button
+                                type="button"
+                                class="w-full py-2.5 bg-[#0d9488] text-white rounded-xl text-xs font-bold hover:bg-[#0f766e] transition-all"
+                                @click="emit('view-orders')"
+                            >
+                                Track Package
+                            </button>
+                        </template>
+
+                        <template v-else>
+                            <p class="text-sm text-teal-100/70 leading-relaxed mb-5">
+                                You don't have any orders in progress right now.
+                            </p>
+                            <button
+                                type="button"
+                                class="w-full py-2.5 bg-white/10 text-white rounded-xl text-xs font-bold hover:bg-white/15 transition-all"
+                                @click="emit('view-orders')"
+                            >
+                                View My Orders
+                            </button>
+                        </template>
+                    </div>
+
                 </aside>
 
                 <!-- ==================================================== -->
@@ -501,7 +954,7 @@ function handleHeaderSelectCategory(category) {
                 <div class="flex-1 min-w-0">
 
                     <!-- Controls -->
-                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6">
                         <div>
                             <h1 class="text-4xl font-bold text-slate-900 tracking-tight mb-1">{{ category }}</h1>
                             <p class="text-sm text-slate-500">
@@ -568,6 +1021,40 @@ function handleHeaderSelectCategory(category) {
                                 </button>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Active Filter Chips -->
+                    <div
+                        v-if="activeFilterChips.length > 0"
+                        class="flex flex-wrap items-center gap-2 mb-8"
+                    >
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1">Active Filter</span>
+
+                        <span
+                            v-for="chip in activeFilterChips"
+                            :key="`${chip.type}:${chip.value}`"
+                            class="inline-flex items-center gap-1.5 pl-3.5 pr-2 py-1.5 rounded-full bg-slate-900 text-white text-xs font-semibold"
+                        >
+                            {{ chip.label }}
+                            <button
+                                type="button"
+                                class="w-4 h-4 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors"
+                                :title="`Remove ${chip.label} filter`"
+                                @click="removeChip(chip)"
+                            >
+                                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+                                </svg>
+                            </button>
+                        </span>
+
+                        <button
+                            type="button"
+                            class="text-xs font-bold text-slate-500 underline underline-offset-2 hover:text-slate-900 transition-colors ml-1"
+                            @click="clearAllFilters"
+                        >
+                            Clear All
+                        </button>
                     </div>
 
                     <!-- No products in this category at all -->
