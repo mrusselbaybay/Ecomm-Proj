@@ -68,6 +68,7 @@ Route::prefix('auth')->group(function () {
 Route::get('/products', [ProductController::class, 'index'])->name('products.index');
 Route::get('/products/{id}', [ProductController::class, 'show'])->name('products.show');
 Route::get('/products/{id}/reviews', [ProductController::class, 'reviews'])->name('products.reviews');
+Route::get('/products/{id}/coupons', [\App\Http\Controllers\Buyer\CouponController::class, 'forProduct'])->name('products.coupons');
 
 // ============================================================
 // CUSTOMER SERVICE (all active public account roles)

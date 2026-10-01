@@ -30,6 +30,11 @@ Route::middleware(['auth.token', 'buyer'])->prefix('api/buyer')->name('api.buyer
     Route::get('/checkout/shipping-options', [CheckoutController::class, 'shippingOptions'])->name('checkout.shipping-options');
     Route::post('/checkout', [CheckoutController::class, 'store'])->name('checkout.store');
 
+    // Coupon wallet: claim from the product page, quote/auto-apply at checkout.
+    Route::get('/coupons', [\App\Http\Controllers\Buyer\CouponController::class, 'index'])->name('coupons.index');
+    Route::post('/coupons/quote', [\App\Http\Controllers\Buyer\CouponController::class, 'quote'])->name('coupons.quote');
+    Route::post('/coupons/{couponId}/claim', [\App\Http\Controllers\Buyer\CouponController::class, 'claim'])->name('coupons.claim');
+
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{id}', [OrderController::class, 'show'])->name('orders.show');
     Route::post('/orders/{id}/cancel', [OrderController::class, 'cancel'])->name('orders.cancel');

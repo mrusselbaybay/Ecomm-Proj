@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue';
+import { navigate } from '../composables/useBuyerNav';
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerChat } from '../composables/useBuyerChat';
 import { categories } from '../composables/useCategoryMeta';
@@ -120,6 +121,30 @@ function handleSearchSubmit() {
                         >
                             {{ totalUnread }}
                         </span>
+                    </button>
+
+                    <button
+                        type="button"
+                        title="My Orders"
+                        aria-label="My Orders"
+                        @click="navigate('orders')"
+                    >
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" />
+                            <path d="M12 22V12" /><polyline points="3.29 7 12 12 20.71 7" />
+                        </svg>
+                    </button>
+
+                    <button
+                        type="button"
+                        title="My Coupons"
+                        aria-label="My Coupons"
+                        @click="navigate('coupons')"
+                    >
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />
+                            <path d="M13 5v2M13 17v2M13 11v2" />
+                        </svg>
                     </button>
 
                     <button

@@ -1,4 +1,5 @@
 <script setup>
+import { navigate } from '../composables/useBuyerNav';
 import {
     computed,
     nextTick,
@@ -1145,6 +1146,14 @@ onBeforeUnmount(() => {
                     @click="emit('view-orders')"
                 >
                     My Orders
+                </button>
+
+                <button
+                    type="button"
+                    class="account-back-button"
+                    @click="navigate('coupons')"
+                >
+                    My Coupons
                 </button>
 
                 <button

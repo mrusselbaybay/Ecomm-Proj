@@ -52,6 +52,11 @@ Route::middleware(['auth.token', 'seller'])->prefix('api/seller')->name('api.sel
     // / product_variants.stock only ever change via InventoryService, which
     // records an inventory_movements row for every change.
     Route::post('/products/{id}/stock-adjustments', [SellerInventoryController::class, 'adjust'])->name('products.stock.adjust');
+    // Product-level, seller-funded coupons (created in batches from the edit page).
+    Route::get('/products/{id}/coupons', [\App\Http\Controllers\Seller\ProductCouponController::class, 'index'])->name('products.coupons.index');
+    Route::post('/products/{id}/coupons', [\App\Http\Controllers\Seller\ProductCouponController::class, 'store'])->name('products.coupons.store');
+    Route::put('/coupons/{id}', [\App\Http\Controllers\Seller\ProductCouponController::class, 'update'])->name('coupons.update');
+    Route::delete('/coupons/{id}', [\App\Http\Controllers\Seller\ProductCouponController::class, 'destroy'])->name('coupons.destroy');
     Route::get('/products/{id}/stock-movements', [SellerInventoryController::class, 'movements'])->name('products.stock.movements');
 
     Route::get('/category-config', [CategoryConfigController::class, 'show'])->name('category-config');

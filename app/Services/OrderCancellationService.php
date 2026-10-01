@@ -7,6 +7,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Profile;
+use App\Services\Coupons\CouponService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -75,6 +76,8 @@ class OrderCancellationService
                     $product?->increment('stock', (int) $item->quantity);
                 }
             }
+
+            app(CouponService::class)->releaseForOrder($order);
 
             $order->status = 'Cancelled';
 

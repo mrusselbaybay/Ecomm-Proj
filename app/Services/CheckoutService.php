@@ -8,6 +8,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Profile;
+use App\Services\Coupons\CouponService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -15,6 +16,8 @@ use Illuminate\Validation\ValidationException;
 
 class CheckoutService
 {
+    public function __construct(private readonly CouponService $coupons) {}
+
     /**
      * Flat per-parcel shipping options — the single source of truth for
      * fees. Checkout.vue fetches these via shippingOptions() rather than
@@ -100,8 +103,18 @@ class CheckoutService
                 ->get()
                 ->keyBy('id');
 
+            // One wallet coupon per line, never the same coupon on two lines.
+            $couponLines = collect($payload['items'])->filter(fn ($l) => ! empty($l['coupon_id']));
+            if ($couponLines->pluck('coupon_id')->duplicates()->isNotEmpty()) {
+                throw ValidationException::withMessages(['items' => 'A coupon can only be applied to one item.']);
+            }
+            $wallet = $this->coupons->lockForRedemption(
+                $buyer,
+                $couponLines->mapWithKeys(fn ($l) => [$l['coupon_id'] => $l['product_id']])->all(),
+            );
+
             $itemsBySeller = collect($payload['items'])
-                ->map(function (array $line) use ($products, $variants) {
+                ->map(function (array $line) use ($products, $variants, $wallet) {
                     $product = $products->get($line['product_id']);
 
                     if (! $product || $product->status !== 'active') {
@@ -166,11 +179,16 @@ class CheckoutService
                         ))
                         : ($line['variation'] ?? null);
 
+                    // Coupon discounts ONE unit, capped at that unit's price.
+                    $coupon = ! empty($line['coupon_id']) ? $wallet->get($line['coupon_id']) : null;
+
                     return [
                         'product' => $product,
                         'variant' => $variant,
                         'quantity' => $quantity,
                         'unit_price' => $unitPrice,
+                        'coupon' => $coupon,
+                        'coupon_discount' => $coupon ? $coupon->coupon->discountFor($unitPrice) : 0.0,
                         'variant_label' => $variantLabel,
                         'variant_options' => $variantOptions,
                     ];
@@ -250,6 +268,7 @@ class CheckoutService
         string $paymentMethod,
     ): Order {
         $subtotal = $lines->sum(fn (array $line) => $line['unit_price'] * $line['quantity']);
+        $discount = round($lines->sum('coupon_discount'), 2);
 
         $order = Order::create([
             'order_number' => $this->generateOrderNumber(),
@@ -289,8 +308,8 @@ class CheckoutService
             'subtotal' => $subtotal,
             'shipping_fee' => $shippingFee,
             'tax' => 0,
-            'discount' => 0,
-            'total' => $subtotal + $shippingFee,
+            'discount' => $discount,
+            'total' => $subtotal + $shippingFee - $discount,
             'shipping_service' => $shippingMethod,
             'placed_at' => now(),
         ]);
@@ -328,6 +347,9 @@ class CheckoutService
                 'unit_price' => $unitPrice,
                 'quantity' => $quantity,
                 'subtotal' => $unitPrice * $quantity,
+                'buyer_coupon_id' => $line['coupon']?->id,
+                'coupon_code' => $line['coupon']?->coupon->code,
+                'coupon_discount' => $line['coupon_discount'],
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
@@ -342,6 +364,12 @@ class CheckoutService
         }
 
         OrderItem::insert($itemRows);
+
+        foreach ($lines->values() as $i => $line) {
+            if ($line['coupon']) {
+                $this->coupons->markRedeemed($line['coupon'], $itemRows[$i]['id']);
+            }
+        }
 
         // Hand the freshly-built rows straight back as the `items` relation
         // so the controller's response doesn't trigger a re-SELECT.

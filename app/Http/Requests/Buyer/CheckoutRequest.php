@@ -19,6 +19,8 @@ class CheckoutRequest extends FormRequest
             'items.*.variant_id' => ['nullable', 'uuid', 'exists:product_variants,id'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.variation' => ['nullable', 'string', 'max:100'],
+            // A claimed wallet coupon (buyer_coupons.id); validated in CouponService.
+            'items.*.coupon_id' => ['nullable', 'uuid'],
 
             'delivery_address' => ['required', 'array'],
             'delivery_address.recipient_name' => ['required', 'string', 'max:255'],
@@ -27,7 +29,6 @@ class CheckoutRequest extends FormRequest
 
             'shipping_method' => ['nullable', 'string', 'max:100'],
             'payment_method' => ['nullable', 'string', 'max:100'],
-            'voucher_code' => ['nullable', 'string', 'max:100'],
 
             // Client-sent totals are informational only — never trusted.
             // See CheckoutService::checkout(), which recalculates

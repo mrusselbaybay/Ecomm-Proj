@@ -17,3 +17,6 @@ Schedule::command('orders:auto-deliver')->daily();
 // Buyer never clicked "Order Received" within 7 days of delivery →
 // confirm on their behalf and release escrow.
 Schedule::command('orders:auto-confirm-receipt')->daily();
+
+// Past-expiry / used-up coupons -> expired, and their wallet copies follow.
+Schedule::command('coupons:expire')->hourly();

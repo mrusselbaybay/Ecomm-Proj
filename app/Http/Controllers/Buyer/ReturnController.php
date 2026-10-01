@@ -76,6 +76,15 @@ class ReturnController extends Controller
             ]);
         }
 
+        // Refund what was actually paid: the coupon discounted one unit, and
+        // that unit is refunded first, so only the first request on this line
+        // that isn't rejected carries the discount.
+        $couponDiscount = (float) $orderItem->coupon_discount;
+        if ($couponDiscount > 0 && OrderReturnRequest::where('order_item_id', $orderItem->id)
+            ->where('status', '!=', 'rejected')->where('coupon_discount', '>', 0)->exists()) {
+            $couponDiscount = 0.0;
+        }
+
         $returnRequest = OrderReturnRequest::create([
             'order_id' => $orderItem->order_id,
             'order_item_id' => $orderItem->id,
@@ -86,7 +95,8 @@ class ReturnController extends Controller
             'other_reason' => $data['reason'] === 'other' ? trim($data['other_reason']) : null,
             'details' => $data['details'],
             'quantity' => $data['quantity'],
-            'estimated_amount' => (float) $orderItem->unit_price * (int) $data['quantity'],
+            'estimated_amount' => round((float) $orderItem->unit_price * (int) $data['quantity'] - $couponDiscount, 2),
+            'coupon_discount' => $couponDiscount,
             'evidence' => array_values($data['evidence']),
             'status' => 'pending',
         ]);

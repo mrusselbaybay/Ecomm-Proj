@@ -30,11 +30,13 @@ class OrderItem extends Model
         'order_id', 'product_id', 'product_name', 'category', 'sku',
         'variant', 'variant_id', 'variant_sku', 'variant_options',
         'unit_price', 'quantity', 'subtotal',
+        'buyer_coupon_id', 'coupon_code', 'coupon_discount',
     ];
 
     protected $casts = [
         'unit_price' => 'decimal:2',
         'subtotal' => 'decimal:2',
+        'coupon_discount' => 'decimal:2',
         'quantity' => 'integer',
         'variant_options' => 'array',
     ];

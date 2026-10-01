@@ -14,12 +14,14 @@ import Wishlist from './Wishlist.vue';
 import Reviews from './Reviews.vue';
 import SavedAddresses from './SavedAddresses.vue';
 import PaymentMethods from './PaymentMethods.vue';
+import MyCoupons from './MyCoupons.vue';
 import Chat from './Chat.vue';
 import ToastHost from './ToastHost.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import CustomerServicePage from '../../shared/CustomerServicePage.vue';
 
 import { useBuyer } from '../composables/useBuyer';
+import { navRequest } from '../composables/useBuyerNav';
 import { useBuyerProducts } from '../composables/useBuyerProducts';
 import { useBuyerSession } from '../composables/useBuyerSession';
 import {
@@ -45,7 +47,8 @@ const {
     products,
     isLoadingProducts,
     loadError: productsLoadError,
-    loadProducts
+    loadProducts,
+    getProductById
 } = useBuyerProducts();
 
 const { loadSession } = useBuyerSession();
@@ -72,6 +75,7 @@ const showWishlist = ref(false);
 const showReviews = ref(false);
 const showAddresses = ref(false);
 const showPayments = ref(false);
+const showCoupons = ref(false);
 const showCustomerService = ref(false);
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
@@ -362,6 +366,7 @@ function closeAllSubViews() {
     showReviews.value = false;
     showAddresses.value = false;
     showPayments.value = false;
+    showCoupons.value = false;
     checkoutItems.value = [];
     checkoutSource.value = null;
 }
@@ -665,6 +670,35 @@ function closePayments() {
     showPayments.value = false;
 }
 
+// Header / account-sidebar navigation from any page (see useBuyerNav.js).
+const NAV_HANDLERS = {
+    profile: () => openAccount(),
+    orders: () => openOrders(),
+    wishlist: () => openWishlist(),
+    reviews: () => openReviews(),
+    addresses: () => openAddresses(),
+    payments: () => openPayments(),
+    coupons: () => openCoupons(),
+};
+
+watch(navRequest, (request) => {
+    NAV_HANDLERS[request?.view]?.();
+});
+
+function openCoupons() {
+    closeAllSubViews();
+    showCoupons.value = true;
+}
+
+// Wallet entries only carry the product id; fetch the product to open it.
+async function openCouponProduct(productId) {
+    const product = await getProductById(productId);
+
+    if (product) {
+        viewProduct(product);
+    }
+}
+
 function openCustomerService() {
     showCustomerService.value = true;
 }
@@ -779,6 +813,22 @@ function closeCustomerService() {
         @view-wishlist="openWishlist"
         @view-reviews="openReviews"
         @view-addresses="openAddresses"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+    />
+
+    <!-- ================================================================ -->
+    <!-- MY COUPONS -->
+    <!-- ================================================================ -->
+
+    <MyCoupons
+        v-else-if="showCoupons"
+        @back="openPayments"
+        @go-home="handleBrowseAll"
+        @view-profile="openAccount"
+        @view-payments="openPayments"
+        @open-product="openCouponProduct"
         @search="handleSearch"
         @select-category="handleSelectCategory"
         @open-cart="openCart"

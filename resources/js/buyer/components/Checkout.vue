@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
 import { buyerApi } from '../composables/useBuyerApi';
 import { useBuyerAccount } from '../composables/useBuyerAccount';
+import { useBuyerCoupons } from '../composables/useBuyerCoupons';
 import { useBuyerAddresses } from '../composables/useBuyerAddresses';
 import { useBuyerPayments } from '../composables/useBuyerPayments';
 import { metaFor } from '../composables/useCategoryMeta';
@@ -165,12 +166,84 @@ watch([defaultAddress, buyerProfile, buyerAddress], applyPrefill);
 
 /*
 |--------------------------------------------------------------------------
-| Voucher
+| Coupons (seller-funded, one per line)
 |--------------------------------------------------------------------------
+|
+| The server quotes the buyer's usable wallet coupons per line (discount
+| on ONE unit, best first) and picks the auto-apply coupon. The buyer can
+| switch or remove it; checkout re-validates and re-prices server-side.
+|
 */
 
-const voucherCode = ref('');
-const appliedVoucher = ref(null);
+const { quote: quoteCoupons, markUsed: markCouponsUsed } = useBuyerCoupons();
+
+const lineKey = item => `${item.productId}-${item.variantId || 'simple'}`;
+const couponQuote = ref({});
+const selectedCoupons = reactive({});
+const touchedCoupons = new Set();
+const couponPickerKey = ref(null);
+
+async function loadCouponQuote() {
+    const lines = props.items
+        .filter(item => item.productId)
+        .map(item => ({ key: lineKey(item), product_id: item.productId, variant_id: item.variantId || null }));
+
+    if (!lines.length) {
+        return;
+    }
+
+    try {
+        couponQuote.value = await quoteCoupons(lines);
+    } catch {
+        couponQuote.value = {};
+    }
+
+    for (const line of lines) {
+        const options = couponQuote.value[line.key]?.options || [];
+
+        // Keep a manual choice if it's still valid; otherwise auto-apply the best.
+        if (!touchedCoupons.has(line.key) || !options.some(o => o.id === selectedCoupons[line.key])) {
+            selectedCoupons[line.key] = couponQuote.value[line.key]?.best || null;
+        }
+    }
+}
+
+watch(() => props.items.map(lineKey).join(','), loadCouponQuote, { immediate: true });
+
+function couponOptions(item) {
+    return couponQuote.value[lineKey(item)]?.options || [];
+}
+
+function appliedCoupon(item) {
+    const id = selectedCoupons[lineKey(item)];
+
+    return id ? couponOptions(item).find(o => o.id === id) || null : null;
+}
+
+function isAutoApplied(item) {
+    const key = lineKey(item);
+
+    return !touchedCoupons.has(key) && selectedCoupons[key] === couponQuote.value[key]?.best;
+}
+
+// The same wallet coupon can't sit on two lines.
+function couponTakenElsewhere(item, couponId) {
+    const key = lineKey(item);
+
+    return Object.entries(selectedCoupons).some(([k, id]) => k !== key && id === couponId);
+}
+
+function selectCoupon(item, couponId) {
+    const key = lineKey(item);
+    touchedCoupons.add(key);
+    selectedCoupons[key] = couponId;
+    couponPickerKey.value = null;
+}
+
+function toggleCouponPicker(item) {
+    const key = lineKey(item);
+    couponPickerKey.value = couponPickerKey.value === key ? null : key;
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -429,28 +502,13 @@ const shippingFee = computed(() => {
 
 /*
 |--------------------------------------------------------------------------
-| Discount
+| Discount — sum of per-line coupon discounts (one unit each)
 |--------------------------------------------------------------------------
-|
-| Temporary mock voucher:
-|
-| BuyTheWay10 = 10% discount
-|
-| Later, applyVoucher() can call your Laravel/Supabase API instead.
-|
 */
 
-const discount = computed(() => {
-    if (!appliedVoucher.value) {
-        return 0;
-    }
-
-    if (appliedVoucher.value.code === 'BuyTheWay10') {
-        return subtotal.value * 0.10;
-    }
-
-    return 0;
-});
+const discount = computed(() =>
+    props.items.reduce((sum, item) => sum + (appliedCoupon(item)?.discount || 0), 0)
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -475,43 +533,6 @@ const total = computed(() => {
 
 function formatPrice(price) {
     return `₱${Number(price).toFixed(2)}`;
-}
-
-/*
-|--------------------------------------------------------------------------
-| Voucher
-|--------------------------------------------------------------------------
-*/
-
-function applyVoucher() {
-    const code = voucherCode.value
-        .trim()
-        .toUpperCase();
-
-    if (!code) {
-        warning('Please enter a voucher code.');
-
-        return;
-    }
-
-    if (code === 'BuyTheWay10') {
-        appliedVoucher.value = {
-            code: 'BuyTheWay10'
-        };
-
-        success('Voucher applied. You received a 10% discount.');
-
-        return;
-    }
-
-    appliedVoucher.value = null;
-
-    toastError('That voucher code isn\'t valid.');
-}
-
-function removeVoucher() {
-    voucherCode.value = '';
-    appliedVoucher.value = null;
 }
 
 /*
@@ -630,6 +651,7 @@ async function placeOrder() {
 
             seller: item.seller,
             variation: item.variation,
+            coupon_id: selectedCoupons[lineKey(item)] || null,
 
             quantity: Number(item.quantity),
             unit_price: Number(item.price)
@@ -642,9 +664,6 @@ async function placeOrder() {
         },
 
         shipping_method: checkoutForm.shippingMethod,
-
-        voucher_code:
-            appliedVoucher.value?.code || null,
 
         payment_method:
             checkoutForm.paymentMethod,
@@ -663,6 +682,8 @@ async function placeOrder() {
      */
     try {
         const createdOrders = await submitCheckout(orderPayload);
+
+        markCouponsUsed(orderPayload.items.map(item => item.coupon_id).filter(Boolean));
 
         // Saving the card/wallet for next time is best-effort and makes
         // its own API call(s) — kick it off without blocking, so it never
@@ -691,6 +712,9 @@ async function placeOrder() {
             err?.message
                 || 'We couldn\'t place your order. Nothing was charged — please check your details and try again.',
         );
+
+        // A coupon may have expired or run out meanwhile — re-quote.
+        loadCouponQuote();
     }
 }
 </script>
@@ -853,11 +877,11 @@ async function placeOrder() {
                                 </div>
                             </div>
 
-                            <div
+                            <template
                                 v-for="item in items"
-                                :key="`${item.productId}-${item.variantId || 'simple'}`"
-                                class="checkout-item"
+                                :key="lineKey(item)"
                             >
+                            <div class="checkout-item">
 
                                 <div
                                     class="checkout-item-image"
@@ -883,6 +907,52 @@ async function placeOrder() {
                                 </div>
 
                             </div>
+
+                            <div
+                                v-if="couponOptions(item).length"
+                                class="checkout-coupon"
+                            >
+                                <div v-if="appliedCoupon(item)" class="checkout-coupon-applied">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
+                                    <strong>{{ appliedCoupon(item).label }}</strong>
+                                    <span>{{ isAutoApplied(item) ? 'auto-applied' : 'applied' }}</span>
+                                    <span v-if="appliedCoupon(item).runningLow" class="checkout-coupon-low">Only {{ appliedCoupon(item).remaining }} left</span>
+                                    <span class="checkout-coupon-amount">−{{ formatPrice(appliedCoupon(item).discount) }}</span>
+                                </div>
+                                <div v-else class="checkout-coupon-applied is-none">
+                                    <span>{{ couponOptions(item).length }} coupon{{ couponOptions(item).length > 1 ? 's' : '' }} available for this item</span>
+                                </div>
+                                <div class="checkout-coupon-actions">
+                                    <button type="button" @click="toggleCouponPicker(item)">
+                                        {{ appliedCoupon(item) ? 'Change' : 'Apply coupon' }}
+                                    </button>
+                                    <button v-if="appliedCoupon(item)" type="button" @click="selectCoupon(item, null)">Remove</button>
+                                </div>
+
+                                <div v-if="couponPickerKey === lineKey(item)" class="checkout-coupon-picker" role="radiogroup" :aria-label="`Coupons for ${item.name}`">
+                                    <label
+                                        v-for="option in couponOptions(item)"
+                                        :key="option.id"
+                                        class="checkout-coupon-option"
+                                        :class="{ active: selectedCoupons[lineKey(item)] === option.id, disabled: couponTakenElsewhere(item, option.id) }"
+                                    >
+                                        <input
+                                            type="radio"
+                                            :name="`coupon-${lineKey(item)}`"
+                                            :checked="selectedCoupons[lineKey(item)] === option.id"
+                                            :disabled="couponTakenElsewhere(item, option.id)"
+                                            @change="selectCoupon(item, option.id)"
+                                        >
+                                        <span class="checkout-coupon-badge">{{ option.label }}</span>
+                                        <span class="checkout-coupon-meta">
+                                            −{{ formatPrice(option.discount) }} on 1 unit · expires {{ new Date(option.expiresAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) }}
+                                            <span v-if="option.runningLow" class="checkout-coupon-low">Only {{ option.remaining }} left</span>
+                                        </span>
+                                        <span v-if="option.id === couponQuote[lineKey(item)]?.best" class="checkout-coupon-best">Best</span>
+                                    </label>
+                                </div>
+                            </div>
+                            </template>
 
                         </section>
 
@@ -945,60 +1015,6 @@ async function placeOrder() {
                                 </label>
 
                             </div>
-
-                        </section>
-
-                        <!-- Voucher -->
-                        <section class="checkout-section">
-
-                            <div class="checkout-section-title">
-                                <div class="checkout-section-icon">
-                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M20.59 13.41 13.42 20.6a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z" />
-                                        <circle cx="7" cy="7" r="1" />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <h2>Voucher / Discount</h2>
-                                    <p>Enter an available BuyTheWay voucher.</p>
-                                </div>
-                            </div>
-
-                            <div class="voucher-input-row">
-
-                                <input
-                                    v-model="voucherCode"
-                                    type="text"
-                                    placeholder="Enter voucher code"
-                                    :disabled="Boolean(appliedVoucher)"
-                                >
-
-                                <button
-                                    v-if="!appliedVoucher"
-                                    type="button"
-                                    class="voucher-button"
-                                    @click="applyVoucher"
-                                >
-                                    Apply
-                                </button>
-
-                                <button
-                                    v-else
-                                    type="button"
-                                    class="voucher-remove-button"
-                                    @click="removeVoucher"
-                                >
-                                    Remove
-                                </button>
-
-                            </div>
-
-                            <p
-                                v-if="appliedVoucher"
-                                class="voucher-applied"
-                            >
-                                BuyTheWay10 applied. You received a 10% discount.
-                            </p>
 
                         </section>
 
@@ -1275,7 +1291,7 @@ async function placeOrder() {
                                     v-if="discount > 0"
                                     class="cart-summary-row"
                                 >
-                                    <span>Voucher Discount</span>
+                                    <span>Coupon Discount</span>
                                     <span class="value--accent">-{{ formatPrice(discount) }}</span>
                                 </div>
 
@@ -1603,4 +1619,22 @@ async function placeOrder() {
 @keyframes checkout-shimmer { to { background-position: -200% 0; } }
 .checkout-shipping-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 10px; background: #fef2f2; color: #b91c1c; font-size: 13px; }
 .checkout-shipping-error button { border: 0; background: none; color: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
+.checkout-coupon { margin: -4px 0 12px; padding: 10px 12px; border: 1px dashed #fca5a5; border-radius: 12px; background: #fef2f2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.checkout-coupon-applied { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; min-width: 0; color: #b91c1c; font-size: 13px; }
+.checkout-coupon-applied.is-none { color: #7f1d1d; }
+.checkout-coupon-applied strong { font-weight: 800; }
+.checkout-coupon-applied > span:not(.checkout-coupon-amount):not(.checkout-coupon-low) { color: #64748b; }
+.checkout-coupon-amount { margin-left: auto; font-weight: 800; }
+.checkout-coupon-low { padding: 1px 8px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 11px; font-weight: 800; }
+.checkout-coupon-actions { display: flex; gap: 4px; }
+.checkout-coupon-actions button { min-height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: #fff; color: #b91c1c; font-size: 12px; font-weight: 700; cursor: pointer; }
+.checkout-coupon-actions button:hover { background: #fee2e2; }
+.checkout-coupon-picker { flex-basis: 100%; display: grid; gap: 6px; }
+.checkout-coupon-option { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: #fff; border: 1px solid #fecaca; cursor: pointer; }
+.checkout-coupon-option.active { border-color: #dc2626; box-shadow: 0 0 0 2px rgba(220, 38, 38, .15); }
+.checkout-coupon-option.disabled { opacity: .5; cursor: not-allowed; }
+.checkout-coupon-option input { accent-color: #dc2626; }
+.checkout-coupon-badge { padding: 4px 10px; border-radius: 8px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.checkout-coupon-meta { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: #475569; font-size: 12px; }
+.checkout-coupon-best { padding: 2px 8px; border-radius: 999px; background: #dcfce7; color: #15803d; font-size: 11px; font-weight: 800; }
 </style>

@@ -141,7 +141,6 @@ class OrderController extends Controller
             'receivedAt' => optional($order->received_at)->toIso8601String(),
             'shipping_method' => $order->shipping_service,
             'shipping_carrier' => $order->shipping_carrier,
-            'voucher_code' => null,
             'subtotal' => (float) $order->subtotal,
             'shipping_fee' => (float) $order->shipping_fee,
             'tax' => (float) $order->tax,
@@ -197,6 +196,8 @@ class OrderController extends Controller
                 'variation' => $item->variant,
                 'quantity' => $item->quantity,
                 'unit_price' => (float) $item->unit_price,
+                'coupon_code' => $item->coupon_code,
+                'coupon_discount' => (float) $item->coupon_discount,
                 'review' => $item->review ? [
                     'id' => $item->review->id,
                     'rating' => $item->review->rating,

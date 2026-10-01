@@ -63,12 +63,14 @@ class MockPaymentService
 
             $total = Money::toCents($order->total);
             $shipping = Money::toCents($order->shipping_fee);
+            $discount = Money::toCents($order->discount ?? 0);
             $shares = PaymentSplitter::split(
-                $total - $shipping,
+                $total - $shipping + $discount,
                 $shipping,
                 $order->seller_id,
                 $this->logisticsChain($order->id),
                 array_map([Money::class, 'toCents'], $rateCard),
+                $discount,
             );
 
             // Pre-release partial refunds already left escrow; each party
@@ -158,9 +160,14 @@ class MockPaymentService
      * Escrow still held (buyer never confirmed receipt) is released first so
      * every party's forward share exists before the return is netted off it.
      *
+     * A couponed item refunds what the buyer actually paid ($itemCents); the
+     * platform's commission is clawed back on the pre-discount price, so the
+     * seller returns exactly the reduced share it received and keeps the
+     * coupon cost it already gave.
+     *
      * @param  list<string>  $returnChain  companies on the return legs, pickup-from-buyer first
      */
-    public function settleReturn(string $orderId, string $returnRequestId, int $itemCents, int $shippingRefundCents, int $returnShippingCents, array $returnChain): EscrowTransaction
+    public function settleReturn(string $orderId, string $returnRequestId, int $itemCents, int $shippingRefundCents, int $returnShippingCents, array $returnChain, int $couponDiscountCents = 0): EscrowTransaction
     {
         $order = Order::findOrFail($orderId);
         if ($order->escrow_status === self::ESCROW_UNFUNDED) {
@@ -173,7 +180,7 @@ class MockPaymentService
 
         $buyerCents = $itemCents + $shippingRefundCents;
 
-        return $this->run("return:{$returnRequestId}", $orderId, EscrowTransaction::TYPE_RETURN, $buyerCents, function (Order $order) use ($itemCents, $shippingRefundCents, $returnShippingCents, $returnChain, $buyerCents) {
+        return $this->run("return:{$returnRequestId}", $orderId, EscrowTransaction::TYPE_RETURN, $buyerCents, function (Order $order) use ($itemCents, $shippingRefundCents, $returnShippingCents, $returnChain, $buyerCents, $couponDiscountCents) {
             if ($order->escrow_status !== self::ESCROW_RELEASED) {
                 throw new LogicException("Cannot settle a return from escrow status [{$order->escrow_status}].");
             }
@@ -187,7 +194,7 @@ class MockPaymentService
                 throw new InvalidArgumentException('Refund exceeds the amount still refundable.');
             }
 
-            $goodsCommission = Money::percent($itemCents, PaymentSplitter::PLATFORM_BPS);
+            $goodsCommission = Money::percent($itemCents + $couponDiscountCents, PaymentSplitter::PLATFORM_BPS);
             $returnShares = $returnShippingCents > 0
                 ? PaymentSplitter::split(0, $returnShippingCents, $order->seller_id, $returnChain)
                 : [];
@@ -214,6 +221,7 @@ class MockPaymentService
                 'item_cents' => $itemCents,
                 'shipping_refund_cents' => $shippingRefundCents,
                 'return_shipping_cents' => $returnShippingCents,
+                'coupon_discount_cents' => $couponDiscountCents,
                 'return_shares' => $returnShares,
             ]];
         });

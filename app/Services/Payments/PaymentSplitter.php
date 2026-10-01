@@ -8,7 +8,10 @@ use InvalidArgumentException;
  * Pure split of an order total:
  *   Platform  = (Goods + Shipping) × 5%   (off the top)
  *   Logistics = Shipping × 95%            (1 co: all; 2 cos: 60/40; 3+: rate card)
- *   Seller    = remainder (= Goods × 95%, absorbs rounding so the sum is exact)
+ *   Seller    = remainder (= Goods × 95% − coupon discount, absorbs rounding so the sum is exact)
+ *
+ * Coupons are seller-funded: platform and logistics are computed on the
+ * pre-discount amounts, and the whole discount comes out of the seller's share.
  */
 final class PaymentSplitter
 {
@@ -26,10 +29,13 @@ final class PaymentSplitter
      * @param  array<string, int>  $rateCard  company id => leg price in centavos (3+ companies)
      * @return list<array{account: string, party_id: ?string, cents: int}>
      */
-    public static function split(int $goodsCents, int $shippingCents, string $sellerId, array $companyIds, array $rateCard = []): array
+    public static function split(int $goodsCents, int $shippingCents, string $sellerId, array $companyIds, array $rateCard = [], int $discountCents = 0): array
     {
-        if ($goodsCents < 0 || $shippingCents < 0) {
+        if ($goodsCents < 0 || $shippingCents < 0 || $discountCents < 0) {
             throw new InvalidArgumentException('Amounts cannot be negative.');
+        }
+        if ($discountCents > $goodsCents) {
+            throw new InvalidArgumentException('Discount cannot exceed the goods amount.');
         }
 
         $companyIds = array_values(array_unique($companyIds));
@@ -44,7 +50,7 @@ final class PaymentSplitter
             default => self::rateCardLegs($companyIds, $pool, $shippingCents, $rateCard),
         };
 
-        $shares = [[self::ACCOUNT_SELLER, $sellerId, $goodsCents + $shippingCents - $platform - $pool], ...$logistics];
+        $shares = [[self::ACCOUNT_SELLER, $sellerId, $goodsCents + $shippingCents - $platform - $pool - $discountCents], ...$logistics];
         $shares[] = [self::ACCOUNT_PLATFORM, null, $platform];
 
         return array_map(fn ($s) => ['account' => $s[0], 'party_id' => $s[1], 'cents' => $s[2]], $shares);

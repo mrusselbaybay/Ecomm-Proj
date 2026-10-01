@@ -1426,6 +1426,13 @@
                             </div>
                         </section>
 
+                        <!-- COUPONS (existing products only — needs a product id) -->
+                        <ProductCouponsEditor
+                            v-if="!isNewProduct && activeProductId"
+                            :product-id="String(activeProductId)"
+                            :price="Number(form.price) || 0"
+                        />
+
             </div>
         </div>
 
@@ -1786,6 +1793,7 @@ import {
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import { useSeller } from '../composables/useSeller';
 import { useSellerProducts } from '../composables/useSellerProducts';
+import ProductCouponsEditor from './ProductCouponsEditor.vue';
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 

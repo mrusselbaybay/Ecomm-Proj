@@ -320,6 +320,7 @@ class SellerOrderController extends Controller
                     // deducted, and only once per order (guarded inside
                     // InventoryService by the movement log).
                     app(InventoryService::class)->restoreForOrder($order, 'cancellation_restock', $seller->id);
+                    app(\App\Services\Coupons\CouponService::class)->releaseForOrder($order);
                 }
 
                 $order->save();

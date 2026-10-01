@@ -108,6 +108,7 @@ class ReturnShipmentService
                 $shippingRefund,
                 Money::toCents($request->return_shipping_fee ?? $order->shipping_fee),
                 $returnChain,
+                Money::toCents($request->coupon_discount ?? 0),
             );
 
             $request->forceFill([

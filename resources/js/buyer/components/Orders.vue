@@ -27,6 +27,7 @@ import { computed, onMounted, ref } from 'vue';
 import OrderDetails from './OrderDetails.vue';
 import OrderTracking from './OrderTracking.vue';
 import Header from './Header.vue';
+import AccountSidebar from './AccountSidebar.vue';
 import Footer from './Footer.vue';
 import { useBuyer } from '../composables/useBuyer';
 import { metaFor } from '../composables/useCategoryMeta';
@@ -189,6 +190,10 @@ function formatShippingMethod(method) {
         return 'Express Delivery';
     }
 
+    if (method === 'same_day') {
+        return 'Same Day Delivery';
+    }
+
     return method;
 }
 
@@ -312,77 +317,7 @@ function handleHeaderSelectCategory(category) {
                 <!-- SIDEBAR NAV -->
                 <!-- ============================================================ -->
 
-                <aside class="w-full lg:w-64 shrink-0 lg:sticky lg:top-36">
-                    <nav class="bg-white rounded-3xl p-4 border border-slate-100 space-y-1" style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);">
-
-                        <button
-                            type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
-                            @click="emit('view-profile')"
-                        >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-                            </svg>
-                            My Profile
-                        </button>
-
-                        <button
-                            type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-[#0d9488] font-semibold transition-colors"
-                        >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" />
-                                <path d="M12 22V12" /><polyline points="3.29 7 12 12 20.71 7" /><path d="m7.5 4.27 9 5.15" />
-                            </svg>
-                            My Orders
-                        </button>
-
-                        <button
-                            type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
-                            @click="emit('view-wishlist')"
-                        >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
-                            </svg>
-                            Wishlist
-                        </button>
-
-                        <button
-                            type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
-                            @click="emit('view-reviews')"
-                        >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" />
-                            </svg>
-                            My Reviews
-                        </button>
-
-                        <button
-                            type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
-                            @click="emit('view-addresses')"
-                        >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" />
-                            </svg>
-                            Saved Addresses
-                        </button>
-
-                        <button
-                            type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
-                            @click="emit('view-payments')"
-                        >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" />
-                            </svg>
-                            Payment Methods
-                        </button>
-
-                    </nav>
-                </aside>
+                <AccountSidebar active="orders" />
 
                 <!-- ============================================================ -->
                 <!-- MAIN CONTENT -->
@@ -515,7 +450,6 @@ function handleHeaderSelectCategory(category) {
                                 <div class="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-slate-500">
                                     <span>{{ formatPaymentMethod(order.payment_method) }}</span>
                                     <span>{{ formatShippingMethod(order.shipping_method) }}</span>
-                                    <span v-if="order.voucher_code">Voucher: {{ order.voucher_code }}</span>
                                 </div>
                                 <div class="flex items-center gap-6">
                                     <div class="text-right">

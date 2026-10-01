@@ -35,6 +35,7 @@ class OrderReturnRequest extends Model
         'details',
         'quantity',
         'estimated_amount',
+        'coupon_discount',
         'refunded_amount',
         'return_shipping_fee',
         'evidence',

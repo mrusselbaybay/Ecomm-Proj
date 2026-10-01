@@ -12,6 +12,7 @@ import { useToasts } from '../composables/useToasts';
 import Footer from './Footer.vue';
 import Header from './Header.vue';
 import ProductCard from './ProductCard.vue';
+import ProductCouponCards from './ProductCouponCards.vue';
 import ProductReviewsDrawer from './ProductReviewsDrawer.vue';
 import StarRating from './StarRating.vue';
 
@@ -151,6 +152,8 @@ const accentClass = computed(() => {
 | formatted identically everywhere.
 |--------------------------------------------------------------------------
 */
+
+const unitPrice = computed(() => Number(selectedVariant.value?.price ?? props.product?.price ?? 0));
 
 const formattedPrice = computed(() => {
     if (!props.product) {
@@ -632,6 +635,11 @@ function selectRelatedProduct(item) {
                         >
                     </button>
                 </div>
+
+                <ProductCouponCards
+                    :product-id="String(product.id)"
+                    :price="unitPrice"
+                />
 
             </div>
 
