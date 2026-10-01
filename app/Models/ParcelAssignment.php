@@ -122,6 +122,7 @@ class ParcelAssignment extends Model
         'required_vehicle_type',
         'transfer_to_company_id',
         'previous_assignment_id',
+        'return_request_id',
         'received_by',
         'assigned_by',
         'received_at',
@@ -217,6 +218,45 @@ class ParcelAssignment extends Model
             ->orderByDesc('requested_at');
     }
 
+    // The approved Return + Refund this reverse-logistics leg carries back
+    // to the seller; null on the original forward delivery.
+    public function returnRequest(): BelongsTo
+    {
+        return $this->belongsTo(OrderReturnRequest::class, 'return_request_id');
+    }
+
+    public function isReturn(): bool
+    {
+        return $this->return_request_id !== null;
+    }
+
+    /**
+     * The order as this leg should be routed. A return runs the forward
+     * flow in reverse — collected from the BUYER, delivered to the SELLER —
+     * so every pickup_* / shipping_* read (rider matching, transfer
+     * triggers, area tiers, drop-off labels) is swapped on an in-memory
+     * copy. Read-only: never save() the returned model.
+     */
+    public function routingOrder(): ?Order
+    {
+        $order = $this->order;
+
+        if (! $order || ! $this->isReturn()) {
+            return $order;
+        }
+
+        $swapped = clone $order;
+        foreach (['region_name', 'province_name', 'municipality_name', 'barangay'] as $field) {
+            $swapped->setAttribute("pickup_{$field}", $order->getAttribute("shipping_{$field}"));
+            $swapped->setAttribute("shipping_{$field}", $order->getAttribute("pickup_{$field}"));
+        }
+        // The seller's street-level address isn't stored on the order.
+        $swapped->setAttribute('shipping_house_no', null);
+        $swapped->setAttribute('shipping_street', null);
+
+        return $swapped;
+    }
+
     // The row at the previous company, when this one exists because that
     // company transferred the parcel here.
     public function previousAssignment(): BelongsTo
@@ -302,6 +342,7 @@ class ParcelAssignment extends Model
         return static::query()
             ->where('order_id', $orderId)
             ->where('logistics_company_id', $logisticsCompanyId)
+            ->whereNull('return_request_id')
             ->latest('created_at')
             ->first();
     }
@@ -315,6 +356,7 @@ class ParcelAssignment extends Model
     {
         return static::query()
             ->where('order_id', $orderId)
+            ->whereNull('return_request_id')
             ->latest('created_at')
             ->first();
     }

@@ -10,6 +10,7 @@ use App\Http\Controllers\Seller\SellerOrderController;
 use App\Http\Controllers\Seller\SellerCourierController;
 use App\Http\Controllers\Seller\SellerProductController;
 use App\Http\Controllers\CashFlowController;
+use App\Http\Controllers\Seller\RefundRequestController;
 use App\Http\Controllers\Seller\SellerReportController;
 use Illuminate\Support\Facades\Route;
 
@@ -102,6 +103,11 @@ Route::middleware(['auth.token', 'seller'])->prefix('api/seller')->name('api.sel
     Route::get('/reports/product-performance', [SellerReportController::class, 'productPerformance'])->name('reports.product-performance');
     Route::get('/reports/inventory', [SellerReportController::class, 'inventory'])->name('reports.inventory');
     Route::get('/reports/returns', [SellerReportController::class, 'returns'])->name('reports.returns');
+    // Buyer return/refund requests — approval refunds via mock escrow.
+    Route::get('/refund-requests', [RefundRequestController::class, 'index'])->name('refund-requests.index');
+    Route::post('/refund-requests/approve-all', [RefundRequestController::class, 'approveAll'])->name('refund-requests.approve-all');
+    Route::post('/refund-requests/{id}/approve', [RefundRequestController::class, 'approve'])->name('refund-requests.approve');
+    Route::post('/refund-requests/{id}/reject', [RefundRequestController::class, 'reject'])->name('refund-requests.reject');
     Route::get('/reports/cash-flow', [CashFlowController::class, 'seller'])->name('reports.cash-flow');
     Route::get('/reports/download', [SellerReportController::class, 'download'])->name('reports.download');
 

@@ -83,7 +83,7 @@ class ParcelAutoAssignService
                 return $this->result($locked, self::OUTCOME_SKIPPED, 'Already routed — nothing to do.');
             }
 
-            $order = $locked->order;
+            $order = $locked->routingOrder();
 
             if (! $order) {
                 return $this->result($locked, self::OUTCOME_NO_AREA, 'This parcel has no order on file to read an address from.');
@@ -293,6 +293,39 @@ class ParcelAutoAssignService
      * candidate any more. Rows past this desk entirely (out for delivery,
      * offered to or handed to another company) are never candidates.
      */
+    /**
+     * A return leg skips the For Inventory checkpoint — both when collected
+     * from the buyer and when it arrives at the origin hub as a transfer
+     * receipt — the parcel was already scanned into inventory on its
+     * forward trip.
+     * Returns the overrides that land it straight on STATUS_HANDED_OFF with
+     * the onward (seller-side) rider match ParcelInventoryController::scan
+     * would otherwise do. Empty for every other parcel; callers array_merge()
+     * it over their own update so these keys win.
+     *
+     * @return array<string, mixed>
+     */
+    public function returnPickupBypass(ParcelAssignment $parcel): array
+    {
+        if (! $parcel->isReturn() || ! $parcel->logisticsCompany) {
+            return [];
+        }
+
+        $order = $parcel->routingOrder();
+        $match = $order
+            ? $this->matchRider($order, $parcel->logisticsCompany, $parcel->required_vehicle_type, false)
+            : ['rider' => null, 'barangayAssignment' => null];
+
+        return [
+            'status' => ParcelAssignment::STATUS_HANDED_OFF,
+            'for_inventory_at' => null,
+            'inventory_origin' => null,
+            'barangay_assignment_id' => $match['barangayAssignment']?->id,
+            'rider_profile_id' => $match['rider']?->id,
+            'assigned_at' => $match['rider'] ? now() : null,
+        ];
+    }
+
     public function awaitsAutoAssignment(ParcelAssignment $parcel): bool
     {
         if (in_array($parcel->status, [

@@ -11,6 +11,7 @@ use App\Models\ParcelTransferRequest;
 use App\Models\Profile;
 use App\Services\ParcelAutoAssignService;
 use App\Services\ParcelIntakeService;
+use App\Services\ReturnShipmentService;
 use App\Services\SellerNotifier;
 use App\Services\FileStorage;
 use Illuminate\Database\Eloquent\Builder;
@@ -71,6 +72,7 @@ class DriverDeliveryController extends Controller
         private readonly FileStorage $files,
         private readonly ParcelIntakeService $parcelIntake,
         private readonly ParcelAutoAssignService $autoAssign,
+        private readonly ReturnShipmentService $returns,
     ) {}
 
     /**
@@ -98,7 +100,7 @@ class DriverDeliveryController extends Controller
         }
 
         return in_array(
-            $this->autoAssign->expectedTierFor($assignment->logisticsCompany, $assignment->order, false),
+            $this->autoAssign->expectedTierFor($assignment->logisticsCompany, $assignment->routingOrder(), false),
             ['regional', 'provincial'],
             true,
         );
@@ -110,7 +112,7 @@ class DriverDeliveryController extends Controller
         $profile = $request->user();
 
         $assignments = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany'])
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
             // Rows currently dispatched to this rider — assigned, out for
             // delivery, or carrying a cross-region transfer — PLUS rows
             // they ran the pickup leg on and have since handed back to
@@ -208,7 +210,7 @@ class DriverDeliveryController extends Controller
         }
 
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany'])
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
             ->where('order_id', $order->id)
             ->where('rider_profile_id', $profile->id)
             // Same exclusion as [index] — a transfer leg a scan can't
@@ -293,7 +295,7 @@ class DriverDeliveryController extends Controller
         // succeeded, instead of falling through to the idempotent
         // "already moved on" branch below.
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany'])
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
             ->whereKey($parcelAssignment)
             ->where(function (Builder $query) use ($profile): void {
                 $query->where(function (Builder $q) use ($profile): void {
@@ -374,7 +376,7 @@ class DriverDeliveryController extends Controller
             // $isPickupPhase) now happens — not here, so a picked-up
             // parcel is never auto-staged for delivery/transfer before
             // it's been physically re-verified.
-            $lockedAssignment->update([
+            $lockedAssignment->update(array_merge([
                 'status' => ParcelAssignment::STATUS_FOR_INVENTORY,
                 'handed_off_at' => now(),
                 'for_inventory_at' => now(),
@@ -382,10 +384,10 @@ class DriverDeliveryController extends Controller
                 'pickup_photo_path' => $photoPath,
                 'rider_profile_id' => null,
                 'picked_up_by' => $profile->id,
-            ]);
+            ], $this->autoAssign->returnPickupBypass($lockedAssignment)));
         });
 
-        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany']);
+        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
 
         return response()->json(['data' => $this->present($assignment, $profile)]);
     }
@@ -415,7 +417,7 @@ class DriverDeliveryController extends Controller
         ]);
 
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany'])
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
             ->where('rider_profile_id', $profile->id)
             ->whereKey($parcelAssignment)
             ->first();
@@ -441,6 +443,10 @@ class DriverDeliveryController extends Controller
         $order = $assignment->order;
         if (! $order) {
             return response()->json(['message' => 'This delivery has no linked order.'], 422);
+        }
+
+        if ($assignment->isReturn()) {
+            return $this->deliverReturn($request, $assignment, $profile);
         }
 
         // Idempotent: already delivered (e.g. a retried request) -> just
@@ -491,7 +497,7 @@ class DriverDeliveryController extends Controller
             ]);
         });
 
-        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany']);
+        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
 
         // Best-effort: let the seller know their order was delivered. No
         // BuyerNotifier exists in this project yet (see SellerNotifier's
@@ -501,6 +507,54 @@ class DriverDeliveryController extends Controller
         } catch (\Throwable $e) {
             Log::warning('Seller notification for delivered order failed: '.$e->getMessage());
         }
+
+        return response()->json(['data' => $this->present($assignment, $profile)]);
+    }
+
+    /**
+     * [deliver] for the last leg of a Return + Refund: the item is handed
+     * back to the SELLER. The order itself stays 'Delivered' (it was);
+     * instead the return request completes and the refund settles
+     * (ReturnShipmentService::complete).
+     */
+    private function deliverReturn(Request $request, ParcelAssignment $assignment, Profile $profile): JsonResponse
+    {
+        if ($assignment->delivered_at) {
+            return response()->json(['data' => $this->present($assignment, $profile)]);
+        }
+
+        $file = $request->file('photo');
+        $extension = $file->getClientOriginalExtension() ?: $file->extension();
+        $photoPath = "profile/{$profile->id}/returns/{$assignment->id}/".(string) Str::uuid().'.'.$extension;
+
+        try {
+            $this->files->upload(self::PHOTOS_BUCKET, $photoPath, file_get_contents($file->getRealPath()), $file->getMimeType());
+        } catch (\Throwable $e) {
+            Log::error('Return delivery photo upload failed: '.$e->getMessage());
+
+            return response()->json(['message' => 'Failed to upload the delivery photo. Please try again.'], 500);
+        }
+
+        DB::transaction(function () use ($assignment, $photoPath, $profile): void {
+            $locked = ParcelAssignment::whereKey($assignment->id)->lockForUpdate()->first();
+            if ($locked->delivered_at) {
+                return;
+            }
+
+            $locked->update(['delivered_at' => now(), 'delivery_photo_path' => $photoPath]);
+
+            OrderStatusHistory::create([
+                'order_id' => $locked->order_id,
+                'status' => 'Delivered',
+                'previous_status' => 'Delivered',
+                'note' => 'Returned item delivered back to the seller by rider with photo confirmation.',
+                'changed_by' => $profile->id,
+            ]);
+
+            $this->returns->complete($locked);
+        });
+
+        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
 
         return response()->json(['data' => $this->present($assignment, $profile)]);
     }
@@ -533,7 +587,7 @@ class DriverDeliveryController extends Controller
         ]);
 
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany'])
+            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
             ->where('rider_profile_id', $profile->id)
             ->whereKey($parcelAssignment)
             ->first();
@@ -604,7 +658,7 @@ class DriverDeliveryController extends Controller
                 ?->update(['resulting_assignment_id' => $receipt->id]);
         });
 
-        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany']);
+        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
 
         return response()->json(['data' => $this->present($assignment, $profile)]);
     }
@@ -667,6 +721,15 @@ class DriverDeliveryController extends Controller
     private function present(ParcelAssignment $assignment, ?Profile $viewer = null): array
     {
         $order = $assignment->order;
+        $isReturn = $assignment->isReturn();
+        $route = $assignment->routingOrder();
+        $buyerAddress = collect([
+            $order?->shipping_house_no,
+            $order?->shipping_street,
+            $order?->shipping_barangay,
+            $order?->shipping_municipality_name,
+            $order?->shipping_province_name,
+        ])->filter()->implode(', ') ?: null;
 
         return [
             'id' => $assignment->id,
@@ -704,6 +767,10 @@ class DriverDeliveryController extends Controller
             // separate "pickup address" field on Order, only the buyer's
             // shipping (dropoff) address.
             'pickup_label' => trim(($assignment->logisticsCompany?->company_name ?: 'Logistics').' — Sorting Hub'),
+            // A return's first leg is collected from the buyer's door.
+            'return_pickup_address' => $isReturn && ! $assignment->handed_off_at && ! $assignment->previous_assignment_id
+                ? $buyerAddress
+                : null,
             // A transfer leg's destination is another logistics company's
             // hub, not the buyer's doorstep — same "{company} — Sorting
             // Hub" shape as pickup_label above, just for the target
@@ -711,11 +778,11 @@ class DriverDeliveryController extends Controller
             'dropoff_label' => $assignment->transferToCompany
                 ? trim($assignment->transferToCompany->company_name.' — Sorting Hub')
                 : (collect([
-                    $order?->shipping_house_no,
-                    $order?->shipping_street,
-                    $order?->shipping_barangay,
-                    $order?->shipping_municipality_name,
-                    $order?->shipping_province_name,
+                    $route?->shipping_house_no,
+                    $route?->shipping_street,
+                    $route?->shipping_barangay,
+                    $route?->shipping_municipality_name,
+                    $route?->shipping_province_name,
                 ])->filter()->implode(', ') ?: null),
             'delivery_area' => collect([
                 $assignment->barangayAssignment?->barangay,
@@ -736,6 +803,9 @@ class DriverDeliveryController extends Controller
             // ferried to another logistics company's hub, not delivered to
             // the buyer. Drives the app's transfer-specific copy/sections.
             'is_transfer' => (bool) $assignment->is_transfer,
+            // Reverse-logistics leg of a Return + Refund (buyer -> seller).
+            'is_return' => $isReturn,
+            'return_reason' => $isReturn ? $assignment->returnRequest?->reasonLabel() : null,
             'status' => $this->deliveryStatus($assignment, $order, $viewer),
         ];
     }
@@ -859,7 +929,9 @@ class DriverDeliveryController extends Controller
             return 'handed_over';
         }
 
-        if ($order?->status === 'Delivered') {
+        // A return rides on an order that is already 'Delivered' — only
+        // its own delivered_at says it reached the seller.
+        if ($assignment->isReturn() ? (bool) $assignment->delivered_at : $order?->status === 'Delivered') {
             return 'delivered';
         }
 

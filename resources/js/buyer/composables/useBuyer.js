@@ -932,6 +932,7 @@ async function submitReturnRequest(orderItemId, request) {
                 order_item_id: orderItemId,
                 request_type: request.requestType,
                 reason: request.reason,
+                other_reason: request.otherReason || null,
                 details: request.details,
                 quantity: request.quantity,
                 evidence,

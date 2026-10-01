@@ -31,6 +31,8 @@ class UpdateOrderStatusRequest extends FormRequest
             // the moment an order actually becomes 'In Transit'.
             'shipping_carrier' => ['nullable', 'string', 'max:100'],
             'shipping_service' => ['nullable', 'string', 'max:100'],
+            'package_weight' => ['nullable', 'numeric', 'min:0', 'max:9999'],
+            'package_size' => ['nullable', Rule::in(['Small', 'Medium', 'Large'])],
         ];
     }
 }

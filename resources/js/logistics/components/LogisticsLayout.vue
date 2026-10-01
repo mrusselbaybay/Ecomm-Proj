@@ -73,9 +73,9 @@
                         :key="tab.key"
                         type="button"
                         class="sidebar-link"
-                        :class="{ active: activeTab === tab.key }"
+                        :class="{ active: isNavActive(tab.key) }"
                         :aria-current="
-                            activeTab === tab.key ? 'page' : undefined
+                            isNavActive(tab.key) ? 'page' : undefined
                         "
                         @click="selectTab(tab.key)"
                     >
@@ -294,11 +294,6 @@ const navGroups = [
             { key: 'parcels', label: 'Parcel Sorting', icon: 'parcels' },
             { key: 'areas', label: 'Delivery Areas', icon: 'pin' },
             { key: 'riders', label: 'Riders', icon: 'couriers' },
-            {
-                key: 'applications',
-                label: 'Rider Applications',
-                icon: 'applications',
-            },
         ],
     },
     {
@@ -316,7 +311,17 @@ const navGroups = [
         ],
     },
 ];
-const allTabs = navGroups.flatMap((group) => group.tabs);
+// Routable pages that aren't in the sidebar — reached from a button on
+// their parent page, which stays highlighted while they're open.
+const SUB_PAGES = { applications: 'riders' };
+const allTabs = [
+    ...navGroups.flatMap((group) => group.tabs),
+    ...Object.keys(SUB_PAGES).map((key) => ({ key })),
+];
+
+function isNavActive(key) {
+    return activeTab.value === key || SUB_PAGES[activeTab.value] === key;
+}
 
 const TAB_COMPONENTS = {
     dashboard: Dashboard,
@@ -353,7 +358,7 @@ const activeProps = computed(() =>
  * on this company to accept or reject them.
  */
 function badgeFor(key) {
-    if (key === 'applications') {
+    if (key === 'riders') {
         return pendingCount.value + pendingResignationCount.value;
     }
 

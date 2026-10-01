@@ -14,6 +14,11 @@ class ParcelAssignmentResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $isDeliveryPhase = (bool) ($this->handed_off_at || $this->previous_assignment_id);
+        // Forward: collect from the seller, deliver to the buyer. A return
+        // runs the other way, so the seller is the party on its delivery leg.
+        $sellerSide = $isDeliveryPhase === $this->isReturn();
+
         return [
             'id' => $this->id,
             'status' => $this->status,
@@ -37,6 +42,14 @@ class ParcelAssignmentResource extends JsonResource
             // transfer" apart from "just arrived, needs local delivery" —
             // see ParcelOperations.vue's stageOf().
             'is_transfer_receipt' => (bool) $this->previous_assignment_id,
+            'is_return' => $this->isReturn(),
+            'return_reason' => $this->isReturn() ? $this->returnRequest?->reasonLabel() : null,
+            'return_details' => $this->isReturn() ? $this->returnRequest?->details : null,
+            // Return leg done here: handed back to the seller, or passed on
+            // to the origin company.
+            'is_returned' => $this->isReturn()
+                && ($this->delivered_at !== null || $this->status === \App\Models\ParcelAssignment::STATUS_TRANSFERRED),
+            'delivered_at' => $this->delivered_at?->toISOString(),
             'transfer_to_company' => $this->whenLoaded('transferToCompany', fn (): ?array => $this->transferToCompany ? [
                 'id' => $this->transferToCompany->id,
                 'company_name' => $this->transferToCompany->company_name,
@@ -89,8 +102,8 @@ class ParcelAssignmentResource extends JsonResource
             // the seller at the origin company, so this fresh row's own
             // handed_off_at (null until this company's rider takes it out)
             // must not force the seller's address back up.
-            'phase' => ($this->handed_off_at || $this->previous_assignment_id) ? 'delivery' : 'pickup',
-            'order' => (($this->handed_off_at || $this->previous_assignment_id) ? [
+            'phase' => $isDeliveryPhase ? 'delivery' : 'pickup',
+            'order' => (! $sellerSide ? [
                 'id' => $this->order?->id,
                 'order_number' => $this->order?->order_number,
                 'tracking_number' => $this->order?->tracking_number,

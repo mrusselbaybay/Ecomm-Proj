@@ -23,8 +23,17 @@ class CashFlowReport
             ->when($partyId !== null, fn ($q) => $q->where('le.party_id', $partyId));
 
         $totals = $base()
-            ->selectRaw("COALESCE(SUM(CASE WHEN et.type = 'release' THEN le.credit_cents ELSE 0 END), 0) AS released")
-            ->selectRaw("COALESCE(SUM(CASE WHEN et.type = 'refund' THEN le.debit_cents - le.credit_cents ELSE 0 END), 0) AS clawed_back")
+            // A settled return (et.type = 'return') pays logistics/platform
+            // their cut of the seller-funded return shipping and debits the
+            // seller's goods share + both shipping legs, platform's goods fee.
+            ->selectRaw("COALESCE(SUM(CASE WHEN et.type IN ('release', 'return') THEN le.credit_cents ELSE 0 END), 0) AS released")
+            // Cent columns are UNSIGNED on MySQL: never subtract per row (a
+            // negative intermediate throws "BIGINT UNSIGNED out of range") —
+            // sum each side separately and subtract in PHP.
+            ->selectRaw("COALESCE(SUM(CASE WHEN et.type IN ('refund', 'return') THEN le.debit_cents ELSE 0 END), 0) AS clawback_debits")
+            ->selectRaw("COALESCE(SUM(CASE WHEN et.type = 'refund' THEN le.credit_cents ELSE 0 END), 0) AS clawback_credits")
+            ->selectRaw("COALESCE(SUM(CASE WHEN et.type = 'return' THEN le.credit_cents ELSE 0 END), 0) AS return_credits")
+            ->selectRaw("COALESCE(SUM(CASE WHEN et.type = 'return' THEN le.debit_cents ELSE 0 END), 0) AS return_debits")
             ->selectRaw('COUNT(DISTINCT le.order_id) AS orders_count')
             ->first();
 
@@ -44,7 +53,8 @@ class CashFlowReport
             ]);
 
         $released = (int) $totals->released;
-        $clawedBack = (int) $totals->clawed_back;
+        $clawedBack = (int) $totals->clawback_debits - (int) $totals->clawback_credits;
+        $returnNet = (int) $totals->return_credits - (int) $totals->return_debits;
 
         return [
             'currency' => 'PHP',
@@ -52,6 +62,8 @@ class CashFlowReport
             'clawed_back' => Money::format(max($clawedBack, 0)),
             'net' => ($released - $clawedBack < 0 ? '-' : '').Money::format(abs($released - $clawedBack)),
             'orders_count' => (int) $totals->orders_count,
+            // Net effect of settled Return + Refunds alone (negative for the seller).
+            'returns_net' => ($returnNet < 0 ? '-' : '').Money::format(abs($returnNet)),
             'entries' => $entries,
         ];
     }

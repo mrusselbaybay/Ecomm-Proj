@@ -28,6 +28,8 @@ class ParcelInventoryResource extends JsonResource
             'status' => $this->status,
             'is_transfer' => (bool) $this->is_transfer,
             'is_transfer_receipt' => (bool) $this->previous_assignment_id,
+            'is_return' => $this->isReturn(),
+            'return_reason' => $this->isReturn() ? $this->returnRequest?->reasonLabel() : null,
             'inventory_origin' => $this->inventory_origin,
             'tracking_number' => $order?->tracking_number,
             'order_number' => $order?->order_number,
@@ -58,6 +60,8 @@ class ParcelInventoryResource extends JsonResource
                 'last_name' => $this->pickedUpBy->last_name,
                 'contact_no' => $this->pickedUpBy->contact_no,
             ] : null),
+            'package_weight' => $order?->package_weight !== null ? (float) $order->package_weight : null,
+            'package_size' => $order?->package_size,
             'items' => ($order?->items ?? collect())->map(fn ($item): array => [
                 'name' => $item->product_name,
                 'variant' => $item->variant ?: ($item->variant_sku ?: null),

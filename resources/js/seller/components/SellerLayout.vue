@@ -376,6 +376,21 @@
                                     Export
                                 </button>
                                 <button
+                                    v-if="currentSection === 'orders'"
+                                    type="button"
+                                    class="header-tool-btn"
+                                    :class="{ active: refundDrawerOpen }"
+                                    :aria-label="`Refund requests, ${refundCounts.pending} pending`"
+                                    @click="refundDrawerOpen = true"
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" />
+                                    </svg>
+                                    Refund requests
+                                    <span v-if="refundCounts.pending" class="header-tool-badge">{{ refundCounts.pending }}</span>
+                                </button>
+                                <RefundRequestsDrawer :open="refundDrawerOpen" @close="refundDrawerOpen = false" />
+                                <button
                                     v-if="currentSection === 'dashboard'"
                                     class="add-product-btn"
                                     type="button"
@@ -567,7 +582,9 @@
 </template>
 
 <script setup>
-import { ref, computed, defineAsyncComponent, h, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, defineAsyncComponent, h, onMounted, onBeforeUnmount, watch } from 'vue';
+import { useRefundRequests } from '../composables/useRefundRequests';
+import RefundRequestsDrawer from './orders/RefundRequestsDrawer.vue';
 import { useMessaging } from '../composables/useMessaging';
 import { useOrders } from '../composables/useOrders';
 import { useSeller } from '../composables/useSeller';
@@ -625,6 +642,17 @@ const collapseLogoUrl = '/images/collapse%20logo.png';
 
 const showLogoutConfirm = ref(false);
 const currentSection = ref('dashboard');
+
+// Refund requests drawer (Orders header). Badge count refreshes whenever
+// the seller lands on Orders; the drawer loads the full list on open.
+const refundDrawerOpen = ref(false);
+const { counts: refundCounts, refreshCount: refreshRefundCount } = useRefundRequests();
+
+watch(currentSection, (section) => {
+    if (section === 'orders') {
+        refreshRefundCount();
+    }
+}, { immediate: true });
 const selectedOrderId = ref(null);
 const ordersStatusFilter = ref(null);
 
@@ -1321,6 +1349,17 @@ onBeforeUnmount(() => {
 .header-tool-btn:hover {
     border-color: rgba(255, 255, 255, 0.22);
     color: #f2f4f1;
+}
+.header-tool-badge {
+    min-width: 1.15rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: #f59e0b;
+    color: #1c1917;
+    font-size: 0.7rem;
+    font-weight: 800;
+    line-height: 1.15rem;
+    text-align: center;
 }
 .header-tool-btn.active {
     background: rgba(15, 118, 110, 0.22);

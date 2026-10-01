@@ -149,3 +149,40 @@ it('prevents ledger entries from being edited', function () {
 
     LedgerEntry::first()->update(['debit_cents' => 1]);
 })->throws(LogicException::class);
+
+it('settles a return + refund: logistics keep forward pay, seller funds the return trip', function () {
+    $order = payOrder();
+    $this->pay->chargeBuyer($order, 166);
+    $this->pay->releaseEscrow($order);
+
+    // Item 150 + original shipping 16 back to the buyer; return leg runs
+    // last-mile company first (it collects from the buyer).
+    $this->pay->settleReturn($order, (string) Str::uuid(), 15000, 1600, 1600, [PAY_LASTMILE, PAY_ORIGIN]);
+
+    expect(ledgerBalanced())->toBeTrue()
+        ->and(LedgerEntry::balance('buyer', PAY_BUYER))->toBe(0)
+        // 14250 released − (15000 − 750 goods fee + 1600 shipping refund + 1600 return shipping)
+        ->and(LedgerEntry::balance('seller', PAY_SELLER))->toBe(-3200)
+        // forward 912 kept + 40% of the 1520 return pool (last return leg)
+        ->and(LedgerEntry::balance('origin_logistics', PAY_ORIGIN) + LedgerEntry::balance('last_mile_logistics', PAY_ORIGIN))->toBe(1520)
+        // forward 608 kept + 60% of the return pool (collects from the buyer)
+        ->and(LedgerEntry::balance('last_mile_logistics', PAY_LASTMILE) + LedgerEntry::balance('origin_logistics', PAY_LASTMILE))->toBe(1520)
+        // 830 − 750 goods commission + 80 (5% of return shipping)
+        ->and(LedgerEntry::balance('platform'))->toBe(160)
+        ->and(Order::find($order)->escrow_status)->toBe('refunded');
+});
+
+it('releases still-held escrow before settling a return, and is idempotent', function () {
+    $order = payOrder();
+    $this->pay->chargeBuyer($order, 166);
+    $key = (string) Str::uuid();
+
+    $first = $this->pay->settleReturn($order, $key, 5000, 0, 1600, [PAY_LASTMILE, PAY_ORIGIN]);
+    $retry = $this->pay->settleReturn($order, $key, 5000, 0, 1600, [PAY_LASTMILE, PAY_ORIGIN]);
+
+    expect($retry->id)->toBe($first->id)
+        ->and(EscrowTransaction::where('type', 'release')->count())->toBe(1)
+        ->and(ledgerBalanced())->toBeTrue()
+        ->and(LedgerEntry::balance('escrow'))->toBe(0)
+        ->and(Order::find($order)->escrow_status)->toBe('released');
+});

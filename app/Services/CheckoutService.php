@@ -16,15 +16,49 @@ use Illuminate\Validation\ValidationException;
 class CheckoutService
 {
     /**
-     * Flat per-parcel shipping fees, mirroring the options presented in
-     * resources/js/buyer/components/Checkout.vue's `shippingOptions`.
-     * Charged once per seller order (each seller ships their own parcel),
-     * not once per cart.
+     * Flat per-parcel shipping options — the single source of truth for
+     * fees. Checkout.vue fetches these via shippingOptions() rather than
+     * hardcoding them. Charged once per seller order (each seller ships
+     * their own parcel), not once per cart.
      */
-    private const SHIPPING_FEES = [
-        'standard' => 60.0,
-        'express' => 120.0,
+    private const SHIPPING_OPTIONS = [
+        'standard' => ['name' => 'Standard Delivery', 'description' => 'Estimated 3-5 days', 'fee' => 60.0],
+        'express' => ['name' => 'Express Delivery', 'description' => 'Estimated 1-2 days', 'fee' => 120.0],
+        'same_day' => ['name' => 'Same Day Delivery', 'description' => 'Delivered today, order by 2 PM', 'fee' => 220.0],
     ];
+
+    /**
+     * Shipping options for a cart, with Same Day only available when every
+     * seller ships from the buyer's own province.
+     *
+     * @param  array<int, string>  $productIds
+     * @return array{sellerCount: int, options: array<int, array{id: string, name: string, description: string, fee: float, available: bool, unavailableReason: ?string}>}
+     */
+    public function shippingOptions(Profile $buyer, array $productIds): array
+    {
+        $sellerIds = Product::query()->whereIn('id', $productIds)->distinct()->pluck('seller_id')->all();
+        $sameDay = $this->sameDayAvailable($buyer, Profile::query()->with('address')->whereIn('id', $sellerIds)->get());
+
+        $options = collect(self::SHIPPING_OPTIONS)->map(fn (array $o, string $id) => [
+            'id' => $id,
+            ...$o,
+            'available' => $id !== 'same_day' || $sameDay,
+            'unavailableReason' => $id === 'same_day' && ! $sameDay
+                ? 'Only available when the seller is in your province.'
+                : null,
+        ])->values()->all();
+
+        return ['sellerCount' => count($sellerIds), 'options' => $options];
+    }
+
+    /** @param  Collection<int, Profile>  $sellers */
+    private function sameDayAvailable(Profile $buyer, Collection $sellers): bool
+    {
+        $province = $buyer->address?->province_code;
+
+        return $province !== null && $sellers->isNotEmpty()
+            && $sellers->every(fn (Profile $s) => $s->address?->province_code === $province);
+    }
 
     /**
      * @param  array{items: array<int, array{product_id: string, variant_id?: string, quantity: int, variation?: string}>,
@@ -38,7 +72,12 @@ class CheckoutService
     public function checkout(Profile $buyer, array $payload): Collection
     {
         $shippingMethod = $payload['shipping_method'] ?? 'standard';
-        $shippingFee = self::SHIPPING_FEES[$shippingMethod] ?? self::SHIPPING_FEES['standard'];
+
+        if (! isset(self::SHIPPING_OPTIONS[$shippingMethod])) {
+            throw ValidationException::withMessages(['shipping_method' => 'Please select a valid shipping option.']);
+        }
+
+        $shippingFee = self::SHIPPING_OPTIONS[$shippingMethod]['fee'];
         $address = $payload['delivery_address'];
 
         return DB::transaction(function () use ($buyer, $payload, $shippingMethod, $shippingFee, $address) {
@@ -148,6 +187,12 @@ class CheckoutService
                 ->get()
                 ->keyBy('id');
 
+            if ($shippingMethod === 'same_day' && ! $this->sameDayAvailable($buyer, $sellers)) {
+                throw ValidationException::withMessages([
+                    'shipping_method' => 'Same Day Delivery is only available when the seller is in your province.',
+                ]);
+            }
+
             $orders = collect();
 
             foreach ($itemsBySeller as $sellerId => $lines) {
@@ -169,6 +214,31 @@ class CheckoutService
         });
     }
 
+    /**
+     * delivery_address.address arrives as one flattened line ("street,
+     * barangay, municipality, province, region"), while the structured
+     * shipping_* columns are filled separately — and every reader
+     * re-joins street + those columns. Strip the trailing segments that
+     * duplicate them so the joined address isn't repeated twice.
+     */
+    private function streetPart(string $line, Profile $buyer): string
+    {
+        $known = collect([
+            $buyer->address?->region_name,
+            $buyer->address?->province_name,
+            $buyer->address?->municipality_name,
+            $buyer->address?->barangay,
+        ])->filter()->map(fn ($v) => mb_strtolower(trim($v)))->all();
+
+        $parts = array_map('trim', explode(',', $line));
+
+        while (count($parts) > 1 && in_array(mb_strtolower(end($parts)), $known, true)) {
+            array_pop($parts);
+        }
+
+        return implode(', ', $parts);
+    }
+
     private function createOrderForSeller(
         Profile $buyer,
         ?Profile $seller,
@@ -187,7 +257,7 @@ class CheckoutService
             'buyer_profile_id' => $buyer->id,
             'recipient_name' => $address['recipient_name'],
             'recipient_contact_no' => $address['contact_number'] ?? null,
-            'shipping_street' => $address['address'],
+            'shipping_street' => $this->streetPart($address['address'], $buyer),
             // The structured destination, read straight off the buyer's
             // existing profile address (public.addresses,
             // owner_kind='profile' — the same row the Account page fills

@@ -9,6 +9,7 @@ use App\Services\CheckoutService;
 use App\Services\DirectConversationService;
 use App\Services\SellerNotifier;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
 class CheckoutController extends Controller
@@ -18,6 +19,23 @@ class CheckoutController extends Controller
         private readonly SellerNotifier $sellerNotifier,
         private readonly DirectConversationService $directConversationService,
     ) {
+    }
+
+    /**
+     * GET /api/buyer/checkout/shipping-options?product_ids[]=…
+     *
+     * Fees + availability for the cart, so the UI never hardcodes prices.
+     */
+    public function shippingOptions(Request $request): JsonResponse
+    {
+        $productIds = $request->validate([
+            'product_ids' => ['required', 'array', 'max:100'],
+            'product_ids.*' => ['string'],
+        ])['product_ids'];
+
+        return response()->json([
+            'data' => $this->checkoutService->shippingOptions($request->user()->loadMissing('address'), $productIds),
+        ]);
     }
 
     /**

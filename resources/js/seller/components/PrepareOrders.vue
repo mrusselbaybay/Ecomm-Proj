@@ -358,9 +358,8 @@
                                         </div>
                                     </div>
                                     <p class="field-hint">
-                                        Kept on this device only as a packing note —
-                                        there's no order field for package weight/size yet,
-                                        so it isn't sent anywhere when you dispatch.
+                                        Shared with the logistics partner when you mark
+                                        this order ready for pickup.
                                     </p>
                                 </div>
                             </div>
@@ -799,6 +798,16 @@ function peekDraft(orderId) {
 }
 
 function stageOf(o) {
+    // An approved Return + Refund: the item is on its way back (or already
+    // back) through logistics — takes precedence over 'dispatched'.
+    if (o.returnState === 'to_return') {
+        return 'toReturn';
+    }
+
+    if (o.returnState === 'returned') {
+        return 'returned';
+    }
+
     if (['Cancelled', 'Rejected'].includes(o.status)) {
         return 'cancelled';
     }
@@ -852,6 +861,8 @@ const STAGE_TABS = [
     { key: 'started', label: 'Started' },
     { key: 'accepted', label: 'Awaiting Processing' },
     { key: 'dispatched', label: 'Dispatched' },
+    { key: 'toReturn', label: 'To Return' },
+    { key: 'returned', label: 'Returned' },
     { key: 'cancelled', label: 'Cancelled' },
 ];
 
@@ -861,6 +872,8 @@ const STAGE_PILL = {
     accepted: { cls: 'blue', label: 'Awaiting Processing' },
     dispatched: { cls: 'blue', label: 'Dispatched' },
     cancelled: { cls: 'bad', label: 'Cancelled' },
+    toReturn: { cls: 'warn', label: 'To Return' },
+    returned: { cls: 'neutral', label: 'Returned' },
 };
 
 const STAGE_CTA = {
@@ -912,6 +925,14 @@ const stagedOrders = computed(() =>
 function nonActionableNote(o) {
     if (o._stage === 'cancelled') {
         return 'This order was cancelled before packing began.';
+    }
+
+    if (o._stage === 'toReturn') {
+        return `Being returned to you by the courier${o.returnReason ? ` — ${o.returnReason}` : ''}. Return shipping is charged to you.`;
+    }
+
+    if (o._stage === 'returned') {
+        return `Item returned${o.returnReason ? ` — ${o.returnReason}` : ''}. The buyer has been refunded.`;
     }
 
     if (o._stage === 'dispatched') {
@@ -1206,6 +1227,8 @@ return;
     const extra = {
         shipping_carrier: shippingCarrier.value.trim() || null,
         shipping_service: shippingService.value || null,
+        package_weight: packageWeight.value || null,
+        package_size: packageSize.value || null,
     };
 
     try {

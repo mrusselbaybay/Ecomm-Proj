@@ -31,6 +31,20 @@
                 </button>
                 <button
                     type="button"
+                    class="btn-outline btn-icon"
+                    @click="emit('open-section', 'applications')"
+                >
+                    <NavIcon name="applications" :size="15" />
+                    Applications
+                    <span
+                        v-if="applicationsBadge"
+                        class="sidebar-badge riders-app-badge"
+                        :aria-label="`${applicationsBadge} needing review`"
+                        >{{ applicationsBadge }}</span
+                    >
+                </button>
+                <button
+                    type="button"
                     class="btn-primary"
                     @click="emit('open-section', 'areas')"
                 >
@@ -614,6 +628,11 @@ import NavIcon from './NavIcon.vue';
 
 const emit = defineEmits(['open-section']);
 
+const { pendingCount, pendingResignationCount } = useLogistics();
+const applicationsBadge = computed(
+    () => pendingCount.value + pendingResignationCount.value,
+);
+
 const {
     supabase,
     companyName,
@@ -922,6 +941,10 @@ onActivated(() => load());
 </script>
 
 <style scoped>
+.riders-app-badge {
+    margin-left: 6px;
+}
+
 .details-field-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;

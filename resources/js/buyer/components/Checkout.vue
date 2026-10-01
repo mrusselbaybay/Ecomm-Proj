@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
+import { buyerApi } from '../composables/useBuyerApi';
 import { useBuyerAccount } from '../composables/useBuyerAccount';
 import { useBuyerAddresses } from '../composables/useBuyerAddresses';
 import { useBuyerPayments } from '../composables/useBuyerPayments';
@@ -177,20 +178,47 @@ const appliedVoucher = ref(null);
 |--------------------------------------------------------------------------
 */
 
-const shippingOptions = [
-    {
-        id: 'standard',
-        name: 'Standard Delivery',
-        description: 'Estimated 3-5 days',
-        fee: 60
-    },
-    {
-        id: 'express',
-        name: 'Express Delivery',
-        description: 'Estimated 1-2 days',
-        fee: 120
+// Fees + Same Day availability come from CheckoutService (single source
+// of truth). Each seller ships their own parcel, so the fee is per seller.
+const shippingOptions = ref([]);
+const shippingSellerCount = ref(1);
+const isLoadingShipping = ref(false);
+const shippingLoadError = ref('');
+
+async function loadShippingOptions() {
+    const ids = [...new Set(props.items.map(item => item.productId).filter(Boolean))];
+
+    if (!ids.length) {
+        return;
     }
-];
+
+    isLoadingShipping.value = true;
+    shippingLoadError.value = '';
+
+    try {
+        const query = ids.map(id => `product_ids[]=${encodeURIComponent(id)}`).join('&');
+        const data = await buyerApi(`/buyer/checkout/shipping-options?${query}`);
+
+        shippingOptions.value = data.options;
+        shippingSellerCount.value = Math.max(1, data.sellerCount || 1);
+
+        const current = data.options.find(o => o.id === checkoutForm.shippingMethod);
+
+        if (!current?.available) {
+            checkoutForm.shippingMethod = 'standard';
+        }
+    } catch (err) {
+        shippingLoadError.value = err?.message || 'Could not load shipping options.';
+    } finally {
+        isLoadingShipping.value = false;
+    }
+}
+
+watch(
+    () => props.items.map(item => item.productId).join(','),
+    loadShippingOptions,
+    { immediate: true }
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -389,13 +417,13 @@ const subtotal = computed(() => {
 */
 
 const shippingFee = computed(() => {
-    const selected = shippingOptions.find(
+    const selected = shippingOptions.value.find(
         option =>
             option.id === checkoutForm.shippingMethod
     );
 
     return selected
-        ? Number(selected.fee)
+        ? Number(selected.fee) * shippingSellerCount.value
         : 0;
 });
 
@@ -877,13 +905,23 @@ async function placeOrder() {
                                 </div>
                             </div>
 
-                            <div class="checkout-option-list">
+                            <div v-if="isLoadingShipping && !shippingOptions.length" class="checkout-option-list" aria-busy="true">
+                                <div v-for="n in 3" :key="n" class="checkout-option checkout-option-skeleton" />
+                            </div>
+
+                            <div v-else-if="shippingLoadError" class="checkout-shipping-error" role="alert">
+                                <span>{{ shippingLoadError }}</span>
+                                <button type="button" @click="loadShippingOptions">Retry</button>
+                            </div>
+
+                            <div v-else class="checkout-option-list">
 
                                 <label
                                     v-for="option in shippingOptions"
                                     :key="option.id"
                                     class="checkout-option"
-                                    :class="{ active: checkoutForm.shippingMethod === option.id }"
+                                    :class="{ active: checkoutForm.shippingMethod === option.id, disabled: !option.available }"
+                                    :title="option.unavailableReason || ''"
                                 >
 
                                     <input
@@ -891,15 +929,17 @@ async function placeOrder() {
                                         type="radio"
                                         name="shipping"
                                         :value="option.id"
+                                        :disabled="!option.available"
                                     >
 
                                     <div class="checkout-option-info">
                                         <strong>{{ option.name }}</strong>
-                                        <span>{{ option.description }}</span>
+                                        <span>{{ option.available ? option.description : option.unavailableReason }}</span>
                                     </div>
 
                                     <strong class="checkout-option-price">
                                         {{ formatPrice(option.fee) }}
+                                        <small v-if="shippingSellerCount > 1" class="checkout-option-per">× {{ shippingSellerCount }} sellers</small>
                                     </strong>
 
                                 </label>
@@ -1557,4 +1597,10 @@ async function placeOrder() {
         grid-template-columns: 1fr;
     }
 }
+.checkout-option.disabled { opacity: .55; cursor: not-allowed; }
+.checkout-option-per { display: block; font-size: 11px; font-weight: 500; color: #64748b; }
+.checkout-option-skeleton { height: 64px; background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: checkout-shimmer 1.2s infinite; }
+@keyframes checkout-shimmer { to { background-position: -200% 0; } }
+.checkout-shipping-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 10px; background: #fef2f2; color: #b91c1c; font-size: 13px; }
+.checkout-shipping-error button { border: 0; background: none; color: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
 </style>

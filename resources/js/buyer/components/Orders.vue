@@ -94,8 +94,22 @@ const tabs = [
     ORDER_STATUSES.PROCESSING,
     ORDER_STATUSES.IN_TRANSIT,
     ORDER_STATUSES.DELIVERED,
+    'To Return',
+    'Returned',
     ORDER_STATUSES.CANCELLED
 ];
+
+// Approved Return + Refund progress (order.returnState from the API) —
+// these two tabs filter on it instead of the order's own status.
+const RETURN_TABS = { 'To Return': 'to_return', Returned: 'returned' };
+
+function displayStatus(order) {
+    if (order.returnState === 'to_return') {
+        return 'To Return';
+    }
+
+    return order.returnState === 'returned' ? 'Returned' : order.status;
+}
 
 const selectedStatus = ref('All');
 
@@ -108,6 +122,10 @@ const selectedStatus = ref('All');
 const filteredOrders = computed(() => {
     if (selectedStatus.value === 'All') {
         return orders.value;
+    }
+
+    if (RETURN_TABS[selectedStatus.value]) {
+        return orders.value.filter(order => order.returnState === RETURN_TABS[selectedStatus.value]);
     }
 
     return orders.value.filter(
@@ -177,6 +195,14 @@ function formatShippingMethod(method) {
 // Same four-color scheme as OrderDetails.vue's Order Summary Bar status
 // badge, so a status reads the same color wherever it shows up.
 function statusBadgeClass(status) {
+    if (status === 'To Return') {
+        return 'bg-orange-50 text-orange-600';
+    }
+
+    if (status === 'Returned') {
+        return 'bg-slate-100 text-slate-600';
+    }
+
     if (status === ORDER_STATUSES.IN_TRANSIT) {
         return 'bg-blue-50 text-blue-600';
     }
@@ -449,9 +475,10 @@ function handleHeaderSelectCategory(category) {
                                 </div>
                                 <span
                                     class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold"
-                                    :class="statusBadgeClass(order.status)"
+                                    :class="statusBadgeClass(displayStatus(order))"
+                                    :title="order.returnReason ? `Return reason: ${order.returnReason}` : undefined"
                                 >
-                                    {{ order.status }}
+                                    {{ displayStatus(order) }}
                                 </span>
                             </div>
 

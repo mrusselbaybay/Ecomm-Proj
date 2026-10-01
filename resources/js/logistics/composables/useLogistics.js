@@ -1074,11 +1074,23 @@ const parcelStats = computed(() => {
         toDeliver: 0,
         toTransfer: 0,
         transferred: 0,
+        toReturn: 0,
+        returned: 0,
         total: 0,
     };
 
     for (const parcel of parcelAssignments.value) {
         stats.total += 1;
+
+        // Return legs are counted in their own tiles AND in the stage
+        // they're at (mirrors ParcelOperations.vue's matchesStage()).
+        if (parcel.is_return) {
+            stats[parcel.is_returned ? 'returned' : 'toReturn'] += 1;
+
+            if (parcel.delivered_at) {
+                continue;
+            }
+        }
 
         if (parcel.status === 'transferred') {
             stats.transferred += 1;

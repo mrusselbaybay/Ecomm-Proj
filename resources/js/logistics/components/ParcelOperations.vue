@@ -227,6 +227,7 @@
                                 >
                             </td>
                             <td data-label="Status">
+                                <div class="status-stack">
                                 <span
                                     class="badge status-badge"
                                     :class="statusClass(parcel)"
@@ -237,6 +238,16 @@
                                     />
                                     {{ statusLabel(parcel) }}
                                 </span>
+                                <span
+                                    v-if="returnTag(parcel)"
+                                    class="badge status-badge"
+                                    :class="returnTag(parcel).cls"
+                                    :title="parcel.return_reason ? `Return reason: ${parcel.return_reason}` : ''"
+                                >
+                                    <NavIcon name="return" :size="12" />
+                                    {{ returnTag(parcel).label }}
+                                </span>
+                                </div>
                                 <span
                                     v-if="
                                         !parcel.is_scanned &&
@@ -427,6 +438,25 @@
                                                 }}
                                             </dd>
                                         </div>
+                                        <div class="details-info-row">
+                                            <dt>Package weight</dt>
+                                            <dd>
+                                                {{
+                                                    formatWeight(
+                                                        detailsData.package_weight,
+                                                    )
+                                                }}
+                                            </dd>
+                                        </div>
+                                        <div class="details-info-row">
+                                            <dt>Package size</dt>
+                                            <dd>
+                                                {{
+                                                    detailsData.package_size ||
+                                                    'Not specified'
+                                                }}
+                                            </dd>
+                                        </div>
                                     </dl>
 
                                     <p
@@ -475,30 +505,6 @@
                                                         </dt>
                                                         <dd>
                                                             {{ item.quantity }}
-                                                        </dd>
-                                                    </div>
-                                                    <div
-                                                        class="details-info-row"
-                                                    >
-                                                        <dt>Package weight</dt>
-                                                        <dd>
-                                                            {{
-                                                                formatWeight(
-                                                                    item.weight,
-                                                                )
-                                                            }}
-                                                        </dd>
-                                                    </div>
-                                                    <div
-                                                        class="details-info-row"
-                                                    >
-                                                        <dt>Package size</dt>
-                                                        <dd>
-                                                            {{
-                                                                formatDimensions(
-                                                                    item.dimensions,
-                                                                )
-                                                            }}
                                                         </dd>
                                                     </div>
                                                 </dl>
@@ -594,6 +600,19 @@
 
                                 <!-- ---- Status tab ---- -->
                                 <div v-else class="details-panel">
+                                    <div
+                                        v-if="detailsParcel.is_return"
+                                        class="details-current-status details-return"
+                                    >
+                                        <NavIcon name="return" :size="16" />
+                                        <span>
+                                            <strong>Return &amp; refund</strong>
+                                            — {{ detailsParcel.return_reason || 'No reason given' }}
+                                            <template v-if="detailsParcel.return_details">
+                                                <br /><small>{{ detailsParcel.return_details }}</small>
+                                            </template>
+                                        </span>
+                                    </div>
                                     <div
                                         v-if="currentStatusNote"
                                         class="details-current-status"
@@ -1027,8 +1046,11 @@
                                     ? 'Assigning…'
                                     : isTransferCourierAssignment
                                       ? 'Assign transfer courier'
-                                      : awaitingDispatchDecision
-                                        ? 'Assign delivery'
+                                      : awaitingDispatchDecision &&
+                                          selectedParcel.is_return
+                                        ? 'Confirm courier handoff'
+                                        : awaitingDispatchDecision
+                                          ? 'Assign delivery'
                                         : 'Assign pickup courier'
                             }}
                         </button>
@@ -1180,7 +1202,16 @@
 </template>
 
 <script setup>
-import { computed, onActivated, onMounted, reactive, ref, watch } from 'vue';
+import {
+    computed,
+    onActivated,
+    onBeforeUnmount,
+    onDeactivated,
+    onMounted,
+    reactive,
+    ref,
+    watch,
+} from 'vue';
 import { useLogistics } from '../composables/useLogistics';
 import { useLogisticsUi } from '../composables/useLogisticsUi';
 import NavIcon from './NavIcon.vue';
@@ -1278,6 +1309,11 @@ const activeAssignments = computed(() =>
 // Kept in sync with useLogistics.js's parcelStats, which mirrors this
 // exact branching for the tab counts.
 function stageOf(parcel) {
+    // A return leg handed back to the seller — terminal, like 'transferred'.
+    if (parcel.is_return && parcel.delivered_at) {
+        return 'returned';
+    }
+
     if (parcel.status === 'transferred') {
         return 'transferred';
     }
@@ -1358,7 +1394,38 @@ const STAGE_META = {
     toDeliver: { label: 'To be delivered', icon: 'truck', tone: 'stage' },
     toTransfer: { label: 'To transfer', icon: 'couriers', tone: 'indigo' },
     transferred: { label: 'Transferred', icon: 'check', tone: 'success' },
+    // Reverse logistics (approved Return + Refund, buyer -> seller). These
+    // two cut across the stages above: a return leg ALSO sits in one of
+    // them (e.g. To transfer + To return), see returnTag().
+    toReturn: { label: 'To return', icon: 'return', tone: 'warning' },
+    returned: { label: 'Returned', icon: 'return', tone: 'success' },
 };
+
+// Second tag on a return leg, next to its stage badge. A leg delivered to
+// the seller already reads "Returned" as its stage, so it gets no extra tag.
+function returnTag(parcel) {
+    if (!parcel.is_return || stageOf(parcel) === 'returned') {
+        return null;
+    }
+
+    return parcel.is_returned
+        ? { label: 'Returned', cls: 'badge-success' }
+        : { label: 'To return', cls: 'badge-amber' };
+}
+
+function matchesStage(parcel, key) {
+    if (key === 'all') {
+        return true;
+    }
+    if (key === 'toReturn') {
+        return parcel.is_return && !parcel.is_returned;
+    }
+    if (key === 'returned') {
+        return parcel.is_return && parcel.is_returned;
+    }
+
+    return stageOf(parcel) === key;
+}
 
 const STAGE_BADGE_CLASS = {
     brand: 'badge-teal',
@@ -1397,7 +1464,7 @@ const filtered = computed(() => {
     const term = search.value.toLowerCase();
 
     return parcelAssignments.value.filter((parcel) => {
-        if (stage.value !== 'all' && stageOf(parcel) !== stage.value) {
+        if (!matchesStage(parcel, stage.value)) {
             return false;
         }
 
@@ -1456,6 +1523,8 @@ const emptyTitle = computed(() => {
             toDeliver: 'No parcels waiting to be delivered',
             toTransfer: 'No parcels waiting to be transferred',
             transferred: 'No parcels handed to another company',
+            toReturn: 'No returns on their way back to a seller',
+            returned: 'No returned parcels yet',
             all: 'No parcels in the sorting queue',
         }[stage.value] || 'No parcels here'
     );
@@ -1576,20 +1645,6 @@ function formatWeight(weight) {
     return weight === null || weight === undefined
         ? 'Not specified'
         : `${weight} kg`;
-}
-
-function formatDimensions(dimensions) {
-    if (!dimensions || typeof dimensions !== 'object') {
-        return 'Not specified';
-    }
-
-    const { length, width, height, unit } = dimensions;
-
-    if (!length && !width && !height) {
-        return 'Not specified';
-    }
-
-    return `${length || '—'}×${width || '—'}×${height || '—'} ${unit || 'cm'}`;
 }
 
 function vehicleRequirementLabel(requiredVehicleType) {
@@ -1784,7 +1839,9 @@ async function confirmAssignment() {
             );
             notify(
                 awaitingDispatchDecision.value
-                    ? 'Delivery rider assigned.'
+                    ? selectedParcel.value?.is_return
+                        ? 'Courier handoff confirmed — it is on its way back to the seller.'
+                        : 'Delivery rider assigned.'
                     : 'Pickup courier assigned.',
             );
         }
@@ -1917,14 +1974,47 @@ async function load(force = false) {
 
 const refresh = () => load(true);
 
+// The other company's accept/reject (and couriers' scans) change a
+// parcel's status server-side, so poll quietly — and refetch when the
+// window regains focus — otherwise a row can sit on a stale status
+// (e.g. transfer_pending after the receiver accepted) with no actions.
+const POLL_MS = 30 * 1000;
+let pollTimer = null;
+
+function silentRefresh() {
+    if (document.visibilityState !== 'visible' || saving.value) {
+        return;
+    }
+
+    loadParcelAssignments({ force: true }).catch(() => {});
+    loadTransferRequests({ force: true }).catch(() => {});
+}
+
+function startPolling() {
+    stopPolling();
+    pollTimer = setInterval(silentRefresh, POLL_MS);
+    window.addEventListener('focus', silentRefresh);
+}
+
+function stopPolling() {
+    clearInterval(pollTimer);
+    pollTimer = null;
+    window.removeEventListener('focus', silentRefresh);
+}
+
 onMounted(async () => {
+    startPolling();
     await load();
 });
 
 // Re-entering the tab re-checks staleness (free while the cache is fresh).
 onActivated(() => {
+    startPolling();
     load();
 });
+
+onDeactivated(stopPolling);
+onBeforeUnmount(stopPolling);
 </script>
 
 <style scoped>
@@ -2394,6 +2484,17 @@ onActivated(() => {
 }
 .details-current-status span {
     flex: 1;
+}
+.details-return {
+    align-items: flex-start;
+    background: #fff7ed;
+    color: #9a3412;
+}
+.status-stack {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
 }
 
 .details-history-row {

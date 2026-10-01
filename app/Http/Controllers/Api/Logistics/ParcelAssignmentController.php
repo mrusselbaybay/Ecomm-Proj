@@ -52,7 +52,7 @@ class ParcelAssignmentController extends Controller
         if (! $assignment->barangay_assignment_id && $assignment->order) {
             $assignment->setAttribute(
                 'area_fallback_tier',
-                $this->autoAssign->expectedTierFor($company, $assignment->order, ! $assignment->handed_off_at),
+                $this->autoAssign->expectedTierFor($company, $assignment->routingOrder(), ! $assignment->handed_off_at),
             );
         }
 
@@ -81,7 +81,7 @@ class ParcelAssignmentController extends Controller
         ]);
 
         $assignments = ParcelAssignment::query()
-            ->with(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest'])
+            ->with(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest'])
             ->where('logistics_company_id', $company->id)
             ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('status', $status))
             ->orderByDesc('received_at')
@@ -110,7 +110,7 @@ class ParcelAssignmentController extends Controller
         $this->ensureAssignmentBelongsToCompany($parcelAssignment, $company);
 
         $order = $parcelAssignment->order()->with([
-            'items.product:id,images,weight,dimensions',
+            'items.product:id,images',
             'seller.sellerDetail',
             'statusHistory.changedBy',
         ])->first();
@@ -126,12 +126,13 @@ class ParcelAssignmentController extends Controller
                     'variant' => $item->variant,
                     'quantity' => $item->quantity,
                     'image' => $this->itemImage($item),
-                    'weight' => $item->product?->weight !== null ? (float) $item->product->weight : null,
-                    'dimensions' => $item->product?->dimensions,
                 ])->all(),
                 // Order-level, not per-item — shown once above the item
                 // list rather than repeated on every row.
                 'payment_method' => $order->payment_method,
+                // Entered by the seller while packing (PrepareOrders).
+                'package_weight' => $order->package_weight !== null ? (float) $order->package_weight : null,
+                'package_size' => $order->package_size,
                 // Same field names as ParcelInventoryResource's `seller`
                 // block (the mobile Inventory screen's equivalent), so
                 // both surfaces describe a seller identically, plus
@@ -228,14 +229,14 @@ class ParcelAssignmentController extends Controller
 
         if ($alreadyScanned) {
             return response()->json([
-                'data' => new ParcelAssignmentResource($this->withAreaFallbackTier($existing->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)),
+                'data' => new ParcelAssignmentResource($this->withAreaFallbackTier($existing->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)),
                 'message' => 'This parcel is already in your sorting queue.',
             ]);
         }
 
         $assignment = DB::transaction(fn (): ParcelAssignment => $this->parcelIntake->intake($order, $company, $profile->id));
 
-        return (new ParcelAssignmentResource($this->withAreaFallbackTier($assignment->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)))
+        return (new ParcelAssignmentResource($this->withAreaFallbackTier($assignment->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)))
             ->response()
             ->setStatusCode($existing ? 200 : 201);
     }
@@ -334,7 +335,7 @@ class ParcelAssignmentController extends Controller
         ]);
 
         return new ParcelAssignmentResource(
-            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)
+            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
         );
     }
 
@@ -363,7 +364,7 @@ class ParcelAssignmentController extends Controller
 
         return response()->json([
             'data' => new ParcelAssignmentResource(
-                $this->withAreaFallbackTier($result['parcel']->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)
+                $this->withAreaFallbackTier($result['parcel']->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
             ),
             'outcome' => $result['outcome'],
             'message' => $result['message'],
@@ -429,7 +430,7 @@ class ParcelAssignmentController extends Controller
             // (ParcelAutoAssignService::matchRider) now happens — see
             // Driver\DriverDeliveryController::pickup()'s docblock for the
             // rider self-serve equivalent of this same change.
-            $locked->update([
+            $locked->update(array_merge([
                 'status' => ParcelAssignment::STATUS_FOR_INVENTORY,
                 'handed_off_at' => now(),
                 'for_inventory_at' => now(),
@@ -442,11 +443,11 @@ class ParcelAssignmentController extends Controller
                 // rider_profile_id has moved on to a delivery match (see
                 // acceptTransferRequest).
                 'picked_up_by' => $locked->rider_profile_id,
-            ]);
+            ], $this->autoAssign->returnPickupBypass($locked)));
         });
 
         return new ParcelAssignmentResource(
-            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)
+            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
         );
     }
 
@@ -488,7 +489,7 @@ class ParcelAssignmentController extends Controller
         ]);
 
         return new ParcelAssignmentResource(
-            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)
+            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
         );
     }
 
@@ -527,6 +528,27 @@ class ParcelAssignmentController extends Controller
             return response()->json([
                 'message' => 'This parcel has to be picked up by a courier before it can be routed.',
             ], 422);
+        }
+
+        // A return goes back the way it came: the only valid target is the
+        // company that originally collected it from the seller.
+        if ($parcelAssignment->isReturn()) {
+            $originId = app(\App\Services\Payments\MockPaymentService::class)->logisticsChain($parcelAssignment->order_id)[0] ?? null;
+            $companies = LogisticsCompany::query()
+                ->whereKey($originId)
+                ->whereKeyNot($company->id)
+                ->where('status', 'approved')
+                ->where('account_status', 'active')
+                ->get(['id', 'company_name', 'region']);
+
+            return response()->json([
+                'data' => $companies,
+                'meta' => [
+                    'buyer_region' => $parcelAssignment->order?->pickup_region_name,
+                    'buyer_municipality' => $parcelAssignment->order?->pickup_municipality_name,
+                    'matched_by' => 'return_origin',
+                ],
+            ]);
         }
 
         $order = $parcelAssignment->order;
@@ -652,7 +674,7 @@ class ParcelAssignmentController extends Controller
         });
 
         return new ParcelAssignmentResource(
-            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest']), $company)
+            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
         );
     }
 
@@ -890,7 +912,7 @@ class ParcelAssignmentController extends Controller
         }
 
         return in_array(
-            $this->autoAssign->expectedTierFor($company, $parcelAssignment->order, false),
+            $this->autoAssign->expectedTierFor($company, $parcelAssignment->routingOrder(), false),
             ['regional', 'provincial'],
             true,
         );

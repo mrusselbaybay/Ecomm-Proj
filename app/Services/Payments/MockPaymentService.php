@@ -145,6 +145,81 @@ class MockPaymentService
     }
 
     /**
+     * Settles a completed Return + Refund once the item is back with the
+     * seller. Unlike a refund-only (refundBuyer, proportional clawback from
+     * all four shares), the logistics companies and the platform keep what
+     * they earned on the forward delivery:
+     *
+     *   buyer     + item amount (+ original shipping when the whole order came back)
+     *   seller    − item goods share (95%) − refunded shipping − return shipping
+     *   platform  − 5% goods commission on the item, + 5% of return shipping
+     *   logistics + 95% of return shipping, split over the return chain (100% / 60-40)
+     *
+     * Escrow still held (buyer never confirmed receipt) is released first so
+     * every party's forward share exists before the return is netted off it.
+     *
+     * @param  list<string>  $returnChain  companies on the return legs, pickup-from-buyer first
+     */
+    public function settleReturn(string $orderId, string $returnRequestId, int $itemCents, int $shippingRefundCents, int $returnShippingCents, array $returnChain): EscrowTransaction
+    {
+        $order = Order::findOrFail($orderId);
+        if ($order->escrow_status === self::ESCROW_UNFUNDED) {
+            $this->chargeBuyer($orderId, $order->total);
+            $order->refresh();
+        }
+        if ($order->escrow_status === self::ESCROW_FUNDED) {
+            $this->releaseEscrow($orderId);
+        }
+
+        $buyerCents = $itemCents + $shippingRefundCents;
+
+        return $this->run("return:{$returnRequestId}", $orderId, EscrowTransaction::TYPE_RETURN, $buyerCents, function (Order $order) use ($itemCents, $shippingRefundCents, $returnShippingCents, $returnChain, $buyerCents) {
+            if ($order->escrow_status !== self::ESCROW_RELEASED) {
+                throw new LogicException("Cannot settle a return from escrow status [{$order->escrow_status}].");
+            }
+            if ($itemCents <= 0) {
+                throw new InvalidArgumentException('Return amount must be positive.');
+            }
+
+            $total = Money::toCents($order->total);
+            $after = $this->refundedCents($order->id, true) + $buyerCents;
+            if ($after > $total) {
+                throw new InvalidArgumentException('Refund exceeds the amount still refundable.');
+            }
+
+            $goodsCommission = Money::percent($itemCents, PaymentSplitter::PLATFORM_BPS);
+            $returnShares = $returnShippingCents > 0
+                ? PaymentSplitter::split(0, $returnShippingCents, $order->seller_id, $returnChain)
+                : [];
+
+            $lines = [
+                ['account' => 'buyer', 'party_id' => $order->buyer_profile_id, 'credit' => $buyerCents],
+                ['account' => PaymentSplitter::ACCOUNT_SELLER, 'party_id' => $order->seller_id,
+                    'debit' => $itemCents - $goodsCommission + $shippingRefundCents + $returnShippingCents],
+                ['account' => PaymentSplitter::ACCOUNT_PLATFORM, 'party_id' => null, 'debit' => $goodsCommission],
+            ];
+            foreach ($returnShares as $share) {
+                if ($share['cents'] > 0) {
+                    $lines[] = ['account' => $share['account'], 'party_id' => $share['party_id'], 'credit' => $share['cents']];
+                }
+            }
+
+            $fullyRefunded = $after === $total;
+            $order->forceFill([
+                'escrow_status' => $fullyRefunded ? self::ESCROW_REFUNDED : $order->escrow_status,
+                'payment_status' => $fullyRefunded ? 'Refunded' : $order->payment_status,
+            ])->save();
+
+            return [$lines, [
+                'item_cents' => $itemCents,
+                'shipping_refund_cents' => $shippingRefundCents,
+                'return_shipping_cents' => $returnShippingCents,
+                'return_shares' => $returnShares,
+            ]];
+        });
+    }
+
+    /**
      * Distinct logistics companies in the order's parcel chain, origin first.
      *
      * @return list<string>
@@ -152,6 +227,7 @@ class MockPaymentService
     public function logisticsChain(string $orderId): array
     {
         return ParcelAssignment::where('order_id', $orderId)
+            ->whereNull('return_request_id')
             ->orderBy('created_at')
             ->pluck('logistics_company_id')
             ->unique()
@@ -159,10 +235,12 @@ class MockPaymentService
             ->all();
     }
 
-    private function refundedCents(string $orderId): int
+    public function refundedCents(string $orderId, bool $includeReturns = false): int
     {
         return (int) EscrowTransaction::where('order_id', $orderId)
-            ->where('type', EscrowTransaction::TYPE_REFUND)
+            ->whereIn('type', $includeReturns
+                ? [EscrowTransaction::TYPE_REFUND, EscrowTransaction::TYPE_RETURN]
+                : [EscrowTransaction::TYPE_REFUND])
             ->sum('amount_cents');
     }
 

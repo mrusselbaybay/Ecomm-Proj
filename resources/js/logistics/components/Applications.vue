@@ -1,6 +1,14 @@
 <!-- resources/js/logistics/components/Applications.vue -->
 <template>
     <div class="logistics-page">
+        <button
+            type="button"
+            class="apps-back"
+            @click="emit('open-section', 'riders')"
+        >
+            <NavIcon name="chevron-left" :size="15" />
+            Back to Riders
+        </button>
         <header class="page-header">
             <div class="page-header-titles">
                 <span
@@ -862,6 +870,8 @@ import { apiRequest } from '../../shared/accountApi';
 import { useLogisticsUi } from '../composables/useLogisticsUi';
 import NavIcon from './NavIcon.vue';
 
+const emit = defineEmits(['open-section']);
+
 const {
     supabase,
     companyName,
@@ -1469,6 +1479,26 @@ onActivated(boot);
 </script>
 
 <style scoped>
+.apps-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 12px;
+    padding: 6px 10px 6px 6px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--lg-slate-600, #475569);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.apps-back:hover {
+    background: var(--lg-bg, #f1f5f9);
+    color: var(--lg-ink, #0f172a);
+}
+
 .resignation-list {
     list-style: none;
     margin: 0;

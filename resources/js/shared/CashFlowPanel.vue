@@ -47,7 +47,7 @@
                         {{ entry.direction === 'in' ? '↓' : '↑' }}
                     </span>
                     <div class="cf-row-main">
-                        <strong>{{ entry.type === 'release' ? 'Escrow released' : 'Refund clawback' }}</strong>
+                        <strong>{{ entryLabel(entry) }}</strong>
                         <span class="cf-muted">#{{ entry.order_number }} · {{ legLabel(entry.account) }} · {{ formatDate(entry.created_at) }}</span>
                     </div>
                     <strong :class="entry.direction === 'in' ? 'cf-pos' : 'cf-neg'">
@@ -96,13 +96,23 @@ function formatDate(value) {
     return value ? new Date(value.replace(' ', 'T')).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) : '';
 }
 
+function entryLabel(entry) {
+    if (entry.type === 'release') {
+        return 'Escrow released';
+    }
+    if (entry.type === 'return') {
+        return entry.direction === 'in' ? 'Return shipping earned' : 'Return & refund charge';
+    }
+    return 'Refund clawback';
+}
+
 const stats = computed(() => {
     const d = data.value;
     const net = Number(d?.net || 0);
 
     return [
         { label: 'Released to you', value: peso(d?.released), tone: '' },
-        { label: 'Refund clawbacks', value: peso(d?.clawed_back), tone: Number(d?.clawed_back) > 0 ? 'cf-neg' : '' },
+        { label: 'Refunds & returns', value: peso(d?.clawed_back), tone: Number(d?.clawed_back) > 0 ? 'cf-neg' : '' },
         { label: 'Net balance', value: peso(net), tone: net < 0 ? 'cf-neg' : 'cf-pos' },
         { label: 'Orders', value: String(d?.orders_count ?? 0), tone: '' }
     ];

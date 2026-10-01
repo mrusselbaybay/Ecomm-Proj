@@ -130,7 +130,7 @@ class SellerOrderController extends Controller
         // Return/refund rollup for the list badge (returnStatusFor()).
         // Guarded so the page still works before that migration is run.
         if ($this->returnRequestsTableExists()) {
-            $with['returnRequests'] = fn ($q) => $q->select('id', 'order_id', 'status');
+            $with['returnRequests'] = fn ($q) => $q->select('id', 'order_id', 'status', 'request_type', 'reason', 'other_reason', 'created_at');
         }
 
         $query = (clone $base)->with($with);
@@ -299,7 +299,7 @@ class SellerOrderController extends Controller
 
                 $order->status = $newStatus;
 
-                foreach (['shipping_carrier', 'shipping_service'] as $field) {
+                foreach (['shipping_carrier', 'shipping_service', 'package_weight', 'package_size'] as $field) {
                     if ($request->filled($field)) {
                         $order->{$field} = $request->validated($field);
                     }
@@ -438,7 +438,7 @@ class SellerOrderController extends Controller
         ];
 
         if ($this->returnRequestsTableExists()) {
-            $relations['returnRequests'] = fn ($q) => $q->select('id', 'order_id', 'status');
+            $relations['returnRequests'] = fn ($q) => $q->select('id', 'order_id', 'status', 'request_type', 'reason', 'other_reason', 'created_at');
         }
 
         return $relations;
@@ -481,6 +481,9 @@ class SellerOrderController extends Controller
                 ->all(),
             // Rollup of any buyer return/refund requests, or null.
             'returnStatus' => $this->returnStatusFor($order),
+            // Physical Return + Refund progress: 'to_return' | 'returned' | null.
+            'returnState' => $order->returnState(),
+            'returnReason' => $order->returnReason(),
             // Fulfilment vs. money are separate concerns — see the spec.
             // Sellers never write payment status; this is display only.
             'paymentMethod' => $order->payment_method,

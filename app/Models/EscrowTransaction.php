@@ -13,6 +13,7 @@ class EscrowTransaction extends Model
     public const TYPE_CHARGE = 'charge';
     public const TYPE_RELEASE = 'release';
     public const TYPE_REFUND = 'refund';
+    public const TYPE_RETURN = 'return';
 
     public $incrementing = false;
 

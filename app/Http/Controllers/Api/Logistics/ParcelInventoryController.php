@@ -40,6 +40,7 @@ class ParcelInventoryController extends Controller
     public function __construct(private readonly ParcelAutoAssignService $autoAssign) {}
 
     private const EAGER_LOADS = [
+        'returnRequest',
         'order.items.product',
         'order.seller.sellerDetail',
         'barangayAssignment',
@@ -161,7 +162,7 @@ class ParcelInventoryController extends Controller
             // never reaches STATUS_FOR_INVENTORY at all any more (see
             // ParcelAssignmentController::handoff()'s transfer-leg
             // branch), so there is no other destination to route to here.
-            $order = $locked->order;
+            $order = $locked->routingOrder();
             $match = $order
                 ? $this->autoAssign->matchRider($order, $company, $locked->required_vehicle_type, false)
                 : ['rider' => null, 'barangayAssignment' => null];

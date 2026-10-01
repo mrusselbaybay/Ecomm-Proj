@@ -252,7 +252,11 @@ function formatReturnType(type) {
     return type || 'Not specified';
 }
 
-function formatReturnReason(reason) {
+function formatReturnReason(reason, otherReason = null) {
+    if (reason === 'other' && otherReason) {
+        return otherReason;
+    }
+
     const reasonLabels = {
         damaged: 'Product arrived damaged',
         wrong_item: 'Wrong product received',
@@ -371,10 +375,14 @@ function closeReturnModal() {
     selectedReturnItemIndex.value = -1;
 }
 
+const isSubmittingReturn = ref(false);
+
 async function handleReturnSubmit(requestData) {
-    if (!props.order || selectedReturnItemIndex.value < 0 || !selectedReturnItem.value) {
+    if (!props.order || selectedReturnItemIndex.value < 0 || !selectedReturnItem.value || isSubmittingReturn.value) {
         return;
     }
+
+    isSubmittingReturn.value = true;
 
     try {
         const returnRequest = await submitReturnRequest(selectedReturnItem.value.id, requestData);
@@ -385,9 +393,11 @@ async function handleReturnSubmit(requestData) {
         props.order.items[selectedReturnItemIndex.value].returnRequest = returnRequest;
 
         closeReturnModal();
-        success('Return request submitted. The seller will review it shortly.');
+        success('Refund request sent. The seller will review it shortly.');
     } catch (err) {
         toastError(err?.message || 'We couldn\'t submit this request. The item may already have an open request, or the order isn\'t eligible.');
+    } finally {
+        isSubmittingReturn.value = false;
     }
 }
 
@@ -823,16 +833,45 @@ function handleHeaderSelectCategory(category) {
                                                         <span class="text-xs text-slate-400 block">Return / Refund Request</span>
                                                         <strong class="text-sm text-slate-900">{{ formatReturnType(item.returnRequest.requestType) }}</strong>
                                                     </div>
-                                                    <span class="text-[10px] font-bold uppercase tracking-wide bg-amber-50 text-amber-600 px-2.5 py-1 rounded-full">
-                                                        {{ item.returnRequest.status }}
+                                                    <span
+                                                        class="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full"
+                                                        :class="{
+                                                            'bg-amber-50 text-amber-600': item.returnRequest.status === 'Pending',
+                                                            'bg-emerald-50 text-emerald-600': item.returnRequest.status === 'Approved' || item.returnRequest.status === 'Completed',
+                                                            'bg-red-50 text-red-600': item.returnRequest.status === 'Rejected',
+                                                            'bg-slate-100 text-slate-500': item.returnRequest.status === 'Cancelled'
+                                                        }"
+                                                    >
+                                                        {{ item.returnRequest.requestType === 'return_and_refund'
+                                                            ? ({ Approved: 'To Return', Completed: 'Returned' }[item.returnRequest.status] || item.returnRequest.status)
+                                                            : item.returnRequest.status }}
                                                     </span>
                                                 </div>
                                                 <div class="grid grid-cols-3 gap-3 text-xs mb-3">
-                                                    <div><span class="text-slate-400 block">Reason</span><strong class="text-slate-900">{{ formatReturnReason(item.returnRequest.reason) }}</strong></div>
+                                                    <div><span class="text-slate-400 block">Reason</span><strong class="text-slate-900">{{ formatReturnReason(item.returnRequest.reason, item.returnRequest.otherReason) }}</strong></div>
                                                     <div><span class="text-slate-400 block">Quantity</span><strong class="text-slate-900">{{ item.returnRequest.quantity }}</strong></div>
                                                     <div><span class="text-slate-400 block">Evidence</span><strong class="text-slate-900">{{ item.returnRequest.evidence?.length || 0 }} image(s)</strong></div>
                                                 </div>
                                                 <p class="text-sm text-slate-600">{{ item.returnRequest.details }}</p>
+                                                <p
+                                                    v-if="item.returnRequest.requestType === 'return_and_refund' && item.returnRequest.status === 'Approved'"
+                                                    class="mt-3 text-sm text-orange-700 bg-orange-50 rounded-xl px-3 py-2"
+                                                >
+                                                    Return approved — a courier will collect this item from your address and bring it back to the seller through logistics.
+                                                    You'll be refunded once it reaches them. Return shipping is paid by the seller.
+                                                </p>
+                                                <p
+                                                    v-if="item.returnRequest.refundedAmount"
+                                                    class="mt-3 text-sm font-semibold text-emerald-700"
+                                                >
+                                                    {{ formatPrice(item.returnRequest.refundedAmount) }} refunded to you
+                                                </p>
+                                                <p
+                                                    v-if="item.returnRequest.resolutionNote"
+                                                    class="mt-3 text-sm text-slate-600 border-l-2 border-slate-200 pl-3"
+                                                >
+                                                    <span class="font-semibold text-slate-700">Seller:</span> {{ item.returnRequest.resolutionNote }}
+                                                </p>
                                                 <small class="text-xs text-slate-400 block mt-2">Submitted {{ formatLongDate(item.returnRequest.submittedAt) }}</small>
                                             </article>
                                             <button
@@ -841,7 +880,7 @@ function handleHeaderSelectCategory(category) {
                                                 class="px-4 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
                                                 @click="openReturnModal(item, index)"
                                             >
-                                                Return / Refund
+                                                Request Refund
                                             </button>
                                         </div>
                                     </div>
@@ -1095,6 +1134,7 @@ function handleHeaderSelectCategory(category) {
             :show="isReturnModalOpen"
             :item="selectedReturnItem"
             :order-id="order.orderId"
+            :submitting="isSubmittingReturn"
             @close="closeReturnModal"
             @submit="handleReturnSubmit"
         />

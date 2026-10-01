@@ -22,6 +22,7 @@ class StoreReturnRequest extends FormRequest
             'order_item_id' => ['required', 'uuid'],
             'request_type' => ['required', Rule::in(OrderReturnRequest::REQUEST_TYPES)],
             'reason' => ['required', Rule::in(OrderReturnRequest::REASONS)],
+            'other_reason' => ['required_if:reason,other', 'nullable', 'string', 'min:3', 'max:255'],
             'details' => ['required', 'string', 'min:10', 'max:1000'],
             'quantity' => ['required', 'integer', 'min:1'],
 

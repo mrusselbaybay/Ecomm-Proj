@@ -133,12 +133,13 @@ class ParcelIntakeService
     public function createTransferReceipt(ParcelAssignment $origin, LogisticsCompany $targetCompany): ParcelAssignment
     {
         $order = $origin->order;
-        $trigger = $this->transferTrigger->evaluate($order);
+        $trigger = $this->transferTrigger->evaluate($origin->routingOrder());
 
-        return ParcelAssignment::query()->create([
+        $receipt = ParcelAssignment::query()->create([
             'order_id' => $order->id,
             'logistics_company_id' => $targetCompany->id,
             'previous_assignment_id' => $origin->id,
+            'return_request_id' => $origin->return_request_id,
             'is_transfer' => $trigger['is_transfer'],
             'transfer_trigger' => $trigger['trigger'],
             'required_vehicle_type' => $trigger['required_vehicle_type'],
@@ -147,6 +148,16 @@ class ParcelIntakeService
             'for_inventory_at' => now(),
             'inventory_origin' => ParcelAssignment::INVENTORY_ORIGIN_TRANSFER_RECEIPT,
         ]);
+
+        // A return arriving back at the origin hub was already scanned in on
+        // its forward trip — land it straight on "To deliver" (to the seller).
+        $bypass = app(ParcelAutoAssignService::class)->returnPickupBypass($receipt);
+
+        if ($bypass !== []) {
+            $receipt->update($bypass);
+        }
+
+        return $receipt;
     }
 
     /**

@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
-    private const WITH = ['items.review', 'items.returnRequests', 'seller.sellerDetail', 'statusHistory', 'parcelAssignment.rider'];
+    private const WITH = ['items.review', 'items.returnRequests', 'seller.sellerDetail', 'statusHistory', 'parcelAssignment.rider', 'returnRequests'];
 
     /**
      * GET /api/buyer/orders
@@ -135,6 +135,9 @@ class OrderController extends Controller
             'payment_method' => $order->payment_method,
             'payment_status' => $order->payment_status,
             'escrow_status' => $order->escrow_status,
+            // Physical Return + Refund progress: 'to_return' | 'returned' | null.
+            'returnState' => $order->returnState(),
+            'returnReason' => $order->returnReason(),
             'receivedAt' => optional($order->received_at)->toIso8601String(),
             'shipping_method' => $order->shipping_service,
             'shipping_carrier' => $order->shipping_carrier,
@@ -220,6 +223,9 @@ class OrderController extends Controller
             'id' => $request->id,
             'requestType' => $request->request_type,
             'reason' => $request->reason,
+            'otherReason' => $request->other_reason,
+            'refundedAmount' => $request->refunded_amount !== null ? (float) $request->refunded_amount : null,
+            'resolutionNote' => $request->resolution_note,
             'details' => $request->details,
             'quantity' => $request->quantity,
             'evidence' => $request->evidence ?? [],

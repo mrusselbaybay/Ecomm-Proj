@@ -27,6 +27,7 @@ use Illuminate\Support\Facades\Route;
  * this buyer's own data and other sellers' inventory.
  */
 Route::middleware(['auth.token', 'buyer'])->prefix('api/buyer')->name('api.buyer.')->group(function () {
+    Route::get('/checkout/shipping-options', [CheckoutController::class, 'shippingOptions'])->name('checkout.shipping-options');
     Route::post('/checkout', [CheckoutController::class, 'store'])->name('checkout.store');
 
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');

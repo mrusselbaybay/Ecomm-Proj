@@ -33,6 +33,7 @@ class Order extends Model
         'status', 'payment_method', 'payment_status',
         'subtotal', 'shipping_fee', 'tax', 'discount', 'total',
         'shipping_carrier', 'shipping_service', 'tracking_number',
+        'package_weight', 'package_size',
         'confirmation_token',
         'cancellation_reason', 'cancelled_by', 'cancelled_at',
         'placed_at', 'received_at', 'received_via',
@@ -51,6 +52,7 @@ class Order extends Model
         'tax' => 'decimal:2',
         'discount' => 'decimal:2',
         'total' => 'decimal:2',
+        'package_weight' => 'decimal:3',
         'placed_at' => 'datetime',
         'received_at' => 'datetime',
         'cancelled_at' => 'datetime',
@@ -272,14 +274,53 @@ class Order extends Model
     // reset() of each parent's already-ordered result group).
     public function parcelAssignment(): HasOne
     {
-        return $this->hasOne(ParcelAssignment::class, 'order_id')->orderByDesc('created_at');
+        return $this->hasOne(ParcelAssignment::class, 'order_id')
+            ->whereNull('return_request_id')
+            ->orderByDesc('created_at');
     }
 
     // Every leg this order's parcel has been through, oldest first —
     // normally just one row; more than one once a transfer has happened.
     public function parcelAssignments(): HasMany
     {
-        return $this->hasMany(ParcelAssignment::class, 'order_id')->orderBy('created_at');
+        return $this->hasMany(ParcelAssignment::class, 'order_id')
+            ->whereNull('return_request_id')
+            ->orderBy('created_at');
+    }
+
+    /**
+     * Reverse-logistics state of this order's Return + Refund requests, read
+     * from the eager-loaded returnRequests relation: 'to_return' while an
+     * approved return is on its way back to the seller, 'returned' once it
+     * arrived, otherwise null. Refund-only requests never move the item.
+     */
+    public function returnState(): ?string
+    {
+        $returns = $this->physicalReturns();
+
+        return match (true) {
+            $returns->contains('status', 'approved') => 'to_return',
+            $returns->contains('status', 'completed') => 'returned',
+            default => null,
+        };
+    }
+
+    public function returnReason(): ?string
+    {
+        return $this->physicalReturns()
+            ->whereIn('status', ['approved', 'completed'])
+            ->sortByDesc('created_at')
+            ->first()
+            ?->reasonLabel();
+    }
+
+    private function physicalReturns(): \Illuminate\Support\Collection
+    {
+        if (! $this->relationLoaded('returnRequests')) {
+            return collect();
+        }
+
+        return $this->returnRequests->where('request_type', OrderReturnRequest::TYPE_RETURN_AND_REFUND);
     }
 
     public function canTransitionTo(string $status): bool
