@@ -24,82 +24,178 @@
  * every other page sharing this file — hence the #auth-app scoping here.)
  */
 
+/* ---------------------------------------------------------------------
+ * Design tokens — BuyTheWay teal (matches the buyer app's #0d9488).
+ * The page scrolls naturally now: the old 100vh + overflow:hidden lock
+ * clipped long signup steps and hid the form entirely on phones.
+ * ------------------------------------------------------------------- */
 #auth-app {
-  height: 100vh;
-  overflow: hidden;
+  --auth-brand: #0d9488;
+  --auth-brand-strong: #0f766e;
+  --auth-brand-soft: #f0fdfa;
+  --auth-brand-ring: rgba(13, 148, 136, 0.18);
+  --auth-ink: #0f172a;
+  --auth-muted: #64748b;
+  --auth-border: #d7dee5;
+  --auth-danger: #dc2626;
+  --auth-radius: 0.75rem;
+
+  min-height: 100vh;
+  min-height: 100dvh;
   font-family: 'Inter', system-ui, sans-serif;
-  background: #fafafc;
+  background: #f6f8f8;
+  color: var(--auth-ink);
+  -webkit-font-smoothing: antialiased;
 }
 
 #auth-app .display-font {
-  font-family: 'Playfair Display', serif;
+  font-family: 'Inter', system-ui, sans-serif;
+  letter-spacing: -0.025em;
 }
 
-/* Side Panel with Gradient Background */
+/* Brand panel (desktop only) */
 #auth-app .side-panel {
-  background-color: #0f1420;
+  background-color: #062925;
   background-image:
-    radial-gradient(circle at 15% 25%, rgba(234,88,12,0.12) 0, transparent 45%),
-    radial-gradient(circle at 85% 80%, rgba(234,88,12,0.10) 0, transparent 45%),
-    radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px);
-  background-size: auto, auto, 22px 22px;
+    radial-gradient(circle at 12% 18%, rgba(45, 212, 191, 0.22) 0, transparent 42%),
+    radial-gradient(circle at 90% 85%, rgba(13, 148, 136, 0.35) 0, transparent 48%),
+    radial-gradient(circle, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: auto, auto, 24px 24px;
 }
 
-/* Role Cards in Side Panel */
-#auth-app .role-card {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
-  transition: background 0.15s ease, border-color 0.15s ease;
+#auth-app .side-benefit-icon {
+  background: rgba(45, 212, 191, 0.12);
+  border: 1px solid rgba(45, 212, 191, 0.22);
+  color: #5eead4;
 }
 
-#auth-app .role-card:hover {
-  background: rgba(255,255,255,0.06);
-  border-color: rgba(234,88,12,0.35);
+/* Form card */
+#auth-app .auth-card {
+  background: #fff;
+  border: 1px solid #e6ebef;
+  border-radius: 1.25rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 32px -12px rgba(15, 23, 42, 0.12);
 }
 
-/* Signup Role Selection Cards */
+@media (max-width: 479px) {
+  #auth-app {
+    background: #fff;
+  }
+
+  #auth-app .auth-card {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+}
+
+/* Signup role cards */
 #auth-app .signup-role-card {
-  border: 1.5px solid #e5e7eb;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  border: 1.5px solid var(--auth-border);
+  background: #fff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, transform 0.15s ease;
   cursor: pointer;
 }
 
+#auth-app .signup-role-card:hover {
+  border-color: var(--auth-brand);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -8px rgba(13, 148, 136, 0.45);
+}
+
+#auth-app .signup-role-card:hover svg,
+#auth-app .signup-role-card.selected svg {
+  color: var(--auth-brand);
+}
+
+#auth-app .signup-role-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--auth-brand-ring);
+}
+
 #auth-app .signup-role-card.selected {
-  border-color: #ea580c;
-  background: #fff7ed;
-  box-shadow: 0 0 0 1px #ea580c;
+  border-color: var(--auth-brand);
+  background: var(--auth-brand-soft);
+  box-shadow: 0 0 0 1px var(--auth-brand);
 }
 
-/* Gradient Button */
+/* Primary button (class name kept for both auth bundles) */
 #auth-app .btn-gradient {
-  background: linear-gradient(90deg, #ea580c, #f59e0b);
+  background: var(--auth-brand);
+  min-height: 44px;
+  transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 2px rgba(15, 118, 110, 0.3);
 }
 
-#auth-app .btn-gradient:hover {
-  filter: brightness(1.05);
+#auth-app .btn-gradient:hover:not(:disabled) {
+  background: var(--auth-brand-strong);
 }
 
-/* Tab Pills */
+#auth-app .btn-gradient:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+#auth-app .btn-gradient:focus-visible,
+#auth-app button:focus-visible,
+#auth-app a:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--auth-brand-ring);
+}
+
+#auth-app .btn-gradient:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Back / secondary buttons in the wizards */
+#auth-app .nav-container button:not(.btn-gradient) {
+  min-height: 44px;
+  border-color: var(--auth-border);
+}
+
+/* Segmented Log In / Sign Up */
 #auth-app .tab-pill {
+  min-height: 40px;
   transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   cursor: pointer;
 }
 
-/* Form Inputs */
-#auth-app .field-input:focus {
-  outline: none;
-  border-color: #ea580c;
-  box-shadow: 0 0 0 3px rgba(234,88,12,0.12);
-}
-
+/* Form inputs — 16px text on phones so iOS doesn't zoom on focus */
 #auth-app .field-input {
   width: 100%;
-  padding: 0.4rem 0.6rem;
-  font-size: 0.8rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.375rem;
-  background: white;
+  min-height: 44px;
+  padding: 0.6rem 0.85rem;
+  font-size: 1rem;
+  color: var(--auth-ink);
+  border: 1px solid var(--auth-border);
+  border-radius: var(--auth-radius);
+  background: #fff;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+@media (min-width: 640px) {
+  #auth-app .field-input {
+    font-size: 0.9375rem;
+  }
+}
+
+#auth-app .field-input::placeholder {
+  color: #9aa8b6;
+}
+
+#auth-app .field-input:hover:not(:disabled):not(:focus) {
+  border-color: #b8c4cf;
+}
+
+#auth-app .field-input:focus {
+  outline: none;
+  border-color: var(--auth-brand);
+  box-shadow: 0 0 0 3px var(--auth-brand-ring);
+}
+
+#auth-app .field-input.border-red-500 {
+  border-color: var(--auth-danger);
 }
 
 #auth-app .field-input:disabled {
@@ -109,41 +205,89 @@
 }
 
 #auth-app .field-label {
-  font-size: 0.65rem;
-  font-weight: 700;
-  color: #64748b;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   display: block;
-  margin-bottom: 0.15rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 0.375rem;
+}
+
+#auth-app .field-label .text-teal-500 {
+  color: var(--auth-danger);
+}
+
+/* Inline field errors */
+#auth-app .field-input + .text-red-500,
+#auth-app .relative + .text-red-500 {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* Form-level messages (error / success) */
+#auth-app .auth-msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--auth-radius);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+#auth-app .auth-msg::before {
+  content: '';
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  background: currentColor;
+  -webkit-mask: var(--auth-msg-icon) center / contain no-repeat;
+  mask: var(--auth-msg-icon) center / contain no-repeat;
+}
+
+#auth-app .auth-msg--error {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fee2e2;
+  --auth-msg-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 8v4M12 16h.01'/%3E%3C/svg%3E");
+}
+
+#auth-app .auth-msg--success {
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #d1fae5;
+  --auth-msg-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
 }
 
 /* Verification Code Input — one box per digit (see CodeInput in app.js) */
 #auth-app .code-input {
   display: flex;
-  gap: 0.4rem;
+  gap: 0.5rem;
 }
 
 #auth-app .code-input-box {
   flex: 1 1 0;
   min-width: 0;
-  height: 2.75rem;
+  height: 3.25rem;
   padding: 0;
   text-align: center;
-  font-size: 1.1rem;
+  font-size: 1.35rem;
   font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #0f172a;
-  border: 1px solid #d1d5db;
-  border-radius: 0.375rem;
-  background: white;
+  font-variant-numeric: tabular-nums;
+  color: var(--auth-ink);
+  border: 1px solid var(--auth-border);
+  border-radius: var(--auth-radius);
+  background: #fff;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 #auth-app .code-input-box:focus {
   outline: none;
-  border-color: #ea580c;
-  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+  border-color: var(--auth-brand);
+  box-shadow: 0 0 0 3px var(--auth-brand-ring);
 }
 
 /* Password Strength Meter — 4-segment bar (see PasswordStrength in app.js) */
@@ -152,7 +296,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-top: 0.35rem;
+  margin-top: 0.5rem;
 }
 
 #auth-app .pw-strength-track,
@@ -174,7 +318,7 @@
 #auth-app .pw-strength-label,
 #invite-app .pw-strength-label {
   flex-shrink: 0;
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -200,16 +344,21 @@
 
 /* Select Dropdowns */
 #auth-app select.field-input {
-  appearance: auto;
+  appearance: none;
+  padding-right: 2.25rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 16px;
 }
 
 #auth-app select.field-input:disabled {
-  background: #f1f5f9;
+  background-color: #f1f5f9;
   color: #94a3b8;
   cursor: not-allowed;
 }
 
-/* Step Wizard Dots */
+/* Step wizard */
 #auth-app .step-dot {
   width: 28px;
   height: 28px;
@@ -217,80 +366,83 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  transition: all 0.2s ease;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
   flex-shrink: 0;
+}
+
+#auth-app .step-dot.bg-teal-500 {
+  background: var(--auth-brand);
+  box-shadow: 0 0 0 4px var(--auth-brand-ring);
 }
 
 #auth-app .step-line {
   flex: 1;
   height: 2px;
+  border-radius: 9999px;
   background: #e5e7eb;
   transition: background 0.2s ease;
-  margin: 0 4px;
+  margin: 0 6px;
 }
 
 #auth-app .step-line.active {
-  background: #ea580c;
+  background: var(--auth-brand);
 }
 
-/* Form Grid Layout */
+/* Form grid — one column on small phones */
 #auth-app .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
+  grid-template-columns: 1fr;
+  gap: 0.9rem;
+}
+
+@media (min-width: 480px) {
+  #auth-app .form-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.9rem 0.85rem;
+  }
 }
 
 #auth-app .form-grid .full-width {
   grid-column: 1 / -1;
 }
 
-/* Layout Containers */
-#auth-app .right-panel-content {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 1.5rem 2rem;
-}
-
+/* Layout containers */
 #auth-app .form-container {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  max-height: 100vh;
-  overflow: hidden;
 }
 
 #auth-app .fields-container {
-  flex: 1;
-  overflow: visible;
   padding: 0.25rem 0;
 }
 
+/* Back / Next stay reachable on long steps */
 #auth-app .nav-container {
-  flex-shrink: 0;
-  padding-top: 0.75rem;
-  border-top: 1px solid #f1f5f9;
-  margin-top: 0.5rem;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding: 1rem 0 0.25rem;
+  margin-top: 1.25rem;
+  border-top: 1px solid #eef2f5;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.92), #fff 30%);
 }
 
-/* Documents step (buyer/seller/courier and logistics) — the ID Type
-   dropdowns plus the taller drag-and-drop dropzones can add up to more
-   than the wizard card has room for, so this scrolls internally instead
-   of silently clipping against .form-container's max-height, while the
-   step heading above and the Back/Next buttons below stay in place. */
+@media (max-width: 479px) {
+  #auth-app .nav-container {
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.92), #fff 30%);
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* The documents step now scrolls with the page instead of its own box */
 #auth-app .doc-scroll {
-  max-height: 38vh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-gutter: stable;
-  padding-right: 0.35rem;
+  overflow: visible;
 }
 
-/* Gender Segmented Control */
+/* Gender segmented control */
 #auth-app .gender-select {
   display: flex;
 }
@@ -301,40 +453,41 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
-  padding: 0.45rem 0.4rem;
-  border: 1.5px solid #d1d5db;
-  background: white;
-  color: #64748b;
-  font-size: 0.72rem;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0.5rem;
+  border: 1px solid var(--auth-border);
+  background: #fff;
+  color: var(--auth-muted);
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
 #auth-app .gender-option:first-child {
-  border-radius: 0.375rem 0 0 0.375rem;
+  border-radius: var(--auth-radius) 0 0 var(--auth-radius);
 }
 
 #auth-app .gender-option:last-child {
-  border-radius: 0 0.375rem 0.375rem 0;
-  margin-left: -1.5px;
+  border-radius: 0 var(--auth-radius) var(--auth-radius) 0;
+  margin-left: -1px;
 }
 
 #auth-app .gender-option:hover {
-  border-color: #ea580c;
+  border-color: var(--auth-brand);
   z-index: 1;
 }
 
 #auth-app .gender-option.selected {
-  border-color: #ea580c;
-  background: #fff7ed;
-  color: #ea580c;
+  border-color: var(--auth-brand);
+  background: var(--auth-brand-soft);
+  color: var(--auth-brand-strong);
   z-index: 1;
 }
 
 #auth-app .gender-select--error .gender-option {
-  border-color: #ef4444;
+  border-color: var(--auth-danger);
 }
 
 /* File Upload Dropzone */
@@ -345,11 +498,11 @@
   align-items: center;
   justify-content: center;
   gap: 0.3rem;
-  min-height: 108px;
+  min-height: 112px;
   padding: 1.25rem 1rem;
-  border: 1.5px dashed #d1d5db;
-  border-radius: 0.6rem;
-  background: #f8fafc;
+  border: 1.5px dashed #c8d2db;
+  border-radius: var(--auth-radius);
+  background: #f8fafb;
   text-align: center;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
@@ -357,15 +510,15 @@
 
 #auth-app .dropzone:hover,
 #auth-app .dropzone:focus-visible {
-  border-color: #ea580c;
-  background: #fff7ed;
+  border-color: var(--auth-brand);
+  background: var(--auth-brand-soft);
   outline: none;
 }
 
 #auth-app .dropzone--drag {
-  border-color: #ea580c;
-  background: #fff7ed;
-  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+  border-color: var(--auth-brand);
+  background: var(--auth-brand-soft);
+  box-shadow: 0 0 0 3px var(--auth-brand-ring);
 }
 
 #auth-app .dropzone--filled {
@@ -373,14 +526,12 @@
   min-height: 0;
   padding: 0.75rem 0.9rem;
   border-style: solid;
-  border-color: #d1d5db;
-  background: white;
+  border-color: var(--auth-border);
+  background: #fff;
 }
 
 /* Children never receive pointer events so dragenter/dragleave only ever
-   fire on the dropzone itself — without this, dragging over the icon or
-   text inside would fire spurious dragleave/dragenter pairs and make the
-   highlight flicker. The remove button opts back in below. */
+   fire on the dropzone itself (no flicker). The remove button opts back in. */
 #auth-app .dropzone * {
   pointer-events: none;
 }
@@ -389,12 +540,6 @@
   display: none;
 }
 
-/* Tailwind's preflight sets svg { display: block }, which drops the cloud
-   icon out of the centered inline flow text-align:center on .dropzone
-   relies on for everything else here — it was landing flush left instead
-   of centered above the text. Laying this out as its own centered flex
-   column fixes that regardless of what display an icon or a <p> defaults
-   to. */
 #auth-app .dropzone-empty {
   display: flex;
   flex-direction: column;
@@ -407,18 +552,18 @@
 }
 
 #auth-app .dropzone-text {
-  font-size: 0.78rem;
-  color: #64748b;
+  font-size: 0.8125rem;
+  color: var(--auth-muted);
   font-weight: 500;
 }
 
 #auth-app .dropzone-link {
-  color: #ea580c;
+  color: var(--auth-brand);
   font-weight: 700;
 }
 
 #auth-app .dropzone-hint {
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   color: #94a3b8;
   margin-top: 0.1rem;
 }
@@ -426,18 +571,18 @@
 #auth-app .dropzone-file {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   width: 100%;
   text-align: left;
 }
 
 #auth-app .dropzone-file-icon {
   flex-shrink: 0;
-  width: 38px;
-  height: 38px;
-  border-radius: 0.5rem;
-  background: #fff7ed;
-  color: #ea580c;
+  width: 40px;
+  height: 40px;
+  border-radius: 0.6rem;
+  background: var(--auth-brand-soft);
+  color: var(--auth-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -449,7 +594,7 @@
 }
 
 #auth-app .dropzone-file-name {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: #1e293b;
   white-space: nowrap;
@@ -458,14 +603,14 @@
 }
 
 #auth-app .dropzone-file-size {
-  font-size: 0.62rem;
+  font-size: 0.7rem;
   color: #94a3b8;
 }
 
 #auth-app .dropzone-remove {
   flex-shrink: 0;
-  width: 22px;
-  height: 22px;
+  width: 32px;
+  height: 32px;
   border-radius: 9999px;
   display: flex;
   align-items: center;
@@ -482,11 +627,29 @@
   color: #dc2626;
 }
 
-/* Animations */
+/* Mode/step transitions */
+#auth-app .auth-swap-enter-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+#auth-app .auth-swap-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
 #auth-app .fade-enter-active, #auth-app .fade-leave-active {
   transition: opacity 0.15s ease;
 }
 
 #auth-app .fade-enter-from, #auth-app .fade-leave-to {
   opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #auth-app *,
+  #auth-app *::before,
+  #auth-app *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

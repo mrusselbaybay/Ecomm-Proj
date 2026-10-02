@@ -393,6 +393,7 @@ const App = {
         const selectedRole = ref(null);
         const showPassword = ref(false);
         const rememberMe = ref(false);
+        const isLoggingIn = ref(false);
         const email = ref('');
         const password = ref('');
         const confirmPassword = ref('');
@@ -2781,6 +2782,28 @@ const App = {
             // path Google sign-in uses.
         }
 
+        // Form submit handler: guards double-submits and shows progress.
+        async function submitLogin() {
+            if (isLoggingIn.value) {
+                return;
+            }
+
+            if (!email.value.trim() || !password.value) {
+                resetMessages();
+                errorMsg.value = 'Enter your email and password.';
+
+                return;
+            }
+
+            isLoggingIn.value = true;
+
+            try {
+                await handleLogin();
+            } finally {
+                isLoggingIn.value = false;
+            }
+        }
+
         function handleGoogleLogin() {
             resetMessages();
 
@@ -3262,6 +3285,8 @@ const App = {
             retryAddressLoad,
             switchMode,
             handleLogin,
+            submitLogin,
+            isLoggingIn,
             handleGoogleLogin,
             selectRole,
             goToStep,
@@ -3294,95 +3319,130 @@ const App = {
 
     // ---------- Template ----------
     template: `
-  <div class="min-h-screen flex flex-col md:flex-row" style="height:100vh;overflow:hidden;">
+  <div class="min-h-dvh lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
 
     <!-- PORTAL MISMATCH MODAL -->
-    <div v-if="portalMismatch" class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 px-4">
-      <div class="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 text-center">
+    <div v-if="portalMismatch" class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4" role="dialog" aria-modal="true" aria-labelledby="portal-mismatch-title">
+      <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-center">
         <div class="w-14 h-14 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4">
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
         </div>
-        <p class="text-slate-800 font-semibold mb-1">This looks like a logistics account.</p>
-        <p class="text-slate-500 text-sm mb-6">Buyer and seller accounts sign in here. Please proceed to the Logistics Portal.</p>
-        <a href="/logistics-login" class="btn-gradient block w-full text-white font-semibold py-2.5 rounded-lg mb-2">Go to Logistics Login →</a>
-        <button type="button" @click="portalMismatch = false" class="w-full text-slate-500 text-sm font-medium py-2">Cancel</button>
+        <p id="portal-mismatch-title" class="text-slate-900 font-semibold mb-1">This looks like a logistics account.</p>
+        <p class="text-slate-500 text-sm mb-6">Buyer and seller accounts sign in here. Please continue to the Logistics Portal.</p>
+        <a href="/logistics-login" class="btn-gradient flex items-center justify-center w-full text-white font-semibold rounded-xl mb-2">Go to Logistics Login</a>
+        <button type="button" @click="portalMismatch = false" class="w-full min-h-[44px] text-slate-500 text-sm font-medium rounded-xl hover:bg-slate-50">Cancel</button>
       </div>
     </div>
 
-    <!-- LEFT PANEL -->
-    <div class="side-panel md:w-[42%] w-full text-white px-8 py-10 md:px-12 md:py-14 flex flex-col justify-between" style="height:100vh;overflow:hidden;">
-      <div>
-        <div class="flex items-center gap-3 mb-10">
-          <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-          </div>
-          <span class="text-lg font-bold tracking-wide">BuyTheWay</span>
+    <!-- BRAND PANEL (desktop) -->
+    <aside class="side-panel hidden lg:flex sticky top-0 h-dvh flex-col justify-between text-white px-12 py-12 xl:px-16">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-teal-500 flex items-center justify-center shadow-lg shadow-teal-900/40">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
         </div>
-        <p class="text-teal-400 text-xs font-bold tracking-widest uppercase mb-4">Philippines' Trusted Marketplace</p>
-        <h1 class="display-font text-4xl md:text-[2.6rem] leading-tight font-extrabold mb-5">
-          One platform.<br/>
-          <span class="text-teal-400">Every</span> role.
+        <span class="text-lg font-bold tracking-tight">BuyTheWay</span>
+      </div>
+
+      <div class="max-w-md">
+        <p class="text-teal-300 text-xs font-bold tracking-[0.2em] uppercase mb-4">The Philippines' local marketplace</p>
+        <h1 class="display-font text-4xl xl:text-5xl leading-[1.08] font-extrabold mb-5">
+          Shop local.<br/>Sell further.<br/><span class="text-teal-300">Delivered right.</span>
         </h1>
-        <p class="text-slate-400 text-sm leading-relaxed mb-10 max-w-sm">
-          Whether you're shopping, running a store, or delivering parcels — BuyTheWay is built to grow with you.
+        <p class="text-teal-50/70 text-[15px] leading-relaxed mb-10">
+          Buy from verified sellers near you, or open a store and reach buyers across the islands.
         </p>
 
-        <div class="space-y-3">
-          <div v-for="r in roles" :key="r.id" class="role-card rounded-xl px-4 py-3 flex items-center gap-3">
-            <div class="w-9 h-9 rounded-lg bg-teal-500/15 flex items-center justify-center shrink-0 text-teal-400">
-              <svg v-if="r.icon === 'bag'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-              <svg v-if="r.icon === 'house'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/></svg>
-              <svg v-if="r.icon === 'truck'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h1"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
-              <svg v-if="r.icon === 'building'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
-            </div>
+        <ul class="space-y-5">
+          <li class="flex gap-4">
+            <span class="side-benefit-icon w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+            </span>
             <div>
-              <p class="text-sm font-semibold">{{ r.label }}</p>
-              <p class="text-xs text-slate-400">Register as {{ r.label }}</p>
+              <p class="font-semibold text-[15px]">Protected payments</p>
+              <p class="text-sm text-teal-50/60 leading-relaxed">Your money is held until you confirm the order arrived.</p>
             </div>
-          </div>
-        </div>
+          </li>
+          <li class="flex gap-4">
+            <span class="side-benefit-icon w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></svg>
+            </span>
+            <div>
+              <p class="font-semibold text-[15px]">Verified sellers</p>
+              <p class="text-sm text-teal-50/60 leading-relaxed">Every store is reviewed before it can sell.</p>
+            </div>
+          </li>
+          <li class="flex gap-4">
+            <span class="side-benefit-icon w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 18V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h1"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+            </span>
+            <div>
+              <p class="font-semibold text-[15px]">Tracked to your door</p>
+              <p class="text-sm text-teal-50/60 leading-relaxed">Follow every parcel from pickup to delivery.</p>
+            </div>
+          </li>
+        </ul>
       </div>
-      <div class="border-t border-white/10 pt-5 mt-10 text-xs text-slate-500 flex gap-4">
-        <span>Terms of Service</span>
-        <span>Privacy Policy</span>
-      </div>
-    </div>
 
-    <!-- RIGHT PANEL -->
-    <div class="flex-1 flex items-center justify-center px-6" style="height:100vh;overflow:hidden;">
-      <div class="w-full max-w-md" style="max-height:100vh;">
+      <div class="flex items-center justify-between gap-4 border-t border-white/10 pt-5 text-xs text-teal-50/50">
+        <span>&copy; {{ new Date().getFullYear() }} BuyTheWay</span>
+        <a href="/logistics-login" class="text-teal-200 font-semibold hover:text-white rounded">Logistics partner? Sign in &rarr;</a>
+      </div>
+    </aside>
+
+    <!-- FORM SIDE -->
+    <main class="flex flex-col min-h-dvh">
+      <!-- Compact brand bar (phones / tablets) -->
+      <header class="lg:hidden flex items-center gap-2.5 px-5 pt-6">
+        <div class="w-9 h-9 rounded-xl bg-teal-600 flex items-center justify-center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        </div>
+        <span class="font-bold tracking-tight text-slate-900">BuyTheWay</span>
+      </header>
+
+      <div class="flex-1 flex items-start sm:items-center justify-center px-0 sm:px-6 py-6 sm:py-10">
+      <div class="auth-card w-full max-w-[30rem] px-5 py-6 sm:px-9 sm:py-9">
 
         <!-- LOGGED IN -->
-        <div v-if="loggedInUser" class="text-center" style="padding:2rem 0;">
-          <h2 class="display-font text-3xl font-bold text-slate-900 mb-2">You're in!</h2>
-          <p class="text-slate-500 mb-6">Redirecting you to your dashboard…</p>
-          <button @click="logout" class="w-full border border-slate-300 text-slate-700 font-semibold py-3 rounded-lg hover:bg-slate-50">Log out</button>
+        <div v-if="loggedInUser" class="text-center py-6" role="status">
+          <svg class="animate-spin h-8 w-8 text-teal-600 mx-auto mb-4" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.4 0 0 5.4 0 12h4z"></path></svg>
+          <h2 class="display-font text-2xl font-bold text-slate-900 mb-1">You're in!</h2>
+          <p class="text-slate-500 mb-6">Taking you to your dashboard…</p>
+          <button type="button" @click="logout" class="w-full min-h-[44px] border border-slate-300 text-slate-700 font-semibold rounded-xl hover:bg-slate-50">Log out</button>
         </div>
 
         <!-- NOT LOGGED IN -->
-        <div v-else class="form-container" style="padding:1rem 0;">
-          <!-- Submission overlay: veils the whole screen while a registration
-               request is in flight so the user isn't left wondering. -->
-          <div v-if="isSubmitting" class="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-3 bg-white/70 backdrop-blur-sm">
-            <svg class="animate-spin h-9 w-9 text-teal-600" viewBox="0 0 24 24" fill="none">
+        <div v-else class="form-container">
+          <!-- Submission overlay while a registration request is in flight -->
+          <div v-if="isSubmitting" class="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-3 bg-white/75 backdrop-blur-sm" role="status" aria-live="polite">
+            <svg class="animate-spin h-9 w-9 text-teal-600" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.4 0 0 5.4 0 12h4z"></path>
             </svg>
             <p class="text-sm font-medium text-slate-600">Submitting your registration…</p>
           </div>
-          <div class="flex items-center justify-between mb-1">
-            <h2 class="display-font text-3xl font-bold text-slate-900">
-              {{ mode === 'login' ? 'Welcome back' : mode === 'forgot' || mode === 'reset' ? 'Reset Password' : 'Create an account' }}
+
+          <div class="mb-6">
+            <button
+              v-if="mode === 'forgot' || mode === 'reset'"
+              type="button"
+              @click="switchMode('login')"
+              class="inline-flex items-center gap-1.5 -ml-1 mb-4 min-h-[36px] px-1 text-sm font-semibold text-slate-500 hover:text-slate-900 rounded-lg"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+              Back to login
+            </button>
+            <h2 class="display-font text-[1.75rem] leading-tight font-bold text-slate-900">
+              {{ mode === 'login' ? 'Welcome back' : mode === 'forgot' || mode === 'reset' ? 'Reset your password' : 'Create your account' }}
             </h2>
+            <p class="text-slate-500 text-[15px] mt-1.5">
+              {{ mode === 'login' ? 'Sign in to keep shopping and selling.' : mode === 'forgot' || mode === 'reset' ? 'We’ll email you a code to set a new one.' : (isLogisticsSignup ? 'Register your logistics company.' : (selectedRole === 'driver' ? 'Register as a driver.' : 'Join as a buyer or open your own store.')) }}
+            </p>
           </div>
-          <p class="text-slate-500 text-sm mb-4">
-            {{ mode === 'login' ? 'Sign in to your BuyTheWay account.' : mode === 'forgot' || mode === 'reset' ? 'Reset your password securely.' : (isLogisticsSignup ? 'Register your logistics company.' : (selectedRole === 'driver' ? 'Register as a driver.' : 'Select your role to get started.')) }}
-          </p>
 
           <!-- TABS -->
-          <div v-if="mode === 'login' || mode === 'signup'" class="flex bg-slate-100 rounded-lg p-1 mb-4">
-            <button @click="switchMode('login')" class="tab-pill flex-1 py-2 rounded-md text-sm font-semibold" :class="mode === 'login' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500'">Log In</button>
-            <button @click="switchMode('signup')" class="tab-pill flex-1 py-2 rounded-md text-sm font-semibold" :class="mode === 'signup' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500'">Sign Up</button>
+          <div v-if="mode === 'login' || mode === 'signup'" class="grid grid-cols-2 bg-slate-100 rounded-xl p-1 mb-6" role="tablist" aria-label="Account">
+            <button type="button" role="tab" :aria-selected="mode === 'login'" @click="switchMode('login')" class="tab-pill rounded-lg text-sm font-semibold" :class="mode === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'">Log In</button>
+            <button type="button" role="tab" :aria-selected="mode === 'signup'" @click="switchMode('signup')" class="tab-pill rounded-lg text-sm font-semibold" :class="mode === 'signup' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'">Sign Up</button>
           </div>
 
           <!-- FORGOT PASSWORD / RESET WIZARD -->
@@ -3409,12 +3469,9 @@ const App = {
                 <label class="field-label">Email Address <span class="text-teal-500">*</span></label>
                 <input v-model="forgotEmail" type="email" placeholder="juan@email.com" class="field-input" />
               </div>
-              <p v-if="errorMsg" class="text-sm text-red-600 mt-2">{{ errorMsg }}</p>
-              <p v-if="successMsg" class="text-sm text-green-600 mt-2">{{ successMsg }}</p>
+              <p v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-sm text-red-600 mt-2">{{ errorMsg }}</p>
+              <p v-if="successMsg" role="status" class="auth-msg auth-msg--success text-sm text-green-600 mt-2">{{ successMsg }}</p>
               <button @click="handleSendCode" class="btn-gradient w-full text-white font-semibold py-2.5 rounded-lg mt-3">Send Verification Code</button>
-              <p class="text-center text-sm text-slate-500 mt-3">
-                Remembered it? <a href="#" @click.prevent="switchMode('login')" class="text-teal-600 font-semibold hover:underline">Back to login</a>
-              </p>
             </div>
 
             <!-- Step 2: Verify Code -->
@@ -3425,17 +3482,17 @@ const App = {
                 <code-input v-model="resetCode" />
                 <p class="text-xs text-slate-400 mt-1">Check your email for the code. Expires in 15 minutes.</p>
               </div>
-              <p v-if="errorMsg" class="text-sm text-red-600 mt-2">{{ errorMsg }}</p>
-              <p v-if="successMsg" class="text-sm text-green-600 mt-2">{{ successMsg }}</p>
+              <p v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-sm text-red-600 mt-2">{{ errorMsg }}</p>
+              <p v-if="successMsg" role="status" class="auth-msg auth-msg--success text-sm text-green-600 mt-2">{{ successMsg }}</p>
               <button @click="handleVerifyCode" :disabled="isVerifying" class="btn-gradient w-full text-white font-semibold py-2.5 rounded-lg mt-3 disabled:opacity-50">
                 {{ isVerifying ? 'Verifying...' : 'Verify Code' }}
               </button>
               <div class="flex items-center justify-between mt-3">
                 <p class="text-sm text-slate-500">
-                  <button type="button" @click="handleResendCode" :disabled="resendCooldown > 0" class="text-teal-600 font-semibold hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{{ resendCooldown > 0 ? 'Resend code in ' + resendCooldown + 's' : 'Resend code' }}</button>
+                  <button type="button" @click="handleResendCode" :disabled="resendCooldown > 0" class="text-teal-700 font-semibold hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{{ resendCooldown > 0 ? 'Resend code in ' + resendCooldown + 's' : 'Resend code' }}</button>
                 </p>
                 <p class="text-sm text-slate-500">
-                  <a href="#" @click.prevent="goToResetStep(1)" class="text-teal-600 font-semibold hover:underline">Change email</a>
+                  <a href="#" @click.prevent="goToResetStep(1)" class="text-teal-700 font-semibold hover:underline">Change email</a>
                 </p>
               </div>
             </div>
@@ -3458,43 +3515,16 @@ const App = {
                 <label class="field-label">Confirm New Password <span class="text-teal-500">*</span></label>
                 <input :type="showPassword ? 'text' : 'password'" v-model="newConfirmPassword" placeholder="Re-enter password" class="field-input" />
               </div>
-              <p v-if="errorMsg" class="text-sm text-red-600 mt-2">{{ errorMsg }}</p>
-              <p v-if="successMsg" class="text-sm text-green-600 mt-2">{{ successMsg }}</p>
+              <p v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-sm text-red-600 mt-2">{{ errorMsg }}</p>
+              <p v-if="successMsg" role="status" class="auth-msg auth-msg--success text-sm text-green-600 mt-2">{{ successMsg }}</p>
               <button @click="handleResetPassword" class="btn-gradient w-full text-white font-semibold py-2.5 rounded-lg mt-3">Reset Password</button>
             </div>
           </div>
 
           <!-- LOGIN FORM -->
-          <div v-if="mode === 'login'" class="space-y-3">
-            <div>
-              <label class="field-label">Email Address <span class="text-teal-500">*</span></label>
-              <input v-model="email" type="email" placeholder="juan@email.com" class="field-input" />
-            </div>
-            <div>
-              <label class="field-label">Password <span class="text-teal-500">*</span></label>
-              <div class="relative">
-                <input :type="showPassword ? 'text' : 'password'" v-model="password" placeholder="Enter your password" class="field-input pr-10" />
-                <button type="button" @click="showPassword = !showPassword" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-                  <svg v-if="!showPassword" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-                  <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 8 10 8a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3.5 8 10 8a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
-                </button>
-              </div>
-            </div>
-            <div class="flex items-center justify-between text-sm">
-              <label class="flex items-center gap-2 text-slate-600"><input type="checkbox" v-model="rememberMe" class="rounded border-slate-300 text-teal-500 focus:ring-teal-400" /> Remember me</label>
-              <a href="#" @click.prevent="switchMode('forgot')" class="text-teal-600 font-medium hover:underline">Forgot password?</a>
-            </div>
-            <p v-if="errorMsg" class="text-sm text-red-600">{{ errorMsg }}</p>
-            <p v-if="successMsg" class="text-sm text-green-600">{{ successMsg }}</p>
-            <button @click="handleLogin" class="btn-gradient w-full text-white font-semibold py-2.5 rounded-lg">Sign In</button>
-
-            <div class="relative my-1">
-              <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-slate-200"></div></div>
-              <div class="relative flex justify-center"><span class="bg-white px-3 text-xs font-medium text-slate-400">OR</span></div>
-            </div>
-
-            <button type="button" @click="handleGoogleLogin" class="google-btn w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 text-slate-700 font-semibold text-sm py-2.5 rounded-lg hover:bg-slate-50 hover:border-slate-400 hover:shadow-sm active:scale-[0.99] transition-all">
-              <svg width="18" height="18" viewBox="0 0 48 48" class="shrink-0">
+          <form v-if="mode === 'login'" class="space-y-4" novalidate @submit.prevent="submitLogin">
+            <button type="button" @click="handleGoogleLogin" class="google-btn w-full min-h-[44px] flex items-center justify-center gap-2.5 bg-white border border-slate-300 text-slate-700 font-semibold text-[15px] rounded-xl hover:bg-slate-50 hover:border-slate-400 active:scale-[0.99] transition-all">
+              <svg width="18" height="18" viewBox="0 0 48 48" class="shrink-0" aria-hidden="true">
                 <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
                 <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
                 <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/>
@@ -3503,8 +3533,41 @@ const App = {
               Continue with Google
             </button>
 
-            <p class="text-center text-sm text-slate-500 mt-2">Don't have an account? <a href="#" @click.prevent="switchMode('signup')" class="text-teal-600 font-semibold hover:underline">Sign up</a></p>
-          </div>
+            <div class="relative py-1">
+              <div class="absolute inset-0 flex items-center" aria-hidden="true"><div class="w-full border-t border-slate-200"></div></div>
+              <div class="relative flex justify-center"><span class="bg-white px-3 text-xs font-medium text-slate-400">or sign in with email</span></div>
+            </div>
+
+            <div>
+              <label for="login-email" class="field-label">Email address</label>
+              <input id="login-email" v-model="email" type="email" inputmode="email" autocomplete="username" placeholder="juan@email.com" class="field-input" :aria-invalid="!!errorMsg" />
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label for="login-password" class="field-label !mb-0">Password</label>
+                <a href="#" @click.prevent="switchMode('forgot')" class="text-[13px] text-teal-700 font-semibold hover:underline rounded">Forgot password?</a>
+              </div>
+              <div class="relative">
+                <input id="login-password" :type="showPassword ? 'text' : 'password'" v-model="password" autocomplete="current-password" placeholder="Enter your password" class="field-input pr-12" :aria-invalid="!!errorMsg" />
+                <button type="button" @click="showPassword = !showPassword" class="absolute right-1 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600" :aria-label="showPassword ? 'Hide password' : 'Show password'" :aria-pressed="showPassword">
+                  <svg v-if="!showPassword" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 8 10 8a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3.5 8 10 8a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>
+                </button>
+              </div>
+            </div>
+            <label class="flex items-center gap-2.5 text-sm text-slate-600 cursor-pointer w-fit min-h-[32px]">
+              <input type="checkbox" v-model="rememberMe" class="w-4 h-4 rounded border-slate-300 accent-teal-600" />
+              Keep me signed in
+            </label>
+            <p v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-sm text-red-600">{{ errorMsg }}</p>
+            <p v-if="successMsg" role="status" class="auth-msg auth-msg--success text-sm text-green-600">{{ successMsg }}</p>
+            <button type="submit" :disabled="isLoggingIn" class="btn-gradient w-full text-white font-semibold text-[15px] rounded-xl inline-flex items-center justify-center gap-2">
+              <svg v-if="isLoggingIn" class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.4 0 0 5.4 0 12h4z"></path></svg>
+              {{ isLoggingIn ? 'Signing in…' : 'Sign in' }}
+            </button>
+
+            <p class="text-center text-sm text-slate-500 pt-1">New to BuyTheWay? <a href="#" @click.prevent="switchMode('signup')" class="text-teal-700 font-semibold hover:underline rounded">Create an account</a></p>
+          </form>
 
           <!-- SIGNUP -->
           <div v-else-if="mode === 'signup'" style="display:flex;flex-direction:column;height:100%;">
@@ -3514,7 +3577,7 @@ const App = {
               <p v-else class="text-sm text-slate-600">Select your role to start your registration.</p>
               <div class="grid grid-cols-2 gap-3">
                 <button v-for="r in roles" :key="r.id" @click="selectRole(r.id)" class="signup-role-card rounded-xl p-4 text-center" :class="{ selected: selectedRole === r.id }">
-                  <div class="w-9 h-9 mx-auto mb-2 flex items-center justify-center text-slate-400">
+                  <div class="w-11 h-11 mx-auto mb-3 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600" aria-hidden="true">
                     <svg v-if="r.icon === 'bag'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
                     <svg v-if="r.icon === 'house'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/></svg>
                     <svg v-if="r.icon === 'truck'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 18V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h1"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
@@ -3525,7 +3588,7 @@ const App = {
                 </button>
               </div>
 
-              <p class="text-center text-sm text-slate-500">Already have an account? <a href="#" @click.prevent="switchMode('login')" class="text-teal-600 font-semibold hover:underline">Log in</a></p>
+              <p class="text-center text-sm text-slate-500">Already have an account? <a href="#" @click.prevent="switchMode('login')" class="text-teal-700 font-semibold hover:underline">Log in</a></p>
             </div>
 
             <!-- DRIVER SIGNUP FLOW -->
@@ -3597,14 +3660,14 @@ const App = {
                 <!-- DRIVER VERIFY EMAIL -->
                 <div v-if="signupStep === 'driverVerifyEmail'">
                   <p class="text-sm text-slate-600 mb-3">We sent a 6-digit code to <strong>{{ form.driverEmail }}</strong>.</p>
-                  <p v-if="successMsg" class="text-xs text-green-600 mb-2">{{ successMsg }}</p>
+                  <p v-if="successMsg" role="status" class="auth-msg auth-msg--success text-xs text-green-600 mb-2">{{ successMsg }}</p>
                   <label class="field-label">Verification Code <span class="text-teal-500">*</span></label>
                   <code-input v-model="signupVerifyCode" />
                   <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
                   <div class="flex items-center justify-between mt-3">
                     <button type="button" @click="resendSignupVerificationCode" :disabled="resendCooldown > 0 || isSendingSignupCode" class="text-teal-600 font-semibold text-sm hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{{ resendCooldown > 0 ? 'Resend code in ' + resendCooldown + 's' : 'Resend code' }}</button>
                   </div>
-                  <span v-if="errorMsg" class="text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
+                  <span v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
 
                 <!-- DRIVER ADDRESS -->
@@ -3686,7 +3749,7 @@ const App = {
                     <div class="full-width"><label class="field-label">Upload Driver's License <span class="text-teal-500">*</span></label><file-dropzone v-model="form.driverLicenseFile" /></div>
                     <div class="full-width"><label class="field-label">Upload OR/CR <span class="text-teal-500">*</span></label><file-dropzone v-model="form.driverOrcrFile" /></div>
                   </div>
-                  <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
+                  <span v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
 
 
@@ -3739,20 +3802,20 @@ const App = {
                     <div><label class="field-label">TIN <span class="text-teal-500">*</span></label><input v-model="form.companyTIN" @input="formatTin($event, 'companyTIN')" inputmode="numeric" placeholder="123-456-789-000" class="field-input" /></div>
                     <div class="full-width"><label class="field-label">SEC Registration #</label><input v-model="form.companySECReg" placeholder="SEC Reg. No. (if applicable)" class="field-input" /></div>
                   </div>
-                  <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
+                  <span v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
 
                 <!-- COMPANY VERIFY EMAIL -->
                 <div v-if="signupStep === 'companyVerifyEmail'">
                   <p class="text-sm text-slate-600 mb-3">We sent a 6-digit code to <strong>{{ form.companyEmail }}</strong>.</p>
-                  <p v-if="successMsg" class="text-xs text-green-600 mb-2">{{ successMsg }}</p>
+                  <p v-if="successMsg" role="status" class="auth-msg auth-msg--success text-xs text-green-600 mb-2">{{ successMsg }}</p>
                   <label class="field-label">Verification Code <span class="text-teal-500">*</span></label>
                   <code-input v-model="signupVerifyCode" />
                   <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
                   <div class="flex items-center justify-between mt-3">
                     <button type="button" @click="resendSignupVerificationCode" :disabled="resendCooldown > 0 || isSendingSignupCode" class="text-teal-600 font-semibold text-sm hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{{ resendCooldown > 0 ? 'Resend code in ' + resendCooldown + 's' : 'Resend code' }}</button>
                   </div>
-                  <span v-if="errorMsg" class="text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
+                  <span v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
 
                 <!-- OWNER DETAILS -->
@@ -3775,7 +3838,7 @@ const App = {
                     </div>
                     <div><label class="field-label">Birthday <span class="text-teal-500">*</span></label><input v-model="form.ownerBirthday" type="date" class="field-input" /></div>
                   </div>
-                  <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
+                  <span v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
 
                 <!-- ADDRESS -->
@@ -3837,7 +3900,7 @@ const App = {
                     <div class="full-width"><label class="field-label">Confirm Password <span class="text-teal-500">*</span></label><input :type="showPassword ? 'text' : 'password'" v-model="confirmPassword" placeholder="Re-enter password" class="field-input" /></div>
                     <div class="full-width flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" v-model="showPassword" /> Show passwords</div>
                   </div>
-                  <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
+                  <span v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
 
                 <!-- DOCUMENTS -->
@@ -3855,7 +3918,7 @@ const App = {
                     <div class="full-width"><label class="field-label">Mayor's Permit <span class="text-teal-500">*</span></label><file-dropzone v-model="form.mayorPermitFile" /></div>
                     <div class="full-width"><label class="field-label">DTI / SEC Registration <span class="text-teal-500">*</span></label><file-dropzone v-model="form.dtiRegFile" /></div>
                   </div>
-                  <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
+                  <span v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
 
               </div>
@@ -3943,14 +4006,14 @@ const App = {
                 <!-- VERIFY EMAIL -->
                 <div v-if="signupStep === 'verifyEmail'">
                   <p class="text-sm text-slate-600 mb-3">We sent a 6-digit code to <strong>{{ email }}</strong>.</p>
-                  <p v-if="successMsg" class="text-xs text-green-600 mb-2">{{ successMsg }}</p>
+                  <p v-if="successMsg" role="status" class="auth-msg auth-msg--success text-xs text-green-600 mb-2">{{ successMsg }}</p>
                   <label class="field-label">Verification Code <span class="text-teal-500">*</span></label>
                   <code-input v-model="signupVerifyCode" />
                   <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
                   <div class="flex items-center justify-between mt-3">
                     <button type="button" @click="resendSignupVerificationCode" :disabled="resendCooldown > 0 || isSendingSignupCode" class="text-teal-600 font-semibold text-sm hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{{ resendCooldown > 0 ? 'Resend code in ' + resendCooldown + 's' : 'Resend code' }}</button>
                   </div>
-                  <span v-if="errorMsg" class="text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
+                  <span v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
 
                 <!-- ADDRESS -->
@@ -4077,7 +4140,7 @@ const App = {
                       <div class="full-width"><label class="field-label">Upload ID / Driver's License <span class="text-teal-500">*</span></label><file-dropzone v-model="form.licenseFile" /></div>
                     </template>
                   </div>
-                  <span v-if="errorMsg" class="text-xs text-red-500">{{ errorMsg }}</span>
+                  <span v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-xs text-red-500">{{ errorMsg }}</span>
                 </div>
 
               </div>
@@ -4097,7 +4160,7 @@ const App = {
 
             <!-- COMPLETE -->
             <div v-else-if="signupStep === 'complete'" class="text-center space-y-4" style="padding:2rem 0;">
-              <div class="w-20 h-20 rounded-full bg-green-100 text-green-600 flex items-center justify-center mx-auto text-3xl">✓</div>
+              <div class="w-16 h-16 rounded-full bg-teal-50 text-teal-600 flex items-center justify-center mx-auto"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></div>
               <h3 class="display-font text-2xl font-bold text-slate-900">Registration submitted!</h3>
               <p class="text-slate-600 text-sm">Please wait for the administrator's approval, which will be sent to your email.</p>
               <button @click="switchMode('login')" class="btn-gradient text-white font-semibold py-2 px-6 rounded-lg">Go to Login</button>
@@ -4105,7 +4168,8 @@ const App = {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </main>
   </div>
   `,
 };

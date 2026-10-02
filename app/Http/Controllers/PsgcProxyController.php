@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class PsgcProxyController extends Controller
 {
@@ -18,11 +20,47 @@ class PsgcProxyController extends Controller
     // for everyone hitting these endpoints, not just one browser session.
     private const CACHE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
+    // Cleared by `php artisan psgc:sync`.
+    public const LOCAL_FLAG_CACHE_KEY = 'psgc:local-ready';
+
+    /**
+     * Every endpoint answers from the local psgc_* tables (filled by
+     * `php artisan psgc:sync`) when they're populated — no upstream call,
+     * no lag. Until then (or if the tables don't exist, e.g. in tests)
+     * it falls back to proxying psgc.gitlab.io as before. Responses keep
+     * the upstream camelCase shape, so no frontend changes are needed.
+     */
+    private function localReady(): bool
+    {
+        return Cache::remember(self::LOCAL_FLAG_CACHE_KEY, 3600, function () {
+            try {
+                return Schema::hasTable('psgc_barangays') && DB::table('psgc_barangays')->exists();
+            } catch (\Throwable) {
+                return false;
+            }
+        });
+    }
+
+    private function localProvinces(?string $regionCode = null): JsonResponse
+    {
+        $rows = DB::table('psgc_provinces')
+            ->when($regionCode, fn ($q) => $q->where('region_code', $regionCode))
+            ->orderBy('name')
+            ->get(['code', 'name', 'region_code as regionCode', 'island_group_code as islandGroupCode']);
+
+        return response()->json(['data' => $rows]);
+    }
+
     /**
      * Get all regions
      */
     public function regions(Request $request): JsonResponse
     {
+        if ($this->localReady()) {
+            return response()->json(['data' => DB::table('psgc_regions')->orderBy('code')
+                ->get(['code', 'name', 'region_name as regionName', 'island_group_code as islandGroupCode'])]);
+        }
+
         return $this->proxy('/regions', $request->only(['limit']));
     }
 
@@ -31,6 +69,10 @@ class PsgcProxyController extends Controller
      */
     public function provinces(Request $request): JsonResponse
     {
+        if ($this->localReady()) {
+            return $this->localProvinces($request->input('region_code'));
+        }
+
         // De-duplicate by code and sort by name: the upstream feed can
         // return the same province twice, and address dropdowns want it
         // alphabetical. (See PsgcProxyTest.)
@@ -56,6 +98,10 @@ class PsgcProxyController extends Controller
      */
     public function allProvinces(): JsonResponse
     {
+        if ($this->localReady()) {
+            return $this->localProvinces();
+        }
+
         try {
             $provinces = Cache::remember('psgc:all-provinces', self::CACHE_TTL_SECONDS, function () {
                 $regionsResponse = Http::timeout(30)->get(self::BASE . '/regions', ['limit' => 100]);
@@ -142,6 +188,22 @@ class PsgcProxyController extends Controller
      */
     public function citiesMunicipalities(Request $request): JsonResponse
     {
+        if ($this->localReady()) {
+            $rows = DB::table('psgc_cities_municipalities')
+                ->where('province_code', (string) $request->input('province_code'))
+                ->orderBy('name')
+                ->get(['code', 'name', 'is_city', 'province_code as provinceCode', 'region_code as regionCode', 'island_group_code as islandGroupCode'])
+                ->map(function ($row) {
+                    $row->isCity = (bool) $row->is_city;
+                    $row->isMunicipality = ! $row->isCity;
+                    unset($row->is_city);
+
+                    return $row;
+                });
+
+            return response()->json(['data' => $rows]);
+        }
+
         return $this->proxy('/cities-municipalities', $request->only(['province_code']));
     }
 
@@ -151,6 +213,16 @@ class PsgcProxyController extends Controller
      */
     public function barangays(Request $request): JsonResponse
     {
+        if ($this->localReady()) {
+            $code = (string) $request->input('city_municipality_code', $request->input('municipality_code'));
+            $rows = DB::table('psgc_barangays')
+                ->where('city_municipality_code', $code)
+                ->orderBy('name')
+                ->get(['code', 'name', 'city_municipality_code as municipalityCode', 'province_code as provinceCode', 'region_code as regionCode']);
+
+            return response()->json(['data' => $rows]);
+        }
+
         // Support both parameter names for compatibility
         $params = [];
 
