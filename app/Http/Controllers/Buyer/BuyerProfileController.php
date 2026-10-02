@@ -7,6 +7,8 @@ use App\Http\Requests\Buyer\DeactivateBuyerAccountRequest;
 use App\Http\Requests\Buyer\UpdateBuyerProfileRequest;
 use App\Mail\AccountStatusChanged;
 use App\Models\Address;
+use App\Services\BuyerAddressSync;
+use App\Support\StreetCleaner;
 use App\Models\Profile;
 use App\Models\StatusAuditLog;
 use Illuminate\Http\JsonResponse;
@@ -64,7 +66,12 @@ class BuyerProfileController extends Controller
                 'municipality_code' => $request->validated('municipality_code'),
                 'municipality_name' => $request->validated('municipality_name'),
                 'barangay' => $request->validated('barangay'),
-                'street' => $request->validated('street'),
+                'street' => StreetCleaner::clean($request->validated('street'), [
+                    $request->validated('barangay'),
+                    $request->validated('municipality_name'),
+                    $request->validated('province_name'),
+                    $request->validated('region_name'),
+                ]),
                 'house_no' => $request->validated('house_no'),
             ];
 
@@ -72,6 +79,9 @@ class BuyerProfileController extends Controller
                 ['owner_kind' => 'profile', 'profile_id' => $profile->id],
                 $addressPayload,
             );
+
+            // Mirror onto the default saved address used at checkout.
+            app(BuyerAddressSync::class)->pullAccount($profile, $address);
         });
 
         $profile->refresh();

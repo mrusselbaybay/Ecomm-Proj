@@ -9,6 +9,7 @@ import {
     ref
 } from 'vue';
 import { useBuyerAccount } from '../composables/useBuyerAccount';
+import { useBuyerAddresses } from '../composables/useBuyerAddresses';
 import AvatarCropper from './AvatarCropper.vue';
 
 const emit = defineEmits(['back', 'view-orders']);
@@ -29,6 +30,10 @@ const {
     deactivateBuyerAccount,
     confirmLogout
 } = useBuyerAccount();
+
+// The server mirrors the account address onto the default saved address,
+// so refresh the address book after a save.
+const { loadAddresses } = useBuyerAddresses();
 
 const PSGC_BASE = '/api/psgc';
 
@@ -336,6 +341,7 @@ async function saveProfile() {
         return;
     }
 
+    loadAddresses({ force: true });
     copyStateToDraft();
     errors.value = {};
     isEditing.value = false;

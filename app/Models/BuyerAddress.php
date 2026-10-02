@@ -25,17 +25,32 @@ class BuyerAddress extends Model
         'buyer_profile_id',
         'recipient_name',
         'contact_no',
+        'house_no',
         'line1',
-        'city',
+        'region_name',
+        'province_code',
         'province',
+        'municipality_code',
+        'city',
+        'barangay',
         'postal_code',
         'label',
         'is_default',
+        'last_used_at',
     ];
 
     protected $casts = [
         'is_default' => 'boolean',
+        'last_used_at' => 'datetime',
     ];
+
+    public const REGIONS = ['Luzon', 'Visayas', 'Mindanao'];
+
+    /** Has the structured PSGC destination checkout needs to route an order. */
+    public function isRoutable(): bool
+    {
+        return filled($this->province_code) && filled($this->municipality_code) && filled($this->barangay);
+    }
 
     public const LABELS = ['Home', 'Work', 'Other'];
 

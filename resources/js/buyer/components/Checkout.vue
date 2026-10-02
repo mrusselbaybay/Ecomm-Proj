@@ -10,6 +10,7 @@ import { metaFor } from '../composables/useCategoryMeta';
 import { useConfirm } from '../composables/useConfirm';
 import { isValidLocalMobile, toLocalMobile } from '../composables/usePhone';
 import { useToasts } from '../composables/useToasts';
+import AddressForm from './AddressForm.vue';
 import Footer from './Footer.vue';
 import Header from './Header.vue';
 
@@ -34,7 +35,8 @@ const emit = defineEmits([
     'select-category',
     'view-profile',
     'browse-all',
-    'browse-categories'
+    'browse-categories',
+    'manage-addresses'
 ]);
 
 /*
@@ -56,27 +58,31 @@ const checkoutForm = reactive({
 
 /*
 |--------------------------------------------------------------------------
-| Prefill from the buyer's Supabase data
+| Delivery address — saved-address switcher
 |--------------------------------------------------------------------------
 |
-| Two sources, in priority order:
-|   1. The buyer's default SAVED checkout address (public.buyer_addresses)
-|      — an address they explicitly picked for shipping.
-|   2. Their account profile (public.profiles: name, contact number) and
-|      on-file address (public.addresses, owner_kind='profile', set from
-|      the Account page) — a reasonable starting point for a buyer who
-|      hasn't saved a checkout address yet, so checkout isn't blank on a
-|      first order.
-|
-| Whichever source has a value for a given field wins (1 over 2), and
-| that's re-evaluated every time either source finishes loading —
-| whichever resolves first doesn't lock in a lower-priority value.
-| Non-destructive throughout: the moment the buyer types into a field,
-| `touched` stops any further auto-fill of it, in either direction.
+| Recipient name / contact / address are read-only here and always mirror
+| one source:
+|   1. The selected SAVED address (buyer_addresses) — the buyer's default
+|      (else most recently used) until they switch. Its id goes to the
+|      server as delivery_address.address_id, which routes the order
+|      (area matching, same-day eligibility) off that address.
+|   2. With no saved addresses: the account profile + on-file address
+|      (public.addresses) — the original behaviour — with an offer to
+|      save it as a reusable address.
 |
 */
 
-const { defaultAddress, isLoading: isAddressBookLoading } = useBuyerAddresses();
+const {
+    addresses,
+    defaultAddress,
+    hasAddresses,
+    isLoading: isAddressBookLoading,
+    selectedAddressId,
+    formatAddress,
+    addAddress,
+    ADDRESS_LABELS
+} = useBuyerAddresses();
 const {
     profile: buyerProfile,
     address: buyerAddress,
@@ -90,27 +96,26 @@ if (!buyerProfile.value) {
     loadBuyerAccount();
 }
 
-// True while either the saved-address book or the account profile is
-// still being fetched — i.e. the recipient name / contact / address
-// fields may still be about to change under the buyer via applyPrefill().
-// Placing an order in that window could submit stale/blank delivery
-// details, so both the button and placeOrder() itself guard on this.
+// True while the delivery details may still change under the buyer.
+// Placing an order in that window could submit stale/blank details, so
+// both the button and placeOrder() guard on this.
 const isDeliveryDetailsLoading = computed(
-    () => isAddressBookLoading.value || isLoadingProfile.value
+    () => (isAddressBookLoading.value && !hasAddresses.value) || isLoadingProfile.value
 );
 
-// Recipient name / contact number / address are read-only on this screen
-// (see the `readonly` inputs below) — they always mirror whichever
-// source applyPrefill() below reads from, so there's nothing for the
-// buyer to type and nothing to track as "touched" any more.
-const touched = reactive({ recipientName: false, contactNumber: false, address: false });
+// Falls back to the default when nothing is picked yet or the picked one
+// was deleted (here or on the Saved Addresses page).
+const selectedAddress = computed(
+    () => addresses.value.find(a => a.id === selectedAddressId.value) || defaultAddress.value || null
+);
 
-// The buyer's own island-group region (Luzon/Visayas/Mindanao), read the
-// same way App\Services\CheckoutService derives shipping_region_name for
-// the order it creates — straight off the profile address (public.
-// addresses), never something entered here. Shown so the buyer can see
-// what's on file; a blank account address means this stays unset.
-const buyerRegion = computed(() => buyerAddress.value?.region_name || '');
+watch(selectedAddress, address => {
+    selectedAddressId.value = address?.id || null;
+}, { immediate: true });
+
+const buyerRegion = computed(
+    () => (selectedAddress.value ? selectedAddress.value.region : buyerAddress.value?.region_name) || ''
+);
 
 function profileAddressText(address) {
     if (!address) {
@@ -129,40 +134,78 @@ function profileAddressText(address) {
         .join(', ');
 }
 
-function fillIfUntouched(field, value) {
-    if (touched[field] || !value) {
-        return;
+function applyPrefill() {
+    const saved = selectedAddress.value;
+
+    checkoutForm.recipientName = saved?.fullName || buyerProfile.value?.full_name || '';
+    checkoutForm.contactNumber = toLocalMobile(saved?.phone || buyerProfile.value?.contact_no || '');
+    checkoutForm.address = saved ? formatAddress(saved) : profileAddressText(buyerAddress.value);
+}
+
+watch([selectedAddress, buyerProfile, buyerAddress], applyPrefill, { immediate: true });
+
+// Switcher UI state.
+const isPickerOpen = ref(false);
+const isAddingAddress = ref(false);
+const isSavingAddress = ref(false);
+
+function chooseAddress(address) {
+    selectedAddressId.value = address.id;
+    isPickerOpen.value = false;
+}
+
+// Pre-fills the inline form from the account when the buyer has no saved
+// addresses yet — "save the address you're using" in one step.
+const newAddressSeed = computed(() => {
+    if (hasAddresses.value) {
+        return null;
     }
 
-    checkoutForm[field] = value;
-}
+    const a = buyerAddress.value;
 
-function applyPrefill() {
-    fillIfUntouched(
-        'recipientName',
-        defaultAddress.value?.fullName || buyerProfile.value?.full_name || ''
-    );
-    fillIfUntouched(
-        'contactNumber',
-        toLocalMobile(defaultAddress.value?.phone || buyerProfile.value?.contact_no || '')
-    );
-    fillIfUntouched(
-        'address',
-        defaultAddress.value
-            ? [
-                  defaultAddress.value.line1,
-                  defaultAddress.value.city,
-                  defaultAddress.value.province,
-                  defaultAddress.value.postalCode
-              ]
-                  .filter(Boolean)
-                  .join(', ')
-            : profileAddressText(buyerAddress.value)
-    );
-}
+    return {
+        fullName: buyerProfile.value?.full_name || '',
+        phone: buyerProfile.value?.contact_no || '',
+        region: a?.region_name || '',
+        provinceCode: a?.province_code || '',
+        province: a?.province_name || '',
+        municipalityCode: a?.municipality_code || '',
+        city: a?.municipality_name || '',
+        barangay: a?.barangay || '',
+        houseNo: a?.house_no || '',
+        line1: a?.street || '',
+        isDefault: true
+    };
+});
 
-applyPrefill();
-watch([defaultAddress, buyerProfile, buyerAddress], applyPrefill);
+// No saved address and nothing usable on the account → open the form
+// straight away instead of showing an empty, read-only block.
+watch(isDeliveryDetailsLoading, loading => {
+    if (!loading && !hasAddresses.value && !checkoutForm.address) {
+        isAddingAddress.value = true;
+    }
+}, { immediate: true });
+
+async function saveNewAddress(payload) {
+    isSavingAddress.value = true;
+
+    try {
+        const created = await addAddress(payload);
+
+        // Use the address just added, even if it isn't the default.
+        if (created?.id) {
+            selectedAddressId.value = created.id;
+        }
+
+        isAddingAddress.value = false;
+        isPickerOpen.value = false;
+        success('Address saved and selected.');
+    } catch (err) {
+        toastError(err?.message || 'Could not save the address. Please try again.');
+    } finally {
+        isSavingAddress.value = false;
+    }
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -269,7 +312,12 @@ async function loadShippingOptions() {
     shippingLoadError.value = '';
 
     try {
-        const query = ids.map(id => `product_ids[]=${encodeURIComponent(id)}`).join('&');
+        // Same-day eligibility depends on the destination province, so
+        // quote against the selected saved address when it's routable.
+        const addressId = selectedAddress.value?.isComplete ? selectedAddress.value.id : null;
+        const query = ids.map(id => `product_ids[]=${encodeURIComponent(id)}`)
+            .concat(addressId ? [`address_id=${encodeURIComponent(addressId)}`] : [])
+            .join('&');
         const data = await buyerApi(`/buyer/checkout/shipping-options?${query}`);
 
         shippingOptions.value = data.options;
@@ -288,7 +336,8 @@ async function loadShippingOptions() {
 }
 
 watch(
-    () => props.items.map(item => item.productId).join(','),
+    () => props.items.map(item => item.productId).join(',')
+        + `|${selectedAddress.value?.isComplete ? selectedAddress.value.id : ''}`,
     loadShippingOptions,
     { immediate: true }
 );
@@ -573,6 +622,19 @@ async function placeOrder() {
         return;
     }
 
+    if (isAddingAddress.value) {
+        warning('Save or cancel the new address first.');
+
+        return;
+    }
+
+    if (selectedAddress.value && !selectedAddress.value.isComplete) {
+        warning('This address is missing its province, city or barangay. Update it in Saved Addresses or pick another.');
+        isPickerOpen.value = true;
+
+        return;
+    }
+
     if (!checkoutForm.recipientName.trim()) {
         warning('Add a recipient name to your account or a saved address before checking out.');
 
@@ -658,6 +720,7 @@ async function placeOrder() {
         })),
 
         delivery_address: {
+            address_id: selectedAddress.value?.id || null,
             recipient_name: checkoutForm.recipientName,
             contact_number: checkoutForm.contactNumber,
             address: checkoutForm.address
@@ -793,73 +856,138 @@ async function placeOrder() {
 
                             <div class="checkout-section-title">
                                 <div class="checkout-section-icon">
-                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                         <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" />
                                         <circle cx="12" cy="10" r="3" />
                                     </svg>
                                 </div>
-                                <div>
+                                <div class="flex-1 min-w-0">
                                     <h2>Delivery Address</h2>
-                                    <p v-if="isDeliveryDetailsLoading">Loading your saved recipient and address details…</p>
-                                    <p v-else>Where should we deliver your order?</p>
+                                    <p>Where should we deliver your order?</p>
                                 </div>
+                                <button
+                                    v-if="hasAddresses"
+                                    type="button"
+                                    class="shrink-0 inline-flex items-center gap-1.5 min-h-[44px] px-2 text-sm font-bold text-[#0d9488] hover:text-[#0f766e]"
+                                    @click="emit('manage-addresses')"
+                                >
+                                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" />
+                                    </svg>
+                                    Manage
+                                </button>
                             </div>
 
-                            <div class="checkout-form-grid">
-
-                                <div class="checkout-field">
-                                    <label>Recipient Name</label>
-                                    <input
-                                        v-model="checkoutForm.recipientName"
-                                        type="text"
-                                        placeholder="Enter recipient name"
-                                        readonly
-                                    >
-                                </div>
-
-                                <div class="checkout-field">
-                                    <label>Contact Number</label>
-                                    <input
-                                        :value="checkoutForm.contactNumber"
-                                        type="text"
-                                        inputmode="numeric"
-                                        autocomplete="tel-national"
-                                        placeholder="09171234567"
-                                        aria-describedby="checkout-contact-hint"
-                                        readonly
-                                    >
-                                    <small
-                                        id="checkout-contact-hint"
-                                        class="checkout-field-hint"
-                                    >
-                                        11-digit mobile number, digits only.
-                                    </small>
-                                </div>
-
-                                <div class="checkout-field">
-                                    <label>Region</label>
-                                    <input
-                                        :value="buyerRegion"
-                                        type="text"
-                                        placeholder="Not set on your account"
-                                        readonly
-                                    >
-                                </div>
-
-                                <div class="checkout-field checkout-field-full">
-                                    <label>Complete Address</label>
-                                    <textarea
-                                        v-model="checkoutForm.address"
-                                        rows="3"
-                                        placeholder="House number, street, barangay, municipality, province"
-                                        readonly
-                                    ></textarea>
-                                </div>
-
+                            <!-- Loading -->
+                            <div v-if="isDeliveryDetailsLoading" class="space-y-2 animate-pulse" aria-busy="true" aria-label="Loading delivery address">
+                                <div class="h-4 w-1/3 bg-slate-100 rounded" />
+                                <div class="h-4 w-2/3 bg-slate-100 rounded" />
+                                <div class="h-4 w-1/2 bg-slate-100 rounded" />
                             </div>
 
+                            <!-- Inline add -->
+                            <div v-else-if="isAddingAddress" class="rounded-2xl border border-slate-200 p-5">
+                                <p class="text-sm font-bold text-slate-900 mb-4">
+                                    {{ hasAddresses ? 'Add a new address' : 'Save a delivery address' }}
+                                </p>
+                                <AddressForm
+                                    :initial="newAddressSeed"
+                                    :labels="ADDRESS_LABELS"
+                                    :submitting="isSavingAddress"
+                                    :show-default-toggle="hasAddresses"
+                                    submit-label="Save & use this address"
+                                    id-prefix="checkout-addr"
+                                    @submit="saveNewAddress"
+                                    @cancel="isAddingAddress = false"
+                                />
+                            </div>
+
+                            <!-- Auto-filled from the selected saved address (or the account) -->
+                            <template v-else>
+                                <div class="checkout-form-grid">
+                                    <div class="checkout-field">
+                                        <label for="checkout-recipient">Recipient Name</label>
+                                        <input id="checkout-recipient" :value="checkoutForm.recipientName" type="text" placeholder="Not set on your account" readonly>
+                                    </div>
+                                    <div class="checkout-field">
+                                        <label for="checkout-contact">Contact Number</label>
+                                        <input id="checkout-contact" :value="checkoutForm.contactNumber" type="text" placeholder="Not set on your account" readonly>
+                                    </div>
+                                    <div class="checkout-field">
+                                        <label for="checkout-region">Region</label>
+                                        <input id="checkout-region" :value="buyerRegion" type="text" placeholder="Not set on your account" readonly>
+                                    </div>
+                                    <div class="checkout-field checkout-field-full">
+                                        <label for="checkout-address" class="flex items-center gap-2">
+                                            Complete Address
+                                            <span v-if="selectedAddress" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 uppercase tracking-wide">{{ selectedAddress.label }}</span>
+                                            <span v-if="selectedAddress?.isDefault" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-[#0f766e] uppercase tracking-wide">Default</span>
+                                        </label>
+                                        <div class="relative">
+                                            <textarea
+                                                id="checkout-address"
+                                                :value="checkoutForm.address"
+                                                rows="2"
+                                                class="!pr-28"
+                                                placeholder="Not set on your account"
+                                                readonly
+                                            ></textarea>
+                                            <button
+                                                type="button"
+                                                class="absolute right-2 top-1/2 -translate-y-1/2 min-h-[40px] px-4 rounded-lg border border-slate-200 bg-white text-sm font-bold text-[#0d9488] hover:bg-teal-50 hover:border-[#0d9488] transition-colors"
+                                                :aria-expanded="isPickerOpen"
+                                                aria-controls="checkout-address-picker"
+                                                @click="isPickerOpen = !isPickerOpen"
+                                            >
+                                                {{ isPickerOpen ? 'Close' : 'Change' }}
+                                            </button>
+                                        </div>
+                                        <small v-if="selectedAddress && !selectedAddress.isComplete" class="checkout-field-hint !text-amber-700">
+                                            Missing province, city or barangay. Update it in
+                                            <button type="button" class="font-bold underline underline-offset-2" @click="emit('manage-addresses')">Saved Addresses</button>
+                                            or pick another.
+                                        </small>
+                                    </div>
+                                </div>
+
+                                <div v-if="isPickerOpen" id="checkout-address-picker" class="mt-3">
+                                    <div v-if="hasAddresses" class="checkout-option-list" role="radiogroup" aria-label="Saved addresses">
+                                        <label
+                                            v-for="address in addresses"
+                                            :key="address.id"
+                                            class="checkout-option"
+                                            :class="{ active: address.id === selectedAddress?.id }"
+                                        >
+                                            <input
+                                                type="radio"
+                                                name="checkout-address"
+                                                :value="address.id"
+                                                :checked="address.id === selectedAddress?.id"
+                                                @change="chooseAddress(address)"
+                                            >
+                                            <div class="checkout-option-info min-w-0">
+                                                <strong>
+                                                    {{ address.fullName }}
+                                                    <small class="ml-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">{{ address.label }}{{ address.isDefault ? ' · Default' : '' }}</small>
+                                                </strong>
+                                                <span class="break-words">{{ formatAddress(address) }}</span>
+                                                <span v-if="!address.isComplete" class="!text-amber-700 font-semibold">Needs update before use</span>
+                                            </div>
+                                        </label>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        class="mt-3 w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 text-sm font-bold text-[#0d9488] hover:bg-teal-50 hover:border-[#0d9488] transition-colors"
+                                        @click="isAddingAddress = true"
+                                    >
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M5 12h14" /><path d="M12 5v14" />
+                                        </svg>
+                                        Add new address
+                                    </button>
+                                </div>
+                            </template>
                         </section>
-
                         <!-- Products -->
                         <section class="checkout-section">
 

@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Buyer\StoreAddressRequest;
 use App\Http\Requests\Buyer\UpdateAddressRequest;
 use App\Models\BuyerAddress;
+use App\Services\BuyerAddressSync;
+use App\Support\StreetCleaner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,11 +19,17 @@ use Illuminate\Support\Facades\DB;
  */
 class AddressController extends Controller
 {
+    public function __construct(private readonly BuyerAddressSync $sync) {}
+
     public function index(Request $request): JsonResponse
     {
+        // First visit: the account address becomes the default saved one.
+        $this->sync->seed($request->user());
+
         $addresses = BuyerAddress::query()
             ->where('buyer_profile_id', $request->user()->id)
             ->orderByDesc('is_default')
+            ->orderByDesc('last_used_at')
             ->orderByDesc('created_at')
             ->get();
 
@@ -47,14 +55,21 @@ class AddressController extends Controller
                 'buyer_profile_id' => $buyer->id,
                 'recipient_name' => $data['recipient_name'],
                 'contact_no' => $data['contact_no'],
-                'line1' => $data['line1'],
-                'city' => $data['city'],
+                'house_no' => $data['house_no'] ?? null,
+                'line1' => StreetCleaner::clean($data['line1'], [$data['barangay'], $data['city'], $data['province'], $data['region_name']]),
+                'region_name' => $data['region_name'],
+                'province_code' => $data['province_code'],
                 'province' => $data['province'],
+                'municipality_code' => $data['municipality_code'],
+                'city' => $data['city'],
+                'barangay' => $data['barangay'],
                 'postal_code' => $data['postal_code'] ?? null,
                 'label' => $data['label'] ?? 'Home',
                 'is_default' => $makeDefault,
             ]);
         });
+
+        $this->sync->pushDefault($buyer);
 
         return response()->json(['data' => $this->transform($address)], 201);
     }
@@ -77,15 +92,20 @@ class AddressController extends Controller
             }
 
             $address->fill(collect($data)->only([
-                'recipient_name', 'contact_no', 'line1', 'city', 'province', 'postal_code', 'label',
+                'recipient_name', 'contact_no', 'house_no', 'line1', 'region_name', 'province_code', 'province',
+                'municipality_code', 'city', 'barangay', 'postal_code', 'label',
             ])->all());
 
             if (array_key_exists('is_default', $data) && $data['is_default']) {
                 $address->is_default = true;
             }
 
+            $address->line1 = StreetCleaner::clean($address->line1, [$address->barangay, $address->city, $address->province, $address->region_name]);
+
             $address->save();
         });
+
+        $this->sync->pushDefault($request->user());
 
         return response()->json(['data' => $this->transform($address->fresh())]);
     }
@@ -105,12 +125,15 @@ class AddressController extends Controller
 
             if ($wasDefault) {
                 $next = BuyerAddress::where('buyer_profile_id', $request->user()->id)
+                    ->orderByDesc('last_used_at')
                     ->orderByDesc('created_at')
                     ->first();
 
                 $next?->update(['is_default' => true]);
             }
         });
+
+        $this->sync->pushDefault($request->user());
 
         return response()->json(['message' => 'Address removed.']);
     }
@@ -127,6 +150,8 @@ class AddressController extends Controller
             BuyerAddress::where('buyer_profile_id', $request->user()->id)->update(['is_default' => false]);
             $address->update(['is_default' => true]);
         });
+
+        $this->sync->pushDefault($request->user());
 
         return response()->json(['data' => $this->transform($address->fresh())]);
     }
@@ -147,12 +172,19 @@ class AddressController extends Controller
             'id' => $address->id,
             'fullName' => $address->recipient_name,
             'phone' => $address->contact_no,
+            'houseNo' => $address->house_no,
             'line1' => $address->line1,
-            'city' => $address->city,
+            'region' => $address->region_name,
+            'provinceCode' => $address->province_code,
             'province' => $address->province,
+            'municipalityCode' => $address->municipality_code,
+            'city' => $address->city,
+            'barangay' => $address->barangay,
             'postalCode' => $address->postal_code,
             'label' => $address->label,
             'isDefault' => (bool) $address->is_default,
+            'isComplete' => $address->isRoutable(),
+            'lastUsedAt' => $address->last_used_at?->toIso8601String(),
         ];
     }
 }

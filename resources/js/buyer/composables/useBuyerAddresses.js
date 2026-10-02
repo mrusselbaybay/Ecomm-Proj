@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 
 import { buyerApi } from './useBuyerApi';
+import { useBuyerAccount } from './useBuyerAccount';
 
 /*
 |--------------------------------------------------------------------------
@@ -15,9 +16,11 @@ import { buyerApi } from './useBuyerApi';
 |   addresses, defaultAddress, hasAddresses, ADDRESS_LABELS,
 |   loadAddresses, addAddress, updateAddress, removeAddress, setDefault
 |
-| Address objects use the same camelCase shape the components already read
-| ({ id, fullName, phone, line1, city, province, postalCode, label,
-| isDefault }) — the controller maps to/from the snake_case columns.
+| Address objects are camelCase ({ id, fullName, phone, line1, region,
+| provinceCode, province, municipalityCode, city, barangay, postalCode,
+| label, isDefault, isComplete }) — the controller maps to/from the
+| snake_case columns. isComplete is false for legacy free-text rows that
+| lack the PSGC fields checkout needs to route an order.
 |
 | Mutations are optimistic: local state updates first, then the API call;
 | on failure the previous list is restored and the error is re-thrown so
@@ -32,6 +35,10 @@ const ADDRESS_LABELS = ['Home', 'Work', 'Other'];
 
 const addresses = ref([]);
 const isLoading = ref(false);
+// The address picked at checkout. Module-level so it survives a detour to
+// the Saved Addresses page and back; Checkout falls back to the default
+// whenever it's unset or no longer in the list.
+const selectedAddressId = ref(null);
 const loadError = ref('');
 
 let loadedOnce = false;
@@ -62,11 +69,41 @@ if (addresses.value.length === 0) {
     addresses.value = readCache();
 }
 
+// The flagged default, else the most recently used (the server sorts by
+// is_default, last_used_at, created_at — so [0] is that fallback).
 const defaultAddress = computed(
     () => addresses.value.find(address => address.isDefault) || addresses.value[0] || null
 );
 
+// One display line, shared by the address book and checkout.
+function formatAddress(address) {
+    if (!address) {
+        return '';
+    }
+
+    return [
+        [address.houseNo, address.line1].filter(Boolean).join(' '),
+        address.barangay,
+        address.city,
+        address.province,
+        address.postalCode
+    ]
+        .filter(Boolean)
+        .join(', ');
+}
+
 const hasAddresses = computed(() => addresses.value.length > 0);
+
+// The server mirrors the default saved address onto the account address
+// (BuyerAddressSync), so refresh the account state after a mutation if
+// it's already been loaded this session.
+function refreshAccount() {
+    const { profile, loadBuyerAccount } = useBuyerAccount();
+
+    if (profile.value) {
+        loadBuyerAccount();
+    }
+}
 
 async function fetchAddresses() {
     isLoading.value = true;
@@ -107,9 +144,14 @@ function normalize(input) {
     return {
         recipient_name: (input.fullName || '').trim(),
         contact_no: (input.phone || '').trim(),
+        house_no: (input.houseNo || '').trim() || null,
         line1: (input.line1 || '').trim(),
-        city: (input.city || '').trim(),
+        region_name: input.region || '',
+        province_code: input.provinceCode || '',
         province: (input.province || '').trim(),
+        municipality_code: input.municipalityCode || '',
+        city: (input.city || '').trim(),
+        barangay: input.barangay || '',
         postal_code: (input.postalCode || '').trim() || null,
         label: ADDRESS_LABELS.includes(input.label) ? input.label : 'Home',
         is_default: Boolean(input.makeDefault),
@@ -129,6 +171,7 @@ async function addAddress(input) {
         // default; a new default demotes the others), so refetch rather
         // than guess.
         await fetchAddresses();
+        refreshAccount();
 
         return created;
     } catch (err) {
@@ -148,6 +191,7 @@ async function updateAddress(id, input) {
         });
 
         await fetchAddresses();
+        refreshAccount();
 
         return updated;
     } catch (err) {
@@ -165,6 +209,7 @@ async function removeAddress(id) {
     try {
         await buyerApi(`/buyer/addresses/${encodeURIComponent(id)}`, { method: 'DELETE' });
         await fetchAddresses();
+        refreshAccount();
     } catch (err) {
         addresses.value = snapshot;
         writeCache();
@@ -184,6 +229,7 @@ async function setDefault(id) {
     try {
         await buyerApi(`/buyer/addresses/${encodeURIComponent(id)}/default`, { method: 'PUT' });
         await fetchAddresses();
+        refreshAccount();
     } catch (err) {
         addresses.value = snapshot;
         writeCache();
@@ -205,6 +251,8 @@ export function useBuyerAddresses() {
         hasAddresses,
         ADDRESS_LABELS,
 
+        selectedAddressId,
+        formatAddress,
         loadAddresses,
         addAddress,
         updateAddress,

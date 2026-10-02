@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\BuyerAddress;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderStatusHistory;
@@ -9,6 +10,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Profile;
 use App\Services\Coupons\CouponService;
+use App\Support\StreetCleaner;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -37,10 +39,10 @@ class CheckoutService
      * @param  array<int, string>  $productIds
      * @return array{sellerCount: int, options: array<int, array{id: string, name: string, description: string, fee: float, available: bool, unavailableReason: ?string}>}
      */
-    public function shippingOptions(Profile $buyer, array $productIds): array
+    public function shippingOptions(Profile $buyer, array $productIds, ?string $addressId = null): array
     {
         $sellerIds = Product::query()->whereIn('id', $productIds)->distinct()->pluck('seller_id')->all();
-        $sameDay = $this->sameDayAvailable($buyer, Profile::query()->with('address')->whereIn('id', $sellerIds)->get());
+        $sameDay = $this->sameDayAvailable($this->destination($buyer, $addressId), Profile::query()->with('address')->whereIn('id', $sellerIds)->get());
 
         $options = collect(self::SHIPPING_OPTIONS)->map(fn (array $o, string $id) => [
             'id' => $id,
@@ -55,12 +57,56 @@ class CheckoutService
     }
 
     /** @param  Collection<int, Profile>  $sellers */
-    private function sameDayAvailable(Profile $buyer, Collection $sellers): bool
+    private function sameDayAvailable(array $destination, Collection $sellers): bool
     {
-        $province = $buyer->address?->province_code;
+        $province = $destination['province_code'];
 
         return $province !== null && $sellers->isNotEmpty()
             && $sellers->every(fn (Profile $s) => $s->address?->province_code === $province);
+    }
+
+    /**
+     * Structured delivery destination for routing: the chosen saved address
+     * (buyer_addresses) when one is given, otherwise the buyer's profile
+     * address (public.addresses) — the pre-address-book behaviour.
+     *
+     * @return array{address: ?BuyerAddress, region_name: ?string, province_code: ?string, province_name: ?string, municipality_name: ?string, barangay: ?string}
+     *
+     * @throws ValidationException when the saved address isn't the buyer's or lacks PSGC fields.
+     */
+    private function destination(Profile $buyer, ?string $addressId): array
+    {
+        if ($addressId) {
+            $saved = BuyerAddress::where('buyer_profile_id', $buyer->id)->whereKey($addressId)->first();
+
+            if (! $saved) {
+                throw ValidationException::withMessages(['delivery_address' => 'That saved address no longer exists. Please pick another.']);
+            }
+
+            if (! $saved->isRoutable()) {
+                throw ValidationException::withMessages(['delivery_address' => 'Please complete the province, city and barangay of this address first.']);
+            }
+
+            return [
+                'address' => $saved,
+                'region_name' => $saved->region_name,
+                'province_code' => $saved->province_code,
+                'province_name' => $saved->province,
+                'municipality_name' => $saved->city,
+                'barangay' => $saved->barangay,
+            ];
+        }
+
+        $profile = $buyer->loadMissing('address')->address;
+
+        return [
+            'address' => null,
+            'region_name' => $profile?->region_name,
+            'province_code' => $profile?->province_code,
+            'province_name' => $profile?->province_name,
+            'municipality_name' => $profile?->municipality_name,
+            'barangay' => $profile?->barangay,
+        ];
     }
 
     /**
@@ -82,8 +128,9 @@ class CheckoutService
 
         $shippingFee = self::SHIPPING_OPTIONS[$shippingMethod]['fee'];
         $address = $payload['delivery_address'];
+        $destination = $this->destination($buyer, $address['address_id'] ?? null);
 
-        return DB::transaction(function () use ($buyer, $payload, $shippingMethod, $shippingFee, $address) {
+        return DB::transaction(function () use ($buyer, $payload, $shippingMethod, $shippingFee, $address, $destination) {
             // Lock every product AND variant row involved up front so two
             // simultaneous checkouts against the same product/variant
             // can't both read stale stock and both succeed.
@@ -205,7 +252,7 @@ class CheckoutService
                 ->get()
                 ->keyBy('id');
 
-            if ($shippingMethod === 'same_day' && ! $this->sameDayAvailable($buyer, $sellers)) {
+            if ($shippingMethod === 'same_day' && ! $this->sameDayAvailable($destination, $sellers)) {
                 throw ValidationException::withMessages([
                     'shipping_method' => 'Same Day Delivery is only available when the seller is in your province.',
                 ]);
@@ -220,6 +267,7 @@ class CheckoutService
                     (string) $sellerId,
                     $lines,
                     $address,
+                    $destination,
                     $shippingMethod,
                     $shippingFee,
                     (string) ($payload['payment_method'] ?? 'cod'),
@@ -227,6 +275,9 @@ class CheckoutService
 
                 $orders->push($order);
             }
+
+            // Feeds the "most recently used" ordering / default fallback.
+            $destination['address']?->forceFill(['last_used_at' => now()])->save();
 
             return $orders;
         });
@@ -239,22 +290,14 @@ class CheckoutService
      * re-joins street + those columns. Strip the trailing segments that
      * duplicate them so the joined address isn't repeated twice.
      */
-    private function streetPart(string $line, Profile $buyer): string
+    private function streetPart(string $line, array $destination): string
     {
-        $known = collect([
-            $buyer->address?->region_name,
-            $buyer->address?->province_name,
-            $buyer->address?->municipality_name,
-            $buyer->address?->barangay,
-        ])->filter()->map(fn ($v) => mb_strtolower(trim($v)))->all();
-
-        $parts = array_map('trim', explode(',', $line));
-
-        while (count($parts) > 1 && in_array(mb_strtolower(end($parts)), $known, true)) {
-            array_pop($parts);
-        }
-
-        return implode(', ', $parts);
+        return (string) StreetCleaner::clean($line, [
+            $destination['region_name'],
+            $destination['province_name'],
+            $destination['municipality_name'],
+            $destination['barangay'],
+        ]);
     }
 
     private function createOrderForSeller(
@@ -263,6 +306,7 @@ class CheckoutService
         string $sellerId,
         Collection $lines,
         array $address,
+        array $destination,
         string $shippingMethod,
         float $shippingFee,
         string $paymentMethod,
@@ -276,12 +320,11 @@ class CheckoutService
             'buyer_profile_id' => $buyer->id,
             'recipient_name' => $address['recipient_name'],
             'recipient_contact_no' => $address['contact_number'] ?? null,
-            'shipping_street' => $this->streetPart($address['address'], $buyer),
-            // The structured destination, read straight off the buyer's
-            // existing profile address (public.addresses,
-            // owner_kind='profile' — the same row the Account page fills
-            // in), because `delivery_address.address` above only ever
-            // arrives as one flattened human-readable line.
+            'shipping_street' => $this->streetPart($address['address'], $destination),
+            // The structured destination — the chosen saved address, or
+            // the buyer's profile address (see destination()) — because
+            // `delivery_address.address` above only ever arrives as one
+            // flattened human-readable line.
             //
             // Region flags a cross-region parcel "To Transfer" when it
             // differs from the holding company's region; province +
@@ -290,10 +333,10 @@ class CheckoutService
             // parcel to a delivery area on, so leaving them null makes
             // both intake sorting and "Auto assign" fall through to
             // "no area covers this address" for every order.
-            'shipping_region_name' => $buyer->address?->region_name,
-            'shipping_province_name' => $buyer->address?->province_name,
-            'shipping_municipality_name' => $buyer->address?->municipality_name,
-            'shipping_barangay' => $buyer->address?->barangay,
+            'shipping_region_name' => $destination['region_name'],
+            'shipping_province_name' => $destination['province_name'],
+            'shipping_municipality_name' => $destination['municipality_name'],
+            'shipping_barangay' => $destination['barangay'],
             // The seller's own structured address, same source shape as
             // the buyer's above — App\Services\TransferTriggerService
             // compares this against shipping_* to decide whether the

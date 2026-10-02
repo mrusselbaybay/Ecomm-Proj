@@ -23,6 +23,9 @@ class CheckoutRequest extends FormRequest
             'items.*.coupon_id' => ['nullable', 'uuid'],
 
             'delivery_address' => ['required', 'array'],
+            // Saved address (buyer_addresses.id) to route the order to;
+            // ownership is checked in CheckoutService::destination().
+            'delivery_address.address_id' => ['nullable', 'uuid'],
             'delivery_address.recipient_name' => ['required', 'string', 'max:255'],
             'delivery_address.contact_number' => ['nullable', 'string', 'max:30'],
             'delivery_address.address' => ['required', 'string', 'max:500'],

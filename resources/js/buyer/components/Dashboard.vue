@@ -661,6 +661,12 @@ function closeAddresses() {
     showAddresses.value = false;
 }
 
+// From Checkout's "Manage" link: overlay the address book without
+// clearing checkoutItems, so closing it lands back on checkout.
+function manageAddressesFromCheckout() {
+    showAddresses.value = true;
+}
+
 function openPayments() {
     closeAllSubViews();
     showPayments.value = true;
@@ -788,6 +794,7 @@ function closeCustomerService() {
 
     <SavedAddresses
         v-else-if="showAddresses"
+        :from-checkout="checkoutItems.length > 0"
         @back="closeAddresses"
         @go-home="handleBrowseAll"
         @view-profile="openAccount"
@@ -842,6 +849,7 @@ function closeCustomerService() {
         v-else-if="checkoutItems.length > 0"
         :items="checkoutItems"
         @back="backFromCheckout"
+        @manage-addresses="manageAddressesFromCheckout"
         @place-order="handleOrderPlaced"
         @search="handleSearch"
         @select-category="handleSelectCategory"

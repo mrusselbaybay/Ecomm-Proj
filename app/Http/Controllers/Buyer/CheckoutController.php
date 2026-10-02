@@ -28,14 +28,23 @@ class CheckoutController extends Controller
      */
     public function shippingOptions(Request $request): JsonResponse
     {
-        $productIds = $request->validate([
+        $validated = $request->validate([
             'product_ids' => ['required', 'array', 'max:100'],
             'product_ids.*' => ['string'],
-        ])['product_ids'];
-
-        return response()->json([
-            'data' => $this->checkoutService->shippingOptions($request->user()->loadMissing('address'), $productIds),
+            'address_id' => ['nullable', 'uuid'],
         ]);
+
+        try {
+            $data = $this->checkoutService->shippingOptions(
+                $request->user(),
+                $validated['product_ids'],
+                $validated['address_id'] ?? null,
+            );
+        } catch (ValidationException $e) {
+            return response()->json(['message' => collect($e->errors())->flatten()->first()], 422);
+        }
+
+        return response()->json(['data' => $data]);
     }
 
     /**
