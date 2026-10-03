@@ -1,11 +1,15 @@
 <?php
 
+use App\Models\Profile;
 use App\Models\SellerDetail;
 use App\Services\FileStorage;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     // Supabase-owned tables the sqlite test schema doesn't migrate.
@@ -106,8 +110,8 @@ it('creates a pending application that admin approval turns into the seller capa
 
 it('reuses the valid id on file and keeps the buyer account active on rejection', function () {
     $buyer = makeBuyer();
-    \Illuminate\Support\Facades\DB::table('documents')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+    DB::table('documents')->insert([
+        'id' => (string) Str::uuid(),
         'owner_kind' => 'profile',
         'profile_id' => $buyer->id,
         'doc_type' => 'valid_id',
@@ -127,4 +131,70 @@ it('reuses the valid id on file and keeps the buyer account active on rejection'
     $buyer->refresh();
     expect($buyer->account_status)->toBe('active');
     expect(SellerDetail::find($buyer->id)->application_status)->toBe('rejected');
+});
+
+// ---------- Multi-role login ----------
+
+function withPassword(Profile $profile): Profile
+{
+    DB::table('profiles')->where('id', $profile->id)->update([
+        'email' => strtolower($profile->email),
+        'password' => Hash::make('secret123'),
+    ]);
+
+    return $profile->refresh();
+}
+
+function loginAs(Profile $profile, ?string $device = null)
+{
+    return test()->postJson('/api/auth/login', array_filter([
+        'email' => $profile->email,
+        'password' => 'secret123',
+        'device' => $device,
+    ]));
+}
+
+it('lists only the buyer role for a buyer-only account on web', function () {
+    loginAs(withPassword(makeBuyer()))
+        ->assertOk()
+        ->assertJsonPath('user.role', 'buyer')
+        ->assertJsonPath('user.roles', ['buyer']);
+});
+
+it('lists both roles for a buyer+seller account on web', function () {
+    loginAs(withPassword(makeSeller()))
+        ->assertOk()
+        ->assertJsonPath('user.roles', ['buyer', 'seller']);
+});
+
+it('applies the role picked on web to that session', function () {
+    $seller = withPassword(makeSeller());
+    $token = loginAs($seller)->json('access_token');
+
+    $this->withToken($token)->postJson('/api/account/role/switch', ['role' => 'buyer'])
+        ->assertOk()->assertJsonPath('data.active_role', 'buyer');
+    $this->withToken($token)->getJson('/api/auth/user')->assertJsonPath('role', 'buyer');
+
+    $this->withToken($token)->postJson('/api/account/role/switch', ['role' => 'seller'])
+        ->assertOk()->assertJsonPath('data.active_role', 'seller');
+});
+
+it('signs a buyer+seller account in as buyer on mobile without touching the web session', function () {
+    $seller = withPassword(makeSeller());
+    $webToken = loginAs($seller)->json('access_token');
+    $this->withToken($webToken)->postJson('/api/account/role/switch', ['role' => 'seller'])->assertOk();
+
+    $mobileToken = loginAs($seller, 'mobile')->assertOk()->assertJsonPath('user.role', 'buyer')->json('access_token');
+
+    $this->app['auth']->forgetGuards();
+    $this->withToken($mobileToken)->getJson('/api/auth/user')->assertJsonPath('role', 'buyer');
+    $this->withToken($webToken)->getJson('/api/auth/user')->assertJsonPath('role', 'seller');
+    expect($seller->refresh()->role)->toBe('seller');
+});
+
+it('never signs a pending seller applicant in as seller', function () {
+    $buyer = withPassword(makeBuyer());
+    SellerDetail::create(['profile_id' => $buyer->id, 'business_name' => 'X', 'line_of_business' => 'Pet Supplies', 'application_status' => SellerDetail::APPLICATION_PENDING]);
+
+    loginAs($buyer)->assertJsonPath('user.roles', ['buyer']);
 });

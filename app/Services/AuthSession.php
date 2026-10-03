@@ -14,11 +14,23 @@ class AuthSession
 {
     public const TTL_DAYS = 30;
 
-    /** @return array<string, mixed> */
-    public function issue(Profile $profile, string $device = 'web'): array
+    /**
+     * @param  string|null  $role  The role this session signs in as; null
+     *                             keeps the account's current role when valid.
+     * @return array<string, mixed>
+     */
+    public function issue(Profile $profile, string $device = 'web', ?string $role = null): array
     {
+        $roles = $profile->availableRoles();
+        $role = in_array($role, $roles, true) ? $role
+            : (in_array($profile->role, $roles, true) ? $profile->role : $roles[0]);
+
         $expiresAt = now()->addDays(self::TTL_DAYS);
-        $token = $profile->createToken($device, ['*'], $expiresAt)->plainTextToken;
+        $newToken = $profile->createToken($device, ['*'], $expiresAt);
+        $newToken->accessToken->forceFill(['active_role' => $role])->save();
+        $token = $newToken->plainTextToken;
+
+        $this->applyRole($profile, $role);
 
         return [
             'access_token' => $token,
@@ -39,6 +51,7 @@ class AuthSession
             'email_confirmed_at' => $profile->email_verified_at?->toIso8601String(),
             // Top-level copies read by the mobile app.
             'role' => $profile->role,
+            'roles' => $profile->availableRoles(),
             'name' => $profile->full_name,
             'app_metadata' => ['provider' => $profile->auth_provider ?: 'email'],
             'user_metadata' => [
@@ -70,8 +83,26 @@ class AuthSession
             return null;
         }
 
+        // Only differs for a buyer/seller account whose other session switched
+        // profiles.role; re-checked so a revoked seller role isn't kept.
+        if ($token->active_role && $token->active_role !== $profile->role
+            && in_array($token->active_role, $profile->availableRoles(), true)) {
+            $this->applyRole($profile, $token->active_role);
+        }
+
         // Lets currentAccessToken() work (e.g. logout revokes just this token).
         return $profile->withAccessToken($token);
+    }
+
+    /**
+     * Makes $role the profile's role for this request only, so every role
+     * gate reads the session's role. Synced as original so a save() never
+     * writes it back to profiles.role.
+     */
+    public function applyRole(Profile $profile, string $role): void
+    {
+        $profile->setAttribute('role', $role);
+        $profile->syncOriginalAttribute('role');
     }
 
     public function revoke(?string $bearerToken): void

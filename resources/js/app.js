@@ -9,7 +9,7 @@ import '../css/app.css';
 // importing the esm-bundler build directly restores template compilation
 // without going back to the unpkg.com CDN build this replaced.
 import { createApp, ref, computed, onMounted } from 'vue/dist/vue.esm-bundler.js';
-import { fetchOwnProfile } from './shared/accountApi';
+import { apiRequest, fetchOwnProfile } from './shared/accountApi';
 import { createClient } from './shared/backendClient';
 
 // ---------- Configuration ----------
@@ -410,6 +410,10 @@ const App = {
         // instead of this one — shows a warning modal with a link to
         // the correct auth page instead of letting the login through.
         const portalMismatch = ref(false);
+        // Role picker shown after sign-in for buyer+seller accounts.
+        const roleChoices = ref([]);
+        const choosingRole = ref(null);
+        let pendingLogin = null;
         // Set when a Google sign-in lands on an account with no `profiles`
         // row yet — see completeLogin()/beginGoogleOnboarding() below. It
         // trims the normal buyer/seller/courier wizard down to the fields
@@ -2726,10 +2730,57 @@ const App = {
                 return;
             }
 
+            // Buyer+seller accounts choose a role on every sign-in — no
+            // remembered "last used" role decides it for them.
+            const accountRoles = user.roles?.length ? user.roles : [userRole];
+
+            const status = profile.account_status || profile.status;
+
+            if (accountRoles.length > 1) {
+                pendingLogin = { user, remember, status };
+                roleChoices.value = accountRoles;
+
+                return;
+            }
+
+            enterRole(user, accountRoles[0], remember, status);
+        }
+
+        async function chooseRole(role) {
+            if (!pendingLogin || choosingRole.value) {
+                return;
+            }
+
+            choosingRole.value = role;
+            errorMsg.value = '';
+
+            const { error } = await apiRequest(supabase, '/api/account/role/switch', {
+                method: 'POST',
+                body: { role },
+            });
+
+            if (error) {
+                choosingRole.value = null;
+                errorMsg.value = error.message;
+
+                return;
+            }
+
+            enterRole(pendingLogin.user, role, pendingLogin.remember, pendingLogin.status);
+        }
+
+        async function cancelRoleChoice() {
+            pendingLogin = null;
+            roleChoices.value = [];
+            choosingRole.value = null;
+            await supabase.auth.signOut();
+        }
+
+        function enterRole(user, userRole, remember, status) {
             loggedInUser.value = {
                 email: user.email,
                 role: userRole,
-                status: profile.account_status || profile.status,
+                status,
             };
 
             setCookie(
@@ -3238,6 +3289,10 @@ const App = {
             successMsg,
             loggedInUser,
             portalMismatch,
+            roleChoices,
+            choosingRole,
+            chooseRole,
+            cancelRoleChoice,
             roles,
             ID_TYPES,
             selectedRole,
@@ -3331,6 +3386,30 @@ const App = {
         <p class="text-slate-500 text-sm mb-6">Buyer and seller accounts sign in here. Please continue to the Logistics Portal.</p>
         <a href="/logistics-login" class="btn-gradient flex items-center justify-center w-full text-white font-semibold rounded-xl mb-2">Go to Logistics Login</a>
         <button type="button" @click="portalMismatch = false" class="w-full min-h-[44px] text-slate-500 text-sm font-medium rounded-xl hover:bg-slate-50">Cancel</button>
+      </div>
+    </div>
+
+    <!-- ROLE PICKER (buyer + seller accounts) -->
+    <div v-if="roleChoices.length" class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4" role="dialog" aria-modal="true" aria-labelledby="role-picker-title">
+      <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
+        <p id="role-picker-title" class="text-slate-900 font-semibold text-lg text-center mb-1">Continue as</p>
+        <p class="text-slate-500 text-sm text-center mb-5">Your account can shop and sell. Choose how you want to sign in.</p>
+        <div class="space-y-3">
+          <button v-for="r in roleChoices" :key="r" type="button" @click="chooseRole(r)" :disabled="!!choosingRole"
+            class="w-full min-h-[64px] flex items-center gap-4 px-4 py-3 rounded-xl border border-slate-200 text-left transition hover:border-teal-500 hover:bg-teal-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 disabled:opacity-60 disabled:cursor-not-allowed">
+            <span class="w-11 h-11 shrink-0 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center">
+              <svg v-if="r === 'seller'" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/></svg>
+              <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+            </span>
+            <span class="flex-1 min-w-0">
+              <span class="block text-slate-900 font-semibold">{{ r === 'seller' ? 'Seller' : 'Buyer' }}</span>
+              <span class="block text-slate-500 text-sm">{{ r === 'seller' ? 'Manage your shop, products and orders' : 'Browse, shop and track your orders' }}</span>
+            </span>
+            <svg v-if="choosingRole === r" class="animate-spin shrink-0 text-teal-600" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".25" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <p v-if="errorMsg" class="text-red-600 text-sm text-center mt-4" role="alert">{{ errorMsg }}</p>
+        <button type="button" @click="cancelRoleChoice" :disabled="!!choosingRole" class="w-full min-h-[44px] mt-3 text-slate-500 text-sm font-medium rounded-xl hover:bg-slate-50 disabled:opacity-60">Cancel</button>
       </div>
     </div>
 

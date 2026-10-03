@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\FileStorage;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -130,6 +131,21 @@ class Profile extends Authenticatable
     public function hasSellerCapability(): bool
     {
         return (bool) $this->sellerDetail?->isApproved();
+    }
+
+    /**
+     * Every role this account can sign in as. Buyer/seller accounts can
+     * always shop and can sell once approved; other accounts have one role.
+     *
+     * @return list<string>
+     */
+    public function availableRoles(): array
+    {
+        if (! in_array($this->role, ['buyer', 'seller'], true)) {
+            return [$this->role];
+        }
+
+        return $this->hasSellerCapability() ? ['buyer', 'seller'] : ['buyer'];
     }
 
     /**
@@ -299,6 +315,6 @@ class Profile extends Authenticatable
             return null;
         }
 
-        return app(\App\Services\FileStorage::class)->publicUrl('avatars', $this->avatar_path);
+        return app(FileStorage::class)->publicUrl('avatars', $this->avatar_path);
     }
 }

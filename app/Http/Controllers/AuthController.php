@@ -3,19 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Models\Profile;
+use App\Services\AccountRegistrar;
+use App\Services\AuthSession;
+use App\Services\FileStorage;
 use App\Services\ProfileProvisioner;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Laravel\Socialite\Facades\Socialite;
-use App\Services\AuthSession;
-use Illuminate\Support\Facades\Hash;
-use App\Services\AccountRegistrar;
-use App\Services\FileStorage;
 
 class AuthController extends Controller
 {
@@ -795,7 +795,31 @@ class AuthController extends Controller
             DB::table('profiles')->where('id', $profile->id)->update(['password' => Hash::make($data['password'])]);
         }
 
-        return response()->json(app(AuthSession::class)->issue($profile, $request->input('device', 'web')));
+        $device = $request->input('device') === 'mobile' ? 'mobile' : 'web';
+
+        return $this->issueSession($profile, $device);
+    }
+
+    /**
+     * Web signs a buyer/seller account into its current role; the login
+     * page then asks which role when the account has more than one. Mobile
+     * has no seller app, so buyer/seller accounts always sign in as buyer.
+     */
+    private function issueSession(Profile $profile, string $device)
+    {
+        $role = null;
+
+        if ($device === 'mobile' && in_array($profile->role, ['buyer', 'seller'], true)) {
+            if (! in_array('buyer', $profile->availableRoles(), true)) {
+                return response()->json([
+                    'message' => 'Seller accounts can only sign in on the BuyTheWay website.',
+                ], 403);
+            }
+
+            $role = 'buyer';
+        }
+
+        return response()->json(app(AuthSession::class)->issue($profile, $device, $role));
     }
 
     /**
@@ -828,7 +852,7 @@ class AuthController extends Controller
             return response()->json(['message' => 'Google sign-in failed.'], 401);
         }
 
-        return response()->json(app(AuthSession::class)->issue($profile, 'mobile'));
+        return $this->issueSession($profile, 'mobile');
     }
 
     public function user(Request $request)

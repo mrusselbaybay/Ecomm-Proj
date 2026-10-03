@@ -534,9 +534,9 @@
     "semantic_hash": ""
   },
   "app/Http/Controllers/AuthController.php": {
-    "mtime": 1790998999.734267,
-    "seen": 1790999412.125166,
-    "ast_hash": "bd980089d422d3826856ad06ab55dd14",
+    "mtime": 1791037559.9263587,
+    "seen": 1791037604.4520674,
+    "ast_hash": "c711d3d967fa9ca2e5a557033ffe0a1e",
     "semantic_hash": ""
   },
   "app/Http/Controllers/Buyer/AccountController.php": {
@@ -1434,9 +1434,9 @@
     "semantic_hash": ""
   },
   "app/Models/Profile.php": {
-    "mtime": 1790998984.443437,
-    "seen": 1790999412.1256156,
-    "ast_hash": "889d73cec31b714989ea72addc1a7c23",
+    "mtime": 1791037559.9283662,
+    "seen": 1791037604.4524846,
+    "ast_hash": "e7f3aa406e6ef7a92c663d43be6ab194",
     "semantic_hash": ""
   },
   "app/Models/ResignationRequest.php": {
@@ -2556,9 +2556,9 @@
     "semantic_hash": ""
   },
   "resources/js/app.js": {
-    "mtime": 1791000444.5054414,
-    "seen": 1791000519.848633,
-    "ast_hash": "5ae28a9fef3c5b811cfd99e559895d01",
+    "mtime": 1791037559.935371,
+    "seen": 1791037604.4533513,
+    "ast_hash": "5de7423481090de1f11dbb3f1fadc619",
     "semantic_hash": ""
   },
   "resources/js/buyer/buyer.js": {
@@ -4602,9 +4602,9 @@
     "semantic_hash": ""
   },
   "app/Services/AuthSession.php": {
-    "mtime": 1790438302.6590705,
-    "seen": 1790441622.2094135,
-    "ast_hash": "9f4f5522d8576bd6d13c3ea267a4d656",
+    "mtime": 1791037559.9303653,
+    "seen": 1791037604.4525762,
+    "ast_hash": "9b85a845950d91d15698dee06823f84c",
     "semantic_hash": ""
   },
   "app/Services/ConversationBroadcaster.php": {
@@ -4950,9 +4950,9 @@
     "semantic_hash": ""
   },
   "app/Http/Controllers/Api/RoleSwitchController.php": {
-    "mtime": 1790998999.839438,
-    "seen": 1790999412.125162,
-    "ast_hash": "58a926f948cb9c5ae556ac675fc90758",
+    "mtime": 1791037559.9243586,
+    "seen": 1791037604.452063,
+    "ast_hash": "cf5e80b7b666c5a1a8f9dadd505696ee",
     "semantic_hash": ""
   },
   "database/migrations/2026_10_03_000100_add_application_status_to_seller_details_table.php": {
@@ -4968,9 +4968,15 @@
     "semantic_hash": ""
   },
   "tests/Feature/RoleSwitchTest.php": {
-    "mtime": 1790999358.127129,
-    "seen": 1790999412.1266148,
-    "ast_hash": "c13d23d1d733a4776c55c97779de8ff1",
+    "mtime": 1791037559.937371,
+    "seen": 1791037604.4540627,
+    "ast_hash": "a4aa82c1fa33a2e6adad89ffea642bfd",
+    "semantic_hash": ""
+  },
+  "database/migrations/2026_10_03_120000_add_active_role_to_personal_access_tokens_table.php": {
+    "mtime": 1791037344.2224834,
+    "seen": 1791037604.4532151,
+    "ast_hash": "e53ee40db83a88319d7ec52a37c5fa3a",
     "semantic_hash": ""
   }
 }

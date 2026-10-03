@@ -49,7 +49,9 @@ class RoleSwitchController extends Controller
     {
         $profile = $this->switchableProfile($request);
 
-        $target = $profile->role === 'seller' ? 'buyer' : 'seller';
+        // An explicit role comes from the login role picker; none toggles.
+        $data = $request->validate(['role' => ['nullable', Rule::in(self::SWITCHABLE_ROLES)]]);
+        $target = $data['role'] ?? ($profile->role === 'seller' ? 'buyer' : 'seller');
 
         if ($target === 'seller' && ! $profile->hasSellerCapability()) {
             return response()->json([
@@ -61,6 +63,7 @@ class RoleSwitchController extends Controller
         // Plain column write: role is not mass-assignable for a reason
         // (Profile::booted guards it), and only buyer<->seller is possible here.
         DB::table('profiles')->where('id', $profile->id)->update(['role' => $target, 'updated_at' => now()]);
+        $profile->currentAccessToken()?->forceFill(['active_role' => $target])->save();
 
         return response()->json(['data' => $this->state($profile->refresh())]);
     }
