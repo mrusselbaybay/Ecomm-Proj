@@ -95,7 +95,7 @@ const FileDropzone = {
     props: {
         modelValue: { type: File, default: null },
         accept: { type: String, default: 'image/*,.pdf' },
-        hint: { type: String, default: 'JPG, PNG or PDF · Max 5MB' },
+        hint: { type: String, default: 'JPG, PNG or PDF · Max 10MB' },
     },
     emits: ['update:modelValue'],
     setup(props, { emit }) {

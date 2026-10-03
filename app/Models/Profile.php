@@ -122,6 +122,28 @@ class Profile extends Authenticatable
         return $this->hasOne(SellerDetail::class, 'profile_id');
     }
 
+    /**
+     * Buyer/seller is one account with two roles: `role` is the *active*
+     * one, and the seller capability exists once a seller_details row is
+     * approved. Every buyer/seller account can always shop.
+     */
+    public function hasSellerCapability(): bool
+    {
+        return (bool) $this->sellerDetail?->isApproved();
+    }
+
+    /**
+     * An already-approved buyer who has applied for (or was refused) the
+     * seller role — reviewed separately from the account's own signup.
+     */
+    public function hasSellerApplication(): bool
+    {
+        return $this->role === 'buyer'
+            && $this->status === 'approved'
+            && $this->sellerDetail !== null
+            && ! $this->sellerDetail->isApproved();
+    }
+
     public function courierDetail(): HasOne
     {
         return $this->hasOne(CourierDetail::class, 'profile_id');

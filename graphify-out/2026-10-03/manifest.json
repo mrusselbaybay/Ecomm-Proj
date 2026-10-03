@@ -2520,9 +2520,9 @@
     "semantic_hash": ""
   },
   "resources/js/admin/components/Registrations.vue": {
-    "mtime": 1791000453.3975084,
-    "seen": 1791000519.848602,
-    "ast_hash": "e7c149565f3afa5473884dbfb9e8b94e",
+    "mtime": 1790338759.9801662,
+    "seen": 1790338870.1574495,
+    "ast_hash": "3386b53971ced6d0863439c032d8d89c",
     "semantic_hash": ""
   },
   "resources/js/admin/components/Reports.vue": {
@@ -2556,9 +2556,9 @@
     "semantic_hash": ""
   },
   "resources/js/app.js": {
-    "mtime": 1791000444.5054414,
-    "seen": 1791000519.848633,
-    "ast_hash": "5ae28a9fef3c5b811cfd99e559895d01",
+    "mtime": 1790918031.7486446,
+    "seen": 1790918117.894182,
+    "ast_hash": "4627802b774c3aaf941eab16481b3890",
     "semantic_hash": ""
   },
   "resources/js/buyer/buyer.js": {
@@ -4422,9 +4422,9 @@
     "semantic_hash": ""
   },
   "resources/js/app-logistics.js": {
-    "mtime": 1791000444.5377257,
-    "seen": 1791000519.8486292,
-    "ast_hash": "6cc19742ca5b09a8f1a9526d47523483",
+    "mtime": 1790443499.721806,
+    "seen": 1790443917.7689385,
+    "ast_hash": "4f2f83315aa2ce82fad317df203109c3",
     "semantic_hash": ""
   },
   "resources/views/auth/logistics.blade.php": {

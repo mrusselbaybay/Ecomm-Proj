@@ -122,7 +122,7 @@ class SellerComplianceController extends Controller
     ): JsonResponse {
         $product->loadMissing('seller.sellerDetail');
 
-        if (! $product->seller || $product->seller->role !== 'seller') {
+        if (! $product->seller || ! $product->seller->hasSellerCapability()) {
             return response()->json([
                 'message' => 'This product is not associated with a seller account.',
             ], 422);

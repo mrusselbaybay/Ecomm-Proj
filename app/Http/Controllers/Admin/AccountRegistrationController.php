@@ -9,6 +9,7 @@ use App\Mail\RegistrationApproved;
 use App\Mail\RegistrationRejected;
 use App\Models\Document;
 use App\Models\Profile;
+use App\Models\SellerDetail;
 use App\Models\StatusAuditLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,19 +25,32 @@ class AccountRegistrationController extends Controller
 
         $query = Profile::query()
             ->whereIn('role', $roles)
-            ->whereIn('status', ['pending', 'rejected'])
+            ->where(function ($query): void {
+                $query->whereIn('status', ['pending', 'rejected'])
+                    ->orWhere(fn ($query) => $this->sellerApplications($query, ['pending', 'rejected']));
+            })
             ->with([
                 'address', 'sellerDetail', 'courierDetail.logisticsCompany',
                 'driverDetail.logisticsCompany', 'documents',
                 'logisticsCompany.address', 'logisticsCompany.documents',
             ]);
 
+        // A buyer's seller application is listed as a "seller" application.
         if ($role = $request->string('role')->toString()) {
-            $query->where('role', $role);
+            $query->where(function ($query) use ($role): void {
+                $query->where(fn ($query) => $query->where('role', $role)->where('status', '!=', 'approved'));
+
+                if ($role === 'seller') {
+                    $query->orWhere(fn ($query) => $this->sellerApplications($query, ['pending', 'rejected']));
+                }
+            });
         }
 
         if ($status = $request->string('status')->toString()) {
-            $query->where('status', $status);
+            $query->where(function ($query) use ($status): void {
+                $query->where('status', $status)
+                    ->orWhere(fn ($query) => $this->sellerApplications($query, [$status]));
+            });
         }
 
         if ($search = $request->string('search')->trim()->toString()) {
@@ -55,11 +69,13 @@ class AccountRegistrationController extends Controller
 
         // One conditional-aggregation query replaces two separate COUNT(*)
         // scans over the same registrable-roles set.
+        $upgrade = "profiles.role = 'buyer' and profiles.status = 'approved' and seller_details.application_status";
         $counts = Profile::query()
-            ->whereIn('role', $roles)
+            ->leftJoin('seller_details', 'seller_details.profile_id', '=', 'profiles.id')
+            ->whereIn('profiles.role', $roles)
             ->selectRaw(
-                "coalesce(sum(case when status = 'pending' then 1 else 0 end), 0) as pending, "
-                ."coalesce(sum(case when status = 'rejected' then 1 else 0 end), 0) as rejected",
+                "coalesce(sum(case when profiles.status = 'pending' or ({$upgrade} = 'pending') then 1 else 0 end), 0) as pending, "
+                ."coalesce(sum(case when profiles.status = 'rejected' or ({$upgrade} = 'rejected') then 1 else 0 end), 0) as rejected",
             )
             ->first();
 
@@ -94,6 +110,10 @@ class AccountRegistrationController extends Controller
     public function approve(Request $request, Profile $profile): JsonResponse
     {
         $this->ensureRegistrable($request, $profile);
+
+        if ($profile->hasSellerApplication()) {
+            return $this->approveSellerApplication($request, $profile);
+        }
 
         DB::transaction(function () use ($request, $profile): void {
             $oldStatus = $profile->account_status;
@@ -152,6 +172,10 @@ class AccountRegistrationController extends Controller
 
         $reason = $request->validated('reason');
 
+        if ($profile->hasSellerApplication()) {
+            return $this->rejectSellerApplication($request, $profile, $reason);
+        }
+
         DB::transaction(function () use ($request, $profile, $reason): void {
             $oldStatus = $profile->account_status;
 
@@ -209,6 +233,76 @@ class AccountRegistrationController extends Controller
         ]);
     }
 
+    /**
+     * Approve an existing buyer's seller application: grants the seller
+     * capability only. The account stays active and keeps its current
+     * (buyer) role until the user switches accounts themselves.
+     */
+    private function approveSellerApplication(Request $request, Profile $profile): JsonResponse
+    {
+        DB::transaction(function () use ($request, $profile): void {
+            $profile->sellerDetail->update([
+                'application_status' => SellerDetail::APPLICATION_APPROVED,
+                'application_reason' => null,
+            ]);
+
+            $profile->documents()->where('status', 'pending')->update([
+                'status' => 'approved',
+                'reviewed_by' => $request->user()->id,
+                'reviewed_at' => now(),
+            ]);
+
+            StatusAuditLog::create([
+                'entity_type' => 'profile',
+                'entity_id' => $profile->id,
+                'old_status' => $profile->account_status,
+                'new_status' => $profile->account_status,
+                'reason' => 'Seller application approved by admin',
+                'changed_by' => $request->user()->id,
+            ]);
+        });
+
+        Mail::to($profile->email)->queue(new RegistrationApproved($profile->full_name));
+
+        return response()->json([
+            'message' => "{$profile->full_name}'s seller application was approved. An email notification was queued.",
+        ]);
+    }
+
+    /** Refuse the seller application without touching the buyer account. */
+    private function rejectSellerApplication(Request $request, Profile $profile, string $reason): JsonResponse
+    {
+        DB::transaction(function () use ($request, $profile, $reason): void {
+            $profile->sellerDetail->update([
+                'application_status' => SellerDetail::APPLICATION_REJECTED,
+                'application_reason' => $reason,
+            ]);
+
+            StatusAuditLog::create([
+                'entity_type' => 'profile',
+                'entity_id' => $profile->id,
+                'old_status' => $profile->account_status,
+                'new_status' => $profile->account_status,
+                'reason' => "Seller application rejected: {$reason}",
+                'changed_by' => $request->user()->id,
+            ]);
+        });
+
+        Mail::to($profile->email)->queue(new RegistrationRejected($profile->full_name, $reason));
+
+        return response()->json([
+            'message' => "{$profile->full_name}'s seller application was rejected. An email notification was queued.",
+        ]);
+    }
+
+    /** Approved buyers whose seller application is in one of $statuses. */
+    private function sellerApplications($query, array $statuses)
+    {
+        return $query->where('role', 'buyer')
+            ->where('status', 'approved')
+            ->whereHas('sellerDetail', fn ($query) => $query->whereIn('application_status', $statuses));
+    }
+
     private function ensureRegistrable(Request $request, Profile $profile): void
     {
         // Accounts outside this admin's scope are invisible to it.
@@ -232,6 +326,7 @@ class AccountRegistrationController extends Controller
         $company = $profile->role === 'logistics' ? $profile->logisticsCompany : null;
         $address = $company ? $company->address : $profile->address;
         $documents = $company ? $company->documents : $profile->documents;
+        $sellerApplication = $profile->hasSellerApplication();
 
         return [
             'id' => $profile->id,
@@ -243,8 +338,11 @@ class AccountRegistrationController extends Controller
             'contact_no' => $company?->company_contact_no ?? $profile->contact_no,
             'birthday' => $profile->birthday?->toDateString(),
             'sex' => $profile->sex,
-            'role' => $profile->role,
-            'status' => $profile->status,
+            // A buyer applying to sell is reviewed as a seller application.
+            'role' => $sellerApplication ? 'seller' : $profile->role,
+            'status' => $sellerApplication ? $profile->sellerDetail->application_status : $profile->status,
+            'application_type' => $sellerApplication ? 'seller_upgrade' : 'registration',
+            'rejection_reason' => $sellerApplication ? $profile->sellerDetail->application_reason : null,
             'account_status' => $profile->account_status,
             'created_at' => $profile->created_at?->toIso8601String(),
             'address' => $address ? [

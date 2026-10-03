@@ -1,7 +1,7 @@
 # Graph Report - BuyTheWay - Web  (2026-10-03)
 
 ## Corpus Check
-- 798 files · ~787,947 words
+- 798 files · ~787,896 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 86 file(s) not represented in the graph (top: .csv 53, (none) 18, .css 10)
 

@@ -76,7 +76,15 @@
                                 {{ user.company.company_name }}
                             </span>
                         </td>
-                        <td>{{ user.role }}</td>
+                        <td>
+                            {{ user.role }}
+                            <span
+                                v-if="user.application_type === 'seller_upgrade'"
+                                class="ml-1 inline-flex items-center whitespace-nowrap rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700"
+                                title="Existing buyer applying to sell"
+                                >Buyer → Seller</span
+                            >
+                        </td>
                         <td>{{ user.email }}</td>
                         <td>{{ formatDate(user.created_at) }}</td>
                         <td>
@@ -166,8 +174,15 @@
                     <span
                         class="font-semibold capitalize text-slate-700"
                         >{{ approveUserData?.role }}</span
-                    >? They'll be notified by email and gain access
-                    immediately.
+                    >?
+                    <template v-if="approveUserData?.application_type === 'seller_upgrade'">
+                        Their buyer account stays as-is; they'll be notified by
+                        email and can switch to selling right away.
+                    </template>
+                    <template v-else>
+                        They'll be notified by email and gain access
+                        immediately.
+                    </template>
                 </p>
                 <div class="flex gap-2">
                     <button

@@ -11,6 +11,8 @@ import {
 import { useBuyerAccount } from '../composables/useBuyerAccount';
 import { useBuyerAddresses } from '../composables/useBuyerAddresses';
 import AvatarCropper from './AvatarCropper.vue';
+import SwitchAccountCard from '../../shared/SwitchAccountCard.vue';
+import { getSupabase } from '../composables/useBuyerSession';
 
 const emit = defineEmits(['back', 'view-orders']);
 
@@ -1527,6 +1529,8 @@ onBeforeUnmount(() => {
                             <span v-html="icons.key"></span> Change Password
                         </button>
                     </section>
+
+                    <SwitchAccountCard :client="getSupabase()" :full-name="buyerFullName" :email="profile?.email" />
 
                     <!-- ==================================================== -->
                     <!-- DANGER ZONE -->

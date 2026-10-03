@@ -588,6 +588,8 @@
                  success, so this is safe to run from an already-signed-in
                  tab.
                  ======================================================== -->
+                <SwitchAccountCard :client="getSupabase()" :full-name="fullName" :email="profile?.email" />
+
                 <section id="section-danger" class="card acct-section acct-section-danger">
                     <div class="acct-section-head">
                         <div>
@@ -743,6 +745,7 @@ import {
 import { useSeller, getSupabase } from '../composables/useSeller';
 import { apiRequest } from '../../shared/accountApi';
 import AvatarCropper from './AvatarCropper.vue';
+import SwitchAccountCard from '../../shared/SwitchAccountCard.vue';
 
 const {
     profile,

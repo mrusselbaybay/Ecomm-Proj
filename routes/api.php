@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AccountRegistrationController;
 use App\Http\Controllers\Api\AccountController;
+use App\Http\Controllers\Api\RoleSwitchController;
 use App\Http\Controllers\Admin\AdminNotificationController;
 use App\Http\Controllers\Admin\AdminProfileController;
 use App\Http\Controllers\Admin\CommissionController;
@@ -107,6 +108,15 @@ Route::middleware('auth.token')
             ->name('deactivate');
         Route::get('/seller', [AccountController::class, 'sellerAccount'])->name('seller');
         Route::put('/seller', [AccountController::class, 'updateSellerAccount'])->name('seller.update');
+
+        // Switch Account (buyer <-> seller on the same profile).
+        Route::get('/role', [RoleSwitchController::class, 'show'])->name('role.show');
+        Route::post('/role/switch', [RoleSwitchController::class, 'switch'])
+            ->middleware('throttle:20,1')
+            ->name('role.switch');
+        Route::post('/role/seller-application', [RoleSwitchController::class, 'apply'])
+            ->middleware('throttle:5,1')
+            ->name('role.seller-application');
     });
 
 // File uploads / signed links for the browser's storage client.

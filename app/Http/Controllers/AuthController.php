@@ -24,7 +24,7 @@ class AuthController extends Controller
      * upload in the signup wizard. Keep in sync with resources/js/app.js's
      * ID_TYPES and the `documents.id_type` check constraint in Supabase.
      */
-    private const ID_TYPES = [
+    public const ID_TYPES = [
         'Passport',
         "Driver's License",
         'PRC ID',

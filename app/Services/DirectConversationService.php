@@ -35,7 +35,9 @@ class DirectConversationService
     ): array {
         $seller = Profile::query()
             ->whereKey($sellerId)
-            ->where('role', 'seller')
+            // A seller currently in "shopping" mode is still that shop's seller.
+            ->where(fn ($query) => $query->where('role', 'seller')
+                ->orWhereHas('sellerDetail', fn ($query) => $query->where('application_status', 'approved')))
             ->where('status', 'approved')
             ->where('account_status', 'active')
             ->first();
