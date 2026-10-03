@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel="icon" href="/images/BuyTheWayLogo.ico?v=3" sizes="any">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="About BuyTheWay, a multi-seller online marketplace.">
 
     <title>About Us — BuyTheWay</title>
 
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@600&family=Inter:wght@400;500;600&display=swap');

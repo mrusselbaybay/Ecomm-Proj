@@ -1,3 +1,125 @@
+# BuyTheWay — System Features
+
+## Superadmin
+- Login
+- Dashboard
+- Account Registrations (approve/reject sellers, logistics companies)
+- User Accounts (view, suspend, activate, deactivate)
+- Buyer Management
+- Seller Management
+- Logistics Company Management
+- Courier Management
+- Seller Compliance
+- Complaints & Disputes
+- Commission
+- Cash Flow / Escrow Monitoring
+- Refund Monitoring
+- Generate Reports
+- Platform Settings
+- Customer Service (chat)
+- Account Management (profile, password)
+
+## Logistics (company owner)
+- Company Registration (documents, admin approval)
+- Login (email, Google)
+- Dashboard
+- Parcel Sorting (intake, QR scanning, hub transfers)
+- Delivery Areas (barangay coverage)
+- Riders (courier list, assignment, auto-assign)
+- Courier Applications (review, interview, accept, reject, terminate)
+- Resignation Requests
+- Delivery Monitoring
+- Messages
+- Customer Service
+- Reports
+- Team Management (invite and remove logistics admins, transfer ownership)
+- Account Settings (company profile, address)
+
+## Logistics Admin (company staff)
+- Accept Team Invitation
+- Login
+- Dashboard
+- Parcel Sorting (intake, QR scanning, hub transfers)
+- Delivery Areas
+- Riders (assignment, auto-assign)
+- Courier Applications
+- Delivery Monitoring
+- Messages
+- Customer Service
+- Reports
+- Account Settings (own profile)
+
+## Buyer
+- Registration/Login (email OTP, Google, forgot password)
+- Product Browsing / Categories
+- Search/Filters
+- Product Details (variants, reviews)
+- Wishlist
+- Cart
+- Checkout (shipping options, coupons)
+- Address Management (multiple addresses, default)
+- Payment (COD, card, e-wallet, escrow-protected)
+- Payment Methods
+- Coupons
+- Order History
+- Order Tracking (status timeline, parcel map)
+- Order Receipt Confirmation
+- Returns/Refunds
+- Reviews/Ratings
+- Messages (chat with sellers)
+- Customer Service
+- Notifications
+- Account Settings (profile, avatar, password, deactivate)
+
+## Seller
+- Seller Registration (documents, admin approval)
+- Login
+- Dashboard
+- Store Profile
+- Products & Inventory (variants, specifications, stock)
+- Promotions / Product Coupons
+- Orders
+- Order Preparation (packing, parcel QR code)
+- Courier Handover
+- Deliveries (tracking)
+- Returns/Refunds
+- Sales / Cash Flow (escrow payouts)
+- Reports
+- Reviews (buyer feedback)
+- Messages
+- Customer Service
+- Notifications
+- Account Settings
+
+## Courier
+- Registration/Login (email OTP, Google, forgot password)
+- Find Work (browse and apply to logistics companies)
+- Applications (status, interview, withdraw)
+- Availability (online/offline)
+- Pickup Tasks (collect parcels from sellers)
+- Assigned Deliveries
+- Delivery Details
+- Pickup (QR scan, pickup photo)
+- Delivery Status (picked up, in transit, delivered, hub transfer)
+- Proof of Delivery (photo)
+- Delivery History
+- Earnings
+- Messages
+- Profile & Vehicle Documents
+- Resignation Request
+- Account Settings (password, deactivate)
+
+## Mobile Application
+- Courier: all Courier functions
+- Logistics / Logistics Admin: Dashboard, Parcel Inventory, Parcel Scanning, Settings
+- Buyer
+
+---
+
+
+## Database scripts
+
+```sql
 -- Add region column to logistics_companies
 ALTER TABLE public.logistics_companies 
 ADD COLUMN IF NOT EXISTS region TEXT;
@@ -1377,3 +1499,4 @@ SET mime_type =
     ELSE 'application/octet-stream'
   END
 WHERE mime_type IS NULL;
+```

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel="icon" href="/images/BuyTheWayLogo.ico?v=3" sizes="any">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
@@ -8,7 +9,6 @@
 
     <title>BuyTheWay — Good finds, along the way</title>
 
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 
 
     @vite(['resources/css/home/layout.css', 'resources/js/home/home.js'])
