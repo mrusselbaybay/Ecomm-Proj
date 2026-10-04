@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Buyer;
 
+use App\Services\CheckoutService;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class CheckoutRequest extends FormRequest
 {
@@ -26,12 +28,23 @@ class CheckoutRequest extends FormRequest
             'delivery_address.address' => ['required', 'string', 'max:500'],
 
             'shipping_method' => ['nullable', 'string', 'max:100'],
-            'payment_method' => ['nullable', 'string', 'max:100'],
+            'payment_method' => ['required', 'string', Rule::in(CheckoutService::PAYMENT_METHODS)],
             'voucher_code' => ['nullable', 'string', 'max:100'],
 
             // Client-sent totals are informational only — never trusted.
             // See CheckoutService::checkout(), which recalculates
             // subtotal/shipping/discount/total from the database.
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'payment_method.required' => 'Choose how you want to pay.',
+            'payment_method.in' => 'That payment method isn\'t available. Please choose Cash on Delivery.',
         ];
     }
 }

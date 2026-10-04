@@ -11,9 +11,7 @@ use Illuminate\Validation\ValidationException;
 
 class CheckoutController extends Controller
 {
-    public function __construct(private readonly CheckoutService $checkoutService)
-    {
-    }
+    public function __construct(private readonly CheckoutService $checkoutService) {}
 
     /**
      * POST /api/buyer/checkout
@@ -33,9 +31,11 @@ class CheckoutController extends Controller
 
         return response()->json([
             'data' => $orders->map(fn (Order $order) => [
-                'id' => '#' . $order->order_number,
+                'id' => '#'.$order->order_number,
                 'seller_id' => $order->seller_id,
                 'status' => $order->status,
+                'payment_method' => $order->payment_method,
+                'payment_status' => $order->payment_status,
                 'total' => (float) $order->total,
                 'items' => $order->items->map(fn ($item) => [
                     'name' => $item->product_name,

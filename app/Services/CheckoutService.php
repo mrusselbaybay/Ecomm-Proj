@@ -26,14 +26,22 @@ class CheckoutService
     ];
 
     /**
-     * @param  Profile  $buyer
+     * Payment methods checkout can complete. There is no payment gateway,
+     * so only cash on delivery is accepted and every order starts Unpaid.
+     * Mirrored by resources/js/buyer/composables/usePayment.js.
+     *
+     * @var list<string>
+     */
+    public const PAYMENT_METHODS = ['cod'];
+
+    /**
      * @param  array{items: array<int, array{product_id: string, variant_id?: string, quantity: int, variation?: string}>,
      *                delivery_address: array{recipient_name: string, contact_number?: string, address: string},
      *                shipping_method?: string, payment_method?: string} $payload
      * @return Collection<int, Order> The created orders (one per seller), loaded with items.
      *
      * @throws ValidationException if any item is invalid, out of stock, or
-     *                              the requested quantity exceeds what's available.
+     *                             the requested quantity exceeds what's available.
      */
     public function checkout(Profile $buyer, array $payload): Collection
     {
@@ -65,7 +73,7 @@ class CheckoutService
                 ->map(function (array $line) use ($products, $variants) {
                     $product = $products->get($line['product_id']);
 
-                    if (!$product || $product->status !== 'active') {
+                    if (! $product || $product->status !== 'active') {
                         throw ValidationException::withMessages([
                             'items' => 'One of the items in your cart is no longer available.',
                         ]);
@@ -88,7 +96,7 @@ class CheckoutService
                     // at all if the product has any (mirrors the buyer UI
                     // requirement, enforced again here server-side).
                     if ($product->has_variants) {
-                        if (!$variant || $variant->product_id !== $product->id) {
+                        if (! $variant || $variant->product_id !== $product->id) {
                             throw ValidationException::withMessages([
                                 'items' => "Please select a valid option for \"{$product->name}\".",
                             ]);
@@ -233,7 +241,7 @@ class CheckoutService
     private function generateOrderNumber(): string
     {
         do {
-            $candidate = 'SN-' . random_int(10000, 99999);
+            $candidate = 'SN-'.random_int(10000, 99999);
         } while (Order::where('order_number', $candidate)->exists());
 
         return $candidate;
