@@ -142,9 +142,9 @@ function runAction(toast) {
     padding: 12px 14px;
     border-radius: 14px;
     background: #ffffff;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--nx-line);
     box-shadow: 0 12px 32px -12px rgba(15, 23, 42, 0.28);
-    color: #0f172a;
+    color: var(--nx-ink);
 }
 
 .toast-icon {
@@ -158,14 +158,14 @@ function runAction(toast) {
     margin-top: 1px;
 }
 
-.toast--success .toast-icon { background: #ecfdf5; color: #047857; }
+.toast--success .toast-icon { background: var(--nx-accent-soft); color: var(--nx-accent-dark); }
 .toast--error   .toast-icon { background: #fef2f2; color: #b91c1c; }
-.toast--warning .toast-icon { background: #fff7ed; color: #c2410c; }
+.toast--warning .toast-icon { background: var(--nx-deal-soft); color: var(--nx-deal); }
 .toast--info    .toast-icon { background: #eff6ff; color: #1d4ed8; }
 
-.toast--success { border-left: 4px solid #047857; }
+.toast--success { border-left: 4px solid var(--nx-accent-dark); }
 .toast--error   { border-left: 4px solid #b91c1c; }
-.toast--warning { border-left: 4px solid #c2410c; }
+.toast--warning { border-left: 4px solid var(--nx-deal); }
 .toast--info    { border-left: 4px solid #1d4ed8; }
 
 .toast-message {
@@ -185,12 +185,12 @@ function runAction(toast) {
     background: transparent;
     font-size: 12.5px;
     font-weight: 700;
-    color: #0f766e;
+    color: var(--nx-accent-dark);
     cursor: pointer;
     white-space: nowrap;
 }
 
-.toast-action:hover { background: #f0fdfa; }
+.toast-action:hover { background: var(--nx-accent-soft); }
 
 .toast-close {
     display: flex;
@@ -201,17 +201,17 @@ function runAction(toast) {
     margin: -4px -4px -4px 0;
     border: none;
     background: transparent;
-    color: #94a3b8;
+    color: var(--nx-muted-2);
     border-radius: 8px;
     cursor: pointer;
     flex-shrink: 0;
 }
 
-.toast-close:hover { background: #f1f5f9; color: #475569; }
+.toast-close:hover { background: var(--nx-line-soft); color: var(--nx-text-2); }
 
 .toast-action:focus-visible,
 .toast-close:focus-visible {
-    outline: 2px solid #0d9488;
+    outline: 2px solid var(--nx-accent);
     outline-offset: 2px;
 }
 

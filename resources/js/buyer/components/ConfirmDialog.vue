@@ -149,14 +149,14 @@ function onKeydown(event) {
     margin: 0 0 8px;
     font-size: 18px;
     font-weight: 700;
-    color: #0f172a;
+    color: var(--nx-ink);
 }
 
 .confirm-message {
     margin: 0 0 20px;
     font-size: 14px;
     line-height: 1.55;
-    color: #475569;
+    color: var(--nx-text-2);
 }
 
 .confirm-actions {
@@ -176,23 +176,23 @@ function onKeydown(event) {
 }
 
 .confirm-cancel {
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--nx-line);
     background: #ffffff;
-    color: #475569;
+    color: var(--nx-text-2);
 }
 
 .confirm-cancel:hover {
-    background: #f8fafc;
+    background: var(--nx-sunken);
 }
 
 .confirm-accept {
     border: none;
-    background: #0d9488;
+    background: var(--nx-accent);
     color: #ffffff;
 }
 
 .confirm-accept:hover {
-    background: #0f766e;
+    background: var(--nx-accent-dark);
 }
 
 .confirm-accept--danger {
@@ -205,7 +205,7 @@ function onKeydown(event) {
 
 .confirm-cancel:focus-visible,
 .confirm-accept:focus-visible {
-    outline: 2px solid #0d9488;
+    outline: 2px solid var(--nx-accent);
     outline-offset: 2px;
 }
 

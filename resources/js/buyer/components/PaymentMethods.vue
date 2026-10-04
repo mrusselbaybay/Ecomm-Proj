@@ -5,7 +5,7 @@
 |--------------------------------------------------------------------------
 |
 | Adapted from a pasted reference design ("ShopVerse Modern Payment
-| Management") onto NEXMART's stack the same way as SavedAddresses.vue:
+| Management") onto BuyTheWay's stack the same way as SavedAddresses.vue:
 | Tailwind utilities, the shared Header/Footer, the same account-area
 | sidebar, inline SVG icons (the reference's iconify + brand-logo web
 | components aren't dependencies here — brands render as text pills).
@@ -375,7 +375,7 @@ function handleHeaderSelectCategory(category) {
 
                         <button
                             type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-[#0d9488] font-semibold transition-colors"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-brand font-semibold transition-colors"
                         >
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" />
@@ -409,7 +409,7 @@ function handleHeaderSelectCategory(category) {
                             <button
                                 v-if="!isFormOpen"
                                 type="button"
-                                class="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-colors"
+                                class="inline-flex items-center gap-2 px-5 py-2.5 bg-brand text-white rounded-xl text-sm font-bold hover:bg-brand-dark transition-colors"
                                 @click="openAddForm('card')"
                             >
                                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -442,7 +442,7 @@ function handleHeaderSelectCategory(category) {
                         style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
                     >
                         <div class="px-6 sm:px-10 py-6 border-b border-slate-100 flex items-center gap-3">
-                            <div class="w-10 h-10 bg-teal-50 rounded-2xl flex items-center justify-center text-[#0d9488]">
+                            <div class="w-10 h-10 bg-teal-50 rounded-2xl flex items-center justify-center text-brand">
                                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M5 12h14" /><path d="M12 5v14" />
                                 </svg>
@@ -467,7 +467,7 @@ function handleHeaderSelectCategory(category) {
                                         type="button"
                                         class="px-6 py-2.5 rounded-xl border text-sm font-bold transition-all"
                                         :class="formType === option.value
-                                            ? 'bg-teal-50 border-[#0d9488] text-[#0d9488]'
+                                            ? 'bg-teal-50 border-brand text-brand'
                                             : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'"
                                         @click="setFormType(option.value)"
                                     >
@@ -491,7 +491,7 @@ function handleHeaderSelectCategory(category) {
                                         inputmode="numeric"
                                         autocomplete="cc-number"
                                         placeholder="4242 4242 4242 4242"
-                                        class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 tracking-wider focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
+                                        class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 tracking-wider focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
                                         :class="errors.number ? 'border-red-300' : 'border-slate-200'"
                                     >
                                     <p v-if="errors.number" class="text-xs text-red-500 mt-1.5 px-1">{{ errors.number }}</p>
@@ -506,7 +506,7 @@ function handleHeaderSelectCategory(category) {
                                         type="text"
                                         autocomplete="cc-name"
                                         placeholder="Name as printed on the card"
-                                        class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
+                                        class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
                                         :class="errors.holder ? 'border-red-300' : 'border-slate-200'"
                                     >
                                     <p v-if="errors.holder" class="text-xs text-red-500 mt-1.5 px-1">{{ errors.holder }}</p>
@@ -520,7 +520,7 @@ function handleHeaderSelectCategory(category) {
                                         type="text"
                                         autocomplete="cc-exp"
                                         placeholder="MM / YY"
-                                        class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
+                                        class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
                                         :class="errors.expiry ? 'border-red-300' : 'border-slate-200'"
                                     >
                                     <p v-if="errors.expiry" class="text-xs text-red-500 mt-1.5 px-1">{{ errors.expiry }}</p>
@@ -533,20 +533,20 @@ function handleHeaderSelectCategory(category) {
                                         v-model="cardForm.label"
                                         type="text"
                                         placeholder="e.g. Personal, Work"
-                                        class="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
+                                        class="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
                                     >
                                 </div>
 
                                 <div class="md:col-span-2">
                                     <label class="flex items-center gap-3 cursor-pointer group w-fit">
-                                        <input v-model="cardForm.makePrimary" type="checkbox" class="w-[18px] h-[18px] accent-[#0d9488] cursor-pointer">
+                                        <input v-model="cardForm.makePrimary" type="checkbox" class="w-[18px] h-[18px] accent-brand cursor-pointer">
                                         <span class="text-sm font-medium text-slate-600 group-hover:text-slate-900 transition-colors">Use as my primary payment method</span>
                                     </label>
                                 </div>
 
                                 <div class="md:col-span-2 pt-2 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
                                     <button type="button" class="px-6 py-3.5 rounded-2xl text-sm font-bold text-slate-600 border border-slate-200 hover:bg-slate-50 transition-colors" @click="closeForm">Cancel</button>
-                                    <button type="submit" class="px-10 py-3.5 bg-[#0d9488] text-white rounded-2xl text-sm font-bold hover:bg-[#0f766e] transition-all">
+                                    <button type="submit" class="px-10 py-3.5 bg-brand text-white rounded-2xl text-sm font-bold hover:bg-brand-dark transition-all">
                                         {{ isEditing ? 'Save Changes' : 'Save Card' }}
                                     </button>
                                 </div>
@@ -563,7 +563,7 @@ function handleHeaderSelectCategory(category) {
                                     <div class="flex flex-wrap gap-3" role="radiogroup" aria-label="Wallet provider">
                                         <label v-for="provider in WALLET_PROVIDERS" :key="provider" class="cursor-pointer">
                                             <input v-model="walletForm.provider" type="radio" name="pm-provider" :value="provider" class="sr-only peer">
-                                            <span class="block px-6 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 bg-white transition-all hover:bg-slate-50 peer-checked:bg-teal-50 peer-checked:border-[#0d9488] peer-checked:text-[#0d9488]">
+                                            <span class="block px-6 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 bg-white transition-all hover:bg-slate-50 peer-checked:bg-teal-50 peer-checked:border-brand peer-checked:text-brand">
                                                 {{ provider }}
                                             </span>
                                         </label>
@@ -577,7 +577,7 @@ function handleHeaderSelectCategory(category) {
                                         v-model="walletForm.phone"
                                         type="tel"
                                         placeholder="09XXXXXXXXX"
-                                        class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
+                                        class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
                                         :class="errors.phone ? 'border-red-300' : 'border-slate-200'"
                                     >
                                     <p v-if="errors.phone" class="text-xs text-red-500 mt-1.5 px-1">{{ errors.phone }}</p>
@@ -586,14 +586,14 @@ function handleHeaderSelectCategory(category) {
 
                                 <div class="md:col-span-2">
                                     <label class="flex items-center gap-3 cursor-pointer group w-fit">
-                                        <input v-model="walletForm.makePrimary" type="checkbox" class="w-[18px] h-[18px] accent-[#0d9488] cursor-pointer">
+                                        <input v-model="walletForm.makePrimary" type="checkbox" class="w-[18px] h-[18px] accent-brand cursor-pointer">
                                         <span class="text-sm font-medium text-slate-600 group-hover:text-slate-900 transition-colors">Use as my primary payment method</span>
                                     </label>
                                 </div>
 
                                 <div class="md:col-span-2 pt-2 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
                                     <button type="button" class="px-6 py-3.5 rounded-2xl text-sm font-bold text-slate-600 border border-slate-200 hover:bg-slate-50 transition-colors" @click="closeForm">Cancel</button>
-                                    <button type="submit" class="px-10 py-3.5 bg-[#0d9488] text-white rounded-2xl text-sm font-bold hover:bg-[#0f766e] transition-all">Connect Wallet</button>
+                                    <button type="submit" class="px-10 py-3.5 bg-brand text-white rounded-2xl text-sm font-bold hover:bg-brand-dark transition-all">Connect Wallet</button>
                                 </div>
                             </form>
                         </div>
@@ -605,7 +605,7 @@ function handleHeaderSelectCategory(category) {
                         class="bg-white rounded-3xl border border-dashed border-slate-200 p-12 text-center"
                         style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
                     >
-                        <div class="w-14 h-14 mx-auto rounded-2xl bg-teal-50 text-[#0d9488] flex items-center justify-center mb-4">
+                        <div class="w-14 h-14 mx-auto rounded-2xl bg-teal-50 text-brand flex items-center justify-center mb-4">
                             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" />
                             </svg>
@@ -614,7 +614,7 @@ function handleHeaderSelectCategory(category) {
                         <p class="text-slate-500 text-sm mt-1 mb-6">Add a card or connect a wallet to speed up checkout.</p>
                         <button
                             type="button"
-                            class="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-colors"
+                            class="inline-flex items-center gap-2 px-5 py-2.5 bg-brand text-white rounded-xl text-sm font-bold hover:bg-brand-dark transition-colors"
                             @click="openAddForm('card')"
                         >
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -646,7 +646,7 @@ function handleHeaderSelectCategory(category) {
                                     </span>
                                     <span
                                         v-if="card.isPrimary"
-                                        class="inline-flex items-center gap-1.5 bg-teal-50 text-[#0d9488] text-[10px] font-bold uppercase py-1 px-2.5 rounded-lg border border-teal-100"
+                                        class="inline-flex items-center gap-1.5 bg-teal-50 text-brand text-[10px] font-bold uppercase py-1 px-2.5 rounded-lg border border-teal-100"
                                     >
                                         <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" stroke="none">
                                             <path d="M12 2 15.09 8.26 22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
@@ -680,7 +680,7 @@ function handleHeaderSelectCategory(category) {
                                     <button
                                         v-if="!card.isPrimary"
                                         type="button"
-                                        class="text-xs font-bold text-[#0d9488] hover:text-[#0f766e] transition-colors"
+                                        class="text-xs font-bold text-brand hover:text-brand-dark transition-colors"
                                         @click="handleSetPrimary(card)"
                                     >
                                         Set as Primary
@@ -713,7 +713,7 @@ function handleHeaderSelectCategory(category) {
                                         <p class="text-sm text-slate-500">Connected: {{ wallet.phoneMasked }}</p>
                                         <span
                                             v-if="wallet.isPrimary"
-                                            class="inline-flex items-center gap-1 mt-2 text-[9px] font-bold text-[#0d9488] uppercase tracking-widest bg-teal-50 px-2 py-0.5 rounded-md"
+                                            class="inline-flex items-center gap-1 mt-2 text-[9px] font-bold text-brand uppercase tracking-widest bg-teal-50 px-2 py-0.5 rounded-md"
                                         >
                                             Primary
                                         </span>
@@ -766,21 +766,21 @@ function handleHeaderSelectCategory(category) {
                                     @change="handleCodToggle"
                                 >
                                 <span class="sr-only">Enable Cash on Delivery</span>
-                                <div class="relative w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-[#0d9488] peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                                <div class="relative w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-brand peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
                             </label>
                         </div>
                     </section>
 
                     <!-- Security note -->
                     <div class="bg-slate-900 text-white rounded-3xl p-6 flex items-start gap-4">
-                        <div class="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center shrink-0 text-[#0d9488]">
+                        <div class="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center shrink-0 text-brand">
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" />
                             </svg>
                         </div>
                         <div>
                             <h4 class="font-bold text-sm mb-1">Only tokens are stored here</h4>
-                            <p class="text-xs text-slate-400 leading-relaxed">This screen keeps a card's brand, last 4 digits, and expiry — never the full number or CVV. Payment itself isn't processed by NEXMART yet; this list is for filling checkout in faster.</p>
+                            <p class="text-xs text-slate-400 leading-relaxed">This screen keeps a card's brand, last 4 digits, and expiry — never the full number or CVV. Payment itself isn't processed by BuyTheWay yet; this list is for filling checkout in faster.</p>
                         </div>
                     </div>
                 </div>

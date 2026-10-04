@@ -5,7 +5,7 @@
 |--------------------------------------------------------------------------
 |
 | Adapted from a pasted reference design ("ShopVerse Account Settings")
-| onto NEXMART's real data and components, following the same approach as
+| onto BuyTheWay's real data and components, following the same approach as
 | CategoryListing.vue: Tailwind utilities (matching Cart.vue's precedent),
 | the shared Header/Footer, and #0d9488 brand teal the reference already
 | used. The old version of this page rendered against a hardcoded mock
@@ -302,7 +302,7 @@ const showDeleteModal = ref(false);
 const deleteMailtoHref = computed(() => {
     const subject = encodeURIComponent('Account Deletion Request');
     const body = encodeURIComponent(
-        `Please delete my NEXMART buyer account.\n\nName: ${buyerFullName.value}\nAccount email: ${buyerProfile.value?.email || ''}\nAccount ID: ${buyerProfile.value?.id || ''}`
+        `Please delete my BuyTheWay buyer account.\n\nName: ${buyerFullName.value}\nAccount email: ${buyerProfile.value?.email || ''}\nAccount ID: ${buyerProfile.value?.id || ''}`
     );
 
     return `mailto:support@nexmart.com?subject=${subject}&body=${body}`;
@@ -354,7 +354,7 @@ function handleHeaderSelectCategory(category) {
                 class="max-w-lg mx-auto text-center bg-white rounded-3xl border border-slate-100 p-12"
                 style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
             >
-                <div class="w-16 h-16 rounded-full bg-teal-50 text-[#0d9488] flex items-center justify-center mx-auto mb-6">
+                <div class="w-16 h-16 rounded-full bg-teal-50 text-brand flex items-center justify-center mx-auto mb-6">
                     <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
                         <circle cx="12" cy="7" r="4" />
@@ -364,7 +364,7 @@ function handleHeaderSelectCategory(category) {
                 <p class="text-slate-500 mb-6">Your profile, orders, and settings live here once you're signed in.</p>
                 <a
                     href="/login"
-                    class="inline-block bg-[#0d9488] hover:bg-[#0f766e] text-white font-bold text-sm px-8 py-3 rounded-full transition-colors"
+                    class="inline-block bg-brand hover:bg-brand-dark text-white font-bold text-sm px-8 py-3 rounded-full transition-colors"
                 >
                     Sign In
                 </a>
@@ -393,7 +393,7 @@ function handleHeaderSelectCategory(category) {
 
                         <button
                             type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-[#0d9488] font-semibold transition-colors"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-brand font-semibold transition-colors"
                             @click="scrollToSection('profile-section')"
                         >
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -502,7 +502,7 @@ function handleHeaderSelectCategory(category) {
                         </div>
 
                         <div class="flex flex-col sm:flex-row items-start sm:items-center gap-6 mb-8 pb-8 border-b border-slate-50">
-                            <div class="w-24 h-24 rounded-full bg-teal-50 text-[#0d9488] flex items-center justify-center text-2xl font-bold border-4 border-slate-50 shrink-0">
+                            <div class="w-24 h-24 rounded-full bg-teal-50 text-brand flex items-center justify-center text-2xl font-bold border-4 border-slate-50 shrink-0">
                                 {{ buyerInitials }}
                             </div>
                             <div>
@@ -532,7 +532,7 @@ function handleHeaderSelectCategory(category) {
                                         type="text"
                                         autocomplete="given-name"
                                         :disabled="!isEditing"
-                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-[#0d9488]/20 focus:border-[#0d9488]"
+                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
                                         :class="errors.firstName ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
                                     >
                                     <small v-if="errors.firstName" class="block text-red-500 text-xs mt-1">{{ errors.firstName }}</small>
@@ -546,7 +546,7 @@ function handleHeaderSelectCategory(category) {
                                         maxlength="1"
                                         autocomplete="additional-name"
                                         :disabled="!isEditing"
-                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-[#0d9488]/20 focus:border-[#0d9488]"
+                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
                                         :class="errors.middleInitial ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
                                     >
                                     <small v-if="errors.middleInitial" class="block text-red-500 text-xs mt-1">{{ errors.middleInitial }}</small>
@@ -559,7 +559,7 @@ function handleHeaderSelectCategory(category) {
                                         type="text"
                                         autocomplete="family-name"
                                         :disabled="!isEditing"
-                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-[#0d9488]/20 focus:border-[#0d9488]"
+                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
                                         :class="errors.lastName ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
                                     >
                                     <small v-if="errors.lastName" class="block text-red-500 text-xs mt-1">{{ errors.lastName }}</small>
@@ -570,7 +570,7 @@ function handleHeaderSelectCategory(category) {
                                     <select
                                         v-if="isEditing"
                                         v-model="draft.sex"
-                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 border transition-colors focus:outline-none focus:ring-2 focus:ring-[#0d9488]/20 focus:border-[#0d9488]"
+                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
                                         :class="errors.sex ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
                                     >
                                         <option value="" disabled>Select sex</option>
@@ -591,7 +591,7 @@ function handleHeaderSelectCategory(category) {
                                         autocomplete="tel-national"
                                         placeholder="09171234567"
                                         :disabled="!isEditing"
-                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-[#0d9488]/20 focus:border-[#0d9488]"
+                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
                                         :class="errors.contactNumber ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
                                         @input="onContactInput"
                                     >
@@ -613,7 +613,7 @@ function handleHeaderSelectCategory(category) {
                                         type="date"
                                         autocomplete="bday"
                                         :max="maximumBirthday"
-                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 border transition-colors focus:outline-none focus:ring-2 focus:ring-[#0d9488]/20 focus:border-[#0d9488]"
+                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
                                         :class="errors.birthday ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
                                     >
                                     <p v-else class="text-sm text-slate-900 font-medium py-2.5">
@@ -650,7 +650,7 @@ function handleHeaderSelectCategory(category) {
                                 <button
                                     type="submit"
                                     :disabled="isSaving"
-                                    class="px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-[#0d9488] hover:bg-[#0f766e] disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                                    class="px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-brand hover:bg-brand-dark disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                                 >
                                     {{ isSaving ? 'Saving…' : 'Save Changes' }}
                                 </button>
@@ -722,7 +722,7 @@ function handleHeaderSelectCategory(category) {
                                         class="sr-only peer"
                                         @change="persistNotifPrefs"
                                     >
-                                    <div class="relative w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0d9488]"></div>
+                                    <div class="relative w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
                                 </label>
                             </div>
 
@@ -738,7 +738,7 @@ function handleHeaderSelectCategory(category) {
                                         class="sr-only peer"
                                         @change="persistNotifPrefs"
                                     >
-                                    <div class="relative w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0d9488]"></div>
+                                    <div class="relative w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
                                 </label>
                             </div>
 
@@ -754,7 +754,7 @@ function handleHeaderSelectCategory(category) {
                                         class="sr-only peer"
                                         @change="persistNotifPrefs"
                                     >
-                                    <div class="relative w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0d9488]"></div>
+                                    <div class="relative w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
                                 </label>
                             </div>
                         </div>
@@ -821,7 +821,7 @@ function handleHeaderSelectCategory(category) {
                     <p class="text-slate-500 text-sm mb-6">Use your new password next time you sign in.</p>
                     <button
                         type="button"
-                        class="px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-[#0d9488] hover:bg-[#0f766e] transition-colors"
+                        class="px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-brand hover:bg-brand-dark transition-colors"
                         @click="closePasswordModal"
                     >
                         Done
@@ -841,7 +841,7 @@ function handleHeaderSelectCategory(category) {
                                 :type="passwordVisible ? 'text' : 'password'"
                                 autocomplete="new-password"
                                 placeholder="At least 8 characters"
-                                class="w-full px-4 py-2.5 pr-11 rounded-xl text-sm bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0d9488]/20 focus:border-[#0d9488]"
+                                class="w-full px-4 py-2.5 pr-11 rounded-xl text-sm bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
                             >
                             <button
                                 type="button"
@@ -869,7 +869,7 @@ function handleHeaderSelectCategory(category) {
                             v-model="passwordForm.confirm"
                             :type="passwordVisible ? 'text' : 'password'"
                             autocomplete="new-password"
-                            class="w-full px-4 py-2.5 rounded-xl text-sm bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0d9488]/20 focus:border-[#0d9488]"
+                            class="w-full px-4 py-2.5 rounded-xl text-sm bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
                         >
                     </label>
 
@@ -878,7 +878,7 @@ function handleHeaderSelectCategory(category) {
                     <button
                         type="submit"
                         :disabled="passwordSaving"
-                        class="w-full mt-2 px-6 py-3 rounded-xl text-sm font-bold text-white bg-[#0d9488] hover:bg-[#0f766e] disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                        class="w-full mt-2 px-6 py-3 rounded-xl text-sm font-bold text-white bg-brand hover:bg-brand-dark disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                     >
                         {{ passwordSaving ? 'Saving…' : 'Update Password' }}
                     </button>

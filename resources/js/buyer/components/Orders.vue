@@ -302,7 +302,7 @@ function handleHeaderSelectCategory(category) {
 
                         <button
                             type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-[#0d9488] font-semibold transition-colors"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-brand font-semibold transition-colors"
                         >
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" />
@@ -368,7 +368,7 @@ function handleHeaderSelectCategory(category) {
                         <div>
                             <button
                                 type="button"
-                                class="inline-flex items-center gap-2 text-sm font-semibold text-[#0d9488] hover:underline mb-2"
+                                class="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:underline mb-2"
                                 @click="emit('back')"
                             >
                                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -389,7 +389,7 @@ function handleHeaderSelectCategory(category) {
                             type="button"
                             class="px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-colors shrink-0"
                             :class="selectedStatus === tab
-                                ? 'bg-[#0d9488] text-white'
+                                ? 'bg-brand text-white'
                                 : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'"
                             @click="selectedStatus = tab"
                         >
@@ -472,7 +472,7 @@ function handleHeaderSelectCategory(category) {
                                     <div class="flex-1 min-w-0">
                                         <h3 class="font-bold text-slate-900 truncate">{{ item.name || `Product #${item.product_id}` }}</h3>
                                         <p class="text-sm text-slate-500 mt-0.5">
-                                            {{ item.seller || 'NEXMART Seller' }}
+                                            {{ item.seller || 'BuyTheWay Seller' }}
                                             <template v-if="item.variation"> • {{ item.variation }}</template>
                                             • Qty {{ item.quantity }}
                                         </p>
@@ -493,11 +493,11 @@ function handleHeaderSelectCategory(category) {
                                 <div class="flex items-center gap-6">
                                     <div class="text-right">
                                         <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Total</span>
-                                        <span class="text-lg font-bold text-[#0d9488]">{{ formatPrice(order.total) }}</span>
+                                        <span class="text-lg font-bold text-brand">{{ formatPrice(order.total) }}</span>
                                     </div>
                                     <button
                                         type="button"
-                                        class="px-5 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-colors"
+                                        class="px-5 py-2.5 bg-brand text-white rounded-xl text-sm font-bold hover:bg-brand-dark transition-colors"
                                         @click="viewOrderDetails(order)"
                                     >
                                         View Details

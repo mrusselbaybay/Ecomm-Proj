@@ -92,7 +92,7 @@ class OrderController extends Controller
     {
         $sellerName = $order->seller?->sellerDetail?->business_name
             ?? $order->seller?->full_name
-            ?? 'NEXMART Seller';
+            ?? 'BuyTheWay Seller';
 
         $addressLine = collect([
             $order->shipping_house_no,

@@ -4,58 +4,50 @@
 | CategoryListing
 |--------------------------------------------------------------------------
 |
-| The dedicated "browse a single category" page — what clicking a category
-| card/tab anywhere in the buyer app now navigates to, instead of just
-| filtering the homepage's inline grid. Adapted from a pasted reference
-| design ("ShopVerse"); ported onto NEXMART's own data, components
-| (Header/Footer/ProductCard), and #0d9488 brand teal, which the reference
-| already happened to share.
+| The "browse one category" page. One layout for every category; what
+| changes per category comes from useCategoryConfig.js (description, image
+| crop, filterable attributes, card detail), which mirrors the seller-side
+| app/Support/CategoryFieldConfig.php.
 |
-| `products` arrives pre-filtered to this category from Dashboard.vue
-| (Dashboard already holds the full catalog in memory — see
-| useBuyerProducts.js — so this component does no fetching of its own and
-| can't accidentally clobber that shared list). Dashboard also gives this
-| component a `:key="category"` where it's mounted, so every field below
-| naturally resets when the category changes rather than needing its own
-| prop watcher.
+| `products` arrives pre-filtered to this category from Dashboard.vue, which
+| holds the catalog in memory; filtering is client-side, so results update
+| instantly and there are no competing requests to race.
 |
-| Filters/sort are all real, computed from whatever's actually on these
-| products (brand, condition, stock, price, and now color/size) — nothing
-| here is fabricated. Two things the original reference had are
-| deliberately left out:
-|   - Customer Rating filter: there's no reviews aggregation wired into
-|     the product catalog endpoint yet (see ProductController::transform),
-|     so a rating filter would have nothing real to filter by.
-|   - "Best Selling" sort: same reason — no sales-aggregation endpoint.
-|     (Dashboard's homepage "Best Sellers" shelf is an explicitly-labeled
-|     stock-based proxy; a *sort* option claiming to be "best selling"
-|     buyers might actually rely on is a different bar, so it's left out
-|     rather than reusing that same proxy here.)
-| Both are real gaps, not hidden ones — worth wiring up if/when reviews
-| and order aggregation exist.
+| Filtering model
+|   - Applied state lives in the URL (useCategoryFilterState.js): refresh,
+|     share and browser back/forward all reproduce the same results.
+|   - Desktop applies changes immediately (typed prices are debounced),
+|     in a sidebar when the category has 2+ useful attribute groups,
+|     otherwise in a compact toolbar of filter buttons with dropdown panels.
+|   - Below 1024px a drawer edits a *pending* copy; "Apply filters" commits
+|     it, closing without applying leaves the applied filters untouched.
+|   - Option counts are contextual (products matching every *other* active
+|     filter), and options that would lead to zero results are disabled.
 |
-| Color/Size are likewise real: every product carries `options` (the same
-| {name, values} shape ProductDetails.vue reads to build its variant
-| picker — see ProductController::transform()), so these facets are built
-| from whichever option names a product actually has, exactly like the
-| brand/condition facets below. A product with no "Color"/"Size" option
-| simply doesn't contribute to those facets — never invented.
-|
-| The sidebar's order-tracking widget is the honest version of the
-| reference's live map: this app has no courier GPS data (see
-| OrderTracking.vue's own note on this), so instead of faking a map it
-| surfaces the buyer's most recent in-progress order using the same
-| trackingSteps/stepLabels data OrderTracking.vue's real timeline uses,
-| with a link into the real order list.
+| Not filterable by product decision: Brand, Life Stage, Pack Size, Flavor.
 |
 */
-import { ref, computed, onMounted } from 'vue';
+import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
-import { useBuyer } from '../composables/useBuyer';
-import { metaFor, formatPrice } from '../composables/useCategoryMeta';
-import { trackingSteps, stepLabels, isTrackingStepCompleted } from '../composables/useOrderTimeline';
+import FilterGroup from './FilterGroup.vue';
+import { formatPrice } from '../composables/useCategoryMeta';
+import {
+    categoryConfig,
+    facetValuesOf,
+    sortFacetValues,
+    cardDetailFor
+} from '../composables/useCategoryConfig';
+import {
+    defaultFilterState,
+    sanitizeFilterState,
+    filterStateFromQuery,
+    queryForFilterState,
+    categoryFromQuery,
+    rememberFilterState,
+    rememberedFilterState
+} from '../composables/useCategoryFilterState';
 
 const props = defineProps({
     category: {
@@ -86,446 +78,593 @@ const emit = defineEmits([
     'select-product',
     'browse-all',
     'browse-categories',
-    'view-orders'
+    'view-orders',
+    'retry'
 ]);
 
-const { addToCart, orders, isLoadingOrders, loadOrders, ORDER_STATUSES } = useBuyer();
+const PER_PAGE = 24;
+const PRICE_DEBOUNCE = 450;
 
-onMounted(() => {
-    loadOrders();
-});
-
-const PER_PAGE = 12;
+const config = computed(() => categoryConfig(props.category));
 
 /*
 |--------------------------------------------------------------------------
-| Filters
+| Applied State <-> URL
+|--------------------------------------------------------------------------
+|
+| On entry the URL wins when it describes this category (refresh, shared
+| link, browser back); otherwise the buyer's last state for the category.
+| Every change rewrites the current history entry in place, so filtering
+| doesn't flood the back button but the entry always holds the latest
+| filters to come back to.
+|
+*/
+
+const applied = reactive(
+    categoryFromQuery(window.location.search) === props.category
+        ? filterStateFromQuery(window.location.search, props.category)
+        : rememberedFilterState(props.category)
+);
+
+function syncUrl() {
+    rememberFilterState(props.category, applied);
+
+    const url = `${window.location.pathname}${queryForFilterState(props.category, applied)}`;
+
+    if (url !== `${window.location.pathname}${window.location.search}`) {
+        window.history.replaceState(window.history.state, '', url);
+    }
+}
+
+watch(applied, syncUrl, { deep: true });
+
+function cloneState(state) {
+    return sanitizeFilterState(JSON.parse(JSON.stringify(state)), props.category);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Matching
 |--------------------------------------------------------------------------
 */
 
-const priceMin = ref('');
-const priceMax = ref('');
-const selectedBrands = ref([]);
-const selectedConditions = ref([]);
-const selectedColors = ref([]);
-const selectedSizes = ref([]);
-const inStockOnly = ref(false);
+function isOnSale(product) {
+    const oldPrice = Number(product.oldPrice);
 
-const sortBy = ref('newest');
-const viewMode = ref('grid');
-const page = ref(1);
-
-const sectionsOpen = ref({
-    price: true,
-    brand: true,
-    availability: true,
-    condition: true,
-    color: true,
-    size: true
-});
-
-function toggleSection(key) {
-    sectionsOpen.value[key] = !sectionsOpen.value[key];
+    return Number.isFinite(oldPrice) && oldPrice > Number(product.price);
 }
 
-const priceBounds = computed(() => {
-    if (props.products.length === 0) {
-        return { min: 0, max: 0 };
+/**
+ * Does the product pass every active filter in `state`, optionally
+ * ignoring one group (used for contextual option counts)?
+ */
+function matches(product, state, exceptGroup = null) {
+    const price = Number(product.price) || 0;
+
+    if (exceptGroup !== 'price') {
+        if (state.priceMin !== '' && price < Number(state.priceMin)) {
+            return false;
+        }
+
+        if (state.priceMax !== '' && price > Number(state.priceMax)) {
+            return false;
+        }
     }
 
-    const prices = props.products.map(p => Number(p.price) || 0);
+    if (exceptGroup !== 'availability') {
+        if (state.inStockOnly && !(product.stock > 0)) {
+            return false;
+        }
 
-    return {
-        min: Math.min(...prices),
-        max: Math.max(...prices)
-    };
-});
+        if (state.onSaleOnly && !isOnSale(product)) {
+            return false;
+        }
+    }
 
-// {label, count}[] built from whatever brand/condition values these
-// products actually carry — never a hardcoded list.
-function facetOf(field) {
-    const counts = new Map();
+    if (exceptGroup !== 'condition' && state.conditions.length && !state.conditions.includes(product.condition)) {
+        return false;
+    }
 
-    for (const product of props.products) {
-        const value = product[field];
+    if (exceptGroup !== 'rating' && state.minRating && !(product.rating >= state.minRating)) {
+        return false;
+    }
 
-        if (!value) {
+    for (const facet of config.value.facets) {
+        if (facet.key === exceptGroup) {
             continue;
         }
 
-        counts.set(value, (counts.get(value) || 0) + 1);
+        const selected = state.selections[facet.key] || [];
+
+        if (selected.length && !facetValuesOf(product, facet).some(v => selected.includes(v))) {
+            return false;
+        }
     }
 
-    return [...counts.entries()]
-        .map(([value, count]) => ({ value, count }))
-        .sort((a, b) => a.value.localeCompare(b.value));
+    return true;
 }
 
-// Color/Size facets, built the same honest way but sourced from each
-// product's real variant `options` (see ProductController::transform —
-// options is [{name, values: [{value}]}]) rather than a flat field, since
-// that's where this data actually lives.
-function variantOptionFacet(optionName) {
+function sortProducts(list, sortBy) {
+    switch (sortBy) {
+        case 'price-asc':
+            return list.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
+        case 'price-desc':
+            return list.sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+        case 'rating':
+            return list.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1) || (b.reviewCount || 0) - (a.reviewCount || 0));
+        case 'name-asc':
+            return list.sort((a, b) => a.name.localeCompare(b.name));
+        default:
+            return list.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    }
+}
+
+const filteredProducts = computed(() =>
+    sortProducts(props.products.filter(p => matches(p, applied)), applied.sortBy)
+);
+
+/*
+|--------------------------------------------------------------------------
+| Filter Groups
+|--------------------------------------------------------------------------
+|
+| Which groups exist is decided from the whole category (so groups never
+| vanish mid-filter); option counts come from the state being edited.
+|
+*/
+
+// A group earns its place only if it can actually narrow the list: two or
+// more values, or one value that not every product has.
+function isUseful(counts) {
+    return counts.size > 1
+        || (counts.size === 1 && [...counts.values()][0] < props.products.length);
+}
+
+function countValues(products, getValues) {
     const counts = new Map();
 
-    for (const product of props.products) {
-        const option = (product.options || []).find(
-            o => (o.name || '').toLowerCase() === optionName
-        );
-
-        if (!option) {
-            continue;
-        }
-
-        const seenOnThisProduct = new Set();
-
-        for (const { value } of option.values || []) {
-            if (!value || seenOnThisProduct.has(value)) {
-                continue;
-            }
-
-            seenOnThisProduct.add(value);
+    for (const product of products) {
+        for (const value of getValues(product)) {
             counts.set(value, (counts.get(value) || 0) + 1);
         }
     }
 
-    return [...counts.entries()].map(([value, count]) => ({ value, count }));
+    return counts;
 }
 
-function productHasOptionValue(product, optionName, selectedValues) {
-    if (selectedValues.length === 0) {
-        return true;
-    }
-
-    const option = (product.options || []).find(
-        o => (o.name || '').toLowerCase() === optionName
-    );
-
-    if (!option) {
-        return false;
-    }
-
-    return option.values.some(v => selectedValues.includes(v.value));
-}
-
-const availableBrands = computed(() => facetOf('brand'));
-const availableConditions = computed(() => facetOf('condition'));
-
-const availableColors = computed(() =>
-    variantOptionFacet('color').sort((a, b) => a.value.localeCompare(b.value))
-);
-
-// Common apparel scale first, then anything unrecognized falls back to a
-// natural alphanumeric sort rather than being dropped.
-const SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL'];
-
-const availableSizes = computed(() =>
-    variantOptionFacet('size').sort((a, b) => {
-        const ai = SIZE_ORDER.indexOf(a.value.toUpperCase());
-        const bi = SIZE_ORDER.indexOf(b.value.toUpperCase());
-
-        if (ai !== -1 && bi !== -1) {
-            return ai - bi;
-        }
-
-        if (ai !== -1) {
-            return -1;
-        }
-
-        if (bi !== -1) {
-            return 1;
-        }
-
-        return a.value.localeCompare(b.value, undefined, { numeric: true });
-    })
-);
-
-// A small curated set of real CSS colors for common apparel color names, so
-// the swatch actually reflects the named color instead of guessing. Names
-// outside this set still show as a plain labeled chip — never a wrong hue.
-const COLOR_SWATCH_MAP = {
-    black: '#111111', white: '#ffffff', red: '#ef4444', blue: '#3b82f6',
-    navy: '#1e3a8a', green: '#22c55e', brown: '#92400e', gray: '#9ca3af',
-    grey: '#9ca3af', beige: '#e7d8c9', yellow: '#eab308', orange: '#f97316',
-    pink: '#ec4899', purple: '#a855f7', gold: '#ca8a04', silver: '#c0c0c0',
-    tan: '#d2b48c', cream: '#fffdf0', maroon: '#7f1d1d', teal: '#0d9488'
+const SWATCHES = {
+    black: '#1c1a17', white: '#ffffff', gray: '#9a958c', red: '#c0392b', blue: '#2f5d9e',
+    green: '#3f7a4f', yellow: '#e2b93b', orange: '#d9772b', purple: '#7a4f9a', pink: '#d9849b',
+    brown: '#7a5233', beige: '#e3d5bf', navy: '#22335e'
 };
 
-function swatchColor(name) {
-    return COLOR_SWATCH_MAP[(name || '').toLowerCase().trim()] || null;
+function conditionsOf(product) {
+    return product.condition ? [product.condition] : [];
 }
 
-const hasActiveFilters = computed(() =>
-    priceMin.value !== '' ||
-    priceMax.value !== '' ||
-    selectedBrands.value.length > 0 ||
-    selectedConditions.value.length > 0 ||
-    selectedColors.value.length > 0 ||
-    selectedSizes.value.length > 0 ||
-    inStockOnly.value
-);
+const priceBounds = computed(() => {
+    const prices = props.products.map(p => Number(p.price) || 0);
 
-function clearAllFilters() {
-    priceMin.value = '';
-    priceMax.value = '';
-    selectedBrands.value = [];
-    selectedConditions.value = [];
-    selectedColors.value = [];
-    selectedSizes.value = [];
-    inStockOnly.value = false;
-    page.value = 1;
+    return prices.length
+        ? { min: Math.floor(Math.min(...prices)), max: Math.ceil(Math.max(...prices)) }
+        : { min: 0, max: 0 };
+});
+
+const availableGroups = computed(() => {
+    const groups = [];
+
+    for (const facet of config.value.facets) {
+        if (isUseful(countValues(props.products, p => facetValuesOf(p, facet)))) {
+            groups.push({
+                key: facet.key,
+                label: facet.label,
+                kind: facet.display === 'swatch' ? 'swatch' : facet.display === 'grid' ? 'toggle' : 'checkbox',
+                facet,
+                isAttribute: true
+            });
+        }
+    }
+
+    if (priceBounds.value.max > priceBounds.value.min) {
+        groups.push({ key: 'price', label: 'Price', kind: 'price' });
+    }
+
+    const hasOutOfStock = props.products.some(p => !(p.stock > 0));
+    const hasSale = props.products.some(isOnSale);
+
+    if (hasOutOfStock || hasSale) {
+        groups.push({ key: 'availability', label: 'Availability', kind: 'checkbox', hasOutOfStock, hasSale });
+    }
+
+    if (isUseful(countValues(props.products, conditionsOf))) {
+        groups.push({ key: 'condition', label: 'Condition', kind: 'checkbox', isAttribute: true });
+    }
+
+    if (props.products.some(p => typeof p.rating === 'number')) {
+        groups.push({ key: 'rating', label: 'Customer rating', kind: 'radio' });
+    }
+
+    return groups;
+});
+
+function capitalize(value) {
+    return String(value).charAt(0).toUpperCase() + String(value).slice(1);
+}
+
+/** Groups with options and contextual counts for a given state. */
+function groupsFor(state) {
+    return availableGroups.value.map(group => {
+        const pool = props.products.filter(p => matches(p, state, group.key));
+
+        if (group.facet) {
+            const counts = countValues(pool, p => facetValuesOf(p, group.facet));
+            const all = sortFacetValues([...countValues(props.products, p => facetValuesOf(p, group.facet)).keys()], group.facet);
+            const selected = state.selections[group.key] || [];
+
+            return {
+                ...group,
+                options: all.map(value => ({
+                    value,
+                    label: value,
+                    count: counts.get(value) || 0,
+                    swatch: SWATCHES[value.toLowerCase()] || null,
+                    disabled: !counts.get(value) && !selected.includes(value)
+                }))
+            };
+        }
+
+        if (group.key === 'condition') {
+            const counts = countValues(pool, conditionsOf);
+            const all = [...countValues(props.products, conditionsOf).keys()];
+
+            return {
+                ...group,
+                options: all.map(value => ({
+                    value,
+                    label: capitalize(value),
+                    count: counts.get(value) || 0,
+                    disabled: !counts.get(value) && !state.conditions.includes(value)
+                }))
+            };
+        }
+
+        if (group.key === 'availability') {
+            const options = [];
+
+            if (group.hasOutOfStock) {
+                options.push({ value: 'in_stock', label: 'In stock only', count: pool.filter(p => p.stock > 0).length });
+            }
+
+            if (group.hasSale) {
+                options.push({ value: 'on_sale', label: 'On sale', count: pool.filter(isOnSale).length });
+            }
+
+            return { ...group, options };
+        }
+
+        if (group.key === 'rating') {
+            return {
+                ...group,
+                options: [
+                    { value: 0, label: 'Any rating' },
+                    { value: 4, label: '4 stars & up', count: pool.filter(p => p.rating >= 4).length },
+                    { value: 3, label: '3 stars & up', count: pool.filter(p => p.rating >= 3).length }
+                ]
+            };
+        }
+
+        return { ...group, bounds: priceBounds.value };
+    });
+}
+
+function groupValue(state, group) {
+    switch (group.key) {
+        case 'price':
+            return { min: state.priceMin, max: state.priceMax };
+        case 'availability':
+            return [state.inStockOnly && 'in_stock', state.onSaleOnly && 'on_sale'].filter(Boolean);
+        case 'condition':
+            return state.conditions;
+        case 'rating':
+            return state.minRating;
+        default:
+            return state.selections[group.key] || [];
+    }
+}
+
+function setGroupValue(state, group, value) {
+    switch (group.key) {
+        case 'price':
+            state.priceMin = value.min;
+            state.priceMax = value.max;
+            break;
+        case 'availability':
+            state.inStockOnly = value.includes('in_stock');
+            state.onSaleOnly = value.includes('on_sale');
+            break;
+        case 'condition':
+            state.conditions = value;
+            break;
+        case 'rating':
+            state.minRating = Number(value) || 0;
+            break;
+        default:
+            state.selections = { ...state.selections, [group.key]: value };
+    }
+
+    // Any filter change starts the results over; sorting is kept.
+    state.page = 1;
+}
+
+function groupHasValue(state, group) {
+    const value = groupValue(state, group);
+
+    if (group.key === 'price') {
+        return value.min !== '' || value.max !== '';
+    }
+
+    return Array.isArray(value) ? value.length > 0 : Boolean(value);
+}
+
+const appliedGroups = computed(() => groupsFor(applied));
+
+// Sidebar only when there's enough to justify the column.
+const useSidebar = computed(() => availableGroups.value.filter(g => g.isAttribute).length >= 2);
+
+// Frequently used groups open by default; the rest collapse but keep their
+// selection visible in a summary line.
+function isDefaultOpen(group, index, state) {
+    return index < 3 || groupHasValue(state, group);
 }
 
 /*
 |--------------------------------------------------------------------------
-| Active Filter Chips
+| Applied Chips
 |--------------------------------------------------------------------------
 */
 
-const activeFilterChips = computed(() => {
+function priceLabel(min, max) {
+    if (min !== '' && max !== '') {
+        return `${formatPrice(min)} – ${formatPrice(max)}`;
+    }
+
+    return min !== '' ? `From ${formatPrice(min)}` : `Up to ${formatPrice(max)}`;
+}
+
+const activeChips = computed(() => {
     const chips = [];
 
-    if (priceMin.value !== '' || priceMax.value !== '') {
-        chips.push({
-            type: 'price',
-            value: null,
-            label: `${formatPrice(sliderMin.value)} – ${formatPrice(sliderMax.value)}`
-        });
-    }
+    for (const group of appliedGroups.value) {
+        if (!groupHasValue(applied, group)) {
+            continue;
+        }
 
-    for (const value of selectedBrands.value) {
-        chips.push({ type: 'brand', value, label: value });
-    }
+        if (group.key === 'price') {
+            chips.push({
+                key: 'price',
+                group: 'Price',
+                label: priceLabel(applied.priceMin, applied.priceMax),
+                remove: () => setGroupValue(applied, group, { min: '', max: '' })
+            });
+        } else if (group.key === 'rating') {
+            chips.push({
+                key: 'rating',
+                group: 'Rating',
+                label: `${applied.minRating} stars & up`,
+                remove: () => setGroupValue(applied, group, 0)
+            });
+        } else {
+            const values = groupValue(applied, group);
 
-    for (const value of selectedConditions.value) {
-        chips.push({ type: 'condition', value, label: value });
-    }
-
-    for (const value of selectedColors.value) {
-        chips.push({ type: 'color', value, label: value });
-    }
-
-    for (const value of selectedSizes.value) {
-        chips.push({ type: 'size', value, label: value });
-    }
-
-    if (inStockOnly.value) {
-        chips.push({ type: 'stock', value: null, label: 'In Stock Only' });
+            for (const option of group.options.filter(o => values.includes(o.value))) {
+                chips.push({
+                    key: `${group.key}:${option.value}`,
+                    group: group.label,
+                    label: option.label,
+                    remove: () => setGroupValue(applied, group, values.filter(v => v !== option.value))
+                });
+            }
+        }
     }
 
     return chips;
 });
 
-function removeChip(chip) {
-    if (chip.type === 'price') {
-        priceMin.value = '';
-        priceMax.value = '';
-    } else if (chip.type === 'stock') {
-        inStockOnly.value = false;
-    } else if (chip.type === 'brand') {
-        selectedBrands.value = selectedBrands.value.filter(v => v !== chip.value);
-    } else if (chip.type === 'condition') {
-        selectedConditions.value = selectedConditions.value.filter(v => v !== chip.value);
-    } else if (chip.type === 'color') {
-        selectedColors.value = selectedColors.value.filter(v => v !== chip.value);
-    } else if (chip.type === 'size') {
-        selectedSizes.value = selectedSizes.value.filter(v => v !== chip.value);
-    }
+function clearAllFilters() {
+    Object.assign(applied, { ...defaultFilterState(), sortBy: applied.sortBy });
+}
 
-    resetPage();
+function removeLastFilter() {
+    activeChips.value[activeChips.value.length - 1]?.remove();
 }
 
 /*
 |--------------------------------------------------------------------------
-| Price Range Slider
+| "Shop by" pills — the category's main attribute
 |--------------------------------------------------------------------------
-|
-| Two overlapping <input type="range"> elements sharing one track — the
-| standard dual-thumb approach, since there's no native two-handle range
-| input. Only the thumbs are interactive (the transparent track underneath
-| has pointer-events disabled) so they don't fight each other for clicks.
-|
 */
 
-const sliderMin = computed(() =>
-    priceMin.value !== '' ? Number(priceMin.value) : priceBounds.value.min
+const primaryGroup = computed(() =>
+    appliedGroups.value.find(g => g.key === config.value.primaryFacet && g.options.length > 1) || null
 );
 
-const sliderMax = computed(() =>
-    priceMax.value !== '' ? Number(priceMax.value) : priceBounds.value.max
-);
+function isPrimaryActive(value) {
+    const selected = applied.selections[primaryGroup.value.key] || [];
 
-const minPricePercent = computed(() => {
-    const { min, max } = priceBounds.value;
-
-    if (max === min) {
-        return 0;
-    }
-
-    return ((sliderMin.value - min) / (max - min)) * 100;
-});
-
-const maxPricePercent = computed(() => {
-    const { min, max } = priceBounds.value;
-
-    if (max === min) {
-        return 100;
-    }
-
-    return ((sliderMax.value - min) / (max - min)) * 100;
-});
-
-function onMinSlide(rawValue) {
-    priceMin.value = String(Math.min(Number(rawValue), sliderMax.value));
-    resetPage();
+    return value === null ? selected.length === 0 : selected.length === 1 && selected[0] === value;
 }
 
-function onMaxSlide(rawValue) {
-    priceMax.value = String(Math.max(Number(rawValue), sliderMin.value));
-    resetPage();
+function selectPrimary(value) {
+    setGroupValue(applied, primaryGroup.value, value === null || isPrimaryActive(value) ? [] : [value]);
 }
 
 /*
 |--------------------------------------------------------------------------
-| Filter + Sort + Paginate
+| Sort + Pagination
 |--------------------------------------------------------------------------
 */
 
-const filteredProducts = computed(() => {
-    const min = priceMin.value !== '' ? Number(priceMin.value) : null;
-    const max = priceMax.value !== '' ? Number(priceMax.value) : null;
+const sortOptions = computed(() => [
+    { id: 'newest', label: 'Newest' },
+    { id: 'price-asc', label: 'Price: low to high' },
+    { id: 'price-desc', label: 'Price: high to low' },
+    ...(props.products.some(p => typeof p.rating === 'number') ? [{ id: 'rating', label: 'Top rated' }] : []),
+    { id: 'name-asc', label: 'Name: A to Z' }
+]);
 
-    const list = props.products.filter(product => {
-        const price = Number(product.price) || 0;
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredProducts.value.length / PER_PAGE)));
 
-        if (min !== null && price < min) return false;
-        if (max !== null && price > max) return false;
-        if (selectedBrands.value.length > 0 && !selectedBrands.value.includes(product.brand)) return false;
-        if (selectedConditions.value.length > 0 && !selectedConditions.value.includes(product.condition)) return false;
-        if (!productHasOptionValue(product, 'color', selectedColors.value)) return false;
-        if (!productHasOptionValue(product, 'size', selectedSizes.value)) return false;
-        if (inStockOnly.value && !(product.stock > 0)) return false;
-
-        return true;
-    });
-
-    const sorted = [...list];
-
-    if (sortBy.value === 'price-asc') {
-        sorted.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
-    } else if (sortBy.value === 'price-desc') {
-        sorted.sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
-    } else if (sortBy.value === 'name-asc') {
-        sorted.sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-        sorted.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+// A page from a URL or memory can outlive the products that filled it.
+watch([totalPages, () => props.isLoading], ([total, loading]) => {
+    if (!loading && applied.page > total) {
+        applied.page = total;
     }
-
-    return sorted;
-});
-
-const totalPages = computed(() =>
-    Math.max(1, Math.ceil(filteredProducts.value.length / PER_PAGE))
-);
+}, { immediate: true });
 
 const pagedProducts = computed(() => {
-    const start = (page.value - 1) * PER_PAGE;
+    const start = (applied.page - 1) * PER_PAGE;
 
     return filteredProducts.value.slice(start, start + PER_PAGE);
 });
 
-const rangeStart = computed(() =>
-    filteredProducts.value.length === 0 ? 0 : (page.value - 1) * PER_PAGE + 1
-);
+const rangeStart = computed(() => (filteredProducts.value.length ? (applied.page - 1) * PER_PAGE + 1 : 0));
+const rangeEnd = computed(() => Math.min(applied.page * PER_PAGE, filteredProducts.value.length));
 
-const rangeEnd = computed(() =>
-    Math.min(page.value * PER_PAGE, filteredProducts.value.length)
-);
-
-// A small windowed page list (1 … current-1 current current+1 … last)
-// rather than a button per page, so this stays usable past a handful of pages.
 const pageNumbers = computed(() => {
     const total = totalPages.value;
-    const current = page.value;
+    const current = applied.page;
 
-    const nums = new Set([1, total, current - 1, current, current + 1]);
-
-    return [...nums]
+    return [...new Set([1, total, current - 1, current, current + 1])]
         .filter(n => n >= 1 && n <= total)
         .sort((a, b) => a - b);
 });
 
+const toolbar = ref(null);
+
 function goToPage(n) {
-    if (n < 1 || n > totalPages.value || n === page.value) {
+    if (n < 1 || n > totalPages.value || n === applied.page) {
         return;
     }
 
-    page.value = n;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-// Any filter/sort change invalidates the current page number.
-function resetPage() {
-    page.value = 1;
+    applied.page = n;
+    nextTick(() => toolbar.value?.scrollIntoView({ block: 'start' }));
 }
 
 /*
 |--------------------------------------------------------------------------
-| Product Actions
+| Compact Toolbar Panels (desktop, categories with few filters)
 |--------------------------------------------------------------------------
 */
 
-function handleView(product) {
-    emit('select-product', product);
+const openPanel = ref(null);
+const toolbarRoot = ref(null);
+
+function togglePanel(key) {
+    openPanel.value = openPanel.value === key ? null : key;
+
+    if (openPanel.value) {
+        nextTick(() => {
+            toolbarRoot.value?.querySelector(`#panel-${key} input:not([disabled])`)?.focus();
+        });
+    }
 }
 
-function handleAddToCart(product) {
-    // Same guard as ProductCard's quick-add: a variant product can't be
-    // added blind, so send the buyer to pick options first.
-    if (product.hasVariants) {
-        emit('select-product', product);
-        return;
+function panelSummary(group) {
+    if (!groupHasValue(applied, group)) {
+        return '';
     }
 
-    addToCart(product, null, 1);
+    if (group.key === 'price') {
+        return priceLabel(applied.priceMin, applied.priceMax);
+    }
+
+    if (group.key === 'rating') {
+        return `${applied.minRating}+`;
+    }
+
+    return String(groupValue(applied, group).length);
+}
+
+function handleDocumentClick(event) {
+    if (openPanel.value && toolbarRoot.value && !toolbarRoot.value.contains(event.target)) {
+        openPanel.value = null;
+    }
 }
 
 /*
 |--------------------------------------------------------------------------
-| Order Tracking Widget
+| Mobile Drawer (pending state, committed on Apply)
 |--------------------------------------------------------------------------
-|
-| The honest stand-in for the reference's live map — real order data,
-| no invented courier position. Shows whichever of the buyer's orders is
-| still in progress (not yet delivered or cancelled) and was placed most
-| recently; "view-orders" routes to the real My Orders list, same as every
-| other "Track Order" entry point in this app (Header account menu,
-| OrderDetails, etc.).
-|
 */
 
-const latestActiveOrder = computed(() => {
-    const active = orders.value.filter(
-        o => o.status !== ORDER_STATUSES.DELIVERED && o.status !== ORDER_STATUSES.CANCELLED
-    );
+const drawerOpen = ref(false);
+const pending = reactive(defaultFilterState());
+const drawerClose = ref(null);
+const filterButton = ref(null);
 
-    if (active.length === 0) {
-        return null;
+const pendingGroups = computed(() => (drawerOpen.value ? groupsFor(pending) : []));
+
+const pendingCount = computed(() =>
+    (drawerOpen.value ? props.products.filter(p => matches(p, pending)).length : 0)
+);
+
+function openDrawer() {
+    Object.assign(pending, cloneState(applied));
+    drawerOpen.value = true;
+    document.body.style.overflow = 'hidden';
+    nextTick(() => drawerClose.value?.focus());
+}
+
+// Closing without Apply discards the pending selections.
+function closeDrawer() {
+    if (!drawerOpen.value) {
+        return;
     }
 
-    return [...active].sort(
-        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-    )[0];
+    drawerOpen.value = false;
+    document.body.style.overflow = '';
+    nextTick(() => filterButton.value?.focus());
+}
+
+function resetPending() {
+    Object.assign(pending, { ...defaultFilterState(), sortBy: applied.sortBy });
+}
+
+function applyPending() {
+    Object.assign(applied, { ...cloneState(pending), sortBy: applied.sortBy, page: 1 });
+    closeDrawer();
+}
+
+function handleKeydown(event) {
+    if (event.key !== 'Escape') {
+        return;
+    }
+
+    if (drawerOpen.value) {
+        closeDrawer();
+    } else if (openPanel.value) {
+        const key = openPanel.value;
+
+        openPanel.value = null;
+        nextTick(() => toolbarRoot.value?.querySelector(`[aria-controls="panel-${key}"]`)?.focus());
+    }
+}
+
+onMounted(() => {
+    document.addEventListener('keydown', handleKeydown);
+    document.addEventListener('click', handleDocumentClick);
+});
+
+onUnmounted(() => {
+    document.removeEventListener('keydown', handleKeydown);
+    document.removeEventListener('click', handleDocumentClick);
+    document.body.style.overflow = '';
 });
 
 /*
 |--------------------------------------------------------------------------
 | Header Relay
 |--------------------------------------------------------------------------
-|
-| Same pattern as Cart.vue / ProductDetails.vue's embedded Header — this
-| page has no dashboard state of its own, so these bubble up.
-|
 */
 
 function handleHeaderSearch(query) {
@@ -535,6 +674,8 @@ function handleHeaderSearch(query) {
 function handleHeaderSelectCategory(category) {
     emit('select-category', category);
 }
+
+const skeletons = Array.from({ length: 8 });
 </script>
 
 <template>
@@ -550,680 +691,449 @@ function handleHeaderSelectCategory(category) {
             @search="handleHeaderSearch"
         />
 
-        <main class="max-w-7xl mx-auto w-full px-4 lg:px-8 py-8">
+        <main
+            id="main-content"
+            class="buyer-main cat-page"
+            tabindex="-1"
+        >
 
-            <!-- Breadcrumb -->
-            <nav class="flex items-center gap-2 text-sm text-slate-500 mb-6">
-                <button
-                    type="button"
-                    class="hover:text-[#0d9488] transition-colors"
-                    @click="emit('back')"
+            <!-- Page header -->
+            <header class="cat-head">
+                <nav
+                    class="crumbs"
+                    aria-label="Breadcrumb"
                 >
-                    Home
-                </button>
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300">
-                    <path d="m9 18 6-6-6-6" />
-                </svg>
-                <span class="text-slate-900 font-medium">{{ category }}</span>
-            </nav>
+                    <ol>
+                        <li>
+                            <button
+                                type="button"
+                                @click="emit('back')"
+                            >
+                                Home
+                            </button>
+                        </li>
+                        <li aria-current="page">{{ category }}</li>
+                    </ol>
+                </nav>
 
-            <!-- Loading -->
-            <div
-                v-if="isLoading"
-                class="empty-products"
-            >
-                <p>Loading products&hellip;</p>
-            </div>
+                <h1 class="cat-title">{{ category }}</h1>
 
-            <!-- Load Error -->
-            <div
-                v-else-if="loadError"
-                class="empty-products"
-            >
-                <p>{{ loadError }}</p>
-            </div>
+                <p
+                    v-if="config.description"
+                    class="cat-desc"
+                >
+                    {{ config.description }}
+                </p>
 
-            <div
-                v-else
-                class="flex flex-col lg:flex-row gap-8"
-            >
-
-                <!-- ==================================================== -->
-                <!-- SIDEBAR: FILTERS + ORDER TRACKING -->
-                <!-- ==================================================== -->
-
-                <aside class="w-full lg:w-72 shrink-0 space-y-6">
-
-                    <div
-                        v-if="products.length > 0"
-                        class="bg-white rounded-3xl border border-slate-100 p-6"
-                        style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                <div
+                    v-if="primaryGroup && !isLoading"
+                    class="cat-pills"
+                    role="group"
+                    :aria-label="`Shop by ${primaryGroup.label.toLowerCase()}`"
+                >
+                    <button
+                        type="button"
+                        class="cat-pill"
+                        :class="{ 'is-active': isPrimaryActive(null) }"
+                        :aria-pressed="isPrimaryActive(null)"
+                        @click="selectPrimary(null)"
                     >
-
-                        <div class="flex items-center justify-between mb-6">
-                            <h2 class="text-lg font-bold text-slate-900">Filter Products</h2>
-                            <button
-                                v-if="hasActiveFilters"
-                                type="button"
-                                class="text-xs font-bold text-[#0d9488] uppercase tracking-wider"
-                                @click="clearAllFilters"
-                            >
-                                Clear All
-                            </button>
-                        </div>
-
-                        <!-- Price Range -->
-                        <div class="mb-8">
-                            <button
-                                type="button"
-                                class="flex justify-between items-center w-full mb-4"
-                                @click="toggleSection('price')"
-                            >
-                                <h3 class="text-sm font-bold text-slate-900">Price Range</h3>
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 transition-transform" :class="{ 'rotate-180': !sectionsOpen.price }">
-                                    <path d="m18 15-6-6-6 6" />
-                                </svg>
-                            </button>
-                            <div v-show="sectionsOpen.price">
-
-                                <!-- Dual-thumb slider -->
-                                <div class="relative h-1.5 mt-2 mb-4">
-                                    <div class="absolute inset-0 top-1/2 -translate-y-1/2 h-1.5 bg-slate-100 rounded-full"></div>
-                                    <div
-                                        class="absolute top-1/2 -translate-y-1/2 h-1.5 bg-[#0d9488] rounded-full"
-                                        :style="{ left: minPricePercent + '%', right: (100 - maxPricePercent) + '%' }"
-                                    ></div>
-                                    <input
-                                        type="range"
-                                        :min="priceBounds.min"
-                                        :max="priceBounds.max"
-                                        :value="sliderMin"
-                                        class="absolute inset-0 w-full h-1.5 m-0 appearance-none bg-transparent pointer-events-none
-                                               [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none
-                                               [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full
-                                               [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#0d9488]
-                                               [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
-                                               [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:border-0
-                                               [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full
-                                               [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:ring-2 [&::-moz-range-thumb]:ring-[#0d9488]
-                                               [&::-moz-range-thumb]:cursor-pointer"
-                                        @input="onMinSlide($event.target.value)"
-                                    >
-                                    <input
-                                        type="range"
-                                        :min="priceBounds.min"
-                                        :max="priceBounds.max"
-                                        :value="sliderMax"
-                                        class="absolute inset-0 w-full h-1.5 m-0 appearance-none bg-transparent pointer-events-none
-                                               [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none
-                                               [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full
-                                               [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#0d9488]
-                                               [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
-                                               [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:border-0
-                                               [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full
-                                               [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:ring-2 [&::-moz-range-thumb]:ring-[#0d9488]
-                                               [&::-moz-range-thumb]:cursor-pointer"
-                                        @input="onMaxSlide($event.target.value)"
-                                    >
-                                </div>
-
-                                <div class="flex gap-4 mb-2">
-                                    <div class="flex-1">
-                                        <span class="text-[10px] text-slate-400 font-bold uppercase block mb-1">Min</span>
-                                        <input
-                                            v-model="priceMin"
-                                            type="number"
-                                            min="0"
-                                            :placeholder="String(priceBounds.min)"
-                                            class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-[#0d9488]"
-                                            @change="resetPage"
-                                        >
-                                    </div>
-                                    <div class="flex-1">
-                                        <span class="text-[10px] text-slate-400 font-bold uppercase block mb-1">Max</span>
-                                        <input
-                                            v-model="priceMax"
-                                            type="number"
-                                            min="0"
-                                            :placeholder="String(priceBounds.max)"
-                                            class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-[#0d9488]"
-                                            @change="resetPage"
-                                        >
-                                    </div>
-                                </div>
-                                <p class="text-[11px] text-slate-400">
-                                    {{ formatPrice(priceBounds.min) }} – {{ formatPrice(priceBounds.max) }} available
-                                </p>
-                            </div>
-                        </div>
-
-                        <!-- Brand -->
-                        <div
-                            v-if="availableBrands.length > 0"
-                            class="mb-8"
-                        >
-                            <button
-                                type="button"
-                                class="flex justify-between items-center w-full mb-4"
-                                @click="toggleSection('brand')"
-                            >
-                                <h3 class="text-sm font-bold text-slate-900">Brand</h3>
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 transition-transform" :class="{ 'rotate-180': !sectionsOpen.brand }">
-                                    <path d="m18 15-6-6-6 6" />
-                                </svg>
-                            </button>
-                            <div
-                                v-show="sectionsOpen.brand"
-                                class="space-y-3"
-                            >
-                                <label
-                                    v-for="brand in availableBrands"
-                                    :key="brand.value"
-                                    class="flex items-center gap-3 cursor-pointer group"
-                                >
-                                    <input
-                                        v-model="selectedBrands"
-                                        type="checkbox"
-                                        :value="brand.value"
-                                        class="w-4 h-4 rounded border-slate-300 text-[#0d9488] focus:ring-[#0d9488]"
-                                        @change="resetPage"
-                                    >
-                                    <span class="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">{{ brand.value }}</span>
-                                    <span class="text-xs text-slate-400 ml-auto">{{ brand.count }}</span>
-                                </label>
-                            </div>
-                        </div>
-
-                        <!-- Color -->
-                        <div
-                            v-if="availableColors.length > 0"
-                            class="mb-8"
-                        >
-                            <button
-                                type="button"
-                                class="flex justify-between items-center w-full mb-4"
-                                @click="toggleSection('color')"
-                            >
-                                <h3 class="text-sm font-bold text-slate-900">Color</h3>
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 transition-transform" :class="{ 'rotate-180': !sectionsOpen.color }">
-                                    <path d="m18 15-6-6-6 6" />
-                                </svg>
-                            </button>
-                            <div
-                                v-show="sectionsOpen.color"
-                                class="flex flex-wrap gap-3"
-                            >
-                                <label
-                                    v-for="color in availableColors"
-                                    :key="color.value"
-                                    class="group cursor-pointer"
-                                    :title="`${color.value} (${color.count})`"
-                                >
-                                    <input
-                                        v-model="selectedColors"
-                                        type="checkbox"
-                                        :value="color.value"
-                                        class="sr-only peer"
-                                        @change="resetPage"
-                                    >
-                                    <span
-                                        v-if="swatchColor(color.value)"
-                                        class="flex w-8 h-8 rounded-full ring-1 ring-slate-200 ring-offset-2 items-center justify-center transition-all peer-checked:ring-2 peer-checked:ring-[#0d9488]"
-                                        :style="{ background: swatchColor(color.value) }"
-                                    ></span>
-                                    <span
-                                        v-else
-                                        class="flex items-center px-3 h-8 rounded-full border text-xs font-semibold transition-colors"
-                                        :class="selectedColors.includes(color.value)
-                                            ? 'border-[#0d9488] bg-teal-50 text-[#0d9488]'
-                                            : 'border-slate-200 text-slate-500 group-hover:border-slate-300'"
-                                    >
-                                        {{ color.value }}
-                                    </span>
-                                </label>
-                            </div>
-                        </div>
-
-                        <!-- Size -->
-                        <div
-                            v-if="availableSizes.length > 0"
-                            class="mb-8"
-                        >
-                            <button
-                                type="button"
-                                class="flex justify-between items-center w-full mb-4"
-                                @click="toggleSection('size')"
-                            >
-                                <h3 class="text-sm font-bold text-slate-900">Size</h3>
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 transition-transform" :class="{ 'rotate-180': !sectionsOpen.size }">
-                                    <path d="m18 15-6-6-6 6" />
-                                </svg>
-                            </button>
-                            <div
-                                v-show="sectionsOpen.size"
-                                class="grid grid-cols-4 gap-2"
-                            >
-                                <label
-                                    v-for="size in availableSizes"
-                                    :key="size.value"
-                                    class="cursor-pointer"
-                                    :title="`${size.count} available`"
-                                >
-                                    <input
-                                        v-model="selectedSizes"
-                                        type="checkbox"
-                                        :value="size.value"
-                                        class="sr-only peer"
-                                        @change="resetPage"
-                                    >
-                                    <span class="flex items-center justify-center h-9 rounded-xl border text-xs font-bold transition-colors peer-checked:border-[#0d9488] peer-checked:bg-[#0d9488] peer-checked:text-white border-slate-200 text-slate-600 hover:border-slate-300">
-                                        {{ size.value }}
-                                    </span>
-                                </label>
-                            </div>
-                        </div>
-
-                        <!-- Availability -->
-                        <div class="mb-8">
-                            <button
-                                type="button"
-                                class="flex justify-between items-center w-full mb-4"
-                                @click="toggleSection('availability')"
-                            >
-                                <h3 class="text-sm font-bold text-slate-900">Availability</h3>
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 transition-transform" :class="{ 'rotate-180': !sectionsOpen.availability }">
-                                    <path d="m18 15-6-6-6 6" />
-                                </svg>
-                            </button>
-                            <label
-                                v-show="sectionsOpen.availability"
-                                class="flex items-center gap-3 cursor-pointer group"
-                            >
-                                <input
-                                    v-model="inStockOnly"
-                                    type="checkbox"
-                                    class="w-4 h-4 rounded border-slate-300 text-[#0d9488] focus:ring-[#0d9488]"
-                                    @change="resetPage"
-                                >
-                                <span class="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">In Stock Only</span>
-                            </label>
-                        </div>
-
-                        <!-- Condition -->
-                        <div v-if="availableConditions.length > 0">
-                            <button
-                                type="button"
-                                class="flex justify-between items-center w-full mb-4"
-                                @click="toggleSection('condition')"
-                            >
-                                <h3 class="text-sm font-bold text-slate-900">Condition</h3>
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 transition-transform" :class="{ 'rotate-180': !sectionsOpen.condition }">
-                                    <path d="m18 15-6-6-6 6" />
-                                </svg>
-                            </button>
-                            <div
-                                v-show="sectionsOpen.condition"
-                                class="space-y-3"
-                            >
-                                <label
-                                    v-for="condition in availableConditions"
-                                    :key="condition.value"
-                                    class="flex items-center gap-3 cursor-pointer group"
-                                >
-                                    <input
-                                        v-model="selectedConditions"
-                                        type="checkbox"
-                                        :value="condition.value"
-                                        class="w-4 h-4 rounded border-slate-300 text-[#0d9488] focus:ring-[#0d9488]"
-                                        @change="resetPage"
-                                    >
-                                    <span class="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">{{ condition.value }}</span>
-                                    <span class="text-xs text-slate-400 ml-auto">{{ condition.count }}</span>
-                                </label>
-                            </div>
-                        </div>
-
-                    </div>
-
-                    <!-- Order Tracking Widget -->
-                    <div
-                        class="rounded-3xl border border-slate-100 p-6"
-                        style="background: #0f2f2c; box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                        All
+                    </button>
+                    <button
+                        v-for="option in primaryGroup.options"
+                        :key="option.value"
+                        type="button"
+                        class="cat-pill"
+                        :class="{ 'is-active': isPrimaryActive(option.value) }"
+                        :aria-pressed="isPrimaryActive(option.value)"
+                        @click="selectPrimary(option.value)"
                     >
-                        <div class="flex items-center gap-3 mb-5">
-                            <div class="w-10 h-10 rounded-full flex items-center justify-center text-teal-300 shrink-0" style="background: #16423e;">
-                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" />
-                                </svg>
-                            </div>
-                            <h3 class="font-bold text-white">Track Your Order</h3>
-                        </div>
+                        {{ option.label }}
+                    </button>
+                </div>
+            </header>
 
+            <div class="cat-body">
+
+                <!-- Toolbar -->
+                <div
+                    v-if="isLoading || loadError || products.length > 0"
+                    ref="toolbar"
+                    class="cat-toolbar"
+                >
+                    <div
+                        ref="toolbarRoot"
+                        class="cat-toolbar-main"
+                    >
                         <p
-                            v-if="isLoadingOrders"
-                            class="text-sm text-teal-100/60"
+                            class="cat-count"
+                            role="status"
+                            aria-live="polite"
                         >
-                            Checking your orders&hellip;
+                            <template v-if="isLoading">Loading products&hellip;</template>
+                            <template v-else-if="filteredProducts.length > PER_PAGE">
+                                {{ rangeStart }}&ndash;{{ rangeEnd }} of {{ filteredProducts.length }} products
+                            </template>
+                            <template v-else>
+                                {{ filteredProducts.length }} {{ filteredProducts.length === 1 ? 'product' : 'products' }}
+                            </template>
                         </p>
 
-                        <template v-else-if="latestActiveOrder">
-                            <p class="text-xs text-teal-100/60 mb-3">Order {{ latestActiveOrder.orderId }}</p>
-
-                            <div class="flex items-center gap-1.5 mb-4">
-                                <div
-                                    v-for="(step, index) in trackingSteps"
-                                    :key="step"
-                                    class="flex-1 h-1.5 rounded-full"
-                                    :class="isTrackingStepCompleted(latestActiveOrder, index) ? 'bg-[#2dd4bf]' : 'bg-white/10'"
-                                ></div>
-                            </div>
-
-                            <p class="text-sm font-bold text-white mb-5">
-                                {{ stepLabels[latestActiveOrder.status] || latestActiveOrder.status }}
-                            </p>
-
-                            <button
-                                type="button"
-                                class="w-full py-2.5 bg-[#0d9488] text-white rounded-xl text-xs font-bold hover:bg-[#0f766e] transition-all"
-                                @click="emit('view-orders')"
-                            >
-                                Track Package
-                            </button>
-                        </template>
-
-                        <template v-else>
-                            <p class="text-sm text-teal-100/70 leading-relaxed mb-5">
-                                You don't have any orders in progress right now.
-                            </p>
-                            <button
-                                type="button"
-                                class="w-full py-2.5 bg-white/10 text-white rounded-xl text-xs font-bold hover:bg-white/15 transition-all"
-                                @click="emit('view-orders')"
-                            >
-                                View My Orders
-                            </button>
-                        </template>
-                    </div>
-
-                </aside>
-
-                <!-- ==================================================== -->
-                <!-- PRODUCT GRID AREA -->
-                <!-- ==================================================== -->
-
-                <div class="flex-1 min-w-0">
-
-                    <!-- Controls -->
-                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6">
-                        <div>
-                            <h1 class="text-4xl font-bold text-slate-900 tracking-tight mb-1">{{ category }}</h1>
-                            <p class="text-sm text-slate-500">
-                                <template v-if="filteredProducts.length > 0">
-                                    Showing {{ rangeStart }}-{{ rangeEnd }} of {{ filteredProducts.length }} products
-                                </template>
-                                <template v-else>
-                                    0 products
-                                </template>
-                            </p>
-                        </div>
-
+                        <!-- Compact desktop filters (categories with few filters) -->
                         <div
-                            v-if="products.length > 0"
-                            class="flex items-center gap-4"
+                            v-if="!useSidebar && !isLoading && products.length > 0 && appliedGroups.length"
+                            class="cat-quick"
                         >
-                            <div>
-                                <label for="category-sort" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Sort By</label>
-                                <div class="relative">
-                                    <select
-                                        id="category-sort"
-                                        v-model="sortBy"
-                                        class="pl-4 pr-10 py-2.5 bg-white border border-slate-100 rounded-2xl text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0d9488]/20 appearance-none min-w-[190px]"
-                                        style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
-                                        @change="resetPage"
-                                    >
-                                        <option value="newest">Newest Arrivals</option>
-                                        <option value="price-asc">Price: Low to High</option>
-                                        <option value="price-desc">Price: High to Low</option>
-                                        <option value="name-asc">Name: A to Z</option>
-                                    </select>
-                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-                                        <path d="m6 9 6 6 6-6" />
-                                    </svg>
-                                </div>
-                            </div>
-
-                            <div class="flex items-center bg-white rounded-2xl border border-slate-100 p-1 mt-[18px]" style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);">
-                                <button
-                                    type="button"
-                                    class="w-10 h-10 flex items-center justify-center rounded-xl transition-colors"
-                                    :class="viewMode === 'grid' ? 'bg-teal-50 text-[#0d9488]' : 'text-slate-400 hover:text-slate-600'"
-                                    title="Grid view"
-                                    @click="viewMode = 'grid'"
-                                >
-                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <rect width="7" height="7" x="3" y="3" rx="1" />
-                                        <rect width="7" height="7" x="14" y="3" rx="1" />
-                                        <rect width="7" height="7" x="14" y="14" rx="1" />
-                                        <rect width="7" height="7" x="3" y="14" rx="1" />
-                                    </svg>
-                                </button>
-                                <button
-                                    type="button"
-                                    class="w-10 h-10 flex items-center justify-center rounded-xl transition-colors"
-                                    :class="viewMode === 'list' ? 'bg-teal-50 text-[#0d9488]' : 'text-slate-400 hover:text-slate-600'"
-                                    title="List view"
-                                    @click="viewMode = 'list'"
-                                >
-                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M3 5h.01" /><path d="M3 12h.01" /><path d="M3 19h.01" />
-                                        <path d="M8 5h13" /><path d="M8 12h13" /><path d="M8 19h13" />
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Active Filter Chips -->
-                    <div
-                        v-if="activeFilterChips.length > 0"
-                        class="flex flex-wrap items-center gap-2 mb-8"
-                    >
-                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1">Active Filter</span>
-
-                        <span
-                            v-for="chip in activeFilterChips"
-                            :key="`${chip.type}:${chip.value}`"
-                            class="inline-flex items-center gap-1.5 pl-3.5 pr-2 py-1.5 rounded-full bg-slate-900 text-white text-xs font-semibold"
-                        >
-                            {{ chip.label }}
-                            <button
-                                type="button"
-                                class="w-4 h-4 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors"
-                                :title="`Remove ${chip.label} filter`"
-                                @click="removeChip(chip)"
+                            <div
+                                v-for="group in appliedGroups"
+                                :key="group.key"
+                                class="cat-quick-item"
                             >
-                                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-                                </svg>
-                            </button>
-                        </span>
-
-                        <button
-                            type="button"
-                            class="text-xs font-bold text-slate-500 underline underline-offset-2 hover:text-slate-900 transition-colors ml-1"
-                            @click="clearAllFilters"
-                        >
-                            Clear All
-                        </button>
-                    </div>
-
-                    <!-- No products in this category at all -->
-                    <div
-                        v-if="products.length === 0"
-                        class="empty-products"
-                    >
-                        <span class="empty-products-icon" aria-hidden="true">🔍</span>
-                        <p>No products in this category yet.</p>
-                        <button
-                            type="button"
-                            class="clear-filters-button"
-                            @click="emit('back')"
-                        >
-                            Back to Home
-                        </button>
-                    </div>
-
-                    <!-- Filters matched nothing -->
-                    <div
-                        v-else-if="filteredProducts.length === 0"
-                        class="empty-products"
-                    >
-                        <span class="empty-products-icon" aria-hidden="true">🔍</span>
-                        <p>No products match your filters.</p>
-                        <button
-                            type="button"
-                            class="clear-filters-button"
-                            @click="clearAllFilters"
-                        >
-                            Clear Filters
-                        </button>
-                    </div>
-
-                    <!-- Grid View -->
-                    <div
-                        v-else-if="viewMode === 'grid'"
-                        class="product-grid"
-                    >
-                        <ProductCard
-                            v-for="product in pagedProducts"
-                            :key="product.id"
-                            :product="product"
-                            @view="handleView"
-                        />
-                    </div>
-
-                    <!-- List View -->
-                    <div
-                        v-else
-                        class="flex flex-col divide-y divide-slate-100 bg-white rounded-3xl border border-slate-100 overflow-hidden"
-                        style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
-                    >
-                        <div
-                            v-for="product in pagedProducts"
-                            :key="product.id"
-                            class="flex flex-col sm:flex-row sm:items-center gap-4 p-5"
-                        >
-                            <button
-                                type="button"
-                                class="w-full sm:w-24 h-24 rounded-2xl overflow-hidden shrink-0 bg-slate-100 flex items-center justify-center"
-                                @click="handleView(product)"
-                            >
-                                <img
-                                    v-if="product.images && product.images[0]"
-                                    :src="product.images[0]"
-                                    :alt="product.name"
-                                    class="w-full h-full object-cover"
-                                >
-                                <span
-                                    v-else
-                                    class="w-10 h-10 text-slate-400"
-                                    v-html="metaFor(product.category).icon"
-                                ></span>
-                            </button>
-
-                            <div class="flex-1 min-w-0">
                                 <button
                                     type="button"
-                                    class="text-left"
-                                    @click="handleView(product)"
+                                    class="cat-quick-btn"
+                                    :class="{ 'is-active': groupHasValue(applied, group), 'is-open': openPanel === group.key }"
+                                    :aria-expanded="openPanel === group.key"
+                                    :aria-controls="`panel-${group.key}`"
+                                    @click.stop="togglePanel(group.key)"
                                 >
-                                    <h3 class="text-sm font-semibold text-slate-800 hover:text-[#0d9488] transition-colors">{{ product.name }}</h3>
-                                </button>
-                                <p class="text-xs text-slate-400 mt-1">
-                                    <template v-if="product.brand">{{ product.brand }} · </template>
-                                    <span :class="product.stock > 0 ? 'text-emerald-600' : 'text-red-500'">
-                                        {{ product.stock > 0 ? 'In Stock' : 'Out of Stock' }}
-                                    </span>
-                                </p>
-                            </div>
-
-                            <div class="flex items-center justify-between sm:justify-end gap-6 shrink-0">
-                                <div class="flex flex-col sm:items-end">
-                                    <span class="text-lg font-bold text-slate-900">{{ formatPrice(product.price) }}</span>
+                                    {{ group.label }}
                                     <span
-                                        v-if="product.oldPrice"
-                                        class="text-[11px] text-slate-400 line-through"
-                                    >
-                                        {{ formatPrice(product.oldPrice) }}
-                                    </span>
-                                </div>
-                                <button
-                                    type="button"
-                                    class="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center hover:bg-[#0d9488] transition-colors shrink-0"
-                                    title="Add to cart"
-                                    @click="handleAddToCart(product)"
-                                >
-                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <circle cx="9" cy="21" r="1" />
-                                        <circle cx="20" cy="21" r="1" />
-                                        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-                                    </svg>
+                                        v-if="panelSummary(group)"
+                                        class="cat-quick-value"
+                                    >{{ panelSummary(group) }}</span>
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
                                 </button>
+                                <div
+                                    v-show="openPanel === group.key"
+                                    :id="`panel-${group.key}`"
+                                    class="cat-quick-panel"
+                                    role="region"
+                                    :aria-label="`${group.label} filter`"
+                                >
+                                    <FilterGroup
+                                        :group="group"
+                                        :model-value="groupValue(applied, group)"
+                                        :debounce-ms="PRICE_DEBOUNCE"
+                                        id-prefix="quick"
+                                        @update:model-value="setGroupValue(applied, group, $event)"
+                                    />
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Pagination -->
-                    <div
-                        v-if="totalPages > 1"
-                        class="flex items-center justify-center gap-2 mt-12"
-                    >
+                    <div class="cat-toolbar-actions">
                         <button
+                            v-if="appliedGroups.length && products.length > 0"
+                            ref="filterButton"
                             type="button"
-                            class="w-10 h-10 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 hover:text-[#0d9488] hover:border-[#0d9488] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400 disabled:hover:border-slate-200"
-                            :disabled="page === 1"
-                            @click="goToPage(page - 1)"
+                            class="cat-filter-btn"
+                            aria-controls="category-drawer"
+                            :aria-expanded="drawerOpen"
+                            @click="openDrawer"
                         >
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="m15 18-6-6 6-6" />
-                            </svg>
-                        </button>
-
-                        <template
-                            v-for="(n, idx) in pageNumbers"
-                            :key="n"
-                        >
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" /></svg>
+                            Filters
                             <span
-                                v-if="idx > 0 && n - pageNumbers[idx - 1] > 1"
-                                class="text-slate-400 px-2"
-                            >&hellip;</span>
-                            <button
-                                type="button"
-                                class="w-10 h-10 flex items-center justify-center rounded-xl font-bold transition-all"
-                                :class="n === page ? 'bg-[#0d9488] text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'"
-                                @click="goToPage(n)"
-                            >
-                                {{ n }}
-                            </button>
-                        </template>
-
-                        <button
-                            type="button"
-                            class="w-10 h-10 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-400 hover:text-[#0d9488] hover:border-[#0d9488] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400 disabled:hover:border-slate-200"
-                            :disabled="page === totalPages"
-                            @click="goToPage(page + 1)"
-                        >
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="m9 18 6-6-6-6" />
-                            </svg>
+                                v-if="activeChips.length"
+                                class="count-pill"
+                            >{{ activeChips.length }}<span class="sr-only"> applied</span></span>
                         </button>
-                    </div>
 
+                        <label
+                            v-if="products.length > 1"
+                            class="select-field"
+                        >
+                            <span class="select-field-label">Sort by</span>
+                            <select v-model="applied.sortBy">
+                                <option
+                                    v-for="option in sortOptions"
+                                    :key="option.id"
+                                    :value="option.id"
+                                >
+                                    {{ option.label }}
+                                </option>
+                            </select>
+                        </label>
+                    </div>
                 </div>
 
+                <!-- Applied filters -->
+                <div
+                    v-if="activeChips.length"
+                    class="chip-row cat-chips"
+                    role="group"
+                    aria-label="Applied filters"
+                >
+                    <button
+                        v-for="chip in activeChips"
+                        :key="chip.key"
+                        type="button"
+                        class="chip is-removable"
+                        :aria-label="`Remove filter ${chip.group}: ${chip.label}`"
+                        @click="chip.remove()"
+                    >
+                        {{ chip.key === 'price' ? `Price: ${chip.label}` : chip.label }}
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                    </button>
+                    <button
+                        type="button"
+                        class="link-btn"
+                        @click="clearAllFilters"
+                    >
+                        Clear all
+                    </button>
+                </div>
+
+                <div
+                    class="cat-layout"
+                    :class="{ 'has-sidebar': useSidebar }"
+                >
+
+                    <!-- Desktop sidebar -->
+                    <aside
+                        v-if="useSidebar && products.length > 0 && !isLoading"
+                        class="cat-sidebar"
+                        aria-label="Filters"
+                    >
+                        <FilterGroup
+                            v-for="(group, index) in appliedGroups"
+                            :key="group.key"
+                            :group="group"
+                            :model-value="groupValue(applied, group)"
+                            :default-open="isDefaultOpen(group, index, applied)"
+                            :debounce-ms="PRICE_DEBOUNCE"
+                            collapsible
+                            id-prefix="side"
+                            @update:model-value="setGroupValue(applied, group, $event)"
+                        />
+                    </aside>
+
+                    <div class="cat-results">
+
+                        <ul
+                            v-if="isLoading"
+                            class="product-grid listing-grid"
+                            :class="`is-${config.imageRatio}`"
+                            aria-hidden="true"
+                        >
+                            <li
+                                v-for="(_, index) in skeletons"
+                                :key="index"
+                                class="pcard-skeleton"
+                            >
+                                <span class="skeleton is-media"></span>
+                                <span class="skeleton is-line"></span>
+                                <span class="skeleton is-line is-short"></span>
+                            </li>
+                        </ul>
+
+                        <div
+                            v-else-if="loadError"
+                            class="state-block"
+                            role="alert"
+                        >
+                            <h2>We couldn&rsquo;t load {{ category }}</h2>
+                            <p>{{ loadError }}</p>
+                            <button
+                                type="button"
+                                class="btn btn-primary"
+                                @click="emit('retry')"
+                            >
+                                Try again
+                            </button>
+                        </div>
+
+                        <div
+                            v-else-if="products.length === 0"
+                            class="state-block"
+                        >
+                            <h2>Nothing in {{ category }} yet</h2>
+                            <p>Sellers in this category haven&rsquo;t listed anything yet. Try another category in the meantime.</p>
+                            <button
+                                type="button"
+                                class="btn btn-secondary"
+                                @click="emit('browse-all')"
+                            >
+                                Browse all products
+                            </button>
+                        </div>
+
+                        <div
+                            v-else-if="filteredProducts.length === 0"
+                            class="state-block cat-no-results"
+                        >
+                            <h2>No products match these filters</h2>
+                            <p>
+                                {{ activeChips.length === 1 ? 'Remove the filter below' : 'Remove one of the filters below' }}
+                                to see more of {{ category }}.
+                            </p>
+                            <div class="chip-row">
+                                <button
+                                    v-for="chip in activeChips"
+                                    :key="`nr-${chip.key}`"
+                                    type="button"
+                                    class="chip is-removable"
+                                    :aria-label="`Remove filter ${chip.group}: ${chip.label}`"
+                                    @click="chip.remove()"
+                                >
+                                    {{ chip.key === 'price' ? `Price: ${chip.label}` : chip.label }}
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                            <div class="cat-no-results-actions">
+                                <button
+                                    v-if="activeChips.length > 1"
+                                    type="button"
+                                    class="btn btn-secondary"
+                                    @click="removeLastFilter"
+                                >
+                                    Undo last filter
+                                </button>
+                                <button
+                                    type="button"
+                                    class="btn btn-primary"
+                                    @click="clearAllFilters"
+                                >
+                                    Clear all filters
+                                </button>
+                            </div>
+                        </div>
+
+                        <template v-else>
+                            <ul
+                                class="product-grid listing-grid"
+                                :class="`is-${config.imageRatio}`"
+                            >
+                                <li
+                                    v-for="product in pagedProducts"
+                                    :key="product.id"
+                                >
+                                    <ProductCard
+                                        :product="product"
+                                        :detail="cardDetailFor(product, config)"
+                                        @view="emit('select-product', $event)"
+                                    />
+                                </li>
+                            </ul>
+
+                            <nav
+                                v-if="totalPages > 1"
+                                class="cat-pagination"
+                                aria-label="Pages"
+                            >
+                                <button
+                                    type="button"
+                                    class="icon-btn is-outline"
+                                    aria-label="Previous page"
+                                    :disabled="applied.page === 1"
+                                    @click="goToPage(applied.page - 1)"
+                                >
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                                </button>
+
+                                <template
+                                    v-for="(n, index) in pageNumbers"
+                                    :key="n"
+                                >
+                                    <span
+                                        v-if="index > 0 && n - pageNumbers[index - 1] > 1"
+                                        class="page-gap"
+                                        aria-hidden="true"
+                                    >&hellip;</span>
+                                    <button
+                                        type="button"
+                                        class="page-btn"
+                                        :class="{ 'is-current': n === applied.page }"
+                                        :aria-current="n === applied.page ? 'page' : undefined"
+                                        :aria-label="`Page ${n}`"
+                                        @click="goToPage(n)"
+                                    >
+                                        {{ n }}
+                                    </button>
+                                </template>
+
+                                <button
+                                    type="button"
+                                    class="icon-btn is-outline"
+                                    aria-label="Next page"
+                                    :disabled="applied.page === totalPages"
+                                    @click="goToPage(applied.page + 1)"
+                                >
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                                </button>
+                            </nav>
+                        </template>
+
+                    </div>
+                </div>
             </div>
 
         </main>
+
+        <!-- Mobile filter drawer: edits a pending copy, committed by Apply -->
+        <div
+            class="drawer-backdrop cat-drawer-backdrop"
+            :class="{ 'is-open': drawerOpen }"
+            aria-hidden="true"
+            @click="closeDrawer"
+        ></div>
+
+        <div
+            id="category-drawer"
+            class="cat-drawer"
+            :class="{ 'is-open': drawerOpen }"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="category-drawer-title"
+            :inert="!drawerOpen || undefined"
+        >
+            <div class="cat-drawer-head">
+                <h2 id="category-drawer-title">Filter {{ category }}</h2>
+                <button
+                    ref="drawerClose"
+                    type="button"
+                    class="icon-btn"
+                    aria-label="Close filters without applying"
+                    @click="closeDrawer"
+                >
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="cat-drawer-body">
+                <FilterGroup
+                    v-for="(group, index) in pendingGroups"
+                    :key="group.key"
+                    :group="group"
+                    :model-value="groupValue(pending, group)"
+                    :default-open="isDefaultOpen(group, index, pending)"
+                    collapsible
+                    id-prefix="drawer"
+                    @update:model-value="setGroupValue(pending, group, $event)"
+                />
+            </div>
+
+            <div class="cat-drawer-foot">
+                <button
+                    type="button"
+                    class="btn btn-ghost"
+                    @click="resetPending"
+                >
+                    Reset
+                </button>
+                <button
+                    type="button"
+                    class="btn btn-primary cat-drawer-apply"
+                    @click="applyPending"
+                >
+                    Apply filters
+                    <span class="cat-drawer-count">{{ pendingCount }} {{ pendingCount === 1 ? 'product' : 'products' }}</span>
+                </button>
+            </div>
+        </div>
 
         <Footer
             @browse-all="emit('browse-all')"

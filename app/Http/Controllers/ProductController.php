@@ -8,6 +8,7 @@ use App\Support\CategoryFieldConfig;
 use App\Support\ProductImage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 /**
  * Public buyer-facing product catalog. Deliberately implemented as a
@@ -26,11 +27,37 @@ class ProductController extends Controller
     /**
      * GET /api/products
      *
-     * Query params: search, category, seller_id, page, per_page (all optional).
+     * Query params: search, category, seller_id, ids, page, per_page (all optional).
+     *
+     * `ids` is a comma-separated list of product ids (max 100), used by the
+     * buyer cart to re-check every line in one request. Ids that aren't in
+     * the response are unavailable (inactive, deleted, or their seller is
+     * not active), the same rule show() applies with a 404.
      */
     public function index(Request $request): JsonResponse
     {
         $query = $this->catalogQuery();
+
+        if ($request->filled('ids')) {
+            $ids = collect(explode(',', $request->string('ids')->toString()))
+                ->map(fn (string $id) => trim($id))
+                ->filter(fn (string $id) => Str::isUuid($id))
+                ->unique()
+                ->take(100)
+                ->values();
+
+            // At most 100 known rows: skip pagination and its extra count query.
+            $products = $query->whereIn('products.id', $ids)->get();
+
+            return response()->json([
+                'data' => $products->map(fn (Product $p) => $this->transform($p)),
+                'meta' => [
+                    'current_page' => 1,
+                    'last_page' => 1,
+                    'total' => $products->count(),
+                ],
+            ]);
+        }
 
         if ($search = $request->string('search')->toString()) {
             $query->where(function ($q) use ($search) {
@@ -225,7 +252,9 @@ class ProductController extends Controller
                     ->selectRaw('count(*)')
                     ->whereColumn('reviews.product_id', 'products.id'),
                 'reviews_avg_rating' => Review::query()
-                    ->selectRaw('round(avg(rating)::numeric, 1)')
+                    // avg() of the smallint rating is already numeric on
+                    // Postgres; no cast keeps this portable to SQLite tests.
+                    ->selectRaw('round(avg(rating), 1)')
                     ->whereColumn('reviews.product_id', 'products.id'),
             ])
             ->active()
@@ -281,7 +310,7 @@ class ProductController extends Controller
             'seller_id' => $product->seller_id,
             'seller' => $product->seller?->sellerDetail?->business_name
                 ?? $product->seller?->full_name
-                ?? 'NEXMART Seller',
+                ?? 'BuyTheWay Seller',
             // Sellers have exactly one category === their line_of_business
             // (enforced by DB trigger), exposed by name for the homepage's
             // "line of business" labelling without a second lookup.
@@ -351,7 +380,7 @@ class ProductController extends Controller
 
         return [
             'id' => $review->id,
-            'author' => $author !== '' ? $author : 'NEXMART Buyer',
+            'author' => $author !== '' ? $author : 'BuyTheWay Buyer',
             'rating' => (int) $review->rating,
             'comment' => $review->comment,
             'createdAt' => optional($review->created_at)->toIso8601String(),

@@ -149,7 +149,7 @@ function onInput(event) {
 .qty-stepper {
     display: inline-flex;
     align-items: center;
-    border: 1px solid #cbd5e1;
+    border: 1px solid var(--nx-line-strong);
     border-radius: 12px;
     background: #ffffff;
     overflow: hidden;
@@ -167,26 +167,26 @@ function onInput(event) {
     height: 44px;
     border: none;
     background: #ffffff;
-    color: #0f172a;
+    color: var(--nx-ink);
     cursor: pointer;
     transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .qty-btn:hover:not(:disabled) {
-    background: #f1f5f9;
+    background: var(--nx-line-soft);
 }
 
 .qty-btn:active:not(:disabled) {
-    background: #e2e8f0;
+    background: var(--nx-line);
 }
 
 .qty-btn:disabled {
-    color: #cbd5e1;
+    color: var(--nx-line-strong);
     cursor: not-allowed;
 }
 
 .qty-btn:focus-visible {
-    outline: 2px solid #0d9488;
+    outline: 2px solid var(--nx-accent);
     outline-offset: -2px;
 }
 
@@ -194,23 +194,23 @@ function onInput(event) {
     width: 44px;
     height: 44px;
     border: none;
-    border-left: 1px solid #e2e8f0;
-    border-right: 1px solid #e2e8f0;
+    border-left: 1px solid var(--nx-line);
+    border-right: 1px solid var(--nx-line);
     text-align: center;
     font-size: 14px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    color: #0f172a;
+    color: var(--nx-ink);
     background: #ffffff;
 }
 
 .qty-input:focus-visible {
-    outline: 2px solid #0d9488;
+    outline: 2px solid var(--nx-accent);
     outline-offset: -2px;
 }
 
 .qty-input:disabled {
-    background: #f8fafc;
-    color: #94a3b8;
+    background: var(--nx-sunken);
+    color: var(--nx-muted-2);
 }
 </style>

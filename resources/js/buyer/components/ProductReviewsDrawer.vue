@@ -482,7 +482,7 @@ function formatDate(value) {
     justify-content: space-between;
     gap: 12px;
     padding: 20px;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--nx-line-soft);
 }
 
 .reviews-eyebrow {
@@ -491,14 +491,14 @@ function formatDate(value) {
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #94a3b8;
+    color: var(--nx-muted-2);
 }
 
 .reviews-title {
     margin: 0;
     font-size: 17px;
     font-weight: 700;
-    color: #0f172a;
+    color: var(--nx-ink);
     line-height: 1.3;
 }
 
@@ -510,14 +510,14 @@ function formatDate(value) {
     height: 40px;
     flex-shrink: 0;
     border: none;
-    background: #f8fafc;
-    color: #475569;
+    background: var(--nx-sunken);
+    color: var(--nx-text-2);
     border-radius: 10px;
     cursor: pointer;
 }
 
 .reviews-close:hover {
-    background: #f1f5f9;
+    background: var(--nx-line-soft);
 }
 
 .reviews-body {
@@ -533,7 +533,7 @@ function formatDate(value) {
     display: flex;
     gap: 20px;
     padding-bottom: 18px;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--nx-line-soft);
 }
 
 .reviews-avg {
@@ -547,14 +547,14 @@ function formatDate(value) {
 .reviews-avg-number {
     font-size: 34px;
     font-weight: 800;
-    color: #0f172a;
+    color: var(--nx-ink);
     line-height: 1;
     font-variant-numeric: tabular-nums;
 }
 
 .reviews-avg-count {
     font-size: 12px;
-    color: #64748b;
+    color: var(--nx-muted);
 }
 
 .reviews-breakdown {
@@ -572,7 +572,7 @@ function formatDate(value) {
     align-items: center;
     gap: 8px;
     font-size: 12px;
-    color: #64748b;
+    color: var(--nx-muted);
 }
 
 .reviews-breakdown-label {
@@ -584,7 +584,7 @@ function formatDate(value) {
 .reviews-breakdown-track {
     flex: 1;
     height: 6px;
-    background: #f1f5f9;
+    background: var(--nx-line-soft);
     border-radius: 999px;
     overflow: hidden;
 }
@@ -613,22 +613,22 @@ function formatDate(value) {
     min-height: 34px;
     padding: 0 12px;
     border-radius: 999px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--nx-line);
     background: #ffffff;
     font-size: 12.5px;
     font-weight: 600;
-    color: #475569;
+    color: var(--nx-text-2);
     cursor: pointer;
 }
 
 .reviews-filter:hover:not(:disabled) {
-    border-color: #0d9488;
-    color: #0f766e;
+    border-color: var(--nx-accent);
+    color: var(--nx-accent-dark);
 }
 
 .reviews-filter--active {
-    background: #0d9488;
-    border-color: #0d9488;
+    background: var(--nx-accent);
+    border-color: var(--nx-accent);
     color: #ffffff;
 }
 
@@ -647,7 +647,7 @@ function formatDate(value) {
 }
 
 .review-card {
-    border: 1px solid #f1f5f9;
+    border: 1px solid var(--nx-line-soft);
     border-radius: 14px;
     padding: 14px;
 }
@@ -664,7 +664,7 @@ function formatDate(value) {
     margin: 0;
     font-size: 13.5px;
     font-weight: 700;
-    color: #0f172a;
+    color: var(--nx-ink);
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -677,8 +677,8 @@ function formatDate(value) {
     gap: 3px;
     padding: 2px 7px;
     border-radius: 999px;
-    background: #ecfdf5;
-    color: #047857;
+    background: var(--nx-accent-soft);
+    color: var(--nx-accent-dark);
     font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.02em;
@@ -687,20 +687,20 @@ function formatDate(value) {
 .review-meta {
     margin: 2px 0 0;
     font-size: 12px;
-    color: #94a3b8;
+    color: var(--nx-muted-2);
 }
 
 .review-body {
     margin: 0;
     font-size: 13.5px;
     line-height: 1.55;
-    color: #334155;
+    color: var(--nx-text-2);
     white-space: pre-line;
     overflow-wrap: anywhere;
 }
 
 .review-body--muted {
-    color: #94a3b8;
+    color: var(--nx-muted-2);
     font-style: italic;
 }
 
@@ -716,16 +716,16 @@ function formatDate(value) {
     height: 68px;
     object-fit: cover;
     border-radius: 10px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--nx-line);
 }
 
 .review-response {
     margin-top: 10px;
     padding: 10px 12px;
-    background: #f8fafc;
+    background: var(--nx-sunken);
     border-radius: 10px;
     font-size: 12.5px;
-    color: #475569;
+    color: var(--nx-text-2);
     line-height: 1.5;
 }
 
@@ -735,7 +735,7 @@ function formatDate(value) {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #94a3b8;
+    color: var(--nx-muted-2);
 }
 
 .review-response p {
@@ -750,7 +750,7 @@ function formatDate(value) {
     gap: 10px;
     padding: 40px 16px;
     text-align: center;
-    color: #64748b;
+    color: var(--nx-muted);
     font-size: 13.5px;
 }
 
@@ -759,9 +759,9 @@ function formatDate(value) {
     min-height: 40px;
     padding: 0 18px;
     border-radius: 10px;
-    border: 1px solid #0d9488;
+    border: 1px solid var(--nx-accent);
     background: #ffffff;
-    color: #0f766e;
+    color: var(--nx-accent-dark);
     font-size: 13px;
     font-weight: 700;
     cursor: pointer;
@@ -773,7 +773,7 @@ function formatDate(value) {
 
 .reviews-retry:hover,
 .reviews-more:hover:not(:disabled) {
-    background: #f0fdfa;
+    background: var(--nx-accent-soft);
 }
 
 .reviews-more:disabled {
@@ -785,13 +785,13 @@ function formatDate(value) {
 .reviews-close:focus-visible,
 .reviews-retry:focus-visible,
 .reviews-more:focus-visible {
-    outline: 2px solid #0d9488;
+    outline: 2px solid var(--nx-accent);
     outline-offset: 2px;
 }
 
 /* Skeletons */
 .sk {
-    background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%);
+    background: linear-gradient(90deg, var(--nx-line-soft) 25%, var(--nx-line) 37%, var(--nx-line-soft) 63%);
     background-size: 400% 100%;
     animation: sk-shimmer 1.4s ease infinite;
     border-radius: 6px;

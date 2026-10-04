@@ -203,7 +203,7 @@ function handleHeaderSelectCategory(category) {
 
                         <button
                             type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-[#0d9488] font-semibold transition-colors"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-brand font-semibold transition-colors"
                         >
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
@@ -300,7 +300,7 @@ function handleHeaderSelectCategory(category) {
 
                             <select
                                 v-model="sortBy"
-                                class="bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d9488]/20"
+                                class="bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand/20"
                                 style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
                             >
                                 <option value="recent">Recently Added</option>
@@ -339,7 +339,7 @@ function handleHeaderSelectCategory(category) {
                         <p class="text-slate-500 mt-2 max-w-xs">Tap the heart on any product to save it here for later.</p>
                         <button
                             type="button"
-                            class="mt-8 px-8 py-4 bg-[#0d9488] text-white rounded-2xl font-bold hover:bg-[#0f766e] transition-all"
+                            class="mt-8 px-8 py-4 bg-brand text-white rounded-2xl font-bold hover:bg-brand-dark transition-all"
                             @click="emit('go-home')"
                         >
                             Start Shopping
@@ -398,7 +398,7 @@ function handleHeaderSelectCategory(category) {
                                             class="text-left"
                                             @click="handleView(product)"
                                         >
-                                            <h3 class="text-sm font-semibold text-slate-800 hover:text-[#0d9488] transition-colors">{{ product.name }}</h3>
+                                            <h3 class="text-sm font-semibold text-slate-800 hover:text-brand transition-colors">{{ product.name }}</h3>
                                         </button>
                                         <p class="text-xs text-slate-400 mt-1">
                                             <span :class="product.stock > 0 ? 'text-emerald-600' : 'text-red-500'">
@@ -419,7 +419,7 @@ function handleHeaderSelectCategory(category) {
                                         </div>
                                         <button
                                             type="button"
-                                            class="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center hover:bg-[#0d9488] transition-colors shrink-0"
+                                            class="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center hover:bg-brand transition-colors shrink-0"
                                             title="Add to cart"
                                             @click="handleAddToCart(product)"
                                         >

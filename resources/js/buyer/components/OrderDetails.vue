@@ -353,7 +353,7 @@ async function handleReturnSubmit(requestData) {
 const needHelpMailtoHref = computed(() => {
     const subject = encodeURIComponent(`Help with order ${props.order?.orderId || ''}`);
     const body = encodeURIComponent(
-        `Hi NEXMART support,\n\nI need help with my order ${props.order?.orderId || ''}.\n\n`
+        `Hi BuyTheWay support,\n\nI need help with my order ${props.order?.orderId || ''}.\n\n`
     );
 
     return `mailto:support@nexmart.com?subject=${subject}&body=${body}`;
@@ -489,7 +489,7 @@ function handleHeaderSelectCategory(category) {
 
                         <button
                             type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-[#0d9488] font-semibold transition-colors"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-brand font-semibold transition-colors"
                             @click="emit('back')"
                         >
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -568,7 +568,7 @@ function handleHeaderSelectCategory(category) {
                         <div>
                             <button
                                 type="button"
-                                class="inline-flex items-center gap-2 text-sm font-semibold text-[#0d9488] hover:underline mb-2"
+                                class="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:underline mb-2"
                                 @click="emit('back')"
                             >
                                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -582,7 +582,7 @@ function handleHeaderSelectCategory(category) {
                             <button
                                 v-if="order.seller_id"
                                 type="button"
-                                class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#0d9488] hover:bg-slate-50 transition-all flex items-center gap-2"
+                                class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-brand hover:bg-slate-50 transition-all flex items-center gap-2"
                                 style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
                                 @click="toggleMessageComposer"
                             >
@@ -600,7 +600,7 @@ function handleHeaderSelectCategory(category) {
                             </a>
                             <button
                                 type="button"
-                                class="px-5 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-all flex items-center gap-2"
+                                class="px-5 py-2.5 bg-brand text-white rounded-xl text-sm font-bold hover:bg-brand-dark transition-all flex items-center gap-2"
                                 style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
                                 @click="emit('track-order')"
                             >
@@ -626,13 +626,13 @@ function handleHeaderSelectCategory(category) {
                             v-model="messageDraft"
                             rows="3"
                             placeholder="Type your message…"
-                            class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all resize-y"
+                            class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all resize-y"
                         ></textarea>
                         <p v-if="messageError" class="text-xs text-red-500 mt-2">{{ messageError }}</p>
                         <div class="mt-3 flex justify-end">
                             <button
                                 type="button"
-                                class="px-6 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                class="px-6 py-2.5 bg-brand text-white rounded-xl text-sm font-bold hover:bg-brand-dark transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 :disabled="messageSending || !messageDraft.trim()"
                                 @click="sendSellerMessage"
                             >
@@ -649,7 +649,7 @@ function handleHeaderSelectCategory(category) {
                         </div>
                         <div class="px-4 py-2 border-r border-slate-100">
                             <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Amount</p>
-                            <p class="font-bold text-[#0d9488]">{{ formatPrice(orderTotals.total) }}</p>
+                            <p class="font-bold text-brand">{{ formatPrice(orderTotals.total) }}</p>
                         </div>
                         <div class="px-4 py-2 border-r border-slate-100">
                             <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Shipping Method</p>
@@ -698,7 +698,7 @@ function handleHeaderSelectCategory(category) {
                                             <div class="flex-1">
                                                 <h3 class="font-bold text-slate-900">{{ item.name || `Product #${item.product_id}` }}</h3>
                                                 <p class="text-sm text-slate-500 mt-1">
-                                                    Seller: {{ item.seller || 'NEXMART Seller' }}
+                                                    Seller: {{ item.seller || 'BuyTheWay Seller' }}
                                                     <template v-if="item.variation"> • {{ item.variation }}</template>
                                                 </p>
                                             </div>
@@ -809,13 +809,13 @@ function handleHeaderSelectCategory(category) {
                                         <span
                                             v-if="index < trackingSteps.length - 1"
                                             class="absolute left-5 top-10 bottom-0 w-0.5"
-                                            :class="isTrackingStepCompleted(order, index + 1) ? 'bg-[#0d9488]' : 'bg-slate-200'"
+                                            :class="isTrackingStepCompleted(order, index + 1) ? 'bg-brand' : 'bg-slate-200'"
                                         ></span>
 
                                         <div
                                             class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 z-10"
                                             :class="isTrackingStepCompleted(order, index)
-                                                ? 'bg-[#0d9488] text-white shadow-lg shadow-[#0d9488]/20'
+                                                ? 'bg-brand text-white shadow-lg shadow-brand/20'
                                                 : 'bg-slate-100 border-2 border-slate-200 text-slate-300'"
                                         >
                                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="stepIcons[step]"></svg>
@@ -837,7 +837,7 @@ function handleHeaderSelectCategory(category) {
                                                 </span>
                                                 <span
                                                     v-else-if="order.status === step"
-                                                    class="text-xs font-semibold text-[#0d9488] shrink-0"
+                                                    class="text-xs font-semibold text-brand shrink-0"
                                                 >
                                                     Current status
                                                 </span>
@@ -920,11 +920,11 @@ function handleHeaderSelectCategory(category) {
                                         <div class="flex justify-between items-center">
                                             <span class="text-sm text-slate-500">Tracking No.</span>
                                             <span class="flex items-center gap-2">
-                                                <span class="text-sm font-bold text-[#0d9488]">{{ order.tracking_number || 'Not yet available' }}</span>
+                                                <span class="text-sm font-bold text-brand">{{ order.tracking_number || 'Not yet available' }}</span>
                                                 <button
                                                     v-if="order.tracking_number"
                                                     type="button"
-                                                    class="text-slate-400 hover:text-[#0d9488] transition-colors"
+                                                    class="text-slate-400 hover:text-brand transition-colors"
                                                     :title="trackingCopied ? 'Copied!' : 'Copy tracking number'"
                                                     @click="copyTrackingNumber"
                                                 >
@@ -971,7 +971,7 @@ function handleHeaderSelectCategory(category) {
                                     </div>
                                     <div class="pt-4 mt-4 border-t border-slate-100 flex justify-between items-center">
                                         <span class="text-lg font-bold text-slate-900">Total</span>
-                                        <span class="text-2xl font-bold text-[#0d9488]">{{ formatPrice(orderTotals.total) }}</span>
+                                        <span class="text-2xl font-bold text-brand">{{ formatPrice(orderTotals.total) }}</span>
                                     </div>
                                 </div>
                             </section>

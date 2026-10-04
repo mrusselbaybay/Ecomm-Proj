@@ -1,127 +1,103 @@
 <script setup>
-import { ref } from 'vue';
+/*
+| Site footer. The old newsletter form only confirmed locally (there is no
+| subscribers endpoint), so it was replaced with real navigation instead of
+| a "you're on the list" message that wasn't true.
+*/
+import BrandMark from './BrandMark.vue';
+import { requestBuyerView } from '../composables/useBuyerNav';
+import { categories } from '../composables/useCategoryMeta';
 
 const emit = defineEmits([
     'browse-all',
     'browse-categories',
-    'cart-click',
-    'subscribe'
+    'cart-click'
 ]);
 
-const newsletterEmail = ref('');
-const newsletterSubscribed = ref(false);
+const footerCategories = categories.filter(category => category !== 'All');
 
-function subscribeNewsletter() {
-    if (!newsletterEmail.value.trim()) {
-        return;
-    }
-
-    emit('subscribe', newsletterEmail.value);
-
-    // No backend endpoint yet — this only confirms locally, same as Dashboard.
-    newsletterSubscribed.value = true;
-    newsletterEmail.value = '';
-}
+const accountLinks = [
+    { view: 'orders', label: 'Orders & tracking' },
+    { view: 'wishlist', label: 'Wishlist' },
+    { view: 'addresses', label: 'Saved addresses' },
+    { view: 'payments', label: 'Payment methods' },
+    { view: 'reviews', label: 'My reviews' }
+];
 </script>
 
 <template>
 
-    <footer class="buyer-footer">
+    <footer class="site-footer">
 
-        <div class="buyer-footer-top">
+        <div class="site-footer-top">
 
-            <div class="buyer-footer-brand">
-
-                <div class="buyer-logo">
-                    <span class="buyer-logo-badge">N</span>
-                    <span class="buyer-logo-text light">NEX<span class="accent">MART</span></span>
-                </div>
-
+            <div class="site-footer-brand">
+                <BrandMark inverse />
                 <p>
-                    Your local marketplace — quality goods from verified sellers, delivered to your door.
+                    A marketplace for independent sellers across the Philippines. Compare listings, message sellers and track every order in one place.
                 </p>
-
-                <div
-                    class="buyer-footer-social"
-                    aria-hidden="true"
-                >
-                    <span>f</span>
-                    <span>𝕏</span>
-                    <span>◎</span>
-                </div>
-
             </div>
 
-            <nav class="buyer-footer-links">
-
-                <span class="buyer-footer-heading">
-                    Shop
-                </span>
-
-                <a
-                    href="#buyer-products"
-                    @click="emit('browse-all')"
-                >
-                    All Products
-                </a>
-
+            <nav
+                class="site-footer-col"
+                aria-label="Shop"
+            >
+                <h2 class="site-footer-heading">Shop</h2>
                 <button
                     type="button"
-                    @click="emit('browse-categories')"
+                    @click="emit('browse-all')"
                 >
-                    Popular Categories
+                    All products
                 </button>
-
-                <a
-                    href="#"
-                    @click.prevent="emit('cart-click')"
+                <button
+                    type="button"
+                    @click="requestBuyerView('deals')"
                 >
-                    My Cart
-                </a>
-
+                    Deals
+                </button>
+                <button
+                    type="button"
+                    @click="emit('cart-click')"
+                >
+                    Your cart
+                </button>
             </nav>
 
-            <div class="buyer-footer-newsletter">
-
-                <span class="buyer-footer-heading">
-                    Newsletter
-                </span>
-
-                <p>
-                    Get updates on new arrivals from local sellers.
-                </p>
-
-                <form
-                    class="buyer-footer-newsletter-form"
-                    @submit.prevent="subscribeNewsletter"
+            <nav
+                class="site-footer-col"
+                aria-label="Categories"
+            >
+                <h2 class="site-footer-heading">Categories</h2>
+                <button
+                    v-for="category in footerCategories"
+                    :key="category"
+                    type="button"
+                    @click="requestBuyerView('category', category)"
                 >
+                    {{ category }}
+                </button>
+            </nav>
 
-                    <input
-                        v-model="newsletterEmail"
-                        type="email"
-                        placeholder="Enter your email address"
-                        required
-                    >
-
-                    <button type="submit">
-                        Subscribe Now
-                    </button>
-
-                </form>
-
-                <p
-                    v-if="newsletterSubscribed"
-                    class="buyer-footer-newsletter-note"
+            <nav
+                class="site-footer-col"
+                aria-label="Your account"
+            >
+                <h2 class="site-footer-heading">Your account</h2>
+                <button
+                    v-for="link in accountLinks"
+                    :key="link.view"
+                    type="button"
+                    @click="requestBuyerView(link.view)"
                 >
-                    Thanks — you're on the list!
-                </p>
-
-            </div>
+                    {{ link.label }}
+                </button>
+            </nav>
 
         </div>
 
-        <div class="buyer-footer-bottom">
-            <span>© {{ new Date().getFullYear() }} NEXMART. All rights reserved.</span>
+        <div class="site-footer-bottom">
+            <span>&copy; {{ new Date().getFullYear() }} BuyTheWay</span>
+            <span>Prices shown in Philippine peso (&#8369;)</span>
         </div>
 
     </footer>

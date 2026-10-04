@@ -5,7 +5,7 @@
 |--------------------------------------------------------------------------
 |
 | Adapted from a pasted reference design ("ShopVerse Modern Multi-Pane
-| Chat Popup") onto NEXMART's stack the same way as the rest of the buyer
+| Chat Popup") onto BuyTheWay's stack the same way as the rest of the buyer
 | area: Tailwind utilities, inline SVG icons (the reference's iconify web
 | component isn't a dependency here), #0d9488 brand teal.
 |
@@ -192,7 +192,7 @@ onBeforeUnmount(() => {
                                 v-model="search"
                                 type="text"
                                 placeholder="Search sellers…"
-                                class="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
+                                class="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
                             >
                         </div>
                     </div>
@@ -210,7 +210,7 @@ onBeforeUnmount(() => {
                         >
                             <div class="flex items-center gap-3">
                                 <div class="relative shrink-0">
-                                    <span class="w-11 h-11 rounded-xl bg-[#0d9488]/10 text-[#0d9488] text-sm font-bold flex items-center justify-center">
+                                    <span class="w-11 h-11 rounded-xl bg-brand/10 text-brand text-sm font-bold flex items-center justify-center">
                                         {{ initials(convo.seller) }}
                                     </span>
                                     <span
@@ -223,7 +223,7 @@ onBeforeUnmount(() => {
                                         <span class="text-[13px] font-bold text-slate-900 truncate">{{ convo.seller }}</span>
                                         <span
                                             class="text-[10px] font-medium shrink-0"
-                                            :class="convo.unread ? 'text-[#0d9488]' : 'text-slate-400'"
+                                            :class="convo.unread ? 'text-brand' : 'text-slate-400'"
                                         >{{ convo.updatedAt }}</span>
                                     </div>
                                     <div class="flex justify-between items-center gap-2">
@@ -233,7 +233,7 @@ onBeforeUnmount(() => {
                                         >{{ lastMessageText(convo) }}</p>
                                         <span
                                             v-if="convo.unread"
-                                            class="shrink-0 min-w-4 h-4 px-1 bg-[#0d9488] text-[9px] font-bold text-white flex items-center justify-center rounded-full"
+                                            class="shrink-0 min-w-4 h-4 px-1 bg-brand text-[9px] font-bold text-white flex items-center justify-center rounded-full"
                                         >{{ convo.unread }}</span>
                                     </div>
                                 </div>
@@ -272,7 +272,7 @@ onBeforeUnmount(() => {
                                     </svg>
                                 </button>
                                 <div class="relative shrink-0">
-                                    <span class="w-10 h-10 rounded-2xl bg-[#0d9488]/10 text-[#0d9488] text-sm font-bold flex items-center justify-center">
+                                    <span class="w-10 h-10 rounded-2xl bg-brand/10 text-brand text-sm font-bold flex items-center justify-center">
                                         {{ initials(activeConversation.seller) }}
                                     </span>
                                     <span
@@ -316,9 +316,9 @@ onBeforeUnmount(() => {
                             <!-- Product context -->
                             <div
                                 v-if="activeConversation.product"
-                                class="bg-white border border-slate-200 border-l-4 border-l-[#0d9488] rounded-2xl p-4 flex items-center gap-4"
+                                class="bg-white border border-slate-200 border-l-4 border-l-brand rounded-2xl p-4 flex items-center gap-4"
                             >
-                                <span class="w-12 h-12 rounded-xl bg-[#0d9488]/10 text-[#0d9488] flex items-center justify-center shrink-0">
+                                <span class="w-12 h-12 rounded-xl bg-brand/10 text-brand flex items-center justify-center shrink-0">
                                     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" />
                                     </svg>
@@ -327,7 +327,7 @@ onBeforeUnmount(() => {
                                     <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Regarding</p>
                                     <h4 class="text-xs font-bold text-slate-900 truncate">{{ activeConversation.product.name }}</h4>
                                     <div class="flex items-center gap-2 mt-1">
-                                        <span class="text-[11px] font-bold text-[#0d9488]">{{ formatPrice(activeConversation.product.price) }}</span>
+                                        <span class="text-[11px] font-bold text-brand">{{ formatPrice(activeConversation.product.price) }}</span>
                                         <span
                                             v-if="activeConversation.product.oldPrice"
                                             class="text-[9px] text-slate-400 font-medium line-through"
@@ -345,13 +345,13 @@ onBeforeUnmount(() => {
                             >
                                 <span
                                     v-if="message.from === 'seller'"
-                                    class="w-7 h-7 rounded-lg bg-[#0d9488]/10 text-[#0d9488] text-[10px] font-bold flex items-center justify-center self-end shrink-0"
+                                    class="w-7 h-7 rounded-lg bg-brand/10 text-brand text-[10px] font-bold flex items-center justify-center self-end shrink-0"
                                 >{{ initials(activeConversation.seller) }}</span>
                                 <div class="space-y-1 min-w-0">
                                     <div
                                         class="px-4 py-2.5 text-[13px] leading-relaxed"
                                         :class="message.from === 'buyer'
-                                            ? 'bg-[#0d9488] text-white rounded-2xl rounded-br-sm font-medium'
+                                            ? 'bg-brand text-white rounded-2xl rounded-br-sm font-medium'
                                             : 'bg-white border border-slate-100 text-slate-700 rounded-2xl rounded-bl-sm'"
                                     >
                                         {{ message.text }}
@@ -363,7 +363,7 @@ onBeforeUnmount(() => {
                                         <span>{{ message.at }}</span>
                                         <svg
                                             v-if="message.from === 'buyer'"
-                                            viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-[#0d9488]"
+                                            viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-brand"
                                         >
                                             <path d="M18 6 7 17l-5-5" /><path d="m22 10-7.5 7.5L13 16" />
                                         </svg>
@@ -389,11 +389,11 @@ onBeforeUnmount(() => {
                                 v-model="draft"
                                 type="text"
                                 placeholder="Write your message…"
-                                class="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
+                                class="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
                             >
                             <button
                                 type="submit"
-                                class="w-11 h-11 shrink-0 flex items-center justify-center rounded-2xl bg-[#0d9488] text-white hover:bg-[#0f766e] transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                                class="w-11 h-11 shrink-0 flex items-center justify-center rounded-2xl bg-brand text-white hover:bg-brand-dark transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                                 :disabled="draft.trim().length === 0"
                                 aria-label="Send message"
                             >

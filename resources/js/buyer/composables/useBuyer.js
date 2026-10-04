@@ -25,15 +25,23 @@ function loadStoredCart() {
 
 const cart = ref(loadStoredCart());
 
-// deep: true — quantity and `selected` toggles mutate cart items in place,
-// so a shallow watch would miss them.
-watch(cart, (value) => {
+// Returns false when the browser refused the write (storage full or
+// blocked), so a caller can roll its change back.
+function saveCart(value = cart.value) {
     try {
         localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(value));
-    } catch (err) {
-        // Storage unavailable (private browsing etc.) — the cart just
-        // won't survive a refresh this session.
+
+        return true;
+    } catch {
+        return false;
     }
+}
+
+// deep: true — quantity and `selected` toggles mutate cart items in place,
+// so a shallow watch would miss them. A failed write here just means the
+// cart won't survive a refresh this session.
+watch(cart, (value) => {
+    saveCart(value);
 }, { deep: true });
 
 // Backed by the Laravel Buyer API (/api/buyer/wishlist ->
@@ -103,7 +111,7 @@ function snapshotFrom(item, product, variant) {
     item.name = product.name ?? item.name;
     item.price = Number(variant?.price ?? product.price ?? item.price);
     item.category = product.category ?? item.category;
-    item.seller = product.seller || item.seller || 'NEXMART Seller';
+    item.seller = product.seller || item.seller || 'BuyTheWay Seller';
     item.image = item.image
         || variant?.image?.url
         || (Array.isArray(product.images) ? product.images[0] || null : null);
@@ -203,7 +211,7 @@ function addToCart(product, variant, quantity) {
         category: product.category,
         variation: variantLabel,
         quantity: quantityToAdd,
-        seller: product.seller || 'NEXMART Seller',
+        seller: product.seller || 'BuyTheWay Seller',
         image: variant?.image?.url
             || (Array.isArray(product.images) ? product.images[0] || null : null),
         oldPrice: product.oldPrice ?? null,
@@ -279,7 +287,18 @@ function setCartQuantity(cartId, quantity) {
         capped = true;
     }
 
+    const previous = item.quantity;
+
     item.quantity = next;
+
+    // Save straight away so a failed write can restore the last saved
+    // quantity (and with it the line and cart totals).
+    if (!saveCart()) {
+        item.quantity = previous;
+        toastError(`We couldn't save that change, so the quantity is back to ${previous}.`);
+
+        return { quantity: previous, capped: false, failed: true };
+    }
 
     if (item.status === 'insufficient_stock' && item.maxStock != null && next <= item.maxStock) {
         item.status = 'ok';
@@ -339,15 +358,56 @@ function deselectBlockedItems() {
 |
 | The cart is a localStorage snapshot (see the top of this file), so its
 | name/price/stock/availability can all have gone stale since it was
-| built. This re-fetches each distinct product from the public catalog
-| (GET /api/products/{id}) and tags every line with a status the Cart page
-| surfaces inline — WITHOUT ever removing anything automatically. Called
+| built. This re-fetches every distinct product from the public catalog in
+| ONE request (GET /api/products?ids=a,b,c) and tags every line with a
+| status the Cart page surfaces inline — WITHOUT ever removing anything
+| automatically. A product missing from a successful response is no
+| longer visible (inactive, deleted, or its seller isn't active). Called
 | when the Cart page mounts.
 |
 */
 
 const isValidatingCart = ref(false);
 const cartValidatedAt = ref(0);
+
+// Map of productId -> product row, null (not visible) or undefined
+// (couldn't check). The endpoint caps ids at 100 per request.
+async function fetchCatalogProducts(ids) {
+    const map = new Map();
+
+    for (let start = 0; start < ids.length; start += 100) {
+        const chunk = ids.slice(start, start + 100);
+
+        try {
+            const params = new URLSearchParams({ ids: chunk.join(','), per_page: '100' });
+            const response = await fetch(`/api/products?${params}`, {
+                headers: { Accept: 'application/json' },
+            });
+
+            if (!response.ok) {
+                chunk.forEach((id) => map.set(id, undefined));
+
+                continue;
+            }
+
+            const body = await response.json().catch(() => null);
+
+            if (!Array.isArray(body?.data)) {
+                chunk.forEach((id) => map.set(id, undefined));
+
+                continue;
+            }
+
+            const found = new Map(body.data.map((product) => [product.id, product]));
+
+            chunk.forEach((id) => map.set(id, found.get(id) ?? null));
+        } catch {
+            chunk.forEach((id) => map.set(id, undefined));
+        }
+    }
+
+    return map;
+}
 
 async function validateCartAgainstCatalog() {
     if (cart.value.length === 0) {
@@ -361,31 +421,7 @@ async function validateCartAgainstCatalog() {
     try {
         const ids = [...new Set(cart.value.map((item) => item.productId))];
 
-        const entries = await Promise.all(
-            ids.map(async (id) => {
-                try {
-                    const response = await fetch(`/api/products/${encodeURIComponent(id)}`, {
-                        headers: { Accept: 'application/json' },
-                    });
-
-                    if (response.status === 404) {
-                        return [id, null];
-                    }
-
-                    if (!response.ok) {
-                        return [id, undefined];
-                    }
-
-                    const body = await response.json().catch(() => ({}));
-
-                    return [id, body.data || undefined];
-                } catch {
-                    return [id, undefined];
-                }
-            }),
-        );
-
-        const map = new Map(entries);
+        const map = await fetchCatalogProducts(ids);
 
         cart.value.forEach((item) => {
             const product = map.get(item.productId);

@@ -1,1 +1,14 @@
 @import "tailwindcss";
+
+/*
+| BuyTheWay brand colors — used by the buyer app's utility classes
+| (bg-brand, text-brand-dark, bg-brand-soft ...). Literal values here so
+| Tailwind can build opacity modifiers (bg-brand/10); the buyer stylesheet
+| mirrors them as --nx-accent* tokens for hand-written CSS.
+*/
+@theme {
+    --color-brand: #1d6b52;
+    --color-brand-dark: #165741;
+    --color-brand-soft: #eef5f1;
+    --color-deal: #c2410c;
+}

@@ -40,7 +40,7 @@ export const stepLabels = {
 };
 
 export const stepDescriptions = {
-    [ORDER_STATUSES.TO_SHIP]: 'Order details received by NEXMART.',
+    [ORDER_STATUSES.TO_SHIP]: 'Order details received by BuyTheWay.',
     [ORDER_STATUSES.PROCESSING]: 'Seller is preparing your order.',
     [ORDER_STATUSES.IN_TRANSIT]: 'Package picked up by courier.',
     [ORDER_STATUSES.DELIVERED]: 'Delivered to your address.'

@@ -326,7 +326,7 @@ function handleHeaderSelectCategory(category) {
 
                         <button
                             type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-[#0d9488] font-semibold transition-colors"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-brand font-semibold transition-colors"
                         >
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" />
@@ -378,7 +378,7 @@ function handleHeaderSelectCategory(category) {
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mx-2">
                                 <path d="m9 18 6-6-6-6" />
                             </svg>
-                            <span class="text-[#0d9488]">My Reviews</span>
+                            <span class="text-brand">My Reviews</span>
                         </nav>
                         <h1 class="text-3xl font-bold text-slate-900 tracking-tight">My Reviews</h1>
                         <p class="text-slate-500 mt-1">
@@ -408,7 +408,7 @@ function handleHeaderSelectCategory(category) {
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div class="bg-white rounded-3xl p-6 border border-slate-100" style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);">
                                 <div class="flex items-center gap-4 mb-2">
-                                    <div class="w-10 h-10 rounded-2xl bg-teal-50 text-[#0d9488] flex items-center justify-center">
+                                    <div class="w-10 h-10 rounded-2xl bg-teal-50 text-brand flex items-center justify-center">
                                         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                             <path d="m15.477 12.89 1.515 8.526a.5.5 0 0 1-.81.47l-3.58-2.687a1 1 0 0 0-1.197 0l-3.586 2.686a.5.5 0 0 1-.81-.469l1.514-8.526" /><circle cx="12" cy="8" r="6" />
                                         </svg>
@@ -579,7 +579,7 @@ function handleHeaderSelectCategory(category) {
                                         >
                                             <button
                                                 type="button"
-                                                class="p-2 text-slate-400 hover:text-[#0d9488] transition-colors rounded-xl hover:bg-teal-50"
+                                                class="p-2 text-slate-400 hover:text-brand transition-colors rounded-xl hover:bg-teal-50"
                                                 title="Edit review"
                                                 @click="startEdit(review)"
                                             >
@@ -635,7 +635,7 @@ function handleHeaderSelectCategory(category) {
                                             <button
                                                 type="button"
                                                 :disabled="savingEdit || editForm.rating < 1"
-                                                class="px-5 py-2 rounded-xl text-sm font-bold text-white bg-[#0d9488] hover:bg-[#0f766e] disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                                                class="px-5 py-2 rounded-xl text-sm font-bold text-white bg-brand hover:bg-brand-dark disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                                                 @click="saveEdit(review)"
                                             >
                                                 {{ savingEdit ? 'Saving…' : 'Save Changes' }}
@@ -689,7 +689,7 @@ function handleHeaderSelectCategory(category) {
                                 <button
                                     type="button"
                                     class="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-all"
-                                    :class="n === page ? 'bg-[#0d9488] text-white shadow-lg shadow-teal-500/20' : 'border border-slate-200 text-slate-600 hover:bg-white hover:text-slate-900'"
+                                    :class="n === page ? 'bg-brand text-white shadow-lg shadow-teal-500/20' : 'border border-slate-200 text-slate-600 hover:bg-white hover:text-slate-900'"
                                     @click="goToPage(n)"
                                 >
                                     {{ n }}
@@ -724,7 +724,7 @@ function handleHeaderSelectCategory(category) {
                         <p class="text-slate-500 mt-2 max-w-xs">Once your orders are delivered, you can rate and review your purchases here.</p>
                         <button
                             type="button"
-                            class="mt-8 px-8 py-4 bg-[#0d9488] text-white rounded-2xl font-bold hover:bg-[#0f766e] transition-all"
+                            class="mt-8 px-8 py-4 bg-brand text-white rounded-2xl font-bold hover:bg-brand-dark transition-all"
                             @click="emit('view-orders')"
                         >
                             View My Orders

@@ -133,7 +133,7 @@ async function copyTrackingNumber() {
 const needHelpMailtoHref = computed(() => {
     const subject = encodeURIComponent(`Where's my order ${props.order?.orderId || ''}?`);
     const body = encodeURIComponent(
-        `Hi NEXMART support,\n\nI'd like an update on my order ${props.order?.orderId || ''}.\n\n`
+        `Hi BuyTheWay support,\n\nI'd like an update on my order ${props.order?.orderId || ''}.\n\n`
     );
 
     return `mailto:support@nexmart.com?subject=${subject}&body=${body}`;
@@ -205,7 +205,7 @@ function handleHeaderSelectCategory(category) {
 
                         <button
                             type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-[#0d9488] font-semibold transition-colors"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-brand font-semibold transition-colors"
                         >
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" />
@@ -271,7 +271,7 @@ function handleHeaderSelectCategory(category) {
                         <div>
                             <button
                                 type="button"
-                                class="inline-flex items-center gap-2 text-sm font-semibold text-[#0d9488] hover:underline mb-2"
+                                class="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:underline mb-2"
                                 @click="emit('back')"
                             >
                                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -293,7 +293,7 @@ function handleHeaderSelectCategory(category) {
                                 v-if="order.tracking_number"
                                 type="button"
                                 class="px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
-                                :class="trackingCopied ? 'bg-emerald-600 text-white' : 'bg-[#0d9488] text-white hover:bg-[#0f766e]'"
+                                :class="trackingCopied ? 'bg-emerald-600 text-white' : 'bg-brand text-white hover:bg-brand-dark'"
                                 style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
                                 @click="copyTrackingNumber"
                             >
@@ -360,7 +360,7 @@ function handleHeaderSelectCategory(category) {
                                     class="rounded-3xl border border-slate-100 p-10 text-center"
                                     style="background: linear-gradient(180deg, var(--nx-accent-soft, #f0fdfa) 0%, #ffffff 100%); box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
                                 >
-                                    <div class="w-20 h-20 rounded-full bg-white text-[#0d9488] flex items-center justify-center mx-auto mb-5 shadow-lg shadow-[#0d9488]/10">
+                                    <div class="w-20 h-20 rounded-full bg-white text-brand flex items-center justify-center mx-auto mb-5 shadow-lg shadow-brand/10">
                                         <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="currentStepIcon"></svg>
                                     </div>
                                     <h2 class="text-2xl font-bold text-slate-900 mb-2">{{ currentStepLabel }}</h2>
@@ -395,13 +395,13 @@ function handleHeaderSelectCategory(category) {
                                             <span
                                                 v-if="index < trackingSteps.length - 1"
                                                 class="absolute left-5 top-10 bottom-0 w-0.5"
-                                                :class="isTrackingStepCompleted(order, index + 1) ? 'bg-[#0d9488]' : 'bg-slate-200'"
+                                                :class="isTrackingStepCompleted(order, index + 1) ? 'bg-brand' : 'bg-slate-200'"
                                             ></span>
 
                                             <div
                                                 class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 z-10"
                                                 :class="isTrackingStepCompleted(order, index)
-                                                    ? 'bg-[#0d9488] text-white shadow-lg shadow-[#0d9488]/20'
+                                                    ? 'bg-brand text-white shadow-lg shadow-brand/20'
                                                     : 'bg-slate-100 border-2 border-slate-200 text-slate-300'"
                                             >
                                                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="stepIcons[step]"></svg>
@@ -423,7 +423,7 @@ function handleHeaderSelectCategory(category) {
                                                     </span>
                                                     <span
                                                         v-else-if="order.status === step"
-                                                        class="text-xs font-semibold text-[#0d9488] shrink-0"
+                                                        class="text-xs font-semibold text-brand shrink-0"
                                                     >
                                                         Current status
                                                     </span>
@@ -470,7 +470,7 @@ function handleHeaderSelectCategory(category) {
                                     </div>
                                     <div class="flex justify-between items-center">
                                         <span class="text-sm text-slate-500">Tracking No.</span>
-                                        <span class="text-sm font-bold text-[#0d9488]">{{ order.tracking_number || 'Not yet available' }}</span>
+                                        <span class="text-sm font-bold text-brand">{{ order.tracking_number || 'Not yet available' }}</span>
                                     </div>
                                 </div>
                                 <p class="text-xs text-slate-400 mt-6 pt-6 border-t border-slate-50 leading-relaxed">
@@ -492,7 +492,7 @@ function handleHeaderSelectCategory(category) {
                                 </p>
                                 <a
                                     :href="needHelpMailtoHref"
-                                    class="w-full py-3 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-all flex items-center justify-center"
+                                    class="w-full py-3 bg-brand text-white rounded-xl text-sm font-bold hover:bg-brand-dark transition-all flex items-center justify-center"
                                 >
                                     Email Support
                                 </a>

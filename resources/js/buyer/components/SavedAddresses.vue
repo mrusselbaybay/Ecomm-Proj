@@ -5,7 +5,7 @@
 |--------------------------------------------------------------------------
 |
 | Adapted from a pasted reference design ("ShopVerse Premium Saved
-| Addresses") onto NEXMART's stack the same way as the rest of the
+| Addresses") onto BuyTheWay's stack the same way as the rest of the
 | account area: Tailwind utilities, the shared Header/Footer, inline SVG
 | icons (the reference's iconify web component isn't a dependency here),
 | #0d9488 brand teal.
@@ -313,7 +313,7 @@ function handleHeaderSelectCategory(category) {
 
                         <button
                             type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-[#0d9488] font-semibold transition-colors"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-brand font-semibold transition-colors"
                         >
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" />
@@ -358,7 +358,7 @@ function handleHeaderSelectCategory(category) {
                             <button
                                 v-if="!isFormOpen"
                                 type="button"
-                                class="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-colors"
+                                class="inline-flex items-center gap-2 px-5 py-2.5 bg-brand text-white rounded-xl text-sm font-bold hover:bg-brand-dark transition-colors"
                                 @click="openAddForm"
                             >
                                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -389,7 +389,7 @@ function handleHeaderSelectCategory(category) {
                         class="bg-white rounded-3xl border border-dashed border-slate-200 p-12 text-center"
                         style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
                     >
-                        <div class="w-14 h-14 mx-auto rounded-2xl bg-teal-50 text-[#0d9488] flex items-center justify-center mb-4">
+                        <div class="w-14 h-14 mx-auto rounded-2xl bg-teal-50 text-brand flex items-center justify-center mb-4">
                             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" />
                             </svg>
@@ -398,7 +398,7 @@ function handleHeaderSelectCategory(category) {
                         <p class="text-slate-500 text-sm mt-1 mb-6">Add one now so checkout is a couple of taps next time.</p>
                         <button
                             type="button"
-                            class="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-colors"
+                            class="inline-flex items-center gap-2 px-5 py-2.5 bg-brand text-white rounded-xl text-sm font-bold hover:bg-brand-dark transition-colors"
                             @click="openAddForm"
                         >
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -417,13 +417,13 @@ function handleHeaderSelectCategory(category) {
                             v-for="address in addresses"
                             :key="address.id"
                             class="bg-white rounded-3xl p-8 relative transition-colors"
-                            :class="address.isDefault ? 'border-2 border-[#0d9488]' : 'border border-slate-200'"
+                            :class="address.isDefault ? 'border-2 border-brand' : 'border border-slate-200'"
                             style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
                         >
                             <div class="absolute top-6 right-6 flex flex-wrap justify-end gap-2">
                                 <span
                                     v-if="address.isDefault"
-                                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold bg-teal-50 text-[#0d9488] uppercase tracking-wide"
+                                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold bg-teal-50 text-brand uppercase tracking-wide"
                                 >
                                     <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" stroke="none">
                                         <path d="M12 2 15.09 8.26 22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
@@ -454,7 +454,7 @@ function handleHeaderSelectCategory(category) {
                                     <button
                                         v-if="!address.isDefault"
                                         type="button"
-                                        class="flex-1 min-w-[7rem] py-2.5 bg-white text-[#0d9488] rounded-xl text-xs font-bold hover:bg-teal-50 transition-all border border-teal-100"
+                                        class="flex-1 min-w-[7rem] py-2.5 bg-white text-brand rounded-xl text-xs font-bold hover:bg-teal-50 transition-all border border-teal-100"
                                         @click="handleSetDefault(address)"
                                     >
                                         Set as Default
@@ -485,7 +485,7 @@ function handleHeaderSelectCategory(category) {
                         style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
                     >
                         <div class="px-6 sm:px-10 py-6 border-b border-slate-100 flex items-center gap-3">
-                            <div class="w-10 h-10 bg-teal-50 rounded-2xl flex items-center justify-center text-[#0d9488]">
+                            <div class="w-10 h-10 bg-teal-50 rounded-2xl flex items-center justify-center text-brand">
                                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M5 12h14" /><path d="M12 5v14" />
                                 </svg>
@@ -503,7 +503,7 @@ function handleHeaderSelectCategory(category) {
                                     v-model="form.fullName"
                                     type="text"
                                     placeholder="Recipient's full name"
-                                    class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
+                                    class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
                                     :class="errors.fullName ? 'border-red-300' : 'border-slate-200'"
                                 >
                                 <p v-if="errors.fullName" class="text-xs text-red-500 mt-1.5 px-1">{{ errors.fullName }}</p>
@@ -516,7 +516,7 @@ function handleHeaderSelectCategory(category) {
                                     v-model="form.line1"
                                     rows="2"
                                     placeholder="House / unit number, street, barangay"
-                                    class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all resize-none"
+                                    class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all resize-none"
                                     :class="errors.line1 ? 'border-red-300' : 'border-slate-200'"
                                 ></textarea>
                                 <p v-if="errors.line1" class="text-xs text-red-500 mt-1.5 px-1">{{ errors.line1 }}</p>
@@ -529,7 +529,7 @@ function handleHeaderSelectCategory(category) {
                                     v-model="form.city"
                                     type="text"
                                     placeholder="e.g. Quezon City"
-                                    class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
+                                    class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
                                     :class="errors.city ? 'border-red-300' : 'border-slate-200'"
                                 >
                                 <p v-if="errors.city" class="text-xs text-red-500 mt-1.5 px-1">{{ errors.city }}</p>
@@ -542,7 +542,7 @@ function handleHeaderSelectCategory(category) {
                                     v-model="form.province"
                                     type="text"
                                     placeholder="e.g. Metro Manila"
-                                    class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
+                                    class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
                                     :class="errors.province ? 'border-red-300' : 'border-slate-200'"
                                 >
                                 <p v-if="errors.province" class="text-xs text-red-500 mt-1.5 px-1">{{ errors.province }}</p>
@@ -556,7 +556,7 @@ function handleHeaderSelectCategory(category) {
                                     type="text"
                                     inputmode="numeric"
                                     placeholder="1100"
-                                    class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
+                                    class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
                                     :class="errors.postalCode ? 'border-red-300' : 'border-slate-200'"
                                 >
                                 <p v-if="errors.postalCode" class="text-xs text-red-500 mt-1.5 px-1">{{ errors.postalCode }}</p>
@@ -572,7 +572,7 @@ function handleHeaderSelectCategory(category) {
                                     autocomplete="tel-national"
                                     placeholder="09171234567"
                                     aria-describedby="addr-phone-hint"
-                                    class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/10 transition-all"
+                                    class="w-full px-5 py-3.5 bg-slate-50 border rounded-2xl text-sm text-slate-900 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
                                     :class="errors.phone ? 'border-red-300' : 'border-slate-200'"
                                     @input="onPhoneInput"
                                 >
@@ -595,7 +595,7 @@ function handleHeaderSelectCategory(category) {
                                             :value="label"
                                             class="sr-only peer"
                                         >
-                                        <span class="block px-6 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 bg-white transition-all hover:bg-slate-50 peer-checked:bg-teal-50 peer-checked:border-[#0d9488] peer-checked:text-[#0d9488] peer-focus-visible:ring-2 peer-focus-visible:ring-[#0d9488]/30">
+                                        <span class="block px-6 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 bg-white transition-all hover:bg-slate-50 peer-checked:bg-teal-50 peer-checked:border-brand peer-checked:text-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand/30">
                                             {{ label }}
                                         </span>
                                     </label>
@@ -604,7 +604,7 @@ function handleHeaderSelectCategory(category) {
 
                             <div class="md:col-span-2">
                                 <label class="flex items-center gap-3 cursor-pointer group w-fit">
-                                    <input v-model="form.makeDefault" type="checkbox" class="w-[18px] h-[18px] accent-[#0d9488] cursor-pointer">
+                                    <input v-model="form.makeDefault" type="checkbox" class="w-[18px] h-[18px] accent-brand cursor-pointer">
                                     <span class="text-sm font-medium text-slate-600 group-hover:text-slate-900 transition-colors">Set as my default delivery address</span>
                                 </label>
                             </div>
@@ -619,7 +619,7 @@ function handleHeaderSelectCategory(category) {
                                 </button>
                                 <button
                                     type="submit"
-                                    class="px-10 py-3.5 bg-[#0d9488] text-white rounded-2xl text-sm font-bold hover:bg-[#0f766e] transition-all"
+                                    class="px-10 py-3.5 bg-brand text-white rounded-2xl text-sm font-bold hover:bg-brand-dark transition-all"
                                 >
                                     {{ isEditing ? 'Save Changes' : 'Save Address' }}
                                 </button>

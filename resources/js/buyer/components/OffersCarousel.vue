@@ -1,9 +1,10 @@
 <script setup>
 import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import StarRating from './StarRating.vue';
+import { vReveal } from '../composables/useReveal';
 import {
     metaFor,
     discountPercent,
-    ratingStars,
     formatPrice
 } from '../composables/useCategoryMeta';
 
@@ -126,31 +127,25 @@ onUnmounted(() => {
 
     <section
         v-if="products.length > 0"
+        v-reveal
         class="offers-carousel"
+        aria-labelledby="offers-title"
     >
 
         <div class="offers-panel">
 
-            <span
-                class="offers-icon"
-                aria-hidden="true"
-            >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" />
-                    <circle cx="7.5" cy="7.5" r="1.5" />
-                </svg>
-            </span>
+            <p class="offers-eyebrow">Deals</p>
 
-            <h2>Deals worth checking out</h2>
+            <h2 id="offers-title">Marked down by sellers</h2>
 
-            <p>Real markdowns on in-stock favorites from verified local sellers.</p>
+            <p>{{ products.length }} in-stock {{ products.length === 1 ? 'item' : 'items' }} with a lower price than the seller&rsquo;s original. Discounts are set by each seller.</p>
 
             <button
                 type="button"
                 class="offers-cta"
                 @click="handleShopDeals"
             >
-                Browse All Products
+                Browse by lowest price
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></svg>
             </button>
 
@@ -188,7 +183,9 @@ onUnmounted(() => {
                         <img
                             v-if="cardImage(product)"
                             :src="cardImage(product)"
-                            :alt="product.name"
+                            alt=""
+                            width="300"
+                            height="300"
                             loading="lazy"
                             @error="handleImageError(product)"
                         >
@@ -201,7 +198,7 @@ onUnmounted(() => {
                             v-if="hasDiscount(product)"
                             class="offer-card-badge"
                         >
-                            -{{ discountPercent(product) }}% OFF
+                            -{{ discountPercent(product) }}%
                         </span>
                     </div>
 
@@ -211,28 +208,29 @@ onUnmounted(() => {
                             {{ product.brand || product.category }}
                         </span>
 
-                        <h3 class="offer-card-name">
+                        <span class="offer-card-name">
                             {{ product.name }}
-                        </h3>
+                        </span>
 
                         <div
                             v-if="hasRating(product)"
                             class="offer-card-rating"
                         >
-                            <span class="product-rating-stars">{{ ratingStars(product.rating) }}</span>
-                            <span v-if="product.reviewCount">({{ product.reviewCount }})</span>
+                            <StarRating
+                                :rating="product.rating"
+                                :count="product.reviewCount || 0"
+                                :size="12"
+                            />
                         </div>
 
                         <div class="offer-card-price-row">
                             <span class="offer-card-price">
                                 {{ formatPrice(product.price) }}
                             </span>
-                            <span
+                            <s
                                 v-if="hasDiscount(product)"
                                 class="offer-card-old-price"
-                            >
-                                {{ formatPrice(product.oldPrice) }}
-                            </span>
+                            ><span class="sr-only">Was </span>{{ formatPrice(product.oldPrice) }}</s>
                         </div>
 
                     </div>
