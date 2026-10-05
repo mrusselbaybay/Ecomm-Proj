@@ -3,7 +3,7 @@
 // Applied filter state for category listing pages, plus its URL form.
 //
 // The URL is the source of truth for a category page:
-//   /buyer?category=Pet+Supplies&animal=Cat&price_min=100&in_stock=1&sort=price-asc&page=2
+//   /buyer?category=Pet+Supplies&subcategory=Toys&animal=Cat&price_min=100&in_stock=1&sort=price-asc&page=2
 // Repeated keys carry multiple values (animal=Cat&animal=Dog). Only keys a
 // category actually supports are read or written, so stale parameters from
 // old links — including the retired brand / life stage / pack size / flavor
@@ -11,7 +11,7 @@
 //
 // A per-category in-memory copy is also kept, so opening a category again
 // from the header (a fresh URL) still comes back to where the buyer left it.
-import { categoryConfig } from './useCategoryConfig';
+import { categoryConfig, subcategoriesFor } from './useCategoryConfig';
 
 const SORTS = ['newest', 'price-asc', 'price-desc', 'rating', 'name-asc'];
 const RATINGS = [4, 3];
@@ -60,7 +60,15 @@ export function sanitizeFilterState(raw, category) {
     state.priceMax = cleanPrice(source.priceMax);
 
     for (const facet of config.facets) {
-        const values = cleanList(source.selections?.[facet.key]);
+        let values = cleanList(source.selections?.[facet.key]);
+
+        // Once the category's subcategories are known, only those count
+        // (another category's subcategory never carries over).
+        const known = facet.source === 'subcategory' ? subcategoriesFor(category) : null;
+
+        if (known) {
+            values = values.filter(value => known.includes(value));
+        }
 
         if (values.length) {
             state.selections[facet.key] = values;

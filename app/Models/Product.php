@@ -14,10 +14,11 @@ class Product extends Model
     protected $table = 'products';
 
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
-        'seller_id', 'name', 'description', 'category', 'sku',
+        'seller_id', 'name', 'description', 'category', 'subcategory', 'sku',
         'brand', 'condition', 'dimensions', 'weight', 'low_stock_threshold',
         'specifications',
         'price', 'compare_price', 'promo_code', 'stock', 'images', 'status',

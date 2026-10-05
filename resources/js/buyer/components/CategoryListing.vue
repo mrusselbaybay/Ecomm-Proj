@@ -24,6 +24,10 @@
 |   - Option counts are contextual (products matching every *other* active
 |     filter), and options that would lead to zero results are disabled.
 |
+| Subcategories (the seller's per-product pick, products.subcategory) are
+| the first sidebar group; their list comes from the shared
+| CategoryFieldConfig via /api/catalog/subcategories.
+|
 | Not filterable by product decision: Brand, Life Stage, Pack Size, Flavor.
 |
 */
@@ -37,7 +41,9 @@ import {
     categoryConfig,
     facetValuesOf,
     sortFacetValues,
-    cardDetailFor
+    cardDetailFor,
+    loadSubcategories,
+    subcategoriesFor
 } from '../composables/useCategoryConfig';
 import {
     defaultFilterState,
@@ -254,6 +260,16 @@ const availableGroups = computed(() => {
     const groups = [];
 
     for (const facet of config.value.facets) {
+        // The category's own subcategory list, whatever the loaded products
+        // happen to cover (options nobody uses show disabled).
+        if (facet.source === 'subcategory') {
+            if (subcategoriesFor(props.category)?.length) {
+                groups.push({ key: facet.key, label: facet.label, kind: 'checkbox', facet, isAttribute: true });
+            }
+
+            continue;
+        }
+
         if (isUseful(countValues(props.products, p => facetValuesOf(p, facet)))) {
             groups.push({
                 key: facet.key,
@@ -298,7 +314,9 @@ function groupsFor(state) {
 
         if (group.facet) {
             const counts = countValues(pool, p => facetValuesOf(p, group.facet));
-            const all = sortFacetValues([...countValues(props.products, p => facetValuesOf(p, group.facet)).keys()], group.facet);
+            const all = group.facet.source === 'subcategory'
+                ? subcategoriesFor(props.category) || []
+                : sortFacetValues([...countValues(props.products, p => facetValuesOf(p, group.facet)).keys()], group.facet);
             const selected = state.selections[group.key] || [];
 
             return {
@@ -480,26 +498,6 @@ function removeLastFilter() {
 
 /*
 |--------------------------------------------------------------------------
-| "Shop by" pills — the category's main attribute
-|--------------------------------------------------------------------------
-*/
-
-const primaryGroup = computed(() =>
-    appliedGroups.value.find(g => g.key === config.value.primaryFacet && g.options.length > 1) || null
-);
-
-function isPrimaryActive(value) {
-    const selected = applied.selections[primaryGroup.value.key] || [];
-
-    return value === null ? selected.length === 0 : selected.length === 1 && selected[0] === value;
-}
-
-function selectPrimary(value) {
-    setGroupValue(applied, primaryGroup.value, value === null || isPrimaryActive(value) ? [] : [value]);
-}
-
-/*
-|--------------------------------------------------------------------------
 | Sort + Pagination
 |--------------------------------------------------------------------------
 */
@@ -650,7 +648,16 @@ function handleKeydown(event) {
     }
 }
 
+// When the subcategory list arrives, anything in the state (from a URL or
+// memory) that isn't one of this category's subcategories is dropped.
+watch(() => subcategoriesFor(props.category), (known) => {
+    if (known) {
+        Object.assign(applied, cloneState(applied));
+    }
+}, { immediate: true });
+
 onMounted(() => {
+    loadSubcategories();
     document.addEventListener('keydown', handleKeydown);
     document.addEventListener('click', handleDocumentClick);
 });
@@ -724,34 +731,6 @@ const skeletons = Array.from({ length: 8 });
                 >
                     {{ config.description }}
                 </p>
-
-                <div
-                    v-if="primaryGroup && !isLoading"
-                    class="cat-pills"
-                    role="group"
-                    :aria-label="`Shop by ${primaryGroup.label.toLowerCase()}`"
-                >
-                    <button
-                        type="button"
-                        class="cat-pill"
-                        :class="{ 'is-active': isPrimaryActive(null) }"
-                        :aria-pressed="isPrimaryActive(null)"
-                        @click="selectPrimary(null)"
-                    >
-                        All
-                    </button>
-                    <button
-                        v-for="option in primaryGroup.options"
-                        :key="option.value"
-                        type="button"
-                        class="cat-pill"
-                        :class="{ 'is-active': isPrimaryActive(option.value) }"
-                        :aria-pressed="isPrimaryActive(option.value)"
-                        @click="selectPrimary(option.value)"
-                    >
-                        {{ option.label }}
-                    </button>
-                </div>
             </header>
 
             <div class="cat-body">

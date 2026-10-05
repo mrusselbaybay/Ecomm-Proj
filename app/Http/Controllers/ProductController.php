@@ -2,12 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\Review;
 use App\Support\CategoryFieldConfig;
+use App\Support\CompletedSales;
 use App\Support\ProductImage;
+use App\Support\PublicReview;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 
 /**
@@ -27,7 +31,9 @@ class ProductController extends Controller
     /**
      * GET /api/products
      *
-     * Query params: search, category, seller_id, ids, page, per_page (all optional).
+     * Query params: search, category, seller_id, ids, page, per_page (all
+     * optional), plus the browse filters / sort described on
+     * applyBrowseFilters() and applySort().
      *
      * `ids` is a comma-separated list of product ids (max 100), used by the
      * buyer cart to re-check every line in one request. Ids that aren't in
@@ -59,11 +65,15 @@ class ProductController extends Controller
             ]);
         }
 
-        if ($search = $request->string('search')->toString()) {
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'ilike', "%{$search}%")
-                    ->orWhere('description', 'ilike', "%{$search}%")
-                    ->orWhere('category', 'ilike', "%{$search}%");
+        if ($search = trim($request->string('search')->toString())) {
+            // lower() + like rather than Postgres-only ilike, so the same
+            // query also runs on the sqlite test database.
+            $term = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], mb_strtolower($search)).'%';
+
+            $query->where(function ($q) use ($term) {
+                $q->whereRaw("lower(products.name) like ? escape '\\'", [$term])
+                    ->orWhereRaw("lower(coalesce(products.description, '')) like ? escape '\\'", [$term])
+                    ->orWhereRaw("lower(coalesce(products.category, '')) like ? escape '\\'", [$term]);
             });
         }
 
@@ -77,9 +87,11 @@ class ProductController extends Controller
             $query->where('seller_id', $sellerId);
         }
 
+        $this->applyBrowseFilters($query, $request);
+
         $perPage = min((int) $request->integer('per_page', 60), 100) ?: 60;
 
-        $products = $query->orderByDesc('created_at')->paginate($perPage);
+        $products = $this->applySort($query, $request->string('sort')->toString())->paginate($perPage);
 
         return response()->json([
             'data' => $products->getCollection()->map(fn (Product $p) => $this->transform($p)),
@@ -89,6 +101,96 @@ class ProductController extends Controller
                 'total' => $products->total(),
             ],
         ]);
+    }
+
+    /**
+     * Optional, additive browse filters used by the store page
+     * (StorePage.vue): in_stock=1, on_sale=1, condition (repeatable or
+     * comma-separated), price_min / price_max, min_rating (3 or 4).
+     * Prices compare the product's base price, the same figure cards show.
+     */
+    private function applyBrowseFilters($query, Request $request): void
+    {
+        if ($request->boolean('in_stock')) {
+            $query->where('products.stock', '>', 0);
+        }
+
+        if ($request->boolean('on_sale')) {
+            $query->whereNotNull('products.compare_price')
+                ->whereColumn('products.compare_price', '>', 'products.price');
+        }
+
+        $conditions = collect(Arr::wrap($request->query('condition')))
+            ->flatMap(fn ($value) => explode(',', (string) $value))
+            ->map(fn (string $value) => trim($value))
+            ->filter()
+            ->unique()
+            ->take(10)
+            ->values();
+
+        if ($conditions->isNotEmpty()) {
+            $query->whereIn('products.condition', $conditions->all());
+        }
+
+        foreach (['price_min' => '>=', 'price_max' => '<='] as $param => $operator) {
+            $value = $request->query($param);
+
+            if (is_numeric($value) && (float) $value >= 0) {
+                $query->where('products.price', $operator, (float) $value);
+            }
+        }
+
+        $minRating = (int) $request->integer('min_rating');
+
+        if (in_array($minRating, [3, 4], true)) {
+            $query->where(
+                fn ($q) => $q->selectRaw('avg(reviews.rating)')
+                    ->from('reviews')
+                    ->whereColumn('reviews.product_id', 'products.id'),
+                '>=',
+                $minRating,
+            );
+        }
+    }
+
+    /**
+     * sort = newest (default) | price-asc | price-desc | rating | popular | name-asc.
+     * Ties fall back to newest, then id, so pages never shuffle.
+     */
+    private function applySort($query, string $sort)
+    {
+        switch ($sort) {
+            case 'price-asc':
+                $query->orderBy('products.price');
+                break;
+            case 'price-desc':
+                $query->orderByDesc('products.price');
+                break;
+            case 'rating':
+                // Unrated products last; Postgres can't use the
+                // reviews_avg_rating alias inside an expression.
+                $query->orderByRaw('coalesce((select avg(reviews.rating) from reviews where reviews.product_id = products.id), 0) desc')
+                    ->orderByDesc('reviews_count');
+                break;
+            case 'popular':
+                // Most units delivered first, matching soldCount.
+                $query->orderByRaw('coalesce(('.self::soldUnitsSql().'), 0) desc');
+                break;
+            case 'name-asc':
+                $query->orderByRaw('lower(products.name) asc');
+                break;
+        }
+
+        return $query->orderByDesc('products.created_at')->orderBy('products.id');
+    }
+
+    /**
+     * Units of a product on completed (Delivered, not refunded) orders, as a correlated sub-select on
+     * products.id (the same rule as soldCount in transform()).
+     */
+    private static function soldUnitsSql(): string
+    {
+        return 'select sum(order_items.quantity) from order_items join orders on orders.id = order_items.order_id where order_items.product_id = products.id and '.CompletedSales::sql();
     }
 
     /**
@@ -139,7 +241,7 @@ class ProductController extends Controller
         $rows = [];
 
         foreach ($paginated->items() as $review) {
-            $rows[] = $this->transformReview($review);
+            $rows[] = PublicReview::transform($review);
         }
 
         return response()->json([
@@ -172,7 +274,7 @@ class ProductController extends Controller
      * and has-images filters applied. reviews.images is a nullable json
      * column that isn't written yet (Buyer\ReviewController stores rating
      * + comment only); "has photos" is kept DB-portable as "column is
-     * populated", and transformReview() still guards the contents.
+     * populated", and PublicReview::transform() still guards the contents.
      */
     private function reviewQuery(string $productId, int $rating, bool $hasImages)
     {
@@ -256,6 +358,12 @@ class ProductController extends Controller
                     // Postgres; no cast keeps this portable to SQLite tests.
                     ->selectRaw('round(avg(rating), 1)')
                     ->whereColumn('reviews.product_id', 'products.id'),
+                'sold_count' => CompletedSales::constrain(
+                    OrderItem::query()
+                        ->selectRaw('coalesce(sum(order_items.quantity), 0)')
+                        ->join('orders', 'orders.id', '=', 'order_items.order_id')
+                        ->whereColumn('order_items.product_id', 'products.id'),
+                ),
             ])
             ->active()
             ->with(['seller.sellerDetail', 'options.values', 'variants.optionValues.option'])
@@ -270,6 +378,32 @@ class ProductController extends Controller
      * price, oldPrice, category, seller, images, stock, description) —
      * see resources/js/buyer/composables/useBuyerProducts.js.
      */
+    /**
+     * {label: value} specifications from the seller's own template. A
+     * listing made before its category gained subcategories has no
+     * subcategory, but its keys (animal_type, food_type …) are the same
+     * ones those subcategories use, so it's labelled against all of them.
+     *
+     * @return array<string, mixed>
+     */
+    private function labelledSpecifications(Product $product): array
+    {
+        $category = (string) $product->category;
+        $specifications = $product->specifications;
+
+        if ($product->subcategory || ! CategoryFieldConfig::hasSubcategories($category) || empty($specifications)) {
+            return CategoryFieldConfig::labelSpecifications($category, $product->subcategory, $specifications);
+        }
+
+        $labels = [];
+
+        foreach (CategoryFieldConfig::subcategoriesFor($category) as $subcategory) {
+            $labels += CategoryFieldConfig::labelSpecifications($category, $subcategory, $specifications);
+        }
+
+        return $labels;
+    }
+
     private function transform(Product $product): array
     {
         return [
@@ -277,6 +411,9 @@ class ProductController extends Controller
             'name' => $product->name,
             'description' => $product->description,
             'category' => $product->category,
+            // One of CategoryFieldConfig::subcategoriesFor($category), or
+            // null for listings made before subcategories existed.
+            'subcategory' => $product->subcategory,
             'brand' => $product->brand,
             'condition' => $product->condition,
             'dimensions' => $product->dimensions,
@@ -287,10 +424,7 @@ class ProductController extends Controller
             // "Specifications" tab (hasSpecifications/spec-row). Only
             // fields that actually have a value are included, so an
             // incomplete spec never shows a blank row to the buyer.
-            'specifications' => CategoryFieldConfig::labelSpecifications(
-                $product->category,
-                $product->specifications,
-            ),
+            'specifications' => $this->labelledSpecifications($product),
             'sku' => $product->sku,
             'price' => (float) $product->price,
             'oldPrice' => $product->compare_price ? (float) $product->compare_price : null,
@@ -323,6 +457,10 @@ class ProductController extends Controller
                 ? (float) $product->reviews_avg_rating
                 : null,
             'reviewCount' => (int) ($product->reviews_count ?? 0),
+            // Units on completed orders only (CompletedSales: Delivered and
+            // not refunded), so cancelled, refunded or still in-flight
+            // orders never inflate the number buyers see.
+            'soldCount' => (int) ($product->sold_count ?? 0),
             'hasVariants' => (bool) $product->has_variants,
             'options' => $product->options->map(fn ($opt) => [
                 'id' => $opt->id,
@@ -357,40 +495,6 @@ class ProductController extends Controller
                 )->all(),
             ])->all(),
             'created_at' => $product->created_at,
-        ];
-    }
-
-    /**
-     * One public review row. The reviewer is shown as "First L." only —
-     * never the full name or any contact detail. verifiedPurchase is a
-     * real signal: Buyer\ReviewController only ever creates a review with
-     * an order_item_id, and only for a delivered order the buyer owns, so
-     * a non-null order_item_id genuinely means "bought and received".
-     */
-    private function transformReview(Review $review): array
-    {
-        $first = trim((string) ($review->buyer?->first_name ?? ''));
-        $last = trim((string) ($review->buyer?->last_name ?? ''));
-        $author = trim($first.' '.($last !== '' ? mb_substr($last, 0, 1).'.' : ''));
-
-        $images = collect(is_array($review->images) ? $review->images : [])
-            ->filter(fn ($img) => is_string($img) && $img !== '')
-            ->values()
-            ->all();
-
-        return [
-            'id' => $review->id,
-            'author' => $author !== '' ? $author : 'BuyTheWay Buyer',
-            'rating' => (int) $review->rating,
-            'comment' => $review->comment,
-            'createdAt' => optional($review->created_at)->toIso8601String(),
-            'isEdited' => $review->updated_at && $review->created_at
-                && ! $review->updated_at->equalTo($review->created_at),
-            'variant' => $review->orderItem?->variant,
-            'verifiedPurchase' => ! is_null($review->order_item_id),
-            'images' => $images,
-            'sellerResponse' => $review->seller_response,
-            'respondedAt' => optional($review->responded_at)->toIso8601String(),
         ];
     }
 }
