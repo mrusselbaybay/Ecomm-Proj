@@ -26,8 +26,6 @@ import { computed, onMounted, ref } from 'vue';
 
 import OrderDetails from './OrderDetails.vue';
 import OrderTracking from './OrderTracking.vue';
-import Header from './Header.vue';
-import Footer from './Footer.vue';
 import { useBuyer } from '../composables/useBuyer';
 import { metaFor } from '../composables/useCategoryMeta';
 
@@ -203,322 +201,212 @@ function getItemPrice(item) {
         0
     );
 }
-
-/*
-|--------------------------------------------------------------------------
-| Header Relay
-|--------------------------------------------------------------------------
-*/
-
-function handleHeaderSearch(query) {
-    emit('search', query);
-}
-
-function handleHeaderSelectCategory(category) {
-    emit('select-category', category);
-}
 </script>
 
 <template>
 
-    <!-- ================================================================ -->
-    <!-- ORDER TRACKING -->
-    <!-- ================================================================ -->
-
-    <OrderTracking
-        v-if="selectedOrder && isTrackingView"
-        :order="selectedOrder"
-        @back="isTrackingView = false"
-        @view-orders="backToOrders"
-        @go-home="emit('go-home')"
-        @search="emit('search', $event)"
-        @select-category="emit('select-category', $event)"
-        @open-cart="emit('open-cart')"
-        @view-profile="emit('view-profile')"
-        @view-wishlist="emit('view-wishlist')"
-        @view-reviews="emit('view-reviews')"
-        @view-addresses="emit('view-addresses')"
-        @view-payments="emit('view-payments')"
-    />
-
-    <!-- ================================================================ -->
-    <!-- ORDER DETAILS -->
-    <!-- ================================================================ -->
-
-    <OrderDetails
-        v-else-if="selectedOrder"
-        :order="selectedOrder"
-        @back="backToOrders"
-        @go-home="emit('go-home')"
-        @search="emit('search', $event)"
-        @select-category="emit('select-category', $event)"
-        @open-cart="emit('open-cart')"
-        @view-profile="emit('view-profile')"
-        @view-wishlist="emit('view-wishlist')"
-        @view-reviews="emit('view-reviews')"
-        @view-addresses="emit('view-addresses')"
-        @view-payments="emit('view-payments')"
-        @track-order="isTrackingView = true"
-    />
-
-    <!-- ================================================================ -->
-    <!-- ORDERS LIST -->
-    <!-- ================================================================ -->
-
-    <div
-        v-else
-        class="buyer-page"
+    <Transition
+        name="acc-swap"
+        mode="out-in"
     >
+        <!-- ================================================================ -->
+        <!-- ORDER TRACKING -->
+        <!-- ================================================================ -->
 
-        <Header
-            active-category=""
-            @select-category="handleHeaderSelectCategory"
-            @cart-click="emit('open-cart')"
-            @account-click="emit('view-profile')"
-            @logo-click="emit('go-home')"
-            @search="handleHeaderSearch"
+        <OrderTracking
+            v-if="selectedOrder && isTrackingView"
+            :order="selectedOrder"
+            @back="isTrackingView = false"
+            @view-orders="backToOrders"
+            @go-home="emit('go-home')"
+            @search="emit('search', $event)"
+            @select-category="emit('select-category', $event)"
+            @open-cart="emit('open-cart')"
+            @view-profile="emit('view-profile')"
+            @view-wishlist="emit('view-wishlist')"
+            @view-reviews="emit('view-reviews')"
+            @view-addresses="emit('view-addresses')"
+            @view-payments="emit('view-payments')"
         />
 
-        <main class="max-w-7xl mx-auto w-full px-4 lg:px-8 py-10">
-            <div class="flex flex-col lg:flex-row lg:items-start gap-8">
+        <!-- ================================================================ -->
+        <!-- ORDER DETAILS -->
+        <!-- ================================================================ -->
 
-                <!-- ============================================================ -->
-                <!-- SIDEBAR NAV -->
-                <!-- ============================================================ -->
+        <OrderDetails
+            v-else-if="selectedOrder"
+            :order="selectedOrder"
+            @back="backToOrders"
+            @go-home="emit('go-home')"
+            @search="emit('search', $event)"
+            @select-category="emit('select-category', $event)"
+            @open-cart="emit('open-cart')"
+            @view-profile="emit('view-profile')"
+            @view-wishlist="emit('view-wishlist')"
+            @view-reviews="emit('view-reviews')"
+            @view-addresses="emit('view-addresses')"
+            @view-payments="emit('view-payments')"
+            @track-order="isTrackingView = true"
+        />
 
-                <aside class="w-full lg:w-64 shrink-0 lg:sticky lg:top-36">
-                    <nav class="bg-white rounded-3xl p-4 border border-slate-100 space-y-1" style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);">
+        <!-- ================================================================ -->
+        <!-- ORDERS LIST -->
+        <!-- ================================================================ -->
 
+        <div
+            v-else
+            class="acc-view"
+        >
+
+            <div class="flex-1 space-y-6 min-w-0">
+
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
                         <button
                             type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
-                            @click="emit('view-profile')"
+                            class="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:underline mb-2"
+                            @click="emit('back')"
                         >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="m12 19-7-7 7-7" /><path d="M19 12H5" />
                             </svg>
-                            My Profile
+                            Back to Shopping
                         </button>
+                        <h1 class="text-3xl font-bold text-slate-900 tracking-tight">My Orders</h1>
+                        <p class="text-slate-500 mt-1">View and track your purchases.</p>
+                    </div>
+                </div>
 
-                        <button
-                            type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-brand font-semibold transition-colors"
-                        >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" />
-                                <path d="M12 22V12" /><polyline points="3.29 7 12 12 20.71 7" /><path d="m7.5 4.27 9 5.15" />
-                            </svg>
-                            My Orders
-                        </button>
+                <!-- Status Tabs -->
+                <div class="flex items-center gap-2 overflow-x-auto pb-1">
+                    <button
+                        v-for="tab in tabs"
+                        :key="tab"
+                        type="button"
+                        class="px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-colors shrink-0"
+                        :class="selectedStatus === tab
+                            ? 'bg-brand text-white'
+                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'"
+                        @click="selectedStatus = tab"
+                    >
+                        {{ tab }}
+                    </button>
+                </div>
 
-                        <button
-                            type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
-                            @click="emit('view-wishlist')"
-                        >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
-                            </svg>
-                            Wishlist
-                        </button>
+                <!-- Loading / Error -->
+                <div
+                    v-if="isLoadingOrders"
+                    class="empty-products"
+                >
+                    <p>Loading your orders&hellip;</p>
+                </div>
 
-                        <button
-                            type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
-                            @click="emit('view-reviews')"
-                        >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" />
-                            </svg>
-                            My Reviews
-                        </button>
+                <div
+                    v-else-if="ordersLoadError"
+                    class="empty-products"
+                >
+                    <p>{{ ordersLoadError }}</p>
+                </div>
 
-                        <button
-                            type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
-                            @click="emit('view-addresses')"
-                        >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" />
-                            </svg>
-                            Saved Addresses
-                        </button>
+                <!-- Empty -->
+                <div
+                    v-else-if="filteredOrders.length === 0"
+                    class="empty-products"
+                >
+                    <span class="empty-products-icon" aria-hidden="true">🔍</span>
+                    <p>You currently have no orders under "{{ selectedStatus }}".</p>
+                    <button
+                        v-if="selectedStatus !== 'All'"
+                        type="button"
+                        class="clear-filters-button"
+                        @click="selectedStatus = 'All'"
+                    >
+                        Show All Orders
+                    </button>
+                </div>
 
-                        <button
-                            type="button"
-                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
-                            @click="emit('view-payments')"
-                        >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" />
-                            </svg>
-                            Payment Methods
-                        </button>
+                <!-- Order Cards -->
+                <div
+                    v-else
+                    class="space-y-6"
+                >
+                    <article
+                        v-for="order in filteredOrders"
+                        :key="order.orderId"
+                        class="bg-white rounded-3xl border border-slate-100 overflow-hidden"
+                        style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                    >
 
-                    </nav>
-                </aside>
-
-                <!-- ============================================================ -->
-                <!-- MAIN CONTENT -->
-                <!-- ============================================================ -->
-
-                <div class="flex-1 space-y-6 min-w-0">
-
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div>
-                            <button
-                                type="button"
-                                class="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:underline mb-2"
-                                @click="emit('back')"
+                        <!-- Card Header -->
+                        <div class="flex flex-wrap items-center justify-between gap-3 px-8 py-5 border-b border-slate-100">
+                            <div>
+                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Order {{ order.orderId }}</span>
+                                <span class="text-sm text-slate-500">{{ formatDate(order.createdAt) }}</span>
+                            </div>
+                            <span
+                                class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold"
+                                :class="statusBadgeClass(order.status)"
                             >
-                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="m12 19-7-7 7-7" /><path d="M19 12H5" />
-                                </svg>
-                                Back to Shopping
-                            </button>
-                            <h1 class="text-3xl font-bold text-slate-900 tracking-tight">My Orders</h1>
-                            <p class="text-slate-500 mt-1">View and track your purchases.</p>
+                                {{ order.status }}
+                            </span>
                         </div>
-                    </div>
 
-                    <!-- Status Tabs -->
-                    <div class="flex items-center gap-2 overflow-x-auto pb-1">
-                        <button
-                            v-for="tab in tabs"
-                            :key="tab"
-                            type="button"
-                            class="px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-colors shrink-0"
-                            :class="selectedStatus === tab
-                                ? 'bg-brand text-white'
-                                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'"
-                            @click="selectedStatus = tab"
-                        >
-                            {{ tab }}
-                        </button>
-                    </div>
-
-                    <!-- Loading / Error -->
-                    <div
-                        v-if="isLoadingOrders"
-                        class="empty-products"
-                    >
-                        <p>Loading your orders&hellip;</p>
-                    </div>
-
-                    <div
-                        v-else-if="ordersLoadError"
-                        class="empty-products"
-                    >
-                        <p>{{ ordersLoadError }}</p>
-                    </div>
-
-                    <!-- Empty -->
-                    <div
-                        v-else-if="filteredOrders.length === 0"
-                        class="empty-products"
-                    >
-                        <span class="empty-products-icon" aria-hidden="true">🔍</span>
-                        <p>You currently have no orders under "{{ selectedStatus }}".</p>
-                        <button
-                            v-if="selectedStatus !== 'All'"
-                            type="button"
-                            class="clear-filters-button"
-                            @click="selectedStatus = 'All'"
-                        >
-                            Show All Orders
-                        </button>
-                    </div>
-
-                    <!-- Order Cards -->
-                    <div
-                        v-else
-                        class="space-y-6"
-                    >
-                        <article
-                            v-for="order in filteredOrders"
-                            :key="order.orderId"
-                            class="bg-white rounded-3xl border border-slate-100 overflow-hidden"
-                            style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
-                        >
-
-                            <!-- Card Header -->
-                            <div class="flex flex-wrap items-center justify-between gap-3 px-8 py-5 border-b border-slate-100">
-                                <div>
-                                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Order {{ order.orderId }}</span>
-                                    <span class="text-sm text-slate-500">{{ formatDate(order.createdAt) }}</span>
-                                </div>
-                                <span
-                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold"
-                                    :class="statusBadgeClass(order.status)"
-                                >
-                                    {{ order.status }}
-                                </span>
-                            </div>
-
-                            <!-- Items -->
-                            <div class="divide-y divide-slate-50">
+                        <!-- Items -->
+                        <div class="divide-y divide-slate-50">
+                            <div
+                                v-for="(item, index) in order.items"
+                                :key="`${order.orderId}-${index}`"
+                                class="flex items-center gap-5 px-8 py-5"
+                            >
                                 <div
-                                    v-for="(item, index) in order.items"
-                                    :key="`${order.orderId}-${index}`"
-                                    class="flex items-center gap-5 px-8 py-5"
+                                    class="w-16 h-16 rounded-2xl flex items-center justify-center shrink-0"
+                                    :class="'accent-' + metaFor(item.category).accent"
+                                    style="background: var(--accent-bg, #f1f5f9); color: var(--accent-fg, #64748b);"
                                 >
-                                    <div
-                                        class="w-16 h-16 rounded-2xl flex items-center justify-center shrink-0"
-                                        :class="'accent-' + metaFor(item.category).accent"
-                                        style="background: var(--accent-bg, #f1f5f9); color: var(--accent-fg, #64748b);"
-                                    >
-                                        <span class="w-7 h-7" v-html="metaFor(item.category).icon"></span>
-                                    </div>
-                                    <div class="flex-1 min-w-0">
-                                        <h3 class="font-bold text-slate-900 truncate">{{ item.name || `Product #${item.product_id}` }}</h3>
-                                        <p class="text-sm text-slate-500 mt-0.5">
-                                            {{ item.seller || 'BuyTheWay Seller' }}
-                                            <template v-if="item.variation"> • {{ item.variation }}</template>
-                                            • Qty {{ item.quantity }}
-                                        </p>
-                                    </div>
-                                    <div class="text-right shrink-0">
-                                        <span class="font-bold text-slate-900">{{ formatPrice(getItemPrice(item)) }}</span>
-                                    </div>
+                                    <span class="w-7 h-7" v-html="metaFor(item.category).icon"></span>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <h3 class="font-bold text-slate-900 truncate">{{ item.name || `Product #${item.product_id}` }}</h3>
+                                    <p class="text-sm text-slate-500 mt-0.5">
+                                        {{ item.seller || 'BuyTheWay Seller' }}
+                                        <template v-if="item.variation"> • {{ item.variation }}</template>
+                                        • Qty {{ item.quantity }}
+                                    </p>
+                                </div>
+                                <div class="text-right shrink-0">
+                                    <span class="font-bold text-slate-900">{{ formatPrice(getItemPrice(item)) }}</span>
                                 </div>
                             </div>
+                        </div>
 
-                            <!-- Card Footer -->
-                            <div class="flex flex-wrap items-center justify-between gap-4 px-8 py-5 bg-slate-50">
-                                <div class="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-slate-500">
-                                    <span>{{ formatPaymentMethod(order.payment_method) }}</span>
-                                    <span>{{ formatShippingMethod(order.shipping_method) }}</span>
-                                    <span v-if="order.voucher_code">Voucher: {{ order.voucher_code }}</span>
-                                </div>
-                                <div class="flex items-center gap-6">
-                                    <div class="text-right">
-                                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Total</span>
-                                        <span class="text-lg font-bold text-brand">{{ formatPrice(order.total) }}</span>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        class="px-5 py-2.5 bg-brand text-white rounded-xl text-sm font-bold hover:bg-brand-dark transition-colors"
-                                        @click="viewOrderDetails(order)"
-                                    >
-                                        View Details
-                                    </button>
-                                </div>
+                        <!-- Card Footer -->
+                        <div class="flex flex-wrap items-center justify-between gap-4 px-8 py-5 bg-slate-50">
+                            <div class="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-slate-500">
+                                <span>{{ formatPaymentMethod(order.payment_method) }}</span>
+                                <span>{{ formatShippingMethod(order.shipping_method) }}</span>
+                                <span v-if="order.voucher_code">Voucher: {{ order.voucher_code }}</span>
                             </div>
+                            <div class="flex items-center gap-6">
+                                <div class="text-right">
+                                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Total</span>
+                                    <span class="text-lg font-bold text-brand">{{ formatPrice(order.total) }}</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    class="px-5 py-2.5 bg-brand text-white rounded-xl text-sm font-bold hover:bg-brand-dark transition-colors"
+                                    @click="viewOrderDetails(order)"
+                                >
+                                    View Details
+                                </button>
+                            </div>
+                        </div>
 
-                        </article>
-                    </div>
-
+                    </article>
                 </div>
 
             </div>
-        </main>
 
-        <Footer
-            @browse-all="emit('go-home')"
-            @browse-categories="emit('go-home')"
-            @cart-click="emit('open-cart')"
-        />
-
-    </div>
+        </div>
+    </Transition>
 
 </template>

@@ -111,6 +111,37 @@ class Profile extends Model
         return $this->hasMany(Conversation::class, 'seller_id');
     }
 
+    /**
+     * Every product this profile sells (any status). Buyer-facing callers
+     * narrow it with Product::scopeActive(), e.g. the store directory's
+     * product previews (StoreController).
+     */
+    public function sellerVerification(): HasOne
+    {
+        return $this->hasOne(SellerVerification::class, 'seller_id');
+    }
+
+    /**
+     * Follows this profile has made as a buyer.
+     */
+    public function storeFollows(): HasMany
+    {
+        return $this->hasMany(StoreFollow::class, 'buyer_profile_id');
+    }
+
+    /**
+     * Buyers following this profile's store.
+     */
+    public function followers(): HasMany
+    {
+        return $this->hasMany(StoreFollow::class, 'seller_id');
+    }
+
+    public function products(): HasMany
+    {
+        return $this->hasMany(Product::class, 'seller_id');
+    }
+
     public function getFullNameAttribute(): string
     {
         $mi = $this->middle_initial ? "{$this->middle_initial}. " : '';

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Buyer;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Buyer\UpdateProfileRequest;
+use App\Support\Avatar;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -69,6 +70,7 @@ class AccountController extends Controller
             'contact_no' => $profile->contact_no,
             'birthday' => $profile->birthday?->toDateString(),
             'email' => $profile->email,
+            'avatar_url' => Avatar::url($profile->avatar_path ?? null),
             'role' => $profile->role,
             'account_status' => $profile->account_status,
         ];
