@@ -1,15 +1,41 @@
 <script setup>
+/*
+|--------------------------------------------------------------------------
+| ProductDetails
+|--------------------------------------------------------------------------
+|
+| Layout
+|   Desktop: gallery (thumbnail rail + large uncropped image) beside the
+|   purchase panel, then "About this product" beside "Specifications",
+|   then reviews (summary column + full list), then related products.
+|   Mobile: swipeable gallery first, then the purchase panel, everything
+|   else stacked; a compact buy bar appears only after the in-page Add to
+|   cart row has scrolled away.
+|
+| Everything shown comes from the product API (ProductController@transform)
+| and the public reviews endpoint — no invented ratings, discounts, sales
+| counts or delivery promises. Delivery fees mirror useShipping.js and
+| payment mirrors usePayment.js, the same sources checkout uses.
+|
+*/
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerChat } from '../composables/useBuyerChat';
+import { buyerApi } from '../composables/useBuyerApi';
+import { requestBuyerView } from '../composables/useBuyerNav';
+import { useBuyerSession } from '../composables/useBuyerSession';
+import { rememberStoreState, rememberedStoreState } from '../composables/useStoreBrowseState';
+import { fetchJson, joinedLabel, storeEndpoint, storeProductsEndpoint } from '../composables/useStores';
 import { metaFor, formatPrice } from '../composables/useCategoryMeta';
 import { shippingOptions } from '../composables/useShipping';
+import { paymentMethods } from '../composables/usePayment';
 import { useToasts } from '../composables/useToasts';
 import Footer from './Footer.vue';
 import Header from './Header.vue';
 import ProductCard from './ProductCard.vue';
-import ProductReviewsDrawer from './ProductReviewsDrawer.vue';
 import StarRating from './StarRating.vue';
+import StoreLogo from './StoreLogo.vue';
+import VariantPicker from './VariantPicker.vue';
 
 const props = defineProps({
     product: {
@@ -38,12 +64,11 @@ const { addToCart, toggleFavorite, isFavorite } = useBuyer();
 const { warning } = useToasts();
 
 const quantity = ref(1);
-// Guards against a double-tap firing two adds before the button visibly
-// settles.
+// Guards against a double-tap firing two adds before the button settles.
 const isAdding = ref(false);
+const justAdded = ref(false);
 const selectedImageIndex = ref(0);
 const failedImages = ref(new Set());
-const detailsOpen = ref(false);
 
 const prefersReducedMotion = typeof window !== 'undefined'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -54,14 +79,9 @@ const scrollBehavior = prefersReducedMotion ? 'auto' : 'smooth';
 |--------------------------------------------------------------------------
 | Compact (mobile) layout
 |--------------------------------------------------------------------------
-|
-| Below 960px the page swaps in a back link for the breadcrumb, collapses
-| Details/Specifications, and allows the bottom buy bar. Tracked with a
-| media-query listener, not a resize handler.
-|
 */
 
-const compactQuery = typeof window !== 'undefined' ? window.matchMedia('(max-width: 960px)') : null;
+const compactQuery = typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)') : null;
 const isCompact = ref(compactQuery ? compactQuery.matches : false);
 
 function handleCompactChange(event) {
@@ -73,11 +93,14 @@ function handleCompactChange(event) {
 | Variants
 |--------------------------------------------------------------------------
 |
-| Real option/variant data from the backend (ProductController@transform).
-| selectedOptionValues tracks one chosen value per option (e.g.
-| { Flavor: 'Tuna', 'Pack Weight': '100g' }); selectedVariant resolves
-| once every option has a value, by matching product.variants'
-| option_values exactly.
+| The buyer picks one of the seller's actual variants (product.variants),
+| not one value per attribute. Each choice is labelled from that variant's
+| own option_values, e.g. "Chicken / 500g / Cats", so only combinations the
+| seller created can ever be chosen, and selection is by variant id.
+|
+| Attribute order is the product's option order (the order the seller set
+| the options up in), then any extra keys a variant carries, alphabetically
+| — never a hardcoded or category-specific list.
 |
 */
 
@@ -87,75 +110,92 @@ const productOptions = computed(() => props.product?.options || []);
 
 const productVariants = computed(() => props.product?.variants || []);
 
-const selectedOptionValues = ref({});
+const selectedVariantId = ref(null);
 
-const hasAnySelection = computed(() => Object.keys(selectedOptionValues.value).length > 0);
+// Set when the buyer tries to buy before choosing, so the picker explains
+// itself right where the control is.
+const showMissing = ref(false);
 
-function selectOptionValue(optionName, value) {
-    selectedOptionValues.value = {
-        ...selectedOptionValues.value,
-        [optionName]: value,
-    };
-}
-
-// Picking one value can rule out values of another option, so a buyer can
-// paint themselves into a corner — this lets them start over.
-function clearSelection() {
-    selectedOptionValues.value = {};
-}
+const variantPicker = ref(null);
 
 function isBuyable(variant) {
     return variant.status === 'active' && variant.stock > 0;
 }
 
-// Tells apart the two reasons a value can't be picked:
-//  - 'na'      no variant exists for it alongside the other current picks
-//  - 'soldout' such a variant exists, but none of them can be bought now
-// Buyers read these very differently ("never made" vs "come back later"),
-// so they get different treatments instead of one generic disabled look.
-function optionValueState(optionName, value) {
-    const candidate = { ...selectedOptionValues.value, [optionName]: value };
-
-    const matches = productVariants.value.filter((v) => {
-        return Object.entries(candidate).every(([k, val]) => v.option_values?.[k] === val);
-    });
-
-    if (matches.length === 0) {
-        return 'na';
-    }
-
-    return matches.some(isBuyable) ? 'ok' : 'soldout';
+function hasValue(value) {
+    return value !== null && value !== undefined && String(value).trim() !== '';
 }
 
-function optionHasUnavailableValues(option) {
-    return (option.values || []).some((ov) => {
-        return selectedOptionValues.value[option.name] !== ov.value &&
-            optionValueState(option.name, ov.value) === 'na';
+function orderedValues(variant) {
+    const values = variant.option_values || {};
+    const known = productOptions.value.map((opt) => opt.name).filter((name) => hasValue(values[name]));
+    const extra = Object.keys(values).filter((key) => !known.includes(key) && hasValue(values[key])).sort();
+
+    return [...known, ...extra].map((key) => String(values[key]).trim());
+}
+
+// Groups related variants together by following the seller's value order
+// inside each option (Beef / 100g, Beef / 250g, Chicken / 100g ...).
+function valueRank(variant) {
+    return productOptions.value.map((opt) => {
+        const index = (opt.values || []).findIndex((v) => v.value === variant.option_values?.[opt.name]);
+
+        return index === -1 ? Number.MAX_SAFE_INTEGER : index;
     });
 }
 
-const allOptionsSelected = computed(() => {
-    return productOptions.value.length > 0 &&
-        productOptions.value.every((opt) => !!selectedOptionValues.value[opt.name]);
+const attributeNames = computed(() => {
+    const names = productOptions.value.map((opt) => opt.name);
+
+    return names.length > 1 ? names.join(' / ') : (names[0] || '');
 });
 
-const missingOptionNames = computed(() => {
-    return productOptions.value
-        .filter((opt) => !selectedOptionValues.value[opt.name])
-        .map((opt) => opt.name.toLowerCase());
+const variantChoices = computed(() => {
+    const prices = productVariants.value.map((v) => Number(v.price)).filter((price) => Number.isFinite(price));
+    const pricesDiffer = new Set(prices).size > 1;
+
+    return productVariants.value
+        .map((variant, index) => ({ variant, index, rank: valueRank(variant) }))
+        .sort((a, b) => {
+            for (let i = 0; i < a.rank.length; i++) {
+                if (a.rank[i] !== b.rank[i]) {
+                    return a.rank[i] - b.rank[i];
+                }
+            }
+
+            return a.index - b.index;
+        })
+        .map(({ variant }) => {
+            const state = variant.status !== 'active' ? 'unavailable' : (variant.stock > 0 ? 'ok' : 'soldout');
+
+            return {
+                id: variant.id,
+                label: orderedValues(variant).join(' / ') || variant.sku || 'Option',
+                // The variant's own photo, else the product's first photo;
+                // the picker falls back to a neutral icon.
+                image: variant.image?.url || baseImages.value[0] || '',
+                priceLabel: pricesDiffer && Number.isFinite(Number(variant.price)) ? formatPrice(variant.price) : '',
+                state,
+                note: state === 'soldout' ? 'Out of stock' : state === 'unavailable' ? 'Unavailable' : ''
+            };
+        });
 });
 
-const selectedVariant = computed(() => {
-    if (!allOptionsSelected.value) {
-        return null;
-    }
+const selectedVariant = computed(() =>
+    productVariants.value.find((v) => v.id === selectedVariantId.value) || null
+);
 
-    return productVariants.value.find((v) => {
-        return Object.entries(selectedOptionValues.value).every(
-            ([k, val]) => v.option_values?.[k] === val,
-        );
-    }) || null;
-});
+const selectedChoice = computed(() =>
+    variantChoices.value.find((choice) => choice.id === selectedVariantId.value) || null
+);
+
+// Kept under this name: the pricing, stock and buy-bar logic below reads it.
+const allOptionsSelected = computed(() => !!selectedVariant.value);
+
+function clearSelection() {
+    selectedVariantId.value = null;
+    showMissing.value = false;
+}
 
 const anyVariantBuyable = computed(() => productVariants.value.some(isBuyable));
 
@@ -164,11 +204,15 @@ const selectionSummary = computed(() => {
         return '';
     }
 
-    if (!allOptionsSelected.value) {
-        return `Choose your ${missingOptionNames.value.join(' and ')}`;
-    }
+    return selectedChoice.value ? selectedChoice.value.label : 'Choose an option';
+});
 
-    return productOptions.value.map((opt) => selectedOptionValues.value[opt.name]).join(', ');
+const displaySku = computed(() => selectedVariant.value?.sku || (!hasVariants.value ? props.product?.sku : '') || '');
+
+watch(selectedVariant, (variant) => {
+    if (variant) {
+        showMissing.value = false;
+    }
 });
 
 /*
@@ -176,21 +220,18 @@ const selectionSummary = computed(() => {
 | Pricing
 |--------------------------------------------------------------------------
 |
-| For variant products the buyer pays the variant's price (the API fills
-| it in from the product price when a variant has none), so that's what
-| is shown: one price when every active variant costs the same, a range
-| until one is picked when they differ. The compare-at "was" price only
-| applies while the shown price is the product's own price, so choosing
-| a variant that inherits it no longer makes the discount vanish.
+| Variant products show the variant's price; a range until one is picked
+| when active variants differ. The compare-at price only applies while the
+| shown price is the product's own price.
 |
 */
 
-const variantPrices = computed(() => {
-    return productVariants.value
+const variantPrices = computed(() =>
+    productVariants.value
         .filter((v) => v.status === 'active')
         .map((v) => Number(v.price))
-        .filter((price) => Number.isFinite(price));
-});
+        .filter((price) => Number.isFinite(price))
+);
 
 const displayPrice = computed(() => {
     if (!props.product) {
@@ -217,50 +258,49 @@ const formattedPrice = computed(() => {
     }
 
     if (variantPrices.value.length > 0) {
-        return `${formatPrice(Math.min(...variantPrices.value))} - ${formatPrice(Math.max(...variantPrices.value))}`;
+        return `${formatPrice(Math.min(...variantPrices.value))} – ${formatPrice(Math.max(...variantPrices.value))}`;
     }
 
     return props.product ? formatPrice(props.product.price) : '';
 });
 
+const isPriceRange = computed(() => displayPrice.value === null && variantPrices.value.length > 1);
+
 const hasDiscount = computed(() => {
     const oldPrice = Number(props.product?.oldPrice);
 
-    return displayPrice.value !== null &&
-        displayPrice.value === Number(props.product?.price) &&
-        Number.isFinite(oldPrice) &&
-        oldPrice > displayPrice.value;
+    return displayPrice.value !== null
+        && displayPrice.value === Number(props.product?.price)
+        && Number.isFinite(oldPrice)
+        && oldPrice > displayPrice.value;
 });
 
-const formattedOldPrice = computed(() => {
-    return hasDiscount.value ? formatPrice(props.product.oldPrice) : '';
-});
+const formattedOldPrice = computed(() => (hasDiscount.value ? formatPrice(props.product.oldPrice) : ''));
 
-const discountPercent = computed(() => {
-    return hasDiscount.value
-        ? Math.round((1 - displayPrice.value / Number(props.product.oldPrice)) * 100)
-        : 0;
-});
+const savings = computed(() => (hasDiscount.value ? Number(props.product.oldPrice) - displayPrice.value : 0));
 
-const lowestShippingFee = computed(() => Math.min(...shippingOptions.map((option) => option.fee)));
+const discountPercent = computed(() =>
+    (hasDiscount.value ? Math.round((1 - displayPrice.value / Number(props.product.oldPrice)) * 100) : 0)
+);
+
+const livePaymentMethods = paymentMethods.filter((method) => method.available);
 
 /*
 |--------------------------------------------------------------------------
 | Gallery
 |--------------------------------------------------------------------------
 |
-| product.images is the full normalized gallery from the API. A selected
-| variant's own photo is put first without dropping the rest. The API's
-| placeholder path and any image that fails to load are treated as "no
-| image" so the category tile shows instead.
+| product.images is the full normalized gallery. A selected variant's own
+| photo is put first without dropping the rest. The API placeholder and
+| images that fail to load are treated as "no image".
 |
 */
 
 const PLACEHOLDER_IMAGE = '/images/product-placeholder.svg';
 
-const accentClass = computed(() => {
-    return props.product ? 'accent-' + metaFor(props.product.category).accent : 'accent-slate';
-});
+const accentClass = computed(() =>
+    (props.product ? 'accent-' + metaFor(props.product.category).accent : 'accent-slate')
+);
 
 const baseImages = computed(() => {
     const gallery = Array.isArray(props.product?.images)
@@ -292,17 +332,15 @@ const hasGallery = computed(() => galleryImages.value.length > 1);
 
 const activeImage = computed(() => galleryImages.value[selectedImageIndex.value] || '');
 
-const activeImageAlt = computed(() => {
+function imageAlt(index) {
     if (!props.product) {
         return '';
     }
 
     return hasGallery.value
-        ? `${props.product.name}, image ${selectedImageIndex.value + 1} of ${galleryImages.value.length}`
+        ? `${props.product.name}, photo ${index + 1} of ${galleryImages.value.length}`
         : props.product.name;
-});
-
-const thumbsTrack = ref(null);
+}
 
 function selectImage(index) {
     selectedImageIndex.value = index;
@@ -322,15 +360,15 @@ function handleImageError(src) {
     failedImages.value = new Set(failedImages.value).add(src);
 }
 
-// Keep the active thumbnail in view when the arrows move past the edge of
-// the strip.
-watch(selectedImageIndex, () => {
-    nextTick(() => {
-        thumbsTrack.value
-            ?.querySelector('.is-active')
-            ?.scrollIntoView({ behavior: scrollBehavior, block: 'nearest', inline: 'nearest' });
-    });
-});
+// Photos that have finished loading. Until then the gallery box shows a
+// shimmer at its final size, so nothing moves when the photo arrives.
+const loadedImages = ref(new Set());
+
+function markImageLoaded(src) {
+    if (src && !loadedImages.value.has(src)) {
+        loadedImages.value = new Set(loadedImages.value).add(src);
+    }
+}
 
 watch(variantImage, (src) => {
     if (src) {
@@ -344,40 +382,78 @@ watch(() => galleryImages.value.length, (length) => {
     }
 });
 
+// Mobile: a native scroll-snap track. Its scroll position is the source of
+// truth while swiping; selecting an image elsewhere scrolls it into place.
+const swipeTrack = ref(null);
+let swipeFrame = 0;
+
+function handleSwipeScroll() {
+    cancelAnimationFrame(swipeFrame);
+    swipeFrame = requestAnimationFrame(() => {
+        const el = swipeTrack.value;
+
+        if (el && el.clientWidth) {
+            const index = Math.round(el.scrollLeft / el.clientWidth);
+
+            if (index !== selectedImageIndex.value) {
+                selectedImageIndex.value = index;
+            }
+        }
+    });
+}
+
+watch(selectedImageIndex, (index) => {
+    const el = swipeTrack.value;
+
+    if (el && el.clientWidth && Math.round(el.scrollLeft / el.clientWidth) !== index) {
+        el.scrollTo({ left: index * el.clientWidth, behavior: scrollBehavior });
+    }
+});
+
 /*
 |--------------------------------------------------------------------------
-| Image viewer (zoom)
+| Image viewer (product photos and review photos)
 |--------------------------------------------------------------------------
 |
-| Full-screen view of the same gallery. Esc closes it, arrow keys move
-| between photos, Tab stays inside the dialog, and focus goes back to the
-| zoom button on close.
+| One full-screen dialog for both. Esc closes, arrows move between photos,
+| Tab stays inside, and focus returns to whatever opened it.
 |
 */
 
-const viewerOpen = ref(false);
-const zoomButton = ref(null);
+const viewer = ref(null); // { images: string[], index: number, label: string }
 const viewerDialog = ref(null);
 const viewerCloseButton = ref(null);
+let viewerReturnFocus = null;
 
-function openViewer() {
-    if (!activeImage.value) {
+function openViewer(images, index, label, trigger) {
+    if (!images?.length) {
         return;
     }
 
-    viewerOpen.value = true;
+    viewerReturnFocus = trigger || document.activeElement;
+    viewer.value = { images, index, label };
     document.body.style.overflow = 'hidden';
     nextTick(() => viewerCloseButton.value?.focus());
 }
 
+function openProductViewer(event) {
+    openViewer(galleryImages.value, selectedImageIndex.value, `${props.product.name} photos`, event?.currentTarget);
+}
+
 function closeViewer() {
-    if (!viewerOpen.value) {
+    if (!viewer.value) {
         return;
     }
 
-    viewerOpen.value = false;
+    viewer.value = null;
     document.body.style.overflow = '';
-    nextTick(() => zoomButton.value?.focus());
+    nextTick(() => viewerReturnFocus?.focus?.());
+}
+
+function moveViewer(step) {
+    const total = viewer.value.images.length;
+
+    viewer.value = { ...viewer.value, index: (viewer.value.index + step + total) % total };
 }
 
 function handleViewerKeydown(event) {
@@ -387,14 +463,8 @@ function handleViewerKeydown(event) {
         return;
     }
 
-    if (event.key === 'ArrowLeft' && hasGallery.value) {
-        showPreviousImage();
-
-        return;
-    }
-
-    if (event.key === 'ArrowRight' && hasGallery.value) {
-        showNextImage();
+    if (viewer.value?.images.length > 1 && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        moveViewer(event.key === 'ArrowLeft' ? -1 : 1);
 
         return;
     }
@@ -424,10 +494,8 @@ function handleViewerKeydown(event) {
 | Availability
 |--------------------------------------------------------------------------
 |
-| Everything here comes from real stock fields: product.stock and
-| product.lowStockThreshold, or the selected variant's own stock. For a
-| variant product, product-level stock is ignored (it can disagree with
-| the variants' own totals). No stock data at all means no line.
+| From real stock fields only: product.stock / lowStockThreshold, or the
+| selected variant's own stock. No stock data at all means no line.
 |
 */
 
@@ -443,8 +511,8 @@ const stockCount = computed(() => {
     return typeof props.product?.stock === 'number' ? props.product.stock : null;
 });
 
-// One place decides the stock line, why buying is blocked, and whether
-// to offer a way out to similar products — so they can never disagree.
+// One place decides the stock line, why buying is blocked, and whether to
+// offer similar products — so they can never disagree.
 const purchaseStatus = computed(() => {
     const product = props.product;
 
@@ -454,39 +522,19 @@ const purchaseStatus = computed(() => {
 
     if (hasVariants.value) {
         if (!anyVariantBuyable.value) {
-            return {
-                tone: 'out',
-                label: 'Out of stock',
-                reason: 'Every option is sold out right now.',
-                offerSimilar: true
-            };
+            return { tone: 'out', label: 'Out of stock', reason: 'Every option is sold out right now.', offerSimilar: true };
         }
 
         if (!allOptionsSelected.value) {
-            const missing = missingOptionNames.value.join(' and ');
-
-            return {
-                tone: 'neutral',
-                label: `Choose your ${missing} to check stock`,
-                reason: `Choose your ${missing} to add this to your cart.`,
-                guidance: true
-            };
+            return { tone: 'neutral', label: 'Choose an option to see stock', reason: 'Choose an option first.', guidance: true };
         }
 
         if (!selectedVariant.value) {
-            return {
-                tone: 'out',
-                label: 'Not available in this combination',
-                reason: 'This combination isn’t sold. Pick another option.'
-            };
+            return { tone: 'out', label: 'Not available in this combination', reason: 'This combination isn’t sold. Pick another option.' };
         }
 
         if (!isBuyable(selectedVariant.value)) {
-            return {
-                tone: 'out',
-                label: 'Out of stock',
-                reason: 'This combination is sold out. Try another option.'
-            };
+            return { tone: 'out', label: 'Out of stock', reason: 'This combination is sold out. Try another option.' };
         }
     }
 
@@ -495,12 +543,7 @@ const purchaseStatus = computed(() => {
     }
 
     if (stockCount.value <= 0) {
-        return {
-            tone: 'out',
-            label: 'Out of stock',
-            reason: 'This product is sold out right now.',
-            offerSimilar: true
-        };
+        return { tone: 'out', label: 'Out of stock', reason: 'This product is sold out right now.', offerSimilar: true };
     }
 
     const threshold = Number(product.lowStockThreshold);
@@ -514,70 +557,112 @@ const purchaseStatus = computed(() => {
 
 const purchaseBlockedReason = computed(() => purchaseStatus.value?.reason || '');
 
+// "N available" beside the quantity control, only from a real stock number
+// for something in stock right now.
+const availableLabel = computed(() => {
+    const count = stockCount.value;
+    const tone = purchaseStatus.value?.tone;
+
+    // Low stock already reads "Only N left", so the count isn't repeated.
+    return typeof count === 'number' && count > 0 && tone === 'in'
+        ? `${count.toLocaleString('en-PH')} available`
+        : '';
+});
+
+// Units on delivered orders (ProductController soldCount); hidden at zero.
+const soldCount = computed(() => Math.max(0, Math.floor(Number(props.product?.soldCount) || 0)));
+
+// Missing choices keep the buttons usable so a press can point at what's
+// missing; genuinely unbuyable states disable them.
+const purchaseDisabled = computed(() => !!purchaseBlockedReason.value && !purchaseStatus.value?.guidance);
+
 /*
 |--------------------------------------------------------------------------
-| Details (description + specifications)
+| Description + specifications
 |--------------------------------------------------------------------------
-|
-| One section holds the whole description and every specification — the
-| buy box only carries a short excerpt with a link down to it.
-|
 */
 
-const EXCERPT_LENGTH = 180;
+const LONG_DESCRIPTION = 520;
 
-const descriptionExcerpt = computed(() => {
-    const text = (props.product?.description || '').trim();
+const descriptionParagraphs = computed(() =>
+    (props.product?.description || '')
+        .split(/\n\s*\n|\r?\n/)
+        .map((p) => p.trim())
+        .filter(Boolean)
+);
 
-    return text.length > EXCERPT_LENGTH ? `${text.slice(0, EXCERPT_LENGTH).trimEnd()}…` : text;
-});
+const isLongDescription = computed(() => (props.product?.description || '').trim().length > LONG_DESCRIPTION);
+
+const descriptionExpanded = ref(false);
 
 const specEntries = computed(() => {
     const specs = props.product?.specifications;
-    const entries = specs && typeof specs === 'object' ? Object.entries(specs) : [];
+    const entries = specs && typeof specs === 'object'
+        ? Object.entries(specs).filter(([, value]) => value !== null && String(value).trim() !== '')
+        : [];
 
     return props.product?.brand ? [['Brand', props.product.brand], ...entries] : entries;
 });
 
-const hasDetails = computed(() => !!props.product?.description || specEntries.value.length > 0);
+const hasAbout = computed(() => descriptionParagraphs.value.length > 0 || specEntries.value.length > 0);
 
 /*
 |--------------------------------------------------------------------------
 | Reviews
 |--------------------------------------------------------------------------
 |
-| The rating breakdown and the latest few reviews come from the public
-| GET /api/products/{id}/reviews endpoint, fetched only for products that
-| actually have reviews. Page-local on purpose, so filtering inside the
-| drawer never changes what this section shows.
+| GET /api/products/{id}/reviews: newest first, filterable by exact star
+| rating and "has photos", paginated. The summary is always unfiltered.
+| The API has no sort parameter and no helpful votes, so neither is shown.
 |
 */
 
-const REVIEW_PREVIEW_COUNT = 5;
+const REVIEWS_PER_PAGE = 6;
 
 const reviewCount = computed(() => Number(props.product?.reviewCount) || 0);
 
-const hasReviews = computed(() => {
-    return reviewCount.value > 0 && typeof props.product?.rating === 'number';
-});
+const hasReviews = computed(() => reviewCount.value > 0 && typeof props.product?.rating === 'number');
 
 const reviewSummary = ref(null);
-const latestReviews = ref([]);
+const reviewItems = ref([]);
+const reviewMeta = ref(null);
 const reviewsLoading = ref(false);
+const reviewsLoadingMore = ref(false);
 const reviewsError = ref('');
-const activeReviewIndex = ref(0);
+const reviewFilter = ref('all'); // 'all' | 'photos' | 1..5
 
 let reviewsRequestId = 0;
 
+async function fetchReviews(page) {
+    const params = new URLSearchParams({ per_page: String(REVIEWS_PER_PAGE), page: String(page) });
+
+    if (typeof reviewFilter.value === 'number') {
+        params.set('rating', String(reviewFilter.value));
+    }
+
+    if (reviewFilter.value === 'photos') {
+        params.set('has_images', '1');
+    }
+
+    const response = await fetch(
+        `/api/products/${encodeURIComponent(props.product.id)}/reviews?${params}`,
+        { headers: { Accept: 'application/json' } }
+    );
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(body.message || 'Could not load reviews.');
+    }
+
+    return body;
+}
+
 async function loadReviews() {
-    reviewSummary.value = null;
-    latestReviews.value = [];
     reviewsError.value = '';
-    activeReviewIndex.value = 0;
 
-    const product = props.product;
-
-    if (!product || !(Number(product.reviewCount) > 0)) {
+    if (!props.product || !hasReviews.value) {
+        reviewItems.value = [];
+        reviewMeta.value = null;
         reviewsLoading.value = false;
 
         return;
@@ -588,32 +673,58 @@ async function loadReviews() {
     reviewsLoading.value = true;
 
     try {
-        const response = await fetch(
-            `/api/products/${encodeURIComponent(product.id)}/reviews?per_page=${REVIEW_PREVIEW_COUNT}`,
-            { headers: { Accept: 'application/json' } },
-        );
-        const body = await response.json().catch(() => ({}));
+        const body = await fetchReviews(1);
 
-        // A newer product was opened while this was in flight.
+        // A newer product or filter was requested while this was in flight.
         if (requestId !== reviewsRequestId) {
             return;
         }
 
-        if (!response.ok) {
-            throw new Error(body.message || 'Could not load reviews.');
-        }
-
-        reviewSummary.value = body.summary || null;
-        latestReviews.value = body.data || [];
+        reviewSummary.value = body.summary || reviewSummary.value;
+        reviewItems.value = body.data || [];
+        reviewMeta.value = body.meta || null;
     } catch (err) {
         if (requestId === reviewsRequestId) {
             reviewsError.value = err?.message || 'Could not load reviews.';
+            reviewItems.value = [];
         }
     } finally {
         if (requestId === reviewsRequestId) {
             reviewsLoading.value = false;
         }
     }
+}
+
+async function loadMoreReviews() {
+    const meta = reviewMeta.value;
+
+    if (!meta || meta.current_page >= meta.last_page || reviewsLoadingMore.value) {
+        return;
+    }
+
+    const requestId = reviewsRequestId;
+
+    reviewsLoadingMore.value = true;
+
+    try {
+        const body = await fetchReviews(meta.current_page + 1);
+
+        if (requestId !== reviewsRequestId) {
+            return;
+        }
+
+        reviewItems.value = [...reviewItems.value, ...(body.data || [])];
+        reviewMeta.value = body.meta || meta;
+    } catch (err) {
+        warning(err?.message || 'Could not load more reviews.');
+    } finally {
+        reviewsLoadingMore.value = false;
+    }
+}
+
+function setReviewFilter(filter) {
+    reviewFilter.value = reviewFilter.value === filter ? 'all' : filter;
+    loadReviews();
 }
 
 const ratingBreakdown = computed(() => {
@@ -623,27 +734,21 @@ const ratingBreakdown = computed(() => {
     return [5, 4, 3, 2, 1].map((star) => {
         const count = Number(summary?.breakdown?.[star]) || 0;
 
-        return {
-            star,
-            count,
-            percent: total > 0 ? Math.round((count / total) * 100) : 0
-        };
+        return { star, count, percent: total > 0 ? Math.round((count / total) * 100) : 0 };
     });
 });
 
-const activeReview = computed(() => latestReviews.value[activeReviewIndex.value] || null);
+const photoReviewCount = computed(() => Number(reviewSummary.value?.with_images) || 0);
 
-function showPreviousReview() {
-    if (activeReviewIndex.value > 0) {
-        activeReviewIndex.value--;
+const reviewFilterLabel = computed(() => {
+    if (reviewFilter.value === 'photos') {
+        return 'with photos';
     }
-}
 
-function showNextReview() {
-    if (activeReviewIndex.value < latestReviews.value.length - 1) {
-        activeReviewIndex.value++;
-    }
-}
+    return typeof reviewFilter.value === 'number' ? `with ${reviewFilter.value} ${reviewFilter.value === 1 ? 'star' : 'stars'}` : '';
+});
+
+const hasMoreReviews = computed(() => !!reviewMeta.value && reviewMeta.value.current_page < reviewMeta.value.last_page);
 
 function formatReviewDate(iso) {
     if (!iso) {
@@ -657,80 +762,32 @@ function formatReviewDate(iso) {
         : date.toLocaleDateString('en-PH', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-const reviewsOpen = ref(false);
-
-function openReviews() {
-    if (props.product) {
-        reviewsOpen.value = true;
+function variantLabel(variant) {
+    if (!variant) {
+        return '';
     }
+
+    if (typeof variant === 'string') {
+        return variant;
+    }
+
+    if (typeof variant === 'object') {
+        const values = variant.option_values || variant;
+
+        return Object.entries(values)
+            .filter(([, value]) => typeof value === 'string' || typeof value === 'number')
+            .map(([key, value]) => `${key}: ${value}`)
+            .join(', ');
+    }
+
+    return '';
 }
 
-/*
-|--------------------------------------------------------------------------
-| In-page sections
-|--------------------------------------------------------------------------
-|
-| Details / Reviews / You might also like. The desktop side menu follows
-| whichever section is in view via an IntersectionObserver.
-|
-*/
-
-const detailsSection = ref(null);
 const reviewsSection = ref(null);
 const relatedSection = ref(null);
-const activeSection = ref('details');
 
-const sectionLinks = computed(() => {
-    const links = [];
-
-    if (hasDetails.value) {
-        links.push({ id: 'details', label: 'Details' });
-    }
-
-    links.push({ id: 'reviews', label: 'Reviews' });
-    links.push({ id: 'related', label: 'You might also like' });
-
-    return links;
-});
-
-function sectionElement(id) {
-    return { details: detailsSection, reviews: reviewsSection, related: relatedSection }[id]?.value || null;
-}
-
-function scrollToSection(id) {
-    if (id === 'details') {
-        detailsOpen.value = true;
-    }
-
-    nextTick(() => {
-        sectionElement(id)?.scrollIntoView({ behavior: scrollBehavior, block: 'start' });
-    });
-}
-
-let sectionObserver = null;
-
-function observeSections() {
-    sectionObserver?.disconnect();
-
-    if (typeof IntersectionObserver === 'undefined') {
-        return;
-    }
-
-    sectionObserver = new IntersectionObserver((entries) => {
-        entries.forEach((entry) => {
-            if (entry.isIntersecting) {
-                activeSection.value = entry.target.dataset.section;
-            }
-        });
-    }, { rootMargin: '-35% 0px -60% 0px' });
-
-    ['details', 'reviews', 'related'].forEach((id) => {
-        const el = sectionElement(id);
-
-        if (el) {
-            sectionObserver.observe(el);
-        }
-    });
+function scrollToReviews() {
+    reviewsSection.value?.scrollIntoView({ behavior: scrollBehavior, block: 'start' });
 }
 
 /*
@@ -738,31 +795,31 @@ function observeSections() {
 | Mobile buy bar
 |--------------------------------------------------------------------------
 |
-| Appears only on the compact layout, and only once the in-page quantity
-| + Add to Cart row has scrolled up past the sticky header — so it never
-| duplicates a button that's already on screen. The page gets matching
-| bottom padding while it shows, so it never covers the footer.
+| Compact layout only, and only once the in-page quantity + Add to cart row
+| has scrolled up past the header — it never duplicates a visible button.
+|
+| A position check on scroll (passive, one rAF per frame) rather than an
+| IntersectionObserver: an observer only reports edge crossings, so an
+| instant jump past the row (anchor scroll under reduced motion, scroll
+| restore on Back) would never show the bar.
 |
 */
+
+const BUY_BAR_OFFSET = 120;
 
 const buyRow = ref(null);
 const optionsBlock = ref(null);
 const buyRowPassed = ref(false);
 
-let buyRowObserver = null;
+let buyRowFrame = 0;
 
-function observeBuyRow() {
-    buyRowObserver?.disconnect();
+function checkBuyRow() {
+    cancelAnimationFrame(buyRowFrame);
+    buyRowFrame = requestAnimationFrame(() => {
+        const rect = buyRow.value?.getBoundingClientRect();
 
-    if (!buyRow.value || typeof IntersectionObserver === 'undefined') {
-        return;
-    }
-
-    buyRowObserver = new IntersectionObserver(([entry]) => {
-        buyRowPassed.value = !entry.isIntersecting && entry.boundingClientRect.top < 0;
-    }, { rootMargin: '-96px 0px 0px 0px' });
-
-    buyRowObserver.observe(buyRow.value);
+        buyRowPassed.value = !!rect && rect.bottom < BUY_BAR_OFFSET;
+    });
 }
 
 const showBuyBar = computed(() => isCompact.value && buyRowPassed.value && !!props.product);
@@ -785,19 +842,9 @@ const buyBarAction = computed(() => {
     return 'add';
 });
 
-function focusFirstOpenOption() {
-    const target = productOptions.value.find((opt) => !selectedOptionValues.value[opt.name]) ||
-        productOptions.value[0];
-
+function focusFirstMissingOption() {
     optionsBlock.value?.scrollIntoView({ behavior: scrollBehavior, block: 'center' });
-
-    if (target) {
-        nextTick(() => {
-            optionsBlock.value
-                ?.querySelector(`input[name="pdp-option-${target.id}"]:not(:disabled)`)
-                ?.focus({ preventScroll: true });
-        });
-    }
+    nextTick(() => variantPicker.value?.focus());
 }
 
 function handleBuyBarAction() {
@@ -807,9 +854,11 @@ function handleBuyBarAction() {
         return;
     }
 
-    if (buyBarAction.value === 'choose' || buyBarAction.value === 'change') {
-        focusFirstOpenOption();
+    if (buyBarAction.value === 'choose') {
+        showMissing.value = true;
     }
+
+    focusFirstMissingOption();
 }
 
 /*
@@ -818,9 +867,7 @@ function handleBuyBarAction() {
 |--------------------------------------------------------------------------
 */
 
-const favorited = computed(() => {
-    return props.product ? isFavorite(props.product.id) : false;
-});
+const favorited = computed(() => (props.product ? isFavorite(props.product.id) : false));
 
 function handleToggleFavorite() {
     if (props.product) {
@@ -833,15 +880,14 @@ function handleToggleFavorite() {
 | Quantity
 |--------------------------------------------------------------------------
 |
-| Client-side convenience only — the real limit is enforced server-side
-| at checkout (CheckoutService locks and re-checks the actual row).
+| Client-side convenience only; the real limit is enforced server-side at
+| checkout (CheckoutService locks and re-checks the actual row).
 |
 */
 
-const canIncreaseQuantity = computed(() => {
-    return !purchaseBlockedReason.value &&
-        (stockCount.value === null || quantity.value < stockCount.value);
-});
+const canIncreaseQuantity = computed(() =>
+    !purchaseDisabled.value && (stockCount.value === null || quantity.value < stockCount.value)
+);
 
 function increaseQuantity() {
     if (canIncreaseQuantity.value) {
@@ -855,8 +901,6 @@ function decreaseQuantity() {
     }
 }
 
-// Switching to a variant with less stock shouldn't leave an impossible
-// quantity selected.
 watch(stockCount, (stock) => {
     if (stock !== null && stock > 0 && quantity.value > stock) {
         quantity.value = stock;
@@ -865,12 +909,23 @@ watch(stockCount, (stock) => {
 
 /*
 |--------------------------------------------------------------------------
-| Add To Cart / Buy Now
+| Add to cart / Buy now
 |--------------------------------------------------------------------------
 */
 
 function validateSelection() {
-    if (!props.product || purchaseBlockedReason.value) {
+    if (!props.product) {
+        return false;
+    }
+
+    if (purchaseStatus.value?.guidance) {
+        showMissing.value = true;
+        focusFirstMissingOption();
+
+        return false;
+    }
+
+    if (purchaseBlockedReason.value) {
         return false;
     }
 
@@ -883,6 +938,8 @@ function validateSelection() {
     return true;
 }
 
+let addedTimer = null;
+
 function handleAddToCart() {
     if (isAdding.value || !validateSelection()) {
         return;
@@ -890,13 +947,20 @@ function handleAddToCart() {
 
     isAdding.value = true;
 
-    // addToCart owns the "Added to cart." / stock-limit toast — see
-    // useBuyer.js. Nothing else to surface here.
-    addToCart(props.product, selectedVariant.value, quantity.value);
+    // addToCart owns the "Added to cart." / stock-limit toast (useBuyer.js).
+    const result = addToCart(props.product, selectedVariant.value, quantity.value);
 
     setTimeout(() => {
         isAdding.value = false;
-    }, 400);
+    }, 300);
+
+    if (result?.ok) {
+        justAdded.value = true;
+        clearTimeout(addedTimer);
+        addedTimer = setTimeout(() => {
+            justAdded.value = false;
+        }, 1800);
+    }
 }
 
 function handleBuyNow() {
@@ -916,66 +980,284 @@ function handleBuyNow() {
 | Seller
 |--------------------------------------------------------------------------
 |
-| The API exposes the store name and line of business only — there is no
-| seller logo, seller rating, or buyer-facing storefront page yet, so none
-| of those are shown or linked.
+| The product carries the store name and line of business; the seller's
+| storefront (StorePage.vue) has the rest, and is linked from "Sold by"
+| and from the seller block.
 |
 */
 
 const sellerName = computed(() => props.product?.seller || 'Seller');
 
-const { startConversation } = useBuyerChat();
 
-const messageOpen = ref(false);
-const messageDraft = ref('');
-const messageSending = ref(false);
-const messageError = ref('');
-const messageInput = ref(null);
-
-function toggleMessageComposer() {
-    messageOpen.value = !messageOpen.value;
-    messageError.value = '';
-
-    if (messageOpen.value) {
-        nextTick(() => messageInput.value?.focus());
-    }
-}
-
-async function sendSellerMessage() {
-    const body = messageDraft.value.trim();
-
-    if (!body || !props.product?.seller_id) {
+function visitStore() {
+    if (!props.product?.seller_id) {
         return;
     }
 
-    messageSending.value = true;
-    messageError.value = '';
+    requestBuyerView('store', {
+        id: props.product.seller_id,
+        name: sellerName.value,
+        category: props.product.seller_line_of_business || null
+    });
+}
+
+/*
+|--------------------------------------------------------------------------
+| Shop overview (below the main container)
+|--------------------------------------------------------------------------
+|
+| Who sells this and how the shop is doing, from the public store API:
+| GET /api/stores/{id} (identity, product-review rating, active listings,
+| join date, completed-sale totals, follower count), a few of the shop's
+| product reviews (other than this product's, which have their own
+| section) and a few of its other active products. Every number shown is
+| one the API returns; a figure that is zero or missing is left out.
+|
+*/
+
+const SHOP_REVIEWS = 3;
+const SHOP_PRODUCTS = 4;
+
+const shop = ref(null);
+const shopReviews = ref([]);
+const shopReviewTotal = ref(0);
+const shopReviewsLoaded = ref(false);
+const shopProducts = ref([]);
+const shopLoading = ref(false);
+const openingReviewProduct = ref(null);
+
+const shopId = computed(() => props.product?.seller_id || null);
+
+async function loadShop() {
+    const id = shopId.value;
+    const productId = props.product?.id;
+
+    shop.value = null;
+    shopReviews.value = [];
+    shopReviewTotal.value = 0;
+    shopReviewsLoaded.value = false;
+    shopProducts.value = [];
+
+    if (!id) {
+        return;
+    }
+
+    shopLoading.value = true;
+
+    const reviewParams = new URLSearchParams({ per_page: String(SHOP_REVIEWS) });
+
+    if (productId) {
+        reviewParams.set('exclude_product', productId);
+    }
+
+    const [storeResult, reviewsResult, productsResult] = await Promise.allSettled([
+        fetchJson(storeEndpoint(id)),
+        fetchJson(`/api/stores/${encodeURIComponent(id)}/reviews?${reviewParams}`),
+        fetchJson(storeProductsEndpoint(id, { per_page: SHOP_PRODUCTS + 1 }))
+    ]);
+
+    // A newer product may have opened while these were loading.
+    if (shopId.value !== id) {
+        return;
+    }
+
+    if (storeResult.status === 'fulfilled') {
+        shop.value = storeResult.value.data || null;
+        followerCount.value = shop.value?.followerCount ?? null;
+    }
+
+    if (reviewsResult.status === 'fulfilled') {
+        shopReviews.value = reviewsResult.value.data || [];
+        shopReviewTotal.value = reviewsResult.value.summary?.total || 0;
+    }
+
+    shopReviewsLoaded.value = true;
+
+    if (productsResult.status === 'fulfilled') {
+        shopProducts.value = (productsResult.value.data || [])
+            .filter(item => item.id !== productId)
+            .slice(0, SHOP_PRODUCTS);
+    }
+
+    shopLoading.value = false;
+}
+
+watch(() => props.product?.id, loadShop, { immediate: true });
+
+// Category picks below skip anything already shown from this shop.
+const relatedToShow = computed(() => {
+    const shown = new Set(shopProducts.value.map(item => item.id));
+
+    return (props.relatedProducts || []).filter(item => !shown.has(item.id));
+});
+
+const shopName = computed(() => shop.value?.name || sellerName.value);
+const shopHasRating = computed(() => typeof shop.value?.rating === 'number' && shop.value?.reviewCount > 0);
+const shopJoined = computed(() => joinedLabel(shop.value?.joinedAt));
+
+function compactCount(value) {
+    const n = Number(value) || 0;
+
+    return n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k` : String(n);
+}
+
+// Distinct numbers, each labelled for what it is. Zero means "not shown".
+const shopStats = computed(() => {
+    const s = shop.value;
+
+    if (!s) {
+        return [];
+    }
+
+    const stats = [];
+    const sales = s.sales || {};
+
+    if (s.productCount > 0) {
+        stats.push({ key: 'listings', value: compactCount(s.productCount), label: s.productCount === 1 ? 'product listed' : 'products listed' });
+    }
+
+    if (sales.itemsSold > 0) {
+        stats.push({ key: 'sold', value: compactCount(sales.itemsSold), label: sales.itemsSold === 1 ? 'item sold' : 'items sold' });
+    }
+
+    if (sales.buyerCount > 0) {
+        stats.push({ key: 'buyers', value: compactCount(sales.buyerCount), label: sales.buyerCount === 1 ? 'buyer' : 'buyers' });
+    }
+
+    return stats;
+});
+
+function openShop(tab = 'products') {
+    if (!shopId.value) {
+        return;
+    }
+
+    rememberStoreState(shopId.value, { ...rememberedStoreState(shopId.value), tab, page: 1 });
+    visitStore();
+}
+
+async function openReviewProduct(product) {
+    if (!product?.id || openingReviewProduct.value) {
+        return;
+    }
+
+    openingReviewProduct.value = product.id;
 
     try {
-        await startConversation({
-            sellerId: props.product.seller_id,
-            productId: props.product.id,
-            body
-        });
+        const body = await fetchJson(`/api/products/${encodeURIComponent(product.id)}`);
 
-        messageDraft.value = '';
-        messageOpen.value = false;
+        emit('select-product', body.data || body);
     } catch (err) {
-        messageError.value = err?.message || 'Could not send your message. Please sign in and try again.';
+        warning(err?.status === 404 ? 'That product is no longer available.' : 'Could not open that product. Please try again.');
     } finally {
-        messageSending.value = false;
+        openingReviewProduct.value = null;
     }
+}
+
+function shopReviewDate(iso) {
+    const date = iso ? new Date(iso) : null;
+
+    return date && !Number.isNaN(date.getTime())
+        ? date.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
+        : '';
+}
+
+/*
+| Follow shop: the real follow state from /api/buyer/follows/{id}, a
+| button that waits for the server (so a double click can't send two
+| requests), and a sign-in link for guests.
+*/
+
+const { buyerProfile } = useBuyerSession();
+
+const isFollowing = ref(false);
+const followerCount = ref(null);
+const followBusy = ref(false);
+const followReady = ref(false);
+
+function applyFollowStatus(status) {
+    isFollowing.value = Boolean(status?.isFollowing);
+
+    if (typeof status?.followerCount === 'number') {
+        followerCount.value = status.followerCount;
+    }
+}
+
+async function loadFollowStatus() {
+    followReady.value = false;
+    isFollowing.value = false;
+
+    if (!buyerProfile.value || !shopId.value) {
+        followReady.value = true;
+
+        return;
+    }
+
+    try {
+        applyFollowStatus(await buyerApi(`/buyer/follows/${encodeURIComponent(shopId.value)}`));
+    } catch {
+        // The first toggle's response corrects the state if this failed.
+    } finally {
+        followReady.value = true;
+    }
+}
+
+async function toggleFollow() {
+    if (followBusy.value || !shopId.value) {
+        return;
+    }
+
+    const following = isFollowing.value;
+
+    followBusy.value = true;
+
+    try {
+        applyFollowStatus(await buyerApi(`/buyer/follows/${encodeURIComponent(shopId.value)}`, {
+            method: following ? 'DELETE' : 'POST'
+        }));
+    } catch (err) {
+        warning(err?.status === 401
+            ? 'Your session has ended. Sign in again to follow shops.'
+            : err?.message || 'Could not update your follow. Please try again.');
+    } finally {
+        followBusy.value = false;
+    }
+}
+
+watch([shopId, buyerProfile], loadFollowStatus, { immediate: true });
+
+const followerLabel = computed(() => {
+    const count = followerCount.value;
+
+    return count ? `${compactCount(count)} ${count === 1 ? 'follower' : 'followers'}` : '';
+});
+
+const { messageSeller } = useBuyerChat();
+
+/** Opens Messages on this shop's thread, asking about this product. */
+function messageShop() {
+    if (!props.product?.seller_id) {
+        return;
+    }
+
+    messageSeller({
+        sellerId: props.product.seller_id,
+        seller: shopName.value,
+        sellerLogo: shop.value?.logo || null,
+        sellerCategory: shop.value?.category || props.product.seller_line_of_business || null,
+        product: {
+            id: props.product.id,
+            name: props.product.name,
+            price: displayPrice.value,
+            image: galleryImages.value[0] || null
+        }
+    });
 }
 
 /*
 |--------------------------------------------------------------------------
 | Navigation
 |--------------------------------------------------------------------------
-|
-| The embedded Header has no dashboard state of its own, so searches,
-| category picks, and breadcrumb clicks bubble up to Dashboard, which does
-| the real navigation (home, CategoryListing, etc.).
-|
 */
 
 function goBack() {
@@ -990,8 +1272,8 @@ function handleHeaderSelectCategory(category) {
     emit('select-category', category);
 }
 
-function selectRelatedProduct(item) {
-    emit('select-product', item);
+function scrollToRelated() {
+    relatedSection.value?.scrollIntoView({ behavior: scrollBehavior, block: 'start' });
 }
 
 /*
@@ -1000,52 +1282,54 @@ function selectRelatedProduct(item) {
 |--------------------------------------------------------------------------
 */
 
-// The buy row and sections only exist while a product is shown, so the
-// observers re-attach whenever those elements are (re)created.
-watch(buyRow, observeBuyRow);
-watch([detailsSection, reviewsSection, relatedSection], observeSections);
-
 onMounted(() => {
     compactQuery?.addEventListener('change', handleCompactChange);
-    observeBuyRow();
-    observeSections();
+    window.addEventListener('scroll', checkBuyRow, { passive: true });
+    window.addEventListener('resize', checkBuyRow, { passive: true });
+    checkBuyRow();
 });
 
 onUnmounted(() => {
     compactQuery?.removeEventListener('change', handleCompactChange);
-    buyRowObserver?.disconnect();
-    sectionObserver?.disconnect();
+    window.removeEventListener('scroll', checkBuyRow);
+    window.removeEventListener('resize', checkBuyRow);
+    cancelAnimationFrame(buyRowFrame);
+    cancelAnimationFrame(swipeFrame);
+    clearTimeout(addedTimer);
 
-    if (viewerOpen.value) {
+    if (viewer.value) {
         document.body.style.overflow = '';
     }
 });
 
-// Showing a different product (e.g. from "You might also like") starts
-// from a clean slate instead of carrying the previous product's state.
+// A different product (e.g. from "You might also like") starts clean.
 watch(
     () => props.product?.id,
     () => {
-        selectedOptionValues.value = {};
+        // A single buyable variant needs no decision from the buyer.
+        const variants = props.product?.variants || [];
+
+        selectedVariantId.value = variants.length === 1 && isBuyable(variants[0]) ? variants[0].id : null;
+        showMissing.value = false;
         selectedImageIndex.value = 0;
         quantity.value = 1;
         failedImages.value = new Set();
-        detailsOpen.value = false;
-        activeSection.value = 'details';
+        descriptionExpanded.value = false;
         buyRowPassed.value = false;
-        messageOpen.value = false;
-        messageError.value = '';
+        justAdded.value = false;
+        reviewFilter.value = 'all';
+        reviewSummary.value = null;
         closeViewer();
         loadReviews();
     },
-    { immediate: true },
+    { immediate: true }
 );
 </script>
 
 <template>
 
     <div
-        class="buyer-page pdp-page"
+        class="buyer-page pd-page"
         :class="{ 'has-buy-bar': showBuyBar }"
     >
 
@@ -1060,31 +1344,19 @@ watch(
 
         <main
             v-if="product"
-            class="pdp"
+            id="main-content"
+            class="pd"
+            tabindex="-1"
         >
 
-            <!-- Compact layouts get a single back link; the full trail
-                 only earns its space on wide screens. -->
-            <button
-                v-if="isCompact"
-                type="button"
-                class="pdp-backlink"
-                @click="emit('select-category', product.category)"
-            >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-                {{ product.category }}
-            </button>
-
             <nav
-                v-else
-                class="pdp-breadcrumb"
+                class="crumbs pd-crumbs"
                 aria-label="Breadcrumb"
             >
                 <ol>
                     <li>
                         <button
                             type="button"
-                            class="pdp-crumb-link"
                             @click="emit('browse-all')"
                         >
                             Home
@@ -1093,14 +1365,13 @@ watch(
                     <li>
                         <button
                             type="button"
-                            class="pdp-crumb-link"
                             @click="emit('select-category', product.category)"
                         >
                             {{ product.category }}
                         </button>
                     </li>
                     <li
-                        class="pdp-crumb-current"
+                        class="pd-crumb-current"
                         aria-current="page"
                     >
                         {{ product.name }}
@@ -1108,768 +1379,1218 @@ watch(
                 </ol>
             </nav>
 
-            <!-- ======================================================== -->
-            <!-- GALLERY + BUY BOX -->
-            <!-- ======================================================== -->
+            <!-- ======================================================= -->
+            <!-- GALLERY + PURCHASE PANEL -->
+            <!-- ======================================================= -->
 
             <section
-                class="pdp-main"
-                aria-labelledby="pdp-title"
+                class="pd-main"
+                aria-labelledby="pd-title"
             >
 
-                <div class="pdp-gallery">
+                <div
+                    class="pd-gallery"
+                    :class="{ 'has-thumbs': hasGallery && !isCompact }"
+                >
 
+                    <!-- Desktop thumbnail rail -->
                     <div
-                        class="pdp-frame"
-                        :class="[accentClass, { 'has-image': activeImage }]"
+                        v-if="hasGallery && !isCompact"
+                        class="pd-thumbs"
+                        role="group"
+                        aria-label="Product photos"
                     >
-                        <Transition name="pdp-fade">
+                        <button
+                            v-for="(src, index) in galleryImages"
+                            :key="src"
+                            type="button"
+                            class="pd-thumb"
+                            :class="{ 'is-active': index === selectedImageIndex }"
+                            :aria-label="`Show photo ${index + 1} of ${galleryImages.length}`"
+                            :aria-pressed="index === selectedImageIndex"
+                            @click="selectImage(index)"
+                        >
                             <img
+                                :src="src"
+                                alt=""
+                                width="72"
+                                height="72"
+                                loading="lazy"
+                                @error="handleImageError(src)"
+                            >
+                        </button>
+                    </div>
+
+                    <!-- Desktop main image -->
+                    <div
+                        v-if="!isCompact"
+                        class="pd-stage"
+                        :class="[accentClass, { 'is-loading': activeImage && !loadedImages.has(activeImage) }]"
+                    >
+                        <Transition name="pd-fade">
+                            <button
                                 v-if="activeImage"
                                 :key="activeImage"
-                                class="pdp-frame-image"
-                                :src="activeImage"
-                                :alt="activeImageAlt"
-                                @error="handleImageError(activeImage)"
+                                type="button"
+                                class="pd-stage-zoom"
+                                :aria-label="`Open larger view of ${imageAlt(selectedImageIndex)}`"
+                                @click="openProductViewer"
                             >
+                                <img
+                                    class="pd-stage-img"
+                                    :src="activeImage"
+                                    :alt="imageAlt(selectedImageIndex)"
+                                    width="800"
+                                    height="800"
+                                    fetchpriority="high"
+                                    @load="markImageLoaded(activeImage)"
+                                    @error="handleImageError(activeImage)"
+                                >
+                            </button>
                         </Transition>
 
                         <div
                             v-if="!activeImage"
-                            class="pdp-frame-fallback"
+                            class="pd-stage-empty"
                         >
                             <span
-                                class="product-image-icon product-image-icon--lg"
+                                class="product-image-icon"
                                 aria-hidden="true"
                                 v-html="metaFor(product.category).icon"
                             ></span>
-                            <p>No photo available</p>
+                            <p>No photo yet</p>
                         </div>
 
-                        <span
-                            v-if="hasDiscount"
-                            class="pdp-frame-badge"
-                        >
-                            -{{ discountPercent }}%
-                        </span>
+                        <template v-if="hasGallery">
+                            <button
+                                type="button"
+                                class="pd-stage-nav is-prev"
+                                aria-label="Previous photo"
+                                @click="showPreviousImage"
+                            >
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                            </button>
+                            <button
+                                type="button"
+                                class="pd-stage-nav is-next"
+                                aria-label="Next photo"
+                                @click="showNextImage"
+                            >
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                            </button>
+                        </template>
 
-                        <button
+                        <span
                             v-if="activeImage"
-                            ref="zoomButton"
-                            type="button"
-                            class="pdp-zoom"
-                            aria-label="View larger image"
-                            @click="openViewer"
+                            class="pd-stage-hint"
+                            aria-hidden="true"
                         >
-                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <circle cx="11" cy="11" r="7" />
-                                <path d="m20 20-3.5-3.5" />
-                                <path d="M11 8v6" />
-                                <path d="M8 11h6" />
-                            </svg>
-                        </button>
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5M11 8v6M8 11h6" /></svg>
+                            Click to zoom
+                        </span>
                     </div>
 
+                    <!-- Mobile swipe gallery -->
                     <div
-                        v-if="hasGallery"
-                        class="pdp-thumbs-row"
+                        v-else
+                        class="pd-swipe"
+                        :class="accentClass"
                     >
-                        <button
-                            type="button"
-                            class="pdp-round-button"
-                            aria-label="Previous image"
-                            @click="showPreviousImage"
-                        >
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-                        </button>
-
                         <div
-                            ref="thumbsTrack"
-                            class="pdp-thumbs"
+                            v-if="galleryImages.length"
+                            ref="swipeTrack"
+                            class="pd-swipe-track"
                             role="group"
-                            aria-label="Product images"
+                            aria-roledescription="carousel"
+                            aria-label="Product photos"
+                            @scroll.passive="handleSwipeScroll"
                         >
                             <button
                                 v-for="(src, index) in galleryImages"
-                                :key="index"
+                                :key="src"
                                 type="button"
-                                class="pdp-thumb"
-                                :class="{ 'is-active': index === selectedImageIndex }"
-                                :aria-label="`Show image ${index + 1} of ${galleryImages.length}`"
-                                :aria-pressed="index === selectedImageIndex"
-                                @click="selectImage(index)"
+                                class="pd-swipe-slide"
+                                :class="{ 'is-loading': !loadedImages.has(src) }"
+                                :aria-label="`Open larger view of ${imageAlt(index)}`"
+                                @click="openViewer(galleryImages, index, `${product.name} photos`, $event.currentTarget)"
                             >
                                 <img
                                     :src="src"
-                                    alt=""
-                                    loading="lazy"
+                                    :alt="imageAlt(index)"
+                                    width="800"
+                                    height="800"
+                                    :loading="index === 0 ? 'eager' : 'lazy'"
+                                    @load="markImageLoaded(src)"
                                     @error="handleImageError(src)"
                                 >
                             </button>
                         </div>
-
-                        <button
-                            type="button"
-                            class="pdp-round-button"
-                            aria-label="Next image"
-                            @click="showNextImage"
+                        <div
+                            v-else
+                            class="pd-stage-empty"
                         >
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
-                        </button>
+                            <span
+                                class="product-image-icon"
+                                aria-hidden="true"
+                                v-html="metaFor(product.category).icon"
+                            ></span>
+                            <p>No photo yet</p>
+                        </div>
+                        <div
+                            v-if="hasGallery"
+                            class="pd-swipe-dots"
+                        >
+                            <button
+                                v-for="(src, index) in galleryImages"
+                                :key="`dot-${src}`"
+                                type="button"
+                                :class="{ 'is-active': index === selectedImageIndex }"
+                                :aria-label="`Show photo ${index + 1} of ${galleryImages.length}`"
+                                :aria-pressed="index === selectedImageIndex"
+                                @click="selectImage(index)"
+                            ></button>
+                        </div>
                     </div>
 
+                    <div class="pd-gallery-foot">
+                        <button
+                            type="button"
+                            class="pd-fav"
+                            :class="{ 'is-on': favorited }"
+                            :aria-pressed="favorited"
+                            @click="handleToggleFavorite"
+                        >
+                            <svg viewBox="0 0 24 24" width="18" height="18" :fill="favorited ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M12 20.5s-7.5-4.6-9.2-9.4C1.7 7.9 3.9 4.5 7.4 4.5c2 0 3.5 1.1 4.6 2.7 1.1-1.6 2.6-2.7 4.6-2.7 3.5 0 5.7 3.4 4.6 6.6-1.7 4.8-9.2 9.4-9.2 9.4Z" />
+                            </svg>
+                            {{ favorited ? 'Saved to wishlist' : 'Save to wishlist' }}
+                        </button>
+                    </div>
                 </div>
 
-                <!-- Buy box, in the order a buyer decides -->
-                <div class="pdp-buy">
+                <!-- Purchase panel: title, proof, price, terms, choice, buy -->
+                <div class="pd-panel">
 
-                    <div class="pdp-heading">
-                        <h1
-                            id="pdp-title"
-                            class="pdp-title"
-                        >
-                            {{ product.name }}
-                        </h1>
-                        <p class="pdp-soldby">
-                            Sold by <span>{{ sellerName }}</span>
-                        </p>
+                    <h1
+                        id="pd-title"
+                        class="pd-title"
+                    >
+                        {{ product.name }}
+                    </h1>
+
+                    <div class="pd-meta">
                         <button
                             v-if="hasReviews"
                             type="button"
-                            class="pdp-rating"
-                            :aria-label="`Rated ${product.rating.toFixed(1)} out of 5 from ${reviewCount} ${reviewCount === 1 ? 'review' : 'reviews'}. Go to reviews`"
-                            @click="scrollToSection('reviews')"
+                            class="pd-rating"
+                            @click="scrollToReviews"
                         >
+                            <span class="pd-rating-score">{{ product.rating.toFixed(1) }}</span>
                             <StarRating
                                 :rating="product.rating"
                                 :size="15"
                             />
-                            <span class="pdp-rating-score">{{ product.rating.toFixed(1) }}</span>
-                            <span class="pdp-rating-count">
-                                ({{ reviewCount }} {{ reviewCount === 1 ? 'review' : 'reviews' }})
-                            </span>
                         </button>
+                        <span
+                            v-if="hasReviews"
+                            class="pd-meta-sep"
+                            aria-hidden="true"
+                        ></span>
+                        <button
+                            v-if="hasReviews"
+                            type="button"
+                            class="pd-meta-stat"
+                            @click="scrollToReviews"
+                        >
+                            <strong>{{ reviewCount.toLocaleString('en-PH') }}</strong> {{ reviewCount === 1 ? 'review' : 'reviews' }}
+                        </button>
+                        <span
+                            v-else
+                            class="pd-meta-muted"
+                        >No reviews yet</span>
+                        <template v-if="soldCount > 0">
+                            <span
+                                class="pd-meta-sep"
+                                aria-hidden="true"
+                            ></span>
+                            <span class="pd-meta-stat">
+                                <strong>{{ soldCount.toLocaleString('en-PH') }}</strong> sold
+                            </span>
+                        </template>
+                        <span
+                            class="pd-meta-sep"
+                            aria-hidden="true"
+                        ></span>
+                        <span class="pd-meta-muted pd-meta-seller">
+                            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5 4.6 4h14.8L21 9.5" /><path d="M4 9.5V20h16V9.5" /><path d="M3 9.5a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0" /><path d="M10 20v-5h4v5" /></svg>
+                            Sold by
+                            <button
+                                v-if="product.seller_id"
+                                type="button"
+                                class="pd-store-link"
+                                @click="visitStore"
+                            >{{ sellerName }}</button>
+                            <strong v-else>{{ sellerName }}</strong>
+                        </span>
                     </div>
 
-                    <div class="pdp-pricebox">
-                        <div class="pdp-price-row">
-                            <span class="pdp-price">{{ formattedPrice }}</span>
-                            <template v-if="hasDiscount">
-                                <span class="pdp-old-price">
-                                    <span class="pdp-sr-only">Original price</span>
-                                    {{ formattedOldPrice }}
-                                </span>
-                                <span class="pdp-savings">{{ discountPercent }}% off</span>
-                            </template>
-                        </div>
-                        <p class="pdp-shipfrom">
-                            Shipping from {{ formatPrice(lowestShippingFee) }}, charged once per seller order
+                    <div class="pd-price-block">
+                        <p class="pd-price-row">
+                            <span
+                                v-if="isPriceRange"
+                                class="pd-price-from"
+                            >Price range</span>
+                            <span class="pd-price">{{ formattedPrice }}</span>
+                            <s
+                                v-if="hasDiscount"
+                                class="pd-old-price"
+                            ><span class="sr-only">Original price </span>{{ formattedOldPrice }}</s>
+                            <span
+                                v-if="hasDiscount"
+                                class="pd-discount"
+                            >-{{ discountPercent }}%</span>
                         </p>
                         <p
-                            v-if="purchaseStatus && purchaseStatus.label"
-                            class="pdp-stock"
-                            :class="`pdp-stock--${purchaseStatus.tone}`"
+                            v-if="hasDiscount"
+                            class="pd-savings"
                         >
-                            {{ purchaseStatus.label }}
+                            You save {{ formatPrice(savings) }}
+                        </p>
+                        <p
+                            v-if="isPriceRange"
+                            class="pd-price-note"
+                        >
+                            Final price depends on the option you choose.
                         </p>
                     </div>
 
-                    <p
-                        v-if="descriptionExcerpt"
-                        class="pdp-excerpt"
-                    >
-                        {{ descriptionExcerpt }}
-                        <button
-                            type="button"
-                            class="pdp-text-button"
-                            @click="scrollToSection('details')"
-                        >
-                            Details
-                        </button>
-                    </p>
-
-                    <!-- Options -->
-                    <div
-                        v-if="hasVariants && productOptions.length > 0"
-                        ref="optionsBlock"
-                        class="pdp-options"
-                    >
-                        <fieldset
-                            v-for="option in productOptions"
-                            :key="option.id"
-                            class="pdp-option"
-                        >
-                            <legend class="pdp-option-legend">
-                                {{ option.name }}<template v-if="selectedOptionValues[option.name]">:
-                                    <span class="pdp-option-chosen">{{ selectedOptionValues[option.name] }}</span>
-                                </template>
-                            </legend>
-
-                            <div class="pdp-chips">
-                                <label
-                                    v-for="ov in option.values"
-                                    :key="ov.id"
-                                    class="pdp-chip"
-                                    :class="{
-                                        'is-selected': selectedOptionValues[option.name] === ov.value,
-                                        'is-soldout': selectedOptionValues[option.name] !== ov.value && optionValueState(option.name, ov.value) === 'soldout',
-                                        'is-unavailable': selectedOptionValues[option.name] !== ov.value && optionValueState(option.name, ov.value) === 'na'
-                                    }"
-                                >
-                                    <input
-                                        type="radio"
-                                        class="pdp-sr-only"
-                                        :name="`pdp-option-${option.id}`"
-                                        :value="ov.value"
-                                        :checked="selectedOptionValues[option.name] === ov.value"
-                                        :disabled="selectedOptionValues[option.name] !== ov.value && optionValueState(option.name, ov.value) !== 'ok'"
-                                        @change="selectOptionValue(option.name, ov.value)"
-                                    >
-                                    <span>{{ ov.value }}</span>
-                                    <span
-                                        v-if="selectedOptionValues[option.name] !== ov.value && optionValueState(option.name, ov.value) === 'soldout'"
-                                        class="pdp-sr-only"
-                                    >
-                                        (sold out)
-                                    </span>
-                                    <span
-                                        v-else-if="selectedOptionValues[option.name] !== ov.value && optionValueState(option.name, ov.value) === 'na'"
-                                        class="pdp-sr-only"
-                                    >
-                                        (not available with your other choice)
-                                    </span>
-                                </label>
-                            </div>
-
-                            <p
-                                v-if="optionHasUnavailableValues(option)"
-                                class="pdp-option-hint"
-                            >
-                                Dashed options aren't available with your other choice.
-                            </p>
-                        </fieldset>
-
-                        <button
-                            v-if="hasAnySelection"
-                            type="button"
-                            class="pdp-text-button"
-                            @click="clearSelection"
-                        >
-                            Clear selection
-                        </button>
-                    </div>
-
-                    <!-- Quantity + Add to Cart share a row; Buy Now sits under -->
-                    <div class="pdp-actions">
-                        <div
-                            ref="buyRow"
-                            class="pdp-buyrow"
-                        >
-                            <div
-                                class="pdp-qty"
-                                role="group"
-                                aria-label="Quantity"
-                            >
-                                <button
-                                    type="button"
-                                    aria-label="Decrease quantity"
-                                    :disabled="quantity <= 1"
-                                    @click="decreaseQuantity"
-                                >
-                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14" /></svg>
-                                </button>
+                    <!-- Terms: label column + value column -->
+                    <dl class="pd-rows">
+                        <div class="pd-row">
+                            <dt>
+                                <svg class="pd-row-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7" /><circle cx="7" cy="17.5" r="1.5" /><circle cx="17" cy="17.5" r="1.5" /></svg>
+                                Shipping
+                            </dt>
+                            <dd>
                                 <span
-                                    class="pdp-qty-value"
+                                    v-for="option in shippingOptions"
+                                    :key="option.id"
+                                    class="pd-row-line"
+                                >{{ option.shortName }} <span class="pd-row-muted">{{ option.eta }}</span> · {{ formatPrice(option.fee) }}</span>
+                                <span class="pd-row-sub">Charged once per order from this seller</span>
+                            </dd>
+                        </div>
+                        <div class="pd-row">
+                            <dt>
+                                <svg class="pd-row-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></svg>
+                                Returns
+                            </dt>
+                            <dd>
+                                <span class="pd-row-line">Request a return or refund from Orders once your order is delivered</span>
+                                <span class="pd-row-sub">One open request per item</span>
+                            </dd>
+                        </div>
+                        <div
+                            v-if="livePaymentMethods.length"
+                            class="pd-row"
+                        >
+                            <dt>
+                                <svg class="pd-row-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 7V5.5A1.5 1.5 0 0 0 17.5 4h-12A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16" /><path d="M14 10h7v6h-7a3 3 0 0 1 0-6Z" /><circle cx="15.5" cy="13" r=".6" fill="currentColor" /></svg>
+                                Payment
+                            </dt>
+                            <dd>
+                                <span class="pd-pay-methods">
+                                    <span
+                                        v-for="method in livePaymentMethods"
+                                        :key="method.id"
+                                        class="pd-pay-method"
+                                    >
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="1.5" /><circle cx="12" cy="12" r="2.5" /><path d="M6 9.5v5M18 9.5v5" /></svg>
+                                        {{ method.name }}
+                                    </span>
+                                </span>
+                            </dd>
+                        </div>
+                    </dl>
+
+                    <div class="pd-rows pd-rows-buy">
+                        <!-- Variant selection: one choice per real variant -->
+                        <div
+                            v-if="hasVariants && variantChoices.length > 0"
+                            ref="optionsBlock"
+                            class="pd-row pd-options"
+                            :class="{ 'is-missing': showMissing && !selectedVariant }"
+                        >
+                            <p class="pd-row-label">
+                                {{ attributeNames || 'Option' }}
+                            </p>
+                            <div class="pd-row-value">
+                                <VariantPicker
+                                    ref="variantPicker"
+                                    v-model="selectedVariantId"
+                                    :choices="variantChoices"
+                                    :attribute-names="attributeNames"
+                                    :invalid="showMissing && !selectedVariant"
+                                    :described-by="showMissing && !selectedVariant ? 'pd-missing-variant' : undefined"
+                                />
+
+                                <p
+                                    v-if="showMissing && !selectedVariant"
+                                    id="pd-missing-variant"
+                                    class="pd-option-error"
+                                    role="alert"
+                                >
+                                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.01" /></svg>
+                                    Choose an option to continue
+                                </p>
+
+                                <p
+                                    v-if="allOptionsSelected"
+                                    class="pd-summary-line"
                                     aria-live="polite"
                                 >
-                                    {{ quantity }}
-                                </span>
-                                <button
-                                    type="button"
-                                    aria-label="Increase quantity"
-                                    :disabled="!canIncreaseQuantity"
-                                    @click="increaseQuantity"
-                                >
-                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
-                                </button>
+                                    <span class="pd-summary-label">Selected</span>
+                                    {{ selectionSummary }}
+                                    <button
+                                        v-if="variantChoices.length > 1"
+                                        type="button"
+                                        class="link-btn pd-clear"
+                                        @click="clearSelection"
+                                    >
+                                        Clear
+                                    </button>
+                                </p>
                             </div>
+                        </div>
 
+                        <!-- Quantity + availability -->
+                        <div class="pd-row pd-qty-row">
+                            <p class="pd-row-label">Quantity</p>
+                            <div class="pd-row-value pd-qty-line">
+                                <div
+                                    class="pd-qty"
+                                    role="group"
+                                    aria-label="Quantity"
+                                >
+                                    <button
+                                        type="button"
+                                        aria-label="Decrease quantity"
+                                        :disabled="quantity <= 1"
+                                        @click="decreaseQuantity"
+                                    >
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14" /></svg>
+                                    </button>
+                                    <span
+                                        class="pd-qty-value"
+                                        aria-live="polite"
+                                    >
+                                        <span class="sr-only">Quantity </span>{{ quantity }}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        aria-label="Increase quantity"
+                                        :disabled="!canIncreaseQuantity"
+                                        @click="increaseQuantity"
+                                    >
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                                    </button>
+                                </div>
+
+                                <div
+                                    class="pd-availability"
+                                    aria-live="polite"
+                                >
+                                    <p
+                                        v-if="purchaseStatus && purchaseStatus.label"
+                                        class="pd-stock"
+                                        :class="`is-${purchaseStatus.tone}`"
+                                    >
+                                        <svg
+                                            v-if="purchaseStatus.tone === 'in'"
+                                            viewBox="0 0 24 24"
+                                            width="16"
+                                            height="16"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2.2"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            aria-hidden="true"
+                                        ><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                                        <svg
+                                            v-else-if="purchaseStatus.tone === 'low' || purchaseStatus.tone === 'out'"
+                                            viewBox="0 0 24 24"
+                                            width="16"
+                                            height="16"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                            aria-hidden="true"
+                                        ><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.01" /></svg>
+                                        {{ purchaseStatus.label }}
+                                    </p>
+                                    <p
+                                        v-if="availableLabel"
+                                        class="pd-available"
+                                    >
+                                        {{ availableLabel }}
+                                    </p>
+                                    <p
+                                        v-if="displaySku"
+                                        class="pd-sku"
+                                    >
+                                        SKU {{ displaySku }}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Actions: Add to cart (outlined) + Buy now (filled) -->
+                    <div class="pd-actions">
+                        <div
+                            ref="buyRow"
+                            class="pd-buyrow"
+                        >
                             <button
                                 type="button"
-                                class="pdp-button pdp-button--primary"
-                                :disabled="!!purchaseBlockedReason || isAdding"
-                                :aria-describedby="purchaseBlockedReason ? 'pdp-purchase-note' : undefined"
+                                class="pd-btn pd-btn-secondary"
+                                :class="{ 'is-added': justAdded }"
+                                :disabled="purchaseDisabled || isAdding"
+                                :aria-describedby="purchaseBlockedReason ? 'pd-purchase-note' : undefined"
                                 @click="handleAddToCart"
                             >
-                                {{ isAdding ? 'Adding…' : 'Add to Cart' }}
+                                <svg
+                                    v-if="justAdded"
+                                    viewBox="0 0 24 24"
+                                    width="18"
+                                    height="18"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2.4"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    aria-hidden="true"
+                                ><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                                <svg
+                                    v-else
+                                    viewBox="0 0 24 24"
+                                    width="18"
+                                    height="18"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.8"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    aria-hidden="true"
+                                ><path d="M3 4h2l2.4 11.2a1.5 1.5 0 0 0 1.5 1.2h8.4a1.5 1.5 0 0 0 1.5-1.1L21 8H6.2" /><circle cx="9.5" cy="20" r="1.2" /><circle cx="17" cy="20" r="1.2" /></svg>
+                                {{ justAdded ? 'Added to cart' : 'Add to cart' }}
                             </button>
 
                             <button
                                 type="button"
-                                class="pdp-favorite"
-                                :class="{ 'is-favorite': favorited }"
-                                :aria-pressed="favorited"
-                                :aria-label="favorited ? 'Remove from favorites' : 'Save to favorites'"
-                                @click="handleToggleFavorite"
+                                class="pd-btn pd-btn-primary"
+                                :disabled="purchaseDisabled"
+                                :aria-describedby="purchaseBlockedReason ? 'pd-purchase-note' : undefined"
+                                @click="handleBuyNow"
                             >
-                                <svg viewBox="0 0 24 24" width="20" height="20" :fill="favorited ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                                    <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z" />
-                                </svg>
+                                Buy now
                             </button>
                         </div>
 
-                        <button
-                            type="button"
-                            class="pdp-button pdp-button--secondary"
-                            :disabled="!!purchaseBlockedReason"
-                            :aria-describedby="purchaseBlockedReason ? 'pdp-purchase-note' : undefined"
-                            @click="handleBuyNow"
-                        >
-                            Buy Now
-                        </button>
-
                         <p
-                            v-if="purchaseBlockedReason"
-                            id="pdp-purchase-note"
-                            class="pdp-purchase-note"
-                            :class="purchaseStatus.guidance ? 'pdp-purchase-note--neutral' : 'pdp-purchase-note--warning'"
+                            v-if="purchaseBlockedReason && !purchaseStatus.guidance"
+                            id="pd-purchase-note"
+                            class="pd-purchase-note"
                             role="status"
                         >
                             {{ purchaseBlockedReason }}
                             <button
                                 v-if="purchaseStatus.offerSimilar"
                                 type="button"
-                                class="pdp-text-button pdp-text-button--inline"
-                                @click="scrollToSection('related')"
+                                class="link-btn"
+                                @click="scrollToRelated"
                             >
-                                See other {{ product.category }}
+                                See similar products
                             </button>
                         </p>
                     </div>
+                </div>
+            </section>
 
-                    <!-- Delivery, returns, seller -->
-                    <dl class="pdp-facts">
-                        <div class="pdp-fact">
-                            <dt>Delivery</dt>
-                            <dd>
-                                <span
-                                    v-for="option in shippingOptions"
-                                    :key="option.id"
-                                    class="pdp-fact-line"
-                                >
-                                    {{ option.shortName }} {{ option.eta }}, {{ formatPrice(option.fee) }}
-                                </span>
-                            </dd>
-                        </div>
-                        <div class="pdp-fact">
-                            <dt>Returns</dt>
-                            <dd>Request a return or refund from your orders after delivery</dd>
-                        </div>
-                        <div class="pdp-fact">
-                            <dt>Seller</dt>
-                            <dd>
-                                <span class="pdp-fact-seller">{{ sellerName }}</span>
-                                <span
-                                    v-if="product.seller_line_of_business"
-                                    class="pdp-fact-sub"
-                                >
-                                    {{ product.seller_line_of_business }}
-                                </span>
-                            </dd>
+            <!-- ======================================================= -->
+            <!-- SHOP OVERVIEW: identity + activity, reviews, more items -->
+            <!-- ======================================================= -->
+
+            <section
+                class="pd-shop"
+                aria-labelledby="pd-shop-name"
+            >
+                <!-- Identity + activity -->
+                <div class="pd-shop-head">
+                    <StoreLogo
+                        size="lg"
+                        :name="shopName"
+                        :src="shop?.logo || ''"
+                        :category="shop?.category || product.seller_line_of_business || ''"
+                    />
+
+                    <div class="pd-shop-id">
+                        <p class="pd-shop-eyebrow">Sold by</p>
+                        <h2
+                            id="pd-shop-name"
+                            class="pd-shop-name"
+                        >
                             <button
-                                v-if="product.seller_id"
+                                v-if="shopId"
                                 type="button"
-                                class="pdp-text-button pdp-fact-action"
-                                aria-controls="pdp-message-composer"
-                                :aria-expanded="messageOpen"
-                                @click="toggleMessageComposer"
+                                class="pd-shop-name-link"
+                                @click="openShop()"
                             >
-                                {{ messageOpen ? 'Cancel' : 'Contact seller' }}
+                                {{ shopName }}
                             </button>
-                        </div>
-                    </dl>
+                            <template v-else>{{ shopName }}</template>
+                            <span
+                                v-if="shop?.isVerified"
+                                class="pd-shop-verified"
+                            >
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                                Verified
+                            </span>
+                        </h2>
+
+                        <p class="pd-shop-line">
+                            <span v-if="shop?.category || product.seller_line_of_business">{{ shop?.category || product.seller_line_of_business }}</span>
+                            <span
+                                v-if="shop?.location"
+                                class="pd-shop-loc"
+                            >
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 5-8 12-8 12s-8-7-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>
+                                {{ shop.location }}
+                            </span>
+                            <span v-if="shopJoined">On BuyTheWay since {{ shopJoined }}</span>
+                        </p>
+
+                        <ul
+                            v-if="shop"
+                            class="pd-shop-stats"
+                            aria-label="Shop activity"
+                        >
+                            <li class="pd-shop-stat">
+                                <template v-if="shopHasRating">
+                                    <svg class="pd-shop-star" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z" /></svg>
+                                    <strong>{{ shop.rating.toFixed(1) }}</strong>
+                                    <span class="sr-only">out of 5,</span>
+                                    <span>{{ compactCount(shop.reviewCount) }} product {{ shop.reviewCount === 1 ? 'review' : 'reviews' }}</span>
+                                </template>
+                                <span v-else>No product reviews yet</span>
+                            </li>
+                            <li
+                                v-for="stat in shopStats"
+                                :key="stat.key"
+                                class="pd-shop-stat"
+                            >
+                                <strong>{{ stat.value }}</strong> {{ stat.label }}
+                            </li>
+                            <li
+                                v-if="followerLabel"
+                                class="pd-shop-stat"
+                            >
+                                {{ followerLabel }}
+                            </li>
+                        </ul>
+                        <p
+                            v-else-if="shopLoading"
+                            class="pd-shop-stats is-loading"
+                            aria-hidden="true"
+                        >
+                            <span class="skeleton is-line"></span>
+                        </p>
+                    </div>
 
                     <div
-                        v-if="messageOpen"
-                        id="pdp-message-composer"
-                        class="pdp-composer"
+                        v-if="shopId"
+                        class="pd-shop-actions"
                     >
-                        <label
-                            for="pdp-message-input"
-                            class="pdp-composer-label"
+                        <button
+                            v-if="buyerProfile"
+                            type="button"
+                            class="pd-btn pd-shop-btn"
+                            :class="isFollowing ? 'pd-btn-secondary is-following' : 'pd-btn-primary'"
+                            :aria-pressed="isFollowing"
+                            :aria-busy="followBusy"
+                            :disabled="followBusy || !followReady"
+                            @click="toggleFollow"
                         >
-                            Message to {{ sellerName }}
-                        </label>
-                        <textarea
-                            id="pdp-message-input"
-                            ref="messageInput"
-                            v-model="messageDraft"
-                            rows="3"
-                            :placeholder="`Ask about “${product.name}”`"
-                            @keydown.enter.exact.prevent="sendSellerMessage"
-                        ></textarea>
-                        <p
-                            v-if="messageError"
-                            class="pdp-composer-error"
-                            role="alert"
+                            <svg v-if="isFollowing" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                            <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                            <span v-if="followBusy">{{ isFollowing ? 'Unfollowing…' : 'Following…' }}</span>
+                            <span v-else>{{ isFollowing ? 'Following' : 'Follow shop' }}</span>
+                        </button>
+                        <a
+                            v-else
+                            href="/login"
+                            class="pd-btn pd-btn-primary pd-shop-btn"
                         >
-                            {{ messageError }}
-                        </p>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                            Sign in to follow
+                        </a>
                         <button
                             type="button"
-                            class="pdp-button pdp-button--primary pdp-composer-send"
-                            :disabled="messageSending || !messageDraft.trim()"
-                            @click="sendSellerMessage"
+                            class="pd-btn pd-btn-ghost pd-shop-btn"
+                            aria-haspopup="dialog"
+                            @click="messageShop"
                         >
-                            {{ messageSending ? 'Sending…' : 'Send Message' }}
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.9A8 8 0 1 1 21 12Z" /></svg>
+                            Message seller
+                        </button>
+                        <button
+                            type="button"
+                            class="pd-btn pd-btn-ghost pd-shop-btn"
+                            @click="openShop()"
+                        >
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5 4.6 4h14.8L21 9.5" /><path d="M4 9.5V20h16V9.5" /><path d="M3 9.5a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0" /><path d="M10 20v-5h4v5" /></svg>
+                            Visit shop
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Reviews from this shop (other products) -->
+                <div
+                    v-if="shopId"
+                    class="pd-shop-block"
+                >
+                    <div class="pd-shop-block-head">
+                        <h3 class="pd-shop-h3">
+                            Reviews from this shop
+                            <span
+                                v-if="shopReviewTotal"
+                                class="pd-shop-count"
+                            >({{ shopReviewTotal.toLocaleString('en-PH') }})</span>
+                        </h3>
+                        <button
+                            v-if="shopReviewTotal"
+                            type="button"
+                            class="pd-shop-link"
+                            @click="openShop('reviews')"
+                        >
+                            View all
                         </button>
                     </div>
 
-                </div>
-
-            </section>
-
-            <!-- ======================================================== -->
-            <!-- LOWER: in-page menu + Details / Reviews / Related -->
-            <!-- ======================================================== -->
-
-            <div class="pdp-lower">
-
-                <nav
-                    v-if="!isCompact"
-                    class="pdp-subnav"
-                    aria-label="On this page"
-                >
-                    <button
-                        v-for="link in sectionLinks"
-                        :key="link.id"
-                        type="button"
-                        class="pdp-subnav-link"
-                        :class="{ 'is-active': activeSection === link.id }"
-                        :aria-current="activeSection === link.id ? 'true' : undefined"
-                        @click="scrollToSection(link.id)"
+                    <ul
+                        v-if="shopReviews.length"
+                        class="pd-shop-reviews"
                     >
-                        {{ link.label }}
-                    </button>
-                </nav>
-
-                <div class="pdp-sections">
-
-                    <!-- Details: description + all specifications -->
-                    <section
-                        v-if="hasDetails"
-                        ref="detailsSection"
-                        class="pdp-section"
-                        data-section="details"
-                        aria-labelledby="pdp-details-heading"
-                    >
-                        <details
-                            v-if="isCompact"
-                            class="pdp-accordion"
-                            :open="detailsOpen"
-                            @toggle="detailsOpen = $event.target.open"
+                        <li
+                            v-for="review in shopReviews"
+                            :key="review.id"
+                            class="pd-shop-review"
                         >
-                            <summary id="pdp-details-heading">Details and specifications</summary>
-                            <div class="pdp-accordion-body">
-                                <p
-                                    v-if="product.description"
-                                    class="pdp-description"
-                                >
-                                    {{ product.description }}
-                                </p>
-                                <dl
-                                    v-if="specEntries.length > 0"
-                                    class="pdp-specs"
-                                >
-                                    <div
-                                        v-for="[label, value] in specEntries"
-                                        :key="label"
-                                        class="pdp-spec"
-                                    >
-                                        <dt>{{ label }}</dt>
-                                        <dd>{{ value }}</dd>
-                                    </div>
-                                </dl>
-                            </div>
-                        </details>
-
-                        <template v-else>
-                            <h2
-                                id="pdp-details-heading"
-                                class="pdp-section-title"
-                            >
-                                Details
-                            </h2>
+                            <StarRating
+                                :rating="review.rating"
+                                :size="15"
+                            />
                             <p
-                                v-if="product.description"
-                                class="pdp-description"
+                                v-if="review.comment"
+                                class="pd-shop-review-text"
                             >
-                                {{ product.description }}
+                                {{ review.comment }}
                             </p>
-                            <dl
-                                v-if="specEntries.length > 0"
-                                class="pdp-specs"
+                            <p
+                                v-else
+                                class="pd-shop-review-text is-empty"
                             >
-                                <div
-                                    v-for="[label, value] in specEntries"
-                                    :key="label"
-                                    class="pdp-spec"
+                                Rated {{ review.rating }} out of 5, no written review.
+                            </p>
+
+                            <ul
+                                v-if="review.images && review.images.length"
+                                class="pd-shop-review-photos"
+                                aria-label="Review photos"
+                            >
+                                <li
+                                    v-for="(src, index) in review.images.slice(0, 3)"
+                                    :key="src"
                                 >
-                                    <dt>{{ label }}</dt>
-                                    <dd>{{ value }}</dd>
-                                </div>
-                            </dl>
-                        </template>
-                    </section>
-
-                    <!-- Reviews -->
-                    <section
-                        ref="reviewsSection"
-                        class="pdp-section"
-                        data-section="reviews"
-                        aria-labelledby="pdp-reviews-heading"
-                    >
-                        <h2
-                            id="pdp-reviews-heading"
-                            class="pdp-section-title"
-                        >
-                            Reviews
-                        </h2>
-
-                        <div
-                            v-if="hasReviews"
-                            class="pdp-reviews"
-                        >
-
-                            <div class="pdp-reviews-summary">
-                                <div class="pdp-reviews-score">
-                                    <span class="pdp-reviews-number">{{ product.rating.toFixed(1) }}</span>
-                                    <StarRating
-                                        :rating="product.rating"
-                                        :size="16"
-                                    />
-                                    <p class="pdp-reviews-based">
-                                        Based on {{ reviewCount }} {{ reviewCount === 1 ? 'review' : 'reviews' }}
-                                    </p>
-                                </div>
-
-                                <ul
-                                    class="pdp-breakdown"
-                                    aria-label="Rating breakdown"
-                                >
-                                    <li
-                                        v-for="row in ratingBreakdown"
-                                        :key="row.star"
-                                        class="pdp-breakdown-row"
+                                    <img
+                                        :src="src"
+                                        :alt="`Photo ${index + 1} from ${review.author}`"
+                                        width="48"
+                                        height="48"
+                                        loading="lazy"
                                     >
-                                        <span class="pdp-breakdown-star">
-                                            {{ row.star }}
-                                            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.123 2.123 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" /></svg>
-                                        </span>
-                                        <span
-                                            class="pdp-breakdown-bar"
-                                            :class="{ 'is-loading': reviewsLoading && !reviewSummary }"
-                                            aria-hidden="true"
-                                        >
-                                            <span
-                                                class="pdp-breakdown-fill"
-                                                :style="{ width: `${row.percent}%` }"
-                                            ></span>
-                                        </span>
-                                        <span class="pdp-breakdown-percent">
-                                            <template v-if="reviewSummary">{{ row.percent }}%</template>
-                                        </span>
-                                        <span
-                                            v-if="reviewSummary"
-                                            class="pdp-sr-only"
-                                        >
-                                            {{ row.count }} {{ row.count === 1 ? 'review' : 'reviews' }} with {{ row.star }} {{ row.star === 1 ? 'star' : 'stars' }}
-                                        </span>
-                                    </li>
-                                </ul>
-                            </div>
+                                </li>
+                            </ul>
 
-                            <div class="pdp-review-card">
-
-                                <div
-                                    v-if="reviewsLoading && latestReviews.length === 0"
-                                    class="pdp-review-skeleton"
-                                    aria-hidden="true"
+                            <div class="pd-shop-review-foot">
+                                <p class="pd-shop-review-by">
+                                    <strong>{{ review.author }}</strong>
+                                    <span
+                                        class="pd-meta-sep"
+                                        aria-hidden="true"
+                                    ></span>
+                                    <time :datetime="review.createdAt">{{ shopReviewDate(review.createdAt) }}</time>
+                                </p>
+                                <p
+                                    v-if="review.product"
+                                    class="pd-shop-review-item"
                                 >
-                                    <span class="pdp-skeleton pdp-skeleton--short"></span>
-                                    <span class="pdp-skeleton pdp-skeleton--tiny"></span>
-                                    <span class="pdp-skeleton"></span>
-                                    <span class="pdp-skeleton"></span>
-                                </div>
-
-                                <div
-                                    v-else-if="reviewsError"
-                                    class="pdp-review-error"
-                                >
-                                    <p>{{ reviewsError }}</p>
+                                    Purchased:
                                     <button
                                         type="button"
-                                        class="pdp-text-button"
-                                        @click="loadReviews"
+                                        class="pd-shop-review-product"
+                                        :disabled="openingReviewProduct === review.product.id"
+                                        @click="openReviewProduct(review.product)"
                                     >
-                                        Try again
+                                        {{ review.product.name }}
                                     </button>
-                                </div>
+                                    <span
+                                        v-if="review.variant"
+                                        class="pd-shop-review-variant"
+                                    > · {{ review.variant }}</span>
+                                </p>
+                            </div>
+                        </li>
+                    </ul>
 
-                                <template v-else-if="activeReview">
-                                    <div class="pdp-review-head">
-                                        <p class="pdp-review-author">{{ activeReview.author }}</p>
-                                        <p class="pdp-review-date">{{ formatReviewDate(activeReview.createdAt) }}</p>
-                                    </div>
+                    <p
+                        v-else-if="shopReviewsLoaded"
+                        class="pd-shop-empty"
+                    >
+                        {{ shopReviewTotal ? `No other reviews yet. The ones for this product are below.` : `${shopName} has no product reviews yet.` }}
+                    </p>
 
-                                    <StarRating
-                                        :rating="activeReview.rating"
-                                        :size="14"
-                                    />
+                    <ul
+                        v-else
+                        class="pd-shop-reviews"
+                        aria-hidden="true"
+                    >
+                        <li
+                            v-for="n in 3"
+                            :key="n"
+                            class="pd-shop-review is-skeleton"
+                        >
+                            <span class="skeleton is-line"></span>
+                            <span class="skeleton is-line"></span>
+                            <span class="skeleton is-line pd-sk-short"></span>
+                        </li>
+                    </ul>
+                </div>
 
-                                    <p
-                                        v-if="activeReview.comment"
-                                        class="pdp-review-comment"
+                <!-- More from this shop -->
+                <div
+                    v-if="shopProducts.length"
+                    class="pd-shop-block"
+                >
+                    <div class="pd-shop-block-head">
+                        <h3 class="pd-shop-h3">More from this shop</h3>
+                        <button
+                            type="button"
+                            class="pd-shop-link"
+                            @click="openShop()"
+                        >
+                            Visit shop
+                        </button>
+                    </div>
+
+                    <ul class="product-grid pd-shop-products">
+                        <li
+                            v-for="item in shopProducts"
+                            :key="item.id"
+                        >
+                            <ProductCard
+                                :product="item"
+                                hide-seller
+                                @view="emit('select-product', $event)"
+                            />
+                        </li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- ======================================================= -->
+            <!-- ABOUT + SPECIFICATIONS -->
+            <!-- ======================================================= -->
+
+            <section
+                v-if="hasAbout"
+                class="pd-about"
+                :class="{ 'has-specs': specEntries.length > 0 && descriptionParagraphs.length > 0 }"
+                aria-label="Product information"
+            >
+                <div
+                    v-if="descriptionParagraphs.length"
+                    class="pd-desc"
+                >
+                    <h2 class="pd-h2">About this product</h2>
+                    <div
+                        id="pd-desc-body"
+                        class="pd-desc-body"
+                        :class="{ 'is-clamped': isLongDescription && !descriptionExpanded }"
+                    >
+                        <p
+                            v-for="(paragraph, index) in descriptionParagraphs"
+                            :key="index"
+                        >
+                            {{ paragraph }}
+                        </p>
+                    </div>
+                    <button
+                        v-if="isLongDescription"
+                        type="button"
+                        class="link-btn pd-desc-toggle"
+                        aria-controls="pd-desc-body"
+                        :aria-expanded="descriptionExpanded"
+                        @click="descriptionExpanded = !descriptionExpanded"
+                    >
+                        {{ descriptionExpanded ? 'Show less' : 'Read the full description' }}
+                    </button>
+                </div>
+
+                <div
+                    v-if="specEntries.length"
+                    class="pd-specs-wrap"
+                >
+                    <h2 class="pd-h2">Specifications</h2>
+                    <dl class="pd-specs">
+                        <div
+                            v-for="[label, value] in specEntries"
+                            :key="label"
+                            class="pd-spec"
+                        >
+                            <dt>{{ label }}</dt>
+                            <dd>{{ value }}</dd>
+                        </div>
+                    </dl>
+                </div>
+            </section>
+
+            <!-- ======================================================= -->
+            <!-- REVIEWS -->
+            <!-- ======================================================= -->
+
+            <section
+                ref="reviewsSection"
+                class="pd-reviews"
+                aria-labelledby="pd-reviews-title"
+            >
+                <h2
+                    id="pd-reviews-title"
+                    class="pd-h2"
+                >
+                    Customer reviews
+                </h2>
+
+                <div
+                    v-if="!hasReviews"
+                    class="pd-reviews-empty"
+                >
+                    <p class="pd-reviews-empty-title">No reviews yet</p>
+                    <p>Buyers can review this product once their order is delivered.</p>
+                </div>
+
+                <div
+                    v-else
+                    class="pd-reviews-layout"
+                >
+                    <!-- Summary column -->
+                    <div class="pd-rsum">
+                        <p class="pd-rsum-score">
+                            <span class="pd-rsum-number">{{ product.rating.toFixed(1) }}</span>
+                            <span class="pd-rsum-out">out of 5</span>
+                        </p>
+                        <StarRating
+                            :rating="product.rating"
+                            :size="18"
+                        />
+                        <p class="pd-rsum-count">
+                            {{ reviewCount }} {{ reviewCount === 1 ? 'review' : 'reviews' }}
+                        </p>
+
+                        <ul
+                            class="pd-bars"
+                            aria-label="Filter by rating"
+                        >
+                            <li
+                                v-for="row in ratingBreakdown"
+                                :key="row.star"
+                            >
+                                <button
+                                    type="button"
+                                    class="pd-bar"
+                                    :class="{ 'is-active': reviewFilter === row.star }"
+                                    :disabled="!reviewSummary || row.count === 0"
+                                    :aria-pressed="reviewFilter === row.star"
+                                    :aria-label="`${row.star} ${row.star === 1 ? 'star' : 'stars'}: ${row.count} ${row.count === 1 ? 'review' : 'reviews'}. Show only these`"
+                                    @click="setReviewFilter(row.star)"
+                                >
+                                    <span class="pd-bar-label">{{ row.star }} star</span>
+                                    <span
+                                        class="pd-bar-track"
+                                        :class="{ 'is-loading': !reviewSummary }"
+                                        aria-hidden="true"
                                     >
-                                        {{ activeReview.comment }}
+                                        <span
+                                            class="pd-bar-fill"
+                                            :style="{ width: `${row.percent}%` }"
+                                        ></span>
+                                    </span>
+                                    <span class="pd-bar-count">{{ reviewSummary ? row.count : '' }}</span>
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- List -->
+                    <div class="pd-rlist">
+                        <div class="pd-rtools">
+                            <div
+                                class="pd-rfilters"
+                                role="group"
+                                aria-label="Show reviews"
+                            >
+                                <button
+                                    type="button"
+                                    class="pd-rfilter"
+                                    :class="{ 'is-active': reviewFilter === 'all' }"
+                                    :aria-pressed="reviewFilter === 'all'"
+                                    @click="reviewFilter !== 'all' && setReviewFilter('all')"
+                                >
+                                    All reviews
+                                </button>
+                                <button
+                                    v-if="photoReviewCount > 0"
+                                    type="button"
+                                    class="pd-rfilter"
+                                    :class="{ 'is-active': reviewFilter === 'photos' }"
+                                    :aria-pressed="reviewFilter === 'photos'"
+                                    @click="setReviewFilter('photos')"
+                                >
+                                    With photos ({{ photoReviewCount }})
+                                </button>
+                                <button
+                                    v-if="typeof reviewFilter === 'number'"
+                                    type="button"
+                                    class="pd-rfilter is-active"
+                                    :aria-label="`Remove filter: ${reviewFilter} stars`"
+                                    @click="setReviewFilter('all')"
+                                >
+                                    {{ reviewFilter }} {{ reviewFilter === 1 ? 'star' : 'stars' }}
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                            <p
+                                class="pd-rcount"
+                                role="status"
+                                aria-live="polite"
+                            >
+                                <template v-if="reviewMeta && !reviewsLoading">
+                                    Showing {{ reviewItems.length }} of {{ reviewMeta.total }}
+                                    {{ reviewFilterLabel ? `reviews ${reviewFilterLabel}` : (reviewMeta.total === 1 ? 'review' : 'reviews') }}, newest first
+                                </template>
+                            </p>
+                        </div>
+
+                        <ul
+                            v-if="reviewsLoading"
+                            class="pd-rentries"
+                            aria-hidden="true"
+                        >
+                            <li
+                                v-for="n in 3"
+                                :key="n"
+                                class="pd-rentry"
+                            >
+                                <span class="skeleton is-line pd-sk-short"></span>
+                                <span class="skeleton is-line"></span>
+                                <span class="skeleton is-line"></span>
+                            </li>
+                        </ul>
+
+                        <div
+                            v-else-if="reviewsError"
+                            class="pd-rstate"
+                            role="alert"
+                        >
+                            <p>{{ reviewsError }}</p>
+                            <button
+                                type="button"
+                                class="btn btn-secondary"
+                                @click="loadReviews"
+                            >
+                                Try again
+                            </button>
+                        </div>
+
+                        <div
+                            v-else-if="reviewItems.length === 0"
+                            class="pd-rstate"
+                        >
+                            <p>No reviews {{ reviewFilterLabel }} yet.</p>
+                            <button
+                                type="button"
+                                class="link-btn"
+                                @click="setReviewFilter('all')"
+                            >
+                                Show all reviews
+                            </button>
+                        </div>
+
+                        <template v-else>
+                            <ul class="pd-rentries">
+                                <li
+                                    v-for="review in reviewItems"
+                                    :key="review.id"
+                                    class="pd-rentry"
+                                >
+                                    <div class="pd-rentry-head">
+                                        <StarRating
+                                            :rating="review.rating"
+                                            :size="14"
+                                        />
+                                        <span
+                                            v-if="review.verifiedPurchase"
+                                            class="pd-verified"
+                                        >
+                                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                                            Verified purchase
+                                        </span>
+                                    </div>
+                                    <p class="pd-rentry-by">
+                                        <strong>{{ review.author }}</strong>
+                                        <span v-if="formatReviewDate(review.createdAt)"> &middot; {{ formatReviewDate(review.createdAt) }}</span>
+                                        <span v-if="review.isEdited"> (edited)</span>
+                                    </p>
+                                    <p
+                                        v-if="variantLabel(review.variant)"
+                                        class="pd-rentry-variant"
+                                    >
+                                        Bought: {{ variantLabel(review.variant) }}
+                                    </p>
+                                    <p
+                                        v-if="review.comment"
+                                        class="pd-rentry-text"
+                                    >
+                                        {{ review.comment }}
                                     </p>
                                     <p
                                         v-else
-                                        class="pdp-review-comment pdp-review-comment--empty"
+                                        class="pd-rentry-text is-empty"
                                     >
-                                        Rated without a written comment.
+                                        Rated without a written review.
                                     </p>
 
-                                    <p
-                                        v-if="activeReview.verifiedPurchase"
-                                        class="pdp-review-verified"
+                                    <div
+                                        v-if="review.images && review.images.length"
+                                        class="pd-rentry-photos"
                                     >
-                                        Verified purchase
-                                    </p>
-
-                                    <div class="pdp-review-footer">
-                                        <div
-                                            v-if="latestReviews.length > 1"
-                                            class="pdp-review-nav"
-                                        >
-                                            <button
-                                                type="button"
-                                                class="pdp-round-button"
-                                                aria-label="Previous review"
-                                                :disabled="activeReviewIndex === 0"
-                                                @click="showPreviousReview"
-                                            >
-                                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-                                            </button>
-
-                                            <div class="pdp-review-dots">
-                                                <button
-                                                    v-for="(review, index) in latestReviews"
-                                                    :key="review.id"
-                                                    type="button"
-                                                    class="pdp-review-dot"
-                                                    :class="{ 'is-active': index === activeReviewIndex }"
-                                                    :aria-label="`Show review ${index + 1} of ${latestReviews.length}`"
-                                                    :aria-pressed="index === activeReviewIndex"
-                                                    @click="activeReviewIndex = index"
-                                                ></button>
-                                            </div>
-
-                                            <button
-                                                type="button"
-                                                class="pdp-round-button"
-                                                aria-label="Next review"
-                                                :disabled="activeReviewIndex === latestReviews.length - 1"
-                                                @click="showNextReview"
-                                            >
-                                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
-                                            </button>
-                                        </div>
-
                                         <button
+                                            v-for="(src, index) in review.images"
+                                            :key="src"
                                             type="button"
-                                            class="pdp-text-button"
-                                            @click="openReviews"
+                                            class="pd-rentry-photo"
+                                            :aria-label="`Open photo ${index + 1} of ${review.images.length} from ${review.author}'s review`"
+                                            @click="openViewer(review.images, index, `Photos from ${review.author}'s review`, $event.currentTarget)"
                                         >
-                                            {{ reviewCount === 1 ? 'Open review' : `Read all ${reviewCount} reviews` }}
+                                            <img
+                                                :src="src"
+                                                alt=""
+                                                width="80"
+                                                height="80"
+                                                loading="lazy"
+                                            >
                                         </button>
                                     </div>
-                                </template>
 
-                            </div>
+                                    <div
+                                        v-if="review.sellerResponse"
+                                        class="pd-reply"
+                                    >
+                                        <p class="pd-reply-by">
+                                            Reply from {{ sellerName }}
+                                            <span v-if="formatReviewDate(review.respondedAt)"> &middot; {{ formatReviewDate(review.respondedAt) }}</span>
+                                        </p>
+                                        <p class="pd-reply-text">{{ review.sellerResponse }}</p>
+                                    </div>
+                                </li>
+                            </ul>
 
-                        </div>
-
-                        <div
-                            v-else
-                            class="pdp-empty"
-                        >
-                            <p class="pdp-empty-title">No reviews yet</p>
-                            <p class="pdp-empty-text">Buyers can review this product once their order is delivered.</p>
-                        </div>
-                    </section>
-
-                    <!-- You might also like -->
-                    <section
-                        ref="relatedSection"
-                        class="pdp-section"
-                        data-section="related"
-                        aria-labelledby="pdp-related-heading"
-                    >
-                        <h2
-                            id="pdp-related-heading"
-                            class="pdp-section-title"
-                        >
-                            You might also like
-                        </h2>
-
-                        <div
-                            v-if="relatedProducts.length > 0"
-                            class="product-grid pdp-related"
-                        >
-                            <ProductCard
-                                v-for="item in relatedProducts"
-                                :key="item.id"
-                                :product="item"
-                                @view="selectRelatedProduct"
-                            />
-                        </div>
-
-                        <div
-                            v-else
-                            class="pdp-empty"
-                        >
-                            <p class="pdp-empty-title">Nothing else in {{ product.category }} yet</p>
-                            <p class="pdp-empty-text">New listings from local sellers show up here as they arrive.</p>
                             <button
+                                v-if="hasMoreReviews"
                                 type="button"
-                                class="pdp-button pdp-button--ghost"
-                                @click="emit('browse-all')"
+                                class="btn btn-secondary pd-rmore"
+                                :disabled="reviewsLoadingMore"
+                                @click="loadMoreReviews"
                             >
-                                Browse all products
+                                {{ reviewsLoadingMore ? 'Loading…' : 'Show more reviews' }}
                             </button>
-                        </div>
-                    </section>
-
+                        </template>
+                    </div>
                 </div>
+            </section>
 
-            </div>
+            <!-- ======================================================= -->
+            <!-- RELATED -->
+            <!-- ======================================================= -->
+
+            <section
+                ref="relatedSection"
+                class="pd-related"
+                aria-labelledby="pd-related-title"
+            >
+                <h2
+                    id="pd-related-title"
+                    class="pd-h2"
+                >
+                    More in {{ product.category }}
+                </h2>
+
+                <ul
+                    v-if="relatedToShow.length > 0"
+                    class="product-grid pd-related-grid"
+                >
+                    <li
+                        v-for="item in relatedToShow"
+                        :key="item.id"
+                    >
+                        <ProductCard
+                            :product="item"
+                            @view="emit('select-product', $event)"
+                        />
+                    </li>
+                </ul>
+
+                <div
+                    v-else
+                    class="pd-reviews-empty"
+                >
+                    <p class="pd-reviews-empty-title">Nothing else in {{ product.category }} yet</p>
+                    <p>New listings from sellers show up here as they arrive.</p>
+                    <button
+                        type="button"
+                        class="btn btn-secondary"
+                        @click="emit('browse-all')"
+                    >
+                        Browse all products
+                    </button>
+                </div>
+            </section>
 
         </main>
 
-        <!-- ============================================================ -->
-        <!-- PRODUCT NOT FOUND -->
-        <!-- ============================================================ -->
-
         <main
             v-else
-            class="pdp-not-found"
+            id="main-content"
+            class="pd-not-found"
+            tabindex="-1"
         >
             <h1>Product not found</h1>
             <p>It may have been removed or is no longer available.</p>
             <button
                 type="button"
-                class="pdp-button pdp-button--primary"
+                class="btn btn-primary"
                 @click="goBack"
             >
                 Back to products
@@ -1882,95 +2603,86 @@ watch(
             @cart-click="emit('open-cart')"
         />
 
-        <ProductReviewsDrawer
-            v-if="product"
-            :show="reviewsOpen"
-            :product="{ id: product.id, name: product.name, rating: product.rating, reviewCount: reviewCount }"
-            @close="reviewsOpen = false"
-        />
-
-        <!-- ============================================================ -->
-        <!-- MOBILE BUY BAR -->
-        <!-- ============================================================ -->
-
-        <Transition name="pdp-bar">
+        <!-- Mobile buy bar -->
+        <Transition name="pd-bar">
             <div
                 v-if="showBuyBar"
-                class="pdp-buybar"
+                class="pd-buybar"
             >
-                <div class="pdp-buybar-info">
-                    <span class="pdp-buybar-price">{{ formattedPrice }}</span>
+                <div class="pd-buybar-info">
+                    <span class="pd-buybar-price">{{ formattedPrice }}</span>
                     <span
                         v-if="selectionSummary"
-                        class="pdp-buybar-choice"
-                    >
-                        {{ selectionSummary }}
-                    </span>
+                        class="pd-buybar-choice"
+                    >{{ selectionSummary }}</span>
                 </div>
                 <button
                     type="button"
-                    class="pdp-button pdp-button--primary pdp-buybar-button"
+                    class="pd-btn pd-btn-primary pd-buybar-btn"
                     :disabled="buyBarAction === 'soldout' || isAdding"
                     @click="handleBuyBarAction"
                 >
                     <template v-if="buyBarAction === 'soldout'">Sold out</template>
                     <template v-else-if="buyBarAction === 'choose'">Choose options</template>
                     <template v-else-if="buyBarAction === 'change'">Change option</template>
-                    <template v-else>{{ isAdding ? 'Adding…' : 'Add to Cart' }}</template>
+                    <template v-else>{{ justAdded ? 'Added' : 'Add to cart' }}</template>
                 </button>
             </div>
         </Transition>
 
-        <!-- ============================================================ -->
-        <!-- IMAGE VIEWER -->
-        <!-- ============================================================ -->
-
+        <!-- Image viewer -->
         <Teleport to="body">
-            <Transition name="pdp-fade">
+            <Transition name="pd-fade">
                 <div
-                    v-if="viewerOpen && product"
+                    v-if="viewer"
                     ref="viewerDialog"
-                    class="pdp-viewer"
+                    class="pd-viewer"
                     role="dialog"
                     aria-modal="true"
-                    :aria-label="`${product.name} photos`"
+                    :aria-label="viewer.label"
                     @keydown="handleViewerKeydown"
                     @click.self="closeViewer"
                 >
                     <button
                         ref="viewerCloseButton"
                         type="button"
-                        class="pdp-viewer-close"
-                        aria-label="Close image viewer"
+                        class="pd-viewer-close"
+                        aria-label="Close photo viewer"
                         @click="closeViewer"
                     >
-                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
                     </button>
 
                     <img
-                        v-if="activeImage"
-                        class="pdp-viewer-image"
-                        :src="activeImage"
-                        :alt="activeImageAlt"
+                        :key="viewer.images[viewer.index]"
+                        class="pd-viewer-img"
+                        :src="viewer.images[viewer.index]"
+                        :alt="`${viewer.label}, ${viewer.index + 1} of ${viewer.images.length}`"
                     >
 
-                    <template v-if="hasGallery">
+                    <template v-if="viewer.images.length > 1">
                         <button
                             type="button"
-                            class="pdp-viewer-nav pdp-viewer-nav--prev"
-                            aria-label="Previous image"
-                            @click="showPreviousImage"
+                            class="pd-viewer-nav is-prev"
+                            aria-label="Previous photo"
+                            @click="moveViewer(-1)"
                         >
-                            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
                         </button>
                         <button
                             type="button"
-                            class="pdp-viewer-nav pdp-viewer-nav--next"
-                            aria-label="Next image"
-                            @click="showNextImage"
+                            class="pd-viewer-nav is-next"
+                            aria-label="Next photo"
+                            @click="moveViewer(1)"
                         >
-                            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
                         </button>
+                        <p
+                            class="pd-viewer-count"
+                            aria-live="polite"
+                        >
+                            {{ viewer.index + 1 }} / {{ viewer.images.length }}
+                        </p>
                     </template>
                 </div>
             </Transition>
@@ -1982,1275 +2694,300 @@ watch(
 
 <style scoped>
 /*
-| Radius system for this page: media frames 18px, panels 16px,
-| controls 10px, pills/round buttons fully round.
+| Product page. One rounded element per region (gallery stage, review
+| photos); structure otherwise comes from type, spacing and hairlines.
 */
 
-.pdp-page {
-    background: #ffffff;
-}
-
-/* Keeps the footer clear of the fixed mobile buy bar while it shows. */
-.pdp-page.has-buy-bar {
+.pd-page.has-buy-bar {
     padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
 }
 
-.pdp {
-    max-width: 1240px;
+.pd {
+    width: 100%;
+    max-width: 1400px;
+
     margin: 0 auto;
-    padding: 24px 48px 112px;
+    padding: 24px var(--nx-gutter) 96px;
 
-    display: flex;
-    flex-direction: column;
-    gap: 28px;
+    box-sizing: border-box;
 }
 
-.pdp-sr-only {
-    position: absolute;
-
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-
-    overflow: hidden;
-
-    white-space: nowrap;
-    clip: rect(0, 0, 0, 0);
-    border: 0;
+.pd:focus {
+    outline: none;
 }
 
-/* ---------------- Breadcrumb / back link ---------------- */
-
-.pdp-breadcrumb ol {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-
-    margin: 0;
-    padding: 0;
-
-    list-style: none;
-
-    font-size: 13px;
-    color: var(--nx-muted);
+.pd-crumbs :deep(ol) {
+    margin-bottom: 20px;
 }
 
-.pdp-breadcrumb li + li::before {
-    content: "";
-
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    margin: 0 10px 1px 2px;
-
-    border-top: 1.5px solid var(--nx-muted-2);
-    border-right: 1.5px solid var(--nx-muted-2);
-    transform: rotate(45deg);
-}
-
-.pdp-crumb-link {
-    padding: 2px 0;
-
-    border: none;
-    background: none;
-
-    color: var(--nx-muted);
-    font: inherit;
-
-    cursor: pointer;
-    transition: color 0.15s ease;
-}
-
-.pdp-crumb-link:hover {
-    color: var(--nx-accent-dark);
-}
-
-.pdp-crumb-current {
+.pd-crumb-current {
     max-width: 40ch;
 
     overflow: hidden;
-    white-space: nowrap;
+
     text-overflow: ellipsis;
-
-    color: var(--nx-ink);
+    white-space: nowrap;
 }
 
-.pdp-backlink {
-    align-self: flex-start;
+/* ---------------- Main: gallery + panel ---------------- */
 
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-
-    min-height: 36px;
-    padding: 0;
-
-    border: none;
-    background: none;
-
-    color: var(--nx-accent-dark);
-    font: inherit;
-    font-size: 14px;
-    font-weight: 700;
-
-    cursor: pointer;
-}
-
-.pdp-crumb-link:focus-visible,
-.pdp-backlink:focus-visible {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 2px;
-    border-radius: 4px;
-}
-
-/* ---------------- Main: gallery + buy box ---------------- */
-
-.pdp-main {
+/* One surface for gallery + purchase: white on the warm page, a hairline
+   border and a soft, low shadow so it lifts without looking like a card
+   stack. Nothing inside gets its own shadow. */
+.pd-main {
     display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-    gap: 64px;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
     align-items: start;
+    gap: clamp(28px, 3.5vw, 56px);
+
+    padding: clamp(18px, 2.4vw, 32px);
+
+    border: 1px solid var(--nx-line);
+    border-radius: var(--nx-radius);
+    background: var(--nx-surface);
+    box-shadow: 0 1px 2px rgba(43, 39, 34, 0.04), 0 12px 32px -20px rgba(43, 39, 34, 0.18);
 }
 
-/* The photo stays in view while the buyer works down the options. Top
-   offset clears the sticky site header (ticker + nav). */
-.pdp-gallery {
+.pd-gallery {
     position: sticky;
-    top: 124px;
+    top: calc(var(--nx-header-h) + 20px);
+
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+}
+
+.pd-gallery > .pd-stage,
+.pd-gallery > .pd-swipe {
+    order: 1;
+}
+
+/* Thumbnails run under the main image, scrolling sideways when long. */
+.pd-thumbs {
+    order: 2;
 
     display: flex;
-    flex-direction: column;
-    gap: 16px;
+    gap: 8px;
 
-    min-width: 0;
+    padding: 2px;
+
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
 }
 
-.pdp-frame {
+.pd-gallery-foot {
+    order: 3;
+
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+
+    padding-top: 2px;
+}
+
+.pd-thumbs::-webkit-scrollbar {
+    display: none;
+}
+
+.pd-thumb {
+    flex-shrink: 0;
+
+    width: 72px;
+    height: 72px;
+    padding: 4px;
+
+    overflow: hidden;
+    border: 1px solid var(--nx-line);
+    border-radius: var(--nx-radius-sm);
+    background: var(--nx-sunken);
+
+    opacity: 0.7;
+
+    transition: opacity var(--nx-dur-fast) var(--nx-ease), border-color var(--nx-dur-fast) var(--nx-ease);
+}
+
+/* The whole photo, letterboxed, so a tall or wide shot is recognisable. */
+.pd-thumb img {
+    display: block;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: contain;
+}
+
+.pd-thumb:hover {
+    opacity: 1;
+}
+
+.pd-thumb.is-active {
+    border-color: var(--nx-accent);
+    box-shadow: inset 0 0 0 1px var(--nx-accent);
+
+    opacity: 1;
+}
+
+.pd-stage,
+.pd-swipe {
     position: relative;
 
     aspect-ratio: 1 / 1;
 
-    border-radius: 18px;
     overflow: hidden;
-
-    background: var(--accent-bg);
+    border-radius: var(--nx-radius-lg);
+    background: var(--nx-sunken);
 }
 
-/* A real photo gets a neutral off-white stage so the frame reads as the
-   same shape every time; portrait and landscape shots letterbox into it.
-   The category tint is kept only for the no-photo tile. */
-.pdp-frame.has-image {
-    background: var(--nx-line-soft);
+/* A fixed box, independent of the photo: square, but never taller than the
+   space under the header (so the whole photo shows without scrolling) or
+   760px on very large screens. Switching photos or variants never changes
+   its size. */
+.pd-stage {
+    max-height: min(760px, calc(100vh - var(--nx-header-h) - 56px));
 }
 
-/* contain, not cover: a product page should show the whole item. */
-.pdp-frame-image {
-    position: absolute;
-    inset: 0;
+/* Until the photo arrives, the box itself is the placeholder. */
+.pd-stage.is-loading,
+.pd-swipe-slide.is-loading {
+    background: linear-gradient(90deg, var(--nx-sunken) 0%, var(--nx-line-soft) 50%, var(--nx-sunken) 100%);
+    background-size: 200% 100%;
 
-    width: 100%;
-    height: 100%;
-
-    object-fit: contain;
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
 }
 
-.pdp-fade-enter-active,
-.pdp-fade-leave-active {
-    transition: opacity 0.2s ease;
-}
-
-.pdp-fade-enter-from,
-.pdp-fade-leave-to {
-    opacity: 0;
-}
-
-.pdp-frame-fallback {
+.pd-stage-zoom {
     position: absolute;
     inset: 0;
 
     display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 100%;
+    padding: 0;
+
+    border: none;
+    background: none;
+
+    cursor: zoom-in;
+}
+
+/* Fit inside the box at no more than natural size: a tall photo is
+   limited by the box height instead of growing it, a wide one by its
+   width, and a small one isn't blown up blurry. Nothing is cropped; the
+   viewer shows the original at full size. */
+.pd-stage-img,
+.pd-swipe-slide img {
+    display: block;
+
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+
+    object-fit: contain;
+}
+
+.pd-stage-empty {
+    display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 14px;
-}
+    gap: 8px;
 
-.pdp-frame-fallback p {
-    margin: 0;
+    height: 100%;
 
+    background: var(--accent-bg, var(--nx-line-soft));
     color: var(--nx-muted);
-    font-size: 13px;
-    font-weight: 600;
 }
 
-.pdp-frame-badge {
-    position: absolute;
-    top: 14px;
-    left: 14px;
-
-    padding: 4px 10px;
-
-    border-radius: 999px;
-    background: var(--nx-deal);
-    color: #ffffff;
-
-    font-size: 12px;
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
+.pd-stage-empty p {
+    margin: 0;
 }
 
-.pdp-zoom {
+.pd-stage-nav {
     position: absolute;
-    top: 14px;
-    right: 14px;
+    top: 50%;
+    z-index: 1;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 
     width: 40px;
     height: 40px;
 
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    border: none;
-    border-radius: 999px;
-    background: #ffffff;
-    color: var(--nx-ink);
-    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
-
-    cursor: zoom-in;
-    transition: transform 0.15s ease;
-}
-
-.pdp-zoom:hover {
-    transform: scale(1.06);
-}
-
-.pdp-zoom:focus-visible {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 2px;
-}
-
-.pdp-thumbs-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.pdp-round-button {
-    flex-shrink: 0;
-
-    width: 36px;
-    height: 36px;
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
     border: 1px solid var(--nx-line);
-    border-radius: 999px;
-    background: #ffffff;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.92);
     color: var(--nx-ink);
 
-    cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+    opacity: 0;
+    transform: translateY(-50%);
+
+    transition: opacity var(--nx-dur) var(--nx-ease);
 }
 
-.pdp-round-button:hover:not(:disabled) {
-    border-color: var(--nx-accent);
-    background: var(--nx-accent-soft);
-}
+.pd-stage-nav.is-prev { left: 14px; }
+.pd-stage-nav.is-next { right: 14px; }
 
-.pdp-round-button:active:not(:disabled) {
-    transform: scale(0.94);
-}
-
-.pdp-round-button:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-
-.pdp-round-button:focus-visible {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 2px;
-}
-
-.pdp-thumbs {
-    flex: 1;
-    min-width: 0;
-
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: calc((100% - 36px) / 4);
-    gap: 12px;
-
-    overflow-x: auto;
-    scroll-snap-type: x proximity;
-    scrollbar-width: none;
-    padding: 3px;
-}
-
-.pdp-thumbs::-webkit-scrollbar {
-    display: none;
-}
-
-.pdp-thumb {
-    aspect-ratio: 1 / 1;
-    scroll-snap-align: start;
-
-    padding: 0;
-
-    border: 2px solid transparent;
-    border-radius: 10px;
-    background: var(--nx-line-soft);
-    overflow: hidden;
-
-    cursor: pointer;
-    transition: border-color 0.15s ease, opacity 0.15s ease;
-}
-
-.pdp-thumb img {
-    width: 100%;
-    height: 100%;
-
-    object-fit: cover;
-}
-
-.pdp-thumb:not(.is-active) {
-    opacity: 0.75;
-}
-
-.pdp-thumb:hover {
+.pd-stage:hover .pd-stage-nav,
+.pd-stage-nav:focus-visible {
     opacity: 1;
 }
 
-.pdp-thumb.is-active {
-    border-color: var(--nx-ink);
-}
+.pd-stage-hint {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
 
-.pdp-thumb:focus-visible {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 2px;
-}
-
-/* ---------------- Buy box ---------------- */
-
-.pdp-buy {
-    display: flex;
-    flex-direction: column;
-    gap: 22px;
-
-    min-width: 0;
-}
-
-.pdp-heading {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    display: inline-flex;
+    align-items: center;
     gap: 6px;
-}
 
-.pdp-title {
-    margin: 0;
+    padding: 5px 10px;
 
-    color: var(--nx-ink);
-
-    font-size: clamp(26px, 2.5vw, 32px);
-    font-weight: 800;
-    line-height: 1.15;
-    letter-spacing: -0.4px;
-    overflow-wrap: anywhere;
-}
-
-.pdp-soldby {
-    margin: 0;
-
-    color: var(--nx-muted);
-    font-size: 13.5px;
-}
-
-.pdp-soldby span {
-    color: var(--nx-ink);
-    font-weight: 600;
-}
-
-.pdp-rating {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-
-    margin-top: 2px;
-    padding: 2px 0;
-
-    border: none;
-    background: none;
-
-    font: inherit;
-    cursor: pointer;
-}
-
-.pdp-rating-score {
-    color: var(--nx-ink);
-    font-size: 13.5px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-}
-
-.pdp-rating-count {
-    color: var(--nx-muted);
-    font-size: 13.5px;
-}
-
-.pdp-rating:hover .pdp-rating-count {
-    color: var(--nx-accent-dark);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-}
-
-.pdp-rating:focus-visible {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 3px;
-    border-radius: 6px;
-}
-
-.pdp-pricebox {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.pdp-price-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 6px 12px;
-}
-
-.pdp-price {
-    color: var(--nx-ink);
-
-    font-size: 30px;
-    font-weight: 800;
-    letter-spacing: -0.5px;
-    font-variant-numeric: tabular-nums;
-}
-
-.pdp-old-price {
-    color: var(--nx-muted-2);
-
-    font-size: 16px;
-    font-weight: 600;
-    text-decoration: line-through;
-    font-variant-numeric: tabular-nums;
-}
-
-.pdp-savings {
-    padding: 2px 9px;
-
-    border-radius: 999px;
-    background: var(--nx-deal-soft);
-    color: var(--nx-deal);
-
-    font-size: 12.5px;
-    font-weight: 700;
-}
-
-.pdp-shipfrom {
-    margin: 0;
-
+    border-radius: var(--nx-radius-sm);
+    background: rgba(255, 255, 255, 0.9);
     color: var(--nx-text-2);
-    font-size: 13.5px;
-}
 
-.pdp-stock {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-
-    margin: 2px 0 0;
-
-    font-size: 13.5px;
-    font-weight: 650;
-}
-
-.pdp-stock::before {
-    content: "";
-
-    width: 8px;
-    height: 8px;
-
-    border-radius: 999px;
-    background: currentColor;
-}
-
-.pdp-stock--in { color: var(--nx-accent-dark); }
-.pdp-stock--low { color: #b45309; }
-.pdp-stock--out { color: #b91c1c; }
-.pdp-stock--neutral { color: var(--nx-muted); }
-
-.pdp-excerpt {
-    margin: 0;
-    max-width: 58ch;
-
-    color: var(--nx-text-2);
-    font-size: 15px;
-    line-height: 1.6;
-}
-
-.pdp-text-button {
-    align-self: flex-start;
-
-    padding: 2px 0;
-
-    border: none;
-    background: none;
-
-    color: var(--nx-accent-dark);
-    font: inherit;
-    font-size: 13.5px;
-    font-weight: 700;
-
-    cursor: pointer;
-}
-
-.pdp-excerpt .pdp-text-button,
-.pdp-text-button--inline {
-    margin-left: 4px;
-}
-
-.pdp-text-button:hover {
-    text-decoration: underline;
-    text-underline-offset: 3px;
-}
-
-.pdp-text-button:focus-visible {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 2px;
-    border-radius: 4px;
-}
-
-/* ---------------- Options ---------------- */
-
-.pdp-options {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-
-    padding-top: 22px;
-    border-top: 1px solid var(--nx-line-soft);
-}
-
-.pdp-option {
-    margin: 0;
-    padding: 0;
-
-    border: none;
-    min-width: 0;
-}
-
-.pdp-option-legend {
-    display: block;
-
-    margin-bottom: 10px;
-    padding: 0;
-
-    color: var(--nx-ink);
-    font-size: 13.5px;
-    font-weight: 700;
-}
-
-.pdp-option-chosen {
-    color: var(--nx-muted);
-    font-weight: 500;
-}
-
-.pdp-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-
-.pdp-chip {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-
-    min-width: 64px;
-    min-height: 44px;
-    padding: 0 16px;
-
-    border: 1.5px solid var(--nx-line);
-    border-radius: 10px;
-    background: #ffffff;
-    color: var(--nx-ink);
-
-    font-size: 13.5px;
-    font-weight: 650;
-
-    cursor: pointer;
-    transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.pdp-chip:hover:not(.is-soldout):not(.is-unavailable) {
-    border-color: var(--nx-muted-2);
-}
-
-/* Selected: a dark outline + check, not a solid fill, so it doesn't
-   compete with the Add to Cart button. */
-.pdp-chip.is-selected {
-    border: 2px solid var(--nx-ink);
-    background: var(--nx-sunken);
-}
-
-.pdp-chip.is-selected::after {
-    content: "";
-
-    width: 6px;
-    height: 10px;
-
-    border: solid var(--nx-ink);
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg) translateY(-1px);
-}
-
-/* Exists, but can't be bought right now. */
-.pdp-chip.is-soldout {
-    border-color: #e8edf1;
-    background: #f5f7f9;
-    color: var(--nx-muted-2);
-    text-decoration: line-through;
-    cursor: not-allowed;
-}
-
-/* Never made alongside the buyer's other choice. */
-.pdp-chip.is-unavailable {
-    border-style: dashed;
-    color: var(--nx-muted-2);
-    cursor: not-allowed;
-}
-
-.pdp-chip:has(input:focus-visible) {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 2px;
-}
-
-.pdp-option-hint {
-    margin: 8px 0 0;
-
-    color: var(--nx-muted);
-    font-size: 12.5px;
-}
-
-/* ---------------- Actions ---------------- */
-
-.pdp-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.pdp-buyrow {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) 50px;
-    gap: 10px;
-    align-items: stretch;
-}
-
-.pdp-qty {
-    display: inline-flex;
-    align-items: center;
-
-    border: 1.5px solid var(--nx-line);
-    border-radius: 10px;
-    overflow: hidden;
-}
-
-.pdp-qty button {
-    width: 42px;
-    height: 48px;
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    border: none;
-    background: #ffffff;
-    color: var(--nx-ink);
-
-    cursor: pointer;
-    transition: background 0.15s ease;
-}
-
-.pdp-qty button:hover:not(:disabled) {
-    background: var(--nx-line-soft);
-}
-
-.pdp-qty button:disabled {
-    color: var(--nx-line-strong);
-    cursor: not-allowed;
-}
-
-.pdp-qty button:focus-visible {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: -2px;
-}
-
-.pdp-qty-value {
-    min-width: 30px;
-
-    color: var(--nx-ink);
-    text-align: center;
-    font-size: 15px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-}
-
-.pdp-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-
-    min-height: 50px;
-    padding: 0 20px;
-
-    border: 1.5px solid transparent;
-    border-radius: 10px;
-
-    font: inherit;
-    font-size: 14.5px;
-    font-weight: 700;
-    white-space: nowrap;
-
-    cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
-}
-
-.pdp-button:active:not(:disabled) {
-    transform: scale(0.98);
-}
-
-.pdp-button:focus-visible {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 2px;
-}
-
-.pdp-button:disabled {
-    cursor: not-allowed;
-}
-
-.pdp-button--primary {
-    background: var(--nx-accent);
-    color: #ffffff;
-}
-
-.pdp-button--primary:hover:not(:disabled) {
-    background: var(--nx-accent-dark);
-}
-
-.pdp-button--primary:disabled {
-    background: #cfe9e6;
-    color: #4d7f7a;
-}
-
-.pdp-button--secondary {
-    border-color: var(--nx-ink);
-    background: #ffffff;
-    color: var(--nx-ink);
-}
-
-.pdp-button--secondary:hover:not(:disabled) {
-    background: var(--nx-ink);
-    color: #ffffff;
-}
-
-.pdp-button--secondary:disabled {
-    border-color: var(--nx-line);
-    color: var(--nx-muted-2);
-}
-
-.pdp-button--ghost {
-    min-height: 44px;
-    padding: 0 16px;
-
-    border-color: var(--nx-line);
-    background: #ffffff;
-    color: var(--nx-accent-dark);
-
-    font-size: 13.5px;
-}
-
-.pdp-button--ghost:hover:not(:disabled) {
-    border-color: var(--nx-accent);
-    background: var(--nx-accent-soft);
-}
-
-.pdp-favorite {
-    height: 50px;
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    border: 1.5px solid var(--nx-line);
-    border-radius: 10px;
-    background: #ffffff;
-    color: var(--nx-ink);
-
-    cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
-}
-
-.pdp-favorite:hover {
-    color: #ef4444;
-    border-color: #fecaca;
-}
-
-.pdp-favorite.is-favorite {
-    color: #ef4444;
-    border-color: #fecaca;
-    background: #fef2f2;
-}
-
-.pdp-favorite:active {
-    transform: scale(0.94);
-}
-
-.pdp-favorite:focus-visible {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 2px;
-}
-
-.pdp-purchase-note {
-    margin: 2px 0 0;
-
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
+
+    opacity: 0;
+
+    transition: opacity var(--nx-dur) var(--nx-ease);
+    pointer-events: none;
 }
 
-.pdp-purchase-note--neutral {
-    color: var(--nx-muted);
+.pd-stage:hover .pd-stage-hint {
+    opacity: 1;
 }
 
-.pdp-purchase-note--warning {
-    color: #b91c1c;
+@media (hover: none) {
+    .pd-stage-nav {
+        opacity: 1;
+    }
 }
 
-/* ---------------- Facts: delivery / returns / seller ---------------- */
-
-.pdp-facts {
+.pd-swipe-track {
     display: flex;
-    flex-direction: column;
-
-    margin: 0;
-
-    border-top: 1px solid var(--nx-line-soft);
-}
-
-.pdp-fact {
-    display: grid;
-    grid-template-columns: 96px minmax(0, 1fr) auto;
-    gap: 12px;
-    align-items: baseline;
-
-    padding: 13px 0;
-
-    border-bottom: 1px solid var(--nx-line-soft);
-
-    font-size: 13.5px;
-}
-
-.pdp-fact dt {
-    color: var(--nx-muted);
-}
-
-.pdp-fact dd {
-    margin: 0;
-
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-
-    color: var(--nx-ink);
-}
-
-.pdp-fact-seller {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-
-    font-weight: 600;
-}
-
-.pdp-fact-sub {
-    color: var(--nx-muted);
-    font-size: 12.5px;
-}
-
-.pdp-fact-action {
-    font-size: 13px;
-}
-
-/* ---------------- Message composer ---------------- */
-
-.pdp-composer {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-
-    margin-top: -8px;
-}
-
-.pdp-composer-label {
-    color: var(--nx-ink);
-    font-size: 13px;
-    font-weight: 700;
-}
-
-.pdp-composer textarea {
-    width: 100%;
-    padding: 12px;
-
-    border: 1.5px solid var(--nx-line);
-    border-radius: 10px;
-
-    color: var(--nx-ink);
-    font: inherit;
-    font-size: 14px;
-
-    resize: vertical;
-}
-
-.pdp-composer textarea::placeholder {
-    color: var(--nx-muted-2);
-}
-
-.pdp-composer textarea:focus {
-    outline: none;
-    border-color: var(--nx-accent);
-    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.14);
-}
-
-.pdp-composer-error {
-    margin: 0;
-
-    color: #b91c1c;
-    font-size: 12.5px;
-}
-
-.pdp-composer-send {
-    align-self: flex-start;
-    min-height: 42px;
-}
-
-/* ---------------- Lower: in-page menu + sections ---------------- */
-
-.pdp-lower {
-    display: grid;
-    grid-template-columns: 200px minmax(0, 1fr);
-    gap: 56px;
-
-    margin-top: 72px;
-}
-
-.pdp-subnav {
-    position: sticky;
-    top: 124px;
-    align-self: start;
-
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.pdp-subnav-link {
-    padding: 8px 12px;
-
-    border: none;
-    border-radius: 8px;
-    background: none;
-
-    color: var(--nx-muted);
-    font: inherit;
-    font-size: 14px;
-    font-weight: 600;
-    text-align: left;
-
-    cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
-}
-
-.pdp-subnav-link:hover {
-    color: var(--nx-ink);
-}
-
-.pdp-subnav-link.is-active {
-    background: var(--nx-line-soft);
-    color: var(--nx-ink);
-}
-
-.pdp-subnav-link:focus-visible {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 2px;
-}
-
-.pdp-sections {
-    display: flex;
-    flex-direction: column;
-    gap: 64px;
-
-    min-width: 0;
-}
-
-.pdp-section {
-    scroll-margin-top: 128px;
-}
-
-.pdp-section-title {
-    margin: 0 0 18px;
-
-    color: var(--nx-ink);
-
-    font-size: 21px;
-    font-weight: 800;
-    letter-spacing: -0.2px;
-}
-
-.pdp-description {
-    margin: 0 0 24px;
-    max-width: 68ch;
-
-    color: var(--nx-text-2);
-    font-size: 15px;
-    line-height: 1.7;
-    white-space: pre-line;
-}
-
-.pdp-specs {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 40px;
-
-    margin: 0;
-}
-
-.pdp-spec {
-    display: grid;
-    grid-template-columns: minmax(120px, 40%) minmax(0, 1fr);
-    gap: 12px;
-
-    padding: 11px 0;
-
-    border-bottom: 1px solid #f1f4f7;
-
-    font-size: 14px;
-}
-
-.pdp-spec dt {
-    color: var(--nx-muted);
-}
-
-.pdp-spec dd {
-    margin: 0;
-
-    color: var(--nx-ink);
-    font-weight: 600;
-    overflow-wrap: anywhere;
-}
-
-/* ---------------- Reviews ---------------- */
-
-.pdp-reviews {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-    gap: 40px;
-    align-items: start;
-}
-
-.pdp-reviews-summary {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 32px;
-    align-items: center;
-}
-
-.pdp-reviews-score {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.pdp-reviews-number {
-    color: var(--nx-ink);
-
-    font-size: 48px;
-    font-weight: 800;
-    line-height: 1;
-    letter-spacing: -1px;
-    font-variant-numeric: tabular-nums;
-}
-
-.pdp-reviews-based {
-    margin: 0;
-
-    color: var(--nx-muted);
-    font-size: 12.5px;
-}
-
-.pdp-breakdown {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-
-    margin: 0;
-    padding: 0;
-
-    list-style: none;
-}
-
-.pdp-breakdown-row {
-    display: grid;
-    grid-template-columns: 32px minmax(0, 1fr) 40px;
-    align-items: center;
-    gap: 10px;
-}
-
-.pdp-breakdown-star {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-
-    color: var(--nx-ink);
-    font-size: 13px;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-}
-
-.pdp-breakdown-star svg {
-    color: #f59e0b;
-}
-
-.pdp-breakdown-bar {
-    height: 8px;
-
-    border-radius: 999px;
-    background: var(--nx-line-soft);
-    overflow: hidden;
-}
-
-.pdp-breakdown-bar.is-loading {
-    animation: pdp-pulse 1.2s ease-in-out infinite;
-}
-
-.pdp-breakdown-fill {
-    display: block;
 
     height: 100%;
 
-    border-radius: 999px;
-    background: var(--nx-accent);
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
 }
 
-.pdp-breakdown-percent {
-    color: var(--nx-muted);
-    font-size: 12.5px;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
+.pd-swipe-track::-webkit-scrollbar {
+    display: none;
 }
 
-.pdp-review-card {
+.pd-swipe-slide {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
-
-    min-height: 200px;
-    padding: 22px;
-
-    border: 1px solid #edf1f5;
-    border-radius: 16px;
-    background: #ffffff;
-}
-
-.pdp-review-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-}
-
-.pdp-review-author {
-    margin: 0;
-
-    color: var(--nx-ink);
-    font-size: 14px;
-    font-weight: 700;
-}
-
-.pdp-review-date {
-    margin: 0;
-
-    color: var(--nx-muted);
-    font-size: 12.5px;
-    white-space: nowrap;
-}
-
-.pdp-review-comment {
-    margin: 4px 0 0;
-
-    color: var(--nx-text-2);
-    font-size: 14px;
-    line-height: 1.6;
-
-    display: -webkit-box;
-    -webkit-line-clamp: 5;
-    line-clamp: 5;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-}
-
-.pdp-review-comment--empty {
-    color: var(--nx-muted);
-    font-style: italic;
-}
-
-.pdp-review-verified {
-    margin: 0;
-
-    color: var(--nx-accent-dark);
-    font-size: 12px;
-    font-weight: 600;
-}
-
-.pdp-review-footer {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-
-    margin-top: auto;
-    padding-top: 12px;
-}
-
-.pdp-review-nav {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.pdp-review-dots {
-    display: flex;
-    gap: 2px;
-}
-
-/* 24px hit area around a small visible dot. */
-.pdp-review-dot {
-    width: 24px;
-    height: 24px;
-
-    display: flex;
+    flex: 0 0 100%;
     align-items: center;
     justify-content: center;
 
@@ -3259,423 +2996,1812 @@ watch(
     border: none;
     background: none;
 
-    cursor: pointer;
+    scroll-snap-align: center;
 }
 
-.pdp-review-dot::before {
+.pd-swipe-dots {
+    position: absolute;
+    left: 50%;
+    bottom: 8px;
+
+    display: flex;
+
+    transform: translateX(-50%);
+}
+
+.pd-swipe-dots button {
+    position: relative;
+
+    width: 24px;
+    height: 28px;
+    padding: 0;
+
+    border: none;
+    background: none;
+}
+
+.pd-swipe-dots button::before {
     content: "";
+
+    position: absolute;
+    top: 50%;
+    left: 50%;
 
     width: 7px;
     height: 7px;
 
-    border-radius: 999px;
-    background: var(--nx-line-strong);
+    border-radius: 50%;
+    background: rgba(28, 26, 23, 0.25);
 
-    transition: background 0.15s ease, width 0.15s ease;
+    transform: translate(-50%, -50%);
+    transition: background-color var(--nx-dur) var(--nx-ease), transform var(--nx-dur) var(--nx-ease);
 }
 
-.pdp-review-dot.is-active::before {
-    width: 18px;
+.pd-swipe-dots button.is-active::before {
     background: var(--nx-ink);
+    transform: translate(-50%, -50%) scale(1.25);
 }
 
-.pdp-review-dot:focus-visible {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 1px;
-    border-radius: 999px;
+/* ---------------- Purchase panel ---------------- */
+
+.pd-panel {
+    min-width: 0;
 }
 
-.pdp-review-error p {
+#buyer-app .pd-title {
     margin: 0;
 
+    color: var(--nx-ink);
+
+    font-size: clamp(22px, 1.9vw, 28px);
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+
+.pd-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+
+    margin-top: 12px;
+
+    color: var(--nx-text-2);
+
+    font-size: 14px;
+}
+
+.pd-meta strong {
+    color: var(--nx-ink);
+    font-weight: 600;
+}
+
+.pd-meta-sep {
+    width: 1px;
+    height: 14px;
+
+    background: var(--nx-line-strong);
+}
+
+.pd-meta-muted {
+    color: var(--nx-text-2);
+}
+
+/* "1.2k reviews", "34 sold": the number carries the weight. */
+.pd-meta-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+
+    min-height: 32px;
+    padding: 0;
+
+    border: none;
+    background: none;
+    color: var(--nx-text-2);
+
+    font: inherit;
+}
+
+.pd-meta-stat strong {
+    color: var(--nx-ink);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+button.pd-meta-stat:hover strong {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.pd-rating {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    min-height: 32px;
+    padding: 0;
+
+    border: none;
+    background: none;
+    color: var(--nx-star);
+
+    font: inherit;
+}
+
+.pd-rating-score {
+    color: var(--nx-ink);
+    font-weight: 700;
+}
+
+.pd-rating-score {
+    font-size: 15px;
+    text-decoration: underline;
+    text-decoration-color: var(--nx-line-strong);
+    text-underline-offset: 3px;
+}
+
+.pd-price-block {
+    margin: 18px 0 0;
+    padding: 16px 20px;
+
+    border-radius: var(--nx-radius-sm);
+    background: var(--nx-sunken);
+}
+
+.pd-price-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+
+    margin: 0;
+}
+
+.pd-price-from {
+    flex-basis: 100%;
+
     color: var(--nx-muted);
+
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.pd-price {
+    color: var(--nx-accent);
+
+    font-family: var(--nx-font-display);
+    font-size: clamp(28px, 2.4vw, 34px);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+}
+
+.pd-old-price {
+    color: var(--nx-muted);
+
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+}
+
+.pd-discount {
+    align-self: center;
+
+    padding: 2px 6px;
+
+    border-radius: 4px;
+    background: var(--nx-deal);
+    color: #ffffff;
+
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.pd-savings {
+    margin: 6px 0 0;
+
+    color: var(--nx-deal);
+
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.pd-price-note {
+    margin: 6px 0 0;
+
+    color: var(--nx-muted);
+
     font-size: 13.5px;
 }
 
-.pdp-review-skeleton {
+/* ---------------- Label | value rows ---------------- */
+
+.pd-rows {
+    margin: 6px 0 0;
+    padding: 0;
+}
+
+.pd-row {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    align-items: start;
+    gap: 6px 20px;
+
+    padding: 13px 0;
+
+    font-size: 14.5px;
+}
+
+.pd-row dt,
+.pd-row-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+
+    margin: 0;
+
+    color: var(--nx-muted);
+
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.5;
+}
+
+/* One icon style: 16px, 1.8 stroke, the label's own muted colour. */
+.pd-row-icon {
+    flex: none;
+
+    margin-top: 2px;
+}
+
+.pd-pay-methods {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.pd-pay-method {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+
+    min-height: 30px;
+    padding: 0 10px;
+
+    border: 1px solid var(--nx-line);
+    border-radius: var(--nx-radius-sm);
+    color: var(--nx-ink);
+
+    font-size: 13.5px;
+    font-weight: 500;
+}
+
+.pd-pay-method svg {
+    color: var(--nx-accent);
+}
+
+.pd-meta-seller {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pd-meta-seller > svg {
+    color: var(--nx-muted);
+}
+
+.pd-row dd,
+.pd-row-value {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 2px;
+
+    min-width: 0;
+    margin: 0;
+
+    color: var(--nx-ink);
+    line-height: 1.5;
 }
 
-.pdp-skeleton {
+.pd-row-line {
+    color: var(--nx-ink);
+}
+
+.pd-row-muted {
+    color: var(--nx-text-2);
+}
+
+.pd-row-sub {
+    color: var(--nx-muted);
+
+    font-size: 13px;
+}
+
+.pd-rows-buy {
+    margin-top: 8px;
+    padding-top: 8px;
+
+    border-top: 1px solid var(--nx-line);
+}
+
+/* The option label sits level with the first row of buttons. */
+.pd-options .pd-row-label {
+    padding-top: 14px;
+}
+
+.pd-options .pd-row-value {
+    gap: 8px;
+}
+
+/* ---------------- Variants ---------------- */
+
+
+
+
+
+.pd-option-error {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    margin: 8px 0 0;
+
+    color: #b42318;
+
+    font-size: 13.5px;
+    font-weight: 600;
+}
+
+.pd-clear {
+    min-height: 0;
+    margin-left: 8px;
+
+    font-size: 13px;
+}
+
+/* ---------------- Summary + actions ---------------- */
+
+.pd-summary-line {
+    margin: 0;
+
+    color: var(--nx-ink);
+
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.pd-qty-row .pd-row-label {
+    padding-top: 10px;
+}
+
+.pd-qty-line {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 18px;
+}
+
+.pd-availability {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 14px;
+}
+
+.pd-availability p {
+    margin: 0;
+}
+
+.pd-available {
+    color: var(--nx-text-2);
+
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+}
+
+.pd-summary-label {
+    margin-right: 6px;
+
+    color: var(--nx-muted);
+    font-weight: 600;
+}
+
+.pd-stock {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.pd-stock.is-in { color: var(--nx-accent-dark); }
+.pd-stock.is-low { color: var(--nx-deal); }
+.pd-stock.is-out { color: #b42318; }
+.pd-stock.is-neutral { color: var(--nx-text-2); font-weight: 500; }
+
+.pd-sku {
+    color: var(--nx-muted);
+
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.pd-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+
+    margin-top: 18px;
+}
+
+/* Add to cart (outlined) and Buy now (filled), side by side. */
+.pd-buyrow {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+
+    max-width: 560px;
+}
+
+.pd-qty {
+    display: inline-flex;
+    align-items: center;
+
+    height: 44px;
+
+    border: 1px solid var(--nx-line-strong);
+    border-radius: var(--nx-radius-sm);
+    background: var(--nx-surface);
+}
+
+.pd-qty button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 42px;
+    height: 100%;
+
+    border: none;
+    background: none;
+    color: var(--nx-ink);
+}
+
+.pd-qty button:disabled {
+    color: var(--nx-muted-2);
+}
+
+.pd-qty-value {
+    min-width: 40px;
+
+    color: var(--nx-ink);
+
+    font-size: 15px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.pd-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    min-height: 52px;
+    padding: 0 20px;
+
+    border: 1px solid transparent;
+    border-radius: var(--nx-radius-sm);
+
+    font: inherit;
+    font-size: 15.5px;
+    font-weight: 600;
+
+    transition: background-color var(--nx-dur-fast) var(--nx-ease), border-color var(--nx-dur-fast) var(--nx-ease), color var(--nx-dur-fast) var(--nx-ease), transform var(--nx-dur-fast) var(--nx-ease);
+}
+
+.pd-btn:active:not(:disabled) {
+    transform: scale(0.985);
+}
+
+.pd-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.pd-btn-primary {
+    background: var(--nx-accent);
+    color: #ffffff;
+}
+
+.pd-btn-primary:hover:not(:disabled) {
+    background: var(--nx-accent-dark);
+}
+
+.pd-btn-secondary.is-added svg {
+    animation: pd-check 0.3s var(--nx-ease);
+}
+
+@keyframes pd-check {
+    from { opacity: 0; transform: scale(0.5); }
+}
+
+.pd-btn-secondary {
+    border-color: var(--nx-accent);
+    background: var(--nx-surface);
+    color: var(--nx-accent-dark);
+}
+
+.pd-btn-secondary:hover:not(:disabled),
+.pd-btn-secondary.is-added {
+    background: var(--nx-accent-soft);
+}
+
+.pd-fav {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+
+    min-height: 40px;
+    padding: 0 6px;
+
+    border: none;
+    border-radius: var(--nx-radius-sm);
+    background: none;
+    color: var(--nx-text-2);
+
+    font: inherit;
+    font-size: 14px;
+    font-weight: 500;
+
+    transition: color var(--nx-dur-fast) var(--nx-ease);
+}
+
+.pd-fav:hover {
+    color: var(--nx-ink);
+}
+
+.pd-fav.is-on {
+    color: var(--nx-deal);
+}
+
+.pd-fav.is-on svg {
+    animation: pd-check 0.3s var(--nx-ease);
+}
+
+.pd-purchase-note {
+    margin: 2px 0 0;
+
+    color: var(--nx-text-2);
+
+    font-size: 13.5px;
+}
+
+.pd-purchase-note .link-btn {
+    min-height: 0;
+    margin-left: 4px;
+}
+
+/* ---------------- Shop overview ---------------- */
+
+/* The same surface as the main container, a little quieter (no shadow),
+   with hairlines between identity, reviews and products. */
+.pd-shop {
+    margin-top: 24px;
+    padding: clamp(18px, 2.4vw, 32px);
+
+    border: 1px solid var(--nx-line);
+    border-radius: var(--nx-radius);
+    background: var(--nx-surface);
+}
+
+.pd-shop-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) 210px;
+    align-items: start;
+    gap: 16px 24px;
+}
+
+.pd-shop-id {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    min-width: 0;
+}
+
+.pd-shop-eyebrow {
+    margin: 0;
+
+    color: var(--nx-muted);
+
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+#buyer-app .pd-shop-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+
+    margin: 0;
+
+    color: var(--nx-ink);
+
+    font-family: var(--nx-font-display);
+    font-size: clamp(20px, 1.8vw, 24px);
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+}
+
+.pd-shop-name-link {
+    padding: 0;
+
+    border: none;
+    background: none;
+    color: inherit;
+
+    font: inherit;
+    letter-spacing: inherit;
+    text-align: left;
+}
+
+.pd-shop-name-link:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 4px;
+}
+
+.pd-shop-verified {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+
+    min-height: 24px;
+    padding: 0 8px;
+
+    border-radius: 999px;
+    background: var(--nx-accent-soft);
+    color: var(--nx-accent);
+
+    font-family: var(--nx-font-body, inherit);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+
+.pd-shop-line,
+.pd-shop-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 0;
+
+    margin: 0;
+    padding: 0;
+
+    color: var(--nx-text-2);
+
+    font-size: 14px;
+    list-style: none;
+}
+
+/* Dot separators between facts (not before the first). */
+.pd-shop-line > * + *::before,
+.pd-shop-stats > * + *::before {
+    content: "";
+
+    display: inline-block;
+
+    width: 3px;
+    height: 3px;
+    margin: 0 10px;
+
+    border-radius: 50%;
+    background: var(--nx-line-strong);
+
+    vertical-align: middle;
+}
+
+.pd-shop-loc {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pd-shop-loc svg {
+    color: var(--nx-muted);
+}
+
+.pd-shop-stats {
+    margin-top: 2px;
+
+    color: var(--nx-text-2);
+}
+
+.pd-shop-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pd-shop-stat strong {
+    color: var(--nx-ink);
+
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.pd-shop-star {
+    color: var(--nx-star);
+}
+
+.pd-shop-stats.is-loading .skeleton {
+    width: 260px;
+    margin: 0;
+}
+
+.pd-shop-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pd-shop-btn {
+    width: 100%;
+    min-height: 44px;
+
+    font-size: 14.5px;
+    text-decoration: none;
+}
+
+.pd-btn-ghost {
+    border-color: var(--nx-line-strong);
+    background: var(--nx-surface);
+    color: var(--nx-ink);
+}
+
+.pd-btn-ghost:hover:not(:disabled) {
+    border-color: var(--nx-ink);
+}
+
+.pd-shop-btn.is-following {
+    color: var(--nx-accent-dark);
+}
+
+.pd-shop-btn[disabled] {
+    cursor: progress;
+}
+
+.pd-shop-block {
+    margin-top: 24px;
+    padding-top: 24px;
+
+    border-top: 1px solid var(--nx-line);
+}
+
+.pd-shop-block-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+
+    margin-bottom: 16px;
+}
+
+#buyer-app .pd-shop-h3 {
+    margin: 0;
+
+    color: var(--nx-ink);
+
+    font-family: var(--nx-font-display);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.pd-shop-count {
+    color: var(--nx-muted);
+
+    font-weight: 500;
+}
+
+.pd-shop-link {
+    display: inline-flex;
+    align-items: center;
+
+    min-height: 36px;
+    padding: 0 14px;
+
+    border: 1px solid var(--nx-line-strong);
+    border-radius: var(--nx-radius-sm);
+    background: var(--nx-surface);
+    color: var(--nx-ink);
+
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+
+    transition: border-color var(--nx-dur-fast) var(--nx-ease), transform var(--nx-dur-fast) var(--nx-ease);
+}
+
+.pd-shop-link:hover {
+    border-color: var(--nx-ink);
+}
+
+.pd-shop-link:active {
+    transform: scale(0.98);
+}
+
+.pd-shop-reviews {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+    gap: 14px;
+
+    margin: 0;
+    padding: 0;
+
+    list-style: none;
+}
+
+.pd-shop-review {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+
+    min-width: 0;
+    min-height: 196px;
+    padding: 16px 18px;
+
+    border: 1px solid var(--nx-line);
+    border-radius: var(--nx-radius-sm);
+
+    color: var(--nx-star);
+
+    transition: border-color var(--nx-dur-fast) var(--nx-ease);
+}
+
+.pd-shop-review:hover {
+    border-color: var(--nx-line-strong);
+}
+
+.pd-shop-review.is-skeleton .skeleton {
+    margin: 0;
+}
+
+.pd-shop-review-text {
+    display: -webkit-box;
+
+    margin: 0;
+
+    overflow: hidden;
+
+    color: var(--nx-text);
+
+    font-size: 14.5px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+}
+
+.pd-shop-review-text.is-empty {
+    color: var(--nx-muted);
+    font-style: italic;
+}
+
+.pd-shop-review-photos {
+    display: flex;
+    gap: 6px;
+
+    margin: 0;
+    padding: 0;
+
+    list-style: none;
+}
+
+.pd-shop-review-photos img {
     display: block;
 
-    height: 12px;
+    width: 48px;
+    height: 48px;
 
-    border-radius: 6px;
+    border-radius: 4px;
+    background: var(--nx-sunken);
+
+    object-fit: cover;
+}
+
+.pd-shop-review-foot {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    margin-top: auto;
+
+    color: var(--nx-text-2);
+
+    font-size: 13px;
+}
+
+.pd-shop-review-foot p {
+    margin: 0;
+}
+
+.pd-shop-review-by {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pd-shop-review-by strong {
+    color: var(--nx-ink);
+    font-weight: 600;
+}
+
+.pd-shop-review-item {
+    overflow: hidden;
+
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pd-shop-review-product {
+    padding: 0;
+
+    border: none;
+    background: none;
+    color: var(--nx-ink);
+
+    font: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--nx-line-strong);
+    text-underline-offset: 3px;
+}
+
+.pd-shop-review-product:hover {
+    text-decoration-color: currentColor;
+}
+
+.pd-shop-review-product[disabled] {
+    cursor: progress;
+}
+
+.pd-shop-review-variant {
+    color: var(--nx-muted);
+}
+
+.pd-shop-empty {
+    margin: 0;
+
+    color: var(--nx-muted);
+
+    font-size: 14px;
+}
+
+.pd-shop-products {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 20px;
+}
+
+/* ---------------- Lower sections ---------------- */
+
+#buyer-app .pd-h2 {
+    margin: 0 0 18px;
+
+    color: var(--nx-ink);
+
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+}
+
+.pd-about,
+.pd-reviews,
+.pd-related {
+    margin-top: 72px;
+    padding-top: 40px;
+
+    border-top: 1px solid var(--nx-line);
+}
+
+.pd-about.has-specs {
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    gap: clamp(32px, 4vw, 64px);
+}
+
+.pd-desc-body {
+    max-width: 68ch;
+
+    color: var(--nx-text);
+
+    font-size: 16px;
+    line-height: 1.7;
+}
+
+.pd-desc-body p {
+    margin: 0 0 14px;
+}
+
+.pd-desc-body.is-clamped {
+    max-height: 13.6em;
+
+    overflow: hidden;
+
+    -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+    mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+.pd-desc-toggle {
+    margin-top: 4px;
+}
+
+.pd-specs {
+    margin: 0;
+}
+
+.pd-spec {
+    display: grid;
+    grid-template-columns: minmax(110px, 2fr) minmax(0, 3fr);
+    gap: 16px;
+
+    padding: 12px 0;
+
+    border-bottom: 1px solid var(--nx-line-soft);
+
+    font-size: 14.5px;
+}
+
+.pd-spec:first-child {
+    border-top: 1px solid var(--nx-line-soft);
+}
+
+.pd-spec dt {
+    color: var(--nx-muted);
+}
+
+.pd-spec dd {
+    margin: 0;
+
+    color: var(--nx-ink);
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+
+/* Reviews */
+
+.pd-reviews-layout {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    align-items: start;
+    gap: clamp(32px, 5vw, 80px);
+}
+
+.pd-rsum {
+    position: sticky;
+    top: calc(var(--nx-header-h) + 24px);
+
+    color: var(--nx-star);
+}
+
+.pd-rsum-score {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+
+    margin: 0 0 6px;
+}
+
+.pd-rsum-number {
+    color: var(--nx-ink);
+
+    font-family: var(--nx-font-display);
+    font-size: 52px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+}
+
+.pd-rsum-out {
+    color: var(--nx-muted);
+
+    font-size: 14px;
+}
+
+.pd-rsum-count {
+    margin: 6px 0 20px;
+
+    color: var(--nx-text-2);
+
+    font-size: 14px;
+}
+
+.pd-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    margin: 0;
+    padding: 0;
+
+    list-style: none;
+}
+
+.pd-bar {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr) 32px;
+    align-items: center;
+    gap: 10px;
+
+    width: 100%;
+    min-height: 32px;
+    padding: 0 6px;
+
+    border: 1px solid transparent;
+    border-radius: var(--nx-radius-sm);
+    background: none;
+    color: var(--nx-text);
+
+    font: inherit;
+    font-size: 13.5px;
+    text-align: left;
+}
+
+.pd-bar:hover:not(:disabled) {
+    background: var(--nx-sunken);
+}
+
+.pd-bar.is-active {
+    border-color: var(--nx-ink);
+}
+
+.pd-bar:disabled {
+    color: var(--nx-muted-2);
+    cursor: default;
+}
+
+.pd-bar-track {
+    position: relative;
+
+    height: 8px;
+
+    overflow: hidden;
+    border-radius: 999px;
     background: var(--nx-line-soft);
-    animation: pdp-pulse 1.2s ease-in-out infinite;
 }
 
-.pdp-skeleton--short { width: 40%; }
-.pdp-skeleton--tiny { width: 25%; }
-
-@keyframes pdp-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.55; }
+.pd-bar-track.is-loading {
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
 }
 
-/* ---------------- Empty states ---------------- */
+.pd-bar-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
 
-.pdp-empty {
+    border-radius: inherit;
+    background: var(--nx-star);
+
+    transition: width 0.5s var(--nx-ease);
+}
+
+.pd-bar-count {
+    color: var(--nx-muted);
+
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.pd-rtools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 20px;
+
+    padding-bottom: 16px;
+
+    border-bottom: 1px solid var(--nx-line);
+}
+
+.pd-rfilters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.pd-rfilter {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    min-height: 36px;
+    padding: 0 12px;
+
+    border: 1px solid var(--nx-line-strong);
+    border-radius: var(--nx-radius-sm);
+    background: var(--nx-surface);
+    color: var(--nx-text);
+
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 500;
+}
+
+.pd-rfilter:hover {
+    border-color: var(--nx-ink);
+}
+
+.pd-rfilter.is-active {
+    border-color: var(--nx-ink);
+    background: var(--nx-ink);
+    color: #ffffff;
+}
+
+.pd-rcount {
+    margin: 0;
+
+    color: var(--nx-muted);
+
+    font-size: 13px;
+}
+
+.pd-rentries {
+    margin: 0;
+    padding: 0;
+
+    list-style: none;
+}
+
+.pd-rentry {
+    padding: 24px 0;
+
+    border-bottom: 1px solid var(--nx-line-soft);
+
+    color: var(--nx-star);
+}
+
+.pd-rentry .skeleton {
+    margin: 8px 0;
+}
+
+.pd-sk-short {
+    width: 30%;
+}
+
+.pd-rentry-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+}
+
+.pd-verified {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+
+    color: var(--nx-accent-dark);
+
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+.pd-rentry-by {
+    margin: 8px 0 0;
+
+    color: var(--nx-text-2);
+
+    font-size: 13.5px;
+}
+
+.pd-rentry-by strong {
+    color: var(--nx-ink);
+    font-weight: 600;
+}
+
+.pd-rentry-variant {
+    margin: 2px 0 0;
+
+    color: var(--nx-muted);
+
+    font-size: 13px;
+}
+
+.pd-rentry-text {
+    max-width: 70ch;
+    margin: 12px 0 0;
+
+    color: var(--nx-text);
+
+    font-size: 15.5px;
+    line-height: 1.65;
+    white-space: pre-line;
+}
+
+.pd-rentry-text.is-empty {
+    color: var(--nx-muted);
+    font-style: italic;
+}
+
+.pd-rentry-photos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+
+    margin-top: 14px;
+}
+
+.pd-rentry-photo {
+    width: 80px;
+    height: 80px;
+    padding: 0;
+
+    overflow: hidden;
+    border: 1px solid var(--nx-line);
+    border-radius: var(--nx-radius-sm);
+    background: var(--nx-sunken);
+
+    cursor: zoom-in;
+}
+
+.pd-rentry-photo img {
+    display: block;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+
+    transition: transform var(--nx-dur) var(--nx-ease);
+}
+
+.pd-rentry-photo:hover img {
+    transform: scale(1.05);
+}
+
+.pd-reply {
+    margin-top: 14px;
+    padding: 2px 0 2px 16px;
+
+    border-left: 2px solid var(--nx-accent);
+}
+
+.pd-reply p {
+    margin: 0;
+}
+
+.pd-reply-by {
+    color: var(--nx-ink);
+
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.pd-reply-text {
+    margin-top: 4px !important;
+
+    color: var(--nx-text);
+
+    font-size: 14.5px;
+    line-height: 1.6;
+}
+
+.pd-rstate {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+
+    padding: 28px 0;
+
+    color: var(--nx-text-2);
+}
+
+.pd-rstate p {
+    margin: 0;
+}
+
+.pd-rmore {
+    margin-top: 24px;
+}
+
+.pd-reviews-empty {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
 
-    padding: 22px;
-
-    border: 1px dashed #d6dee6;
-    border-radius: 16px;
-    background: #ffffff;
+    color: var(--nx-text-2);
 }
 
-.pdp-empty-title {
+.pd-reviews-empty p {
     margin: 0;
+}
 
+.pd-reviews-empty-title {
     color: var(--nx-ink);
-    font-size: 15px;
-    font-weight: 700;
-}
 
-.pdp-empty-text {
-    margin: 0 0 6px;
-
-    color: var(--nx-muted);
-    font-size: 13.5px;
-}
-
-/* ---------------- Mobile accordion ---------------- */
-
-.pdp-accordion {
-    border-top: 1px solid var(--nx-line-soft);
-    border-bottom: 1px solid var(--nx-line-soft);
-}
-
-.pdp-accordion summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-
-    min-height: 52px;
-
-    color: var(--nx-ink);
     font-size: 16px;
-    font-weight: 700;
-
-    list-style: none;
-    cursor: pointer;
+    font-weight: 600;
 }
 
-.pdp-accordion summary::-webkit-details-marker {
-    display: none;
+.pd-reviews-empty .btn {
+    margin-top: 10px;
 }
 
-.pdp-accordion summary::after {
-    content: "+";
-
-    color: var(--nx-muted);
-    font-size: 20px;
-    font-weight: 500;
-}
-
-.pdp-accordion[open] summary::after {
-    content: "\2212";
-}
-
-.pdp-accordion summary:focus-visible {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 2px;
-    border-radius: 4px;
-}
-
-.pdp-accordion-body {
-    padding-bottom: 16px;
-}
-
-/* ---------------- Mobile buy bar ---------------- */
-
-.pdp-buybar {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 40;
-
-    display: flex;
-    align-items: center;
-    gap: 12px;
-
-    padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-
-    border-top: 1px solid var(--nx-line);
-    background: #ffffff;
-    box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.06);
-}
-
-.pdp-buybar-info {
-    flex: 1;
-    min-width: 0;
-
-    display: flex;
-    flex-direction: column;
-}
-
-.pdp-buybar-price {
-    color: var(--nx-ink);
-    font-size: 16px;
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-}
-
-.pdp-buybar-choice {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-
-    color: var(--nx-muted);
-    font-size: 12.5px;
-}
-
-.pdp-buybar-button {
-    min-height: 46px;
-}
-
-.pdp-bar-enter-active,
-.pdp-bar-leave-active {
-    transition: transform 0.22s ease;
-}
-
-.pdp-bar-enter-from,
-.pdp-bar-leave-to {
-    transform: translateY(100%);
+.pd-related-grid {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 }
 
 /* ---------------- Not found ---------------- */
 
-.pdp-not-found {
-    min-height: 60vh;
-    padding: 48px 24px;
-
+.pd-not-found {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     gap: 10px;
+
+    padding: 96px 24px;
 
     text-align: center;
 }
 
-.pdp-not-found h1 {
-    margin: 0;
-
-    color: var(--nx-ink);
-    font-size: 24px;
-    font-weight: 800;
-}
-
-.pdp-not-found p {
+.pd-not-found p {
     margin: 0 0 8px;
-    color: var(--nx-muted);
+
+    color: var(--nx-text-2);
 }
 
-/* ---------------- Image viewer ---------------- */
+/* ---------------- Mobile buy bar ---------------- */
 
-.pdp-viewer {
+.pd-buybar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 35;
+
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+
+    padding: 10px var(--nx-gutter) calc(10px + env(safe-area-inset-bottom, 0px));
+
+    border-top: 1px solid var(--nx-line);
+    background: var(--nx-surface);
+    box-shadow: 0 -8px 24px -18px rgba(43, 39, 34, 0.4);
+}
+
+.pd-buybar-info {
+    display: flex;
+    flex-direction: column;
+
+    min-width: 0;
+}
+
+.pd-buybar-price {
+    color: var(--nx-ink);
+
+    font-family: var(--nx-font-display);
+    font-size: 18px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.pd-buybar-choice {
+    overflow: hidden;
+
+    color: var(--nx-muted);
+
+    font-size: 12.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pd-buybar-btn {
+    min-height: 48px;
+}
+
+.pd-bar-enter-active,
+.pd-bar-leave-active {
+    transition: transform var(--nx-dur) var(--nx-ease);
+}
+
+.pd-bar-enter-from,
+.pd-bar-leave-to {
+    transform: translateY(100%);
+}
+
+/* ---------------- Viewer ---------------- */
+
+.pd-viewer {
     position: fixed;
     inset: 0;
-    z-index: 1000;
+    z-index: 80;
 
     display: flex;
     align-items: center;
     justify-content: center;
 
-    padding: 64px 80px;
+    padding: 64px 72px;
 
-    background: rgba(15, 23, 42, 0.92);
+    background: rgba(18, 17, 15, 0.92);
 }
 
-.pdp-viewer-image {
+.pd-viewer-img {
     max-width: 100%;
     max-height: 100%;
 
-    border-radius: 12px;
     object-fit: contain;
+
+    animation: pd-viewer-in 0.24s var(--nx-ease);
 }
 
-.pdp-viewer-close,
-.pdp-viewer-nav {
+@keyframes pd-viewer-in {
+    from { opacity: 0; transform: scale(0.98); }
+}
+
+.pd-viewer-close,
+.pd-viewer-nav {
     position: absolute;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 
     width: 48px;
     height: 48px;
 
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    border: none;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
     color: #ffffff;
-
-    cursor: pointer;
-    transition: background 0.15s ease;
 }
 
-.pdp-viewer-close:hover,
-.pdp-viewer-nav:hover {
-    background: rgba(255, 255, 255, 0.24);
+.pd-viewer-close:hover,
+.pd-viewer-nav:hover {
+    background: rgba(255, 255, 255, 0.18);
 }
 
-.pdp-viewer-close:focus-visible,
-.pdp-viewer-nav:focus-visible {
-    outline: 2px solid #ffffff;
-    outline-offset: 2px;
-}
-
-.pdp-viewer-close {
+.pd-viewer-close {
     top: 16px;
     right: 16px;
 }
 
-.pdp-viewer-nav {
+.pd-viewer-nav {
     top: 50%;
+
     transform: translateY(-50%);
 }
 
-.pdp-viewer-nav--prev { left: 16px; }
-.pdp-viewer-nav--next { right: 16px; }
+.pd-viewer-nav.is-prev { left: 16px; }
+.pd-viewer-nav.is-next { right: 16px; }
+
+.pd-viewer-count {
+    position: absolute;
+    left: 50%;
+    bottom: 20px;
+
+    margin: 0;
+
+    color: rgba(255, 255, 255, 0.85);
+
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+
+    transform: translateX(-50%);
+}
+
+.pd-viewer :focus-visible {
+    outline: 2px solid #ffffff;
+    outline-offset: 2px;
+}
+
+.pd-fade-enter-active,
+.pd-fade-leave-active {
+    transition: opacity var(--nx-dur) var(--nx-ease);
+}
+
+.pd-fade-enter-from,
+.pd-fade-leave-to {
+    opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pd-viewer-img,
+    .pd-btn-primary.is-added svg {
+        animation: none;
+    }
+
+    .pd-fade-enter-active,
+    .pd-fade-leave-active,
+    .pd-bar-enter-active,
+    .pd-bar-leave-active {
+        transition: none;
+    }
+}
 
 /* ---------------- Responsive ---------------- */
 
 @media (max-width: 1100px) {
-    .pdp-reviews {
-        grid-template-columns: 1fr;
-        gap: 28px;
+    .pd-main {
+        grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    }
+
+    .pd-row {
+        grid-template-columns: 96px minmax(0, 1fr);
+        gap: 6px 14px;
+    }
+
+    .pd-reviews-layout {
+        grid-template-columns: 240px minmax(0, 1fr);
     }
 }
 
-@media (max-width: 960px) {
-    .pdp {
-        padding: 12px 16px 72px;
-        gap: 16px;
+@media (max-width: 900px) {
+    .pd-shop {
+        margin: 16px calc(-1 * var(--nx-gutter)) 0;
+        padding: 20px var(--nx-gutter);
+
+        border-right: none;
+        border-left: none;
+        border-radius: 0;
     }
 
-    .pdp-main {
-        grid-template-columns: 1fr;
-        gap: 22px;
+    .pd-shop-head {
+        grid-template-columns: auto minmax(0, 1fr);
     }
 
-    .pdp-gallery {
-        position: static;
+    .pd-shop-actions {
+        grid-column: 1 / -1;
+
+        flex-direction: row;
+        flex-wrap: wrap;
     }
 
-    /* Shorter than square so the price and stock line land in the first
-       screen instead of below a full-width photo. */
-    .pdp-frame {
-        aspect-ratio: 4 / 3.3;
-        border-radius: 14px;
+    .pd-shop-btn {
+        flex: 1 1 160px;
+        width: auto;
     }
 
-    .pdp-buy {
-        gap: 18px;
+    .pd-shop-products {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px 12px;
     }
 
-    .pdp-price {
-        font-size: 26px;
+    .pd {
+        padding-top: 16px;
     }
 
-    .pdp-lower {
-        grid-template-columns: 1fr;
-        gap: 0;
-
-        margin-top: 40px;
-    }
-
-    .pdp-sections {
-        gap: 40px;
-    }
-
-    .pdp-specs {
-        grid-template-columns: 1fr;
-    }
-
-    .pdp-fact {
-        grid-template-columns: 84px minmax(0, 1fr);
-    }
-
-    .pdp-fact-action {
-        grid-column: 2;
-        justify-self: start;
-    }
-
-    /* Related products become a swipeable row instead of a tall grid. */
-    .pdp-related {
-        grid-template-columns: none;
-        grid-auto-flow: column;
-        grid-auto-columns: 46%;
-        gap: 12px;
-
-        overflow-x: auto;
-        scroll-snap-type: x proximity;
-        scrollbar-width: none;
-    }
-
-    .pdp-related::-webkit-scrollbar {
+    .pd-crumb-current {
         display: none;
     }
 
-    .pdp-related > * {
-        scroll-snap-align: start;
-    }
-}
-
-@media (max-width: 560px) {
-    .pdp-reviews-summary {
-        grid-template-columns: 1fr;
+    .pd-main {
+        grid-template-columns: minmax(0, 1fr);
         gap: 24px;
+
+        margin: 0 calc(-1 * var(--nx-gutter));
+        padding: 0 var(--nx-gutter) 24px;
+
+        border-right: none;
+        border-left: none;
+        border-radius: 0;
+        box-shadow: none;
     }
 
-    .pdp-viewer {
+    .pd-gallery {
+        position: static;
+
+        margin: 0 calc(-1 * var(--nx-gutter));
+    }
+
+    /* The gallery runs edge to edge; its actions keep the page gutter. */
+    .pd-gallery-foot {
+        padding: 0 var(--nx-gutter);
+    }
+
+    /* Not a full-width square: on a tablet that is ~800px of photo before
+       the title. Square-ish on phones, capped so the name, price and buy
+       button start within the first screen. */
+    .pd-swipe {
+        height: clamp(240px, min(100vw, 56vh), 560px);
+        height: clamp(240px, min(100vw, 56svh), 560px);
+        aspect-ratio: auto;
+
+        border-radius: 0;
+    }
+
+    .pd-about.has-specs,
+    .pd-reviews-layout {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 28px;
+    }
+
+    .pd-rsum {
+        position: static;
+    }
+
+    .pd-about,
+    .pd-reviews,
+    .pd-related {
+        margin-top: 48px;
+        padding-top: 32px;
+    }
+
+    .pd-viewer {
         padding: 72px 12px;
     }
 
-    .pdp-viewer-nav {
+    .pd-viewer-nav {
         top: auto;
-        bottom: 16px;
+        bottom: 12px;
+
         transform: none;
     }
 }
 
-@media (prefers-reduced-motion: reduce) {
-    .pdp-fade-enter-active,
-    .pdp-fade-leave-active,
-    .pdp-bar-enter-active,
-    .pdp-bar-leave-active,
-    .pdp-thumb,
-    .pdp-chip,
-    .pdp-button,
-    .pdp-favorite,
-    .pdp-round-button,
-    .pdp-zoom,
-    .pdp-crumb-link,
-    .pdp-subnav-link,
-    .pdp-review-dot::before {
-        transition: none;
+@media (max-width: 520px) {
+    /* Wrapped fact lines would strand a dot; space them instead. */
+    .pd-shop-line,
+    .pd-shop-stats {
+        gap: 4px 14px;
     }
 
-    .pdp-button:active:not(:disabled),
-    .pdp-favorite:active,
-    .pdp-round-button:active:not(:disabled),
-    .pdp-zoom:hover {
-        transform: none;
+    .pd-shop-line > * + *::before,
+    .pd-shop-stats > * + *::before {
+        display: none;
     }
 
-    .pdp-breakdown-bar.is-loading,
-    .pdp-skeleton {
-        animation: none;
+    .pd-shop-actions {
+        flex-direction: column;
+    }
+
+    .pd-shop-btn {
+        flex: none;
+        width: 100%;
+    }
+
+    /* Labels above their controls on narrow screens. */
+    .pd-row {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 6px;
+    }
+
+    .pd-options .pd-row-label,
+    .pd-qty-row .pd-row-label {
+        padding-top: 0;
+    }
+
+    .pd-price-block {
+        padding: 14px 16px;
+    }
+
+
+
+
+    .pd-spec {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    }
+
+    .pd-related-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 22px 12px;
     }
 }
 </style>

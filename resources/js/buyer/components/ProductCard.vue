@@ -22,6 +22,12 @@ const props = defineProps({
     detail: {
         type: String,
         default: ''
+    },
+    // A store page already names the seller, so its cards show the brand
+    // only (an empty line when there is none, keeping rows aligned).
+    hideSeller: {
+        type: Boolean,
+        default: false
     }
 });
 
@@ -36,7 +42,7 @@ const favorited = computed(() => isFavorite(props.product.id));
 // Brand is the genuinely optional field; seller always has a real value
 // (ProductController::transform falls back to a generic seller label), so
 // it's the sensible fallback rather than hiding attribution entirely.
-const sellerOrBrand = computed(() => props.product.brand || props.product.seller || '');
+const sellerOrBrand = computed(() => props.product.brand || (props.hideSeller ? '' : props.product.seller) || '');
 
 // A "valid" discount needs a real, sane original price — legacy data can
 // carry an oldPrice at or below the current price.
@@ -71,6 +77,10 @@ const lowStock = computed(() =>
 );
 
 const hasRating = computed(() => typeof props.product.rating === 'number');
+
+// Units on delivered orders (ProductController soldCount); hidden at zero.
+const soldCount = computed(() => Math.max(0, Math.floor(Number(props.product.soldCount) || 0)));
+const soldLabel = computed(() => `${soldCount.value >= 1000 ? `${(soldCount.value / 1000).toFixed(1).replace(/\.0$/, '')}k` : soldCount.value} sold`);
 
 /*
 |--------------------------------------------------------------------------
@@ -257,8 +267,9 @@ onUnmounted(() => {
         <div class="pcard-body">
 
             <p
-                v-if="sellerOrBrand"
+                v-if="sellerOrBrand || hideSeller"
                 class="pcard-seller"
+                :aria-hidden="sellerOrBrand ? undefined : 'true'"
             >
                 {{ sellerOrBrand }}
             </p>
@@ -290,6 +301,10 @@ onUnmounted(() => {
                     v-else
                     class="pcard-rating-empty"
                 >No reviews yet</span>
+                <span
+                    v-if="soldCount > 0"
+                    class="pcard-sold"
+                >{{ soldLabel }}</span>
             </div>
 
             <div class="pcard-price-row">
