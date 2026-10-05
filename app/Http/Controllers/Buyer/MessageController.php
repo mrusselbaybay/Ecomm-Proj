@@ -10,9 +10,17 @@ use App\Models\Message;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Profile;
+use App\Services\SupabaseStorageService;
+use App\Support\Avatar;
+use App\Support\ProductImage;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -23,26 +31,42 @@ use Illuminate\Validation\ValidationException;
  * authenticated buyer, so a buyer can never read or post into another
  * buyer's (or a seller-only) thread by guessing an id.
  *
+ * - The inbox carries only what a list row needs (no message bodies).
+ * - Messages page by cursor: `before` for older history, `after` for
+ *   the poll that picks up new replies, ordered by (created_at, id).
+ * - Buyers can attach photos. They go to the private message-attachments
+ *   bucket (the seller app's bucket) and are stored as the same
+ *   {id, name, path, mime, size} snapshot on messages.attachments, so the
+ *   seller app shows them too; URLs are short-lived signed links made on
+ *   every read, only for someone allowed to read the thread.
+ * - Read status is real: the seller app sets read_at on a buyer's message
+ *   when the seller opens the thread. There is no delivery or presence
+ *   tracking, so neither is reported.
+ *
  * The seller side of these same tables is built on feature/seller against
  * the contract in resources/js/seller/composables/useMessaging.js.
  */
 class MessageController extends Controller
 {
-    private const MESSAGE_PAGE = 50;
+    private const MESSAGE_PAGE = 30;
+
+    private const ATTACHMENTS_BUCKET = 'message-attachments';
+
+    public function __construct(private SupabaseStorageService $storage) {}
 
     public function conversations(Request $request): JsonResponse
     {
         $buyer = $request->user();
 
         $conversations = Conversation::query()
-            ->with(['seller.sellerDetail', 'product'])
+            ->with(['seller.sellerDetail', 'product', 'order'])
             ->where('buyer_id', $buyer->id)
             ->orderByRaw('last_message_at desc nulls last')
             ->orderByDesc('created_at')
             ->get();
 
         return response()->json([
-            'data' => $conversations->map(fn (Conversation $c) => $this->transformConversation($c, withMessages: true)),
+            'data' => $conversations->map(fn (Conversation $c) => $this->transformConversation($c)),
             'meta' => [
                 'unread_total' => (int) $conversations->sum('buyer_unread_count'),
             ],
@@ -86,37 +110,55 @@ class MessageController extends Controller
             }
         }
 
-        $conversation = DB::transaction(function () use ($buyer, $seller, $orderId, $productId, $data) {
-            $conversation = Conversation::query()
-                ->where('buyer_id', $buyer->id)
-                ->where('seller_id', $seller->id)
-                ->when($orderId, fn ($q) => $q->where('order_id', $orderId), fn ($q) => $q->whereNull('order_id'))
-                ->first();
+        $attachments = $this->storeImages($buyer->id, $request->file('images', []));
 
-            if (! $conversation) {
-                $conversation = Conversation::create([
-                    'buyer_id' => $buyer->id,
-                    'seller_id' => $seller->id,
-                    'order_id' => $orderId,
-                    'product_id' => $productId,
-                    'subject' => $data['subject'] ?? null,
-                    'status' => 'open',
-                ]);
-            }
+        if ($attachments === null) {
+            return $this->uploadFailed();
+        }
 
-            $this->appendMessage($conversation, $buyer->id, 'buyer', $data['body']);
+        $body = trim((string) ($data['body'] ?? ''));
 
-            return $conversation;
-        });
+        try {
+            $conversation = DB::transaction(function () use ($buyer, $seller, $orderId, $productId, $data, $body, $attachments) {
+                $conversation = Conversation::query()
+                    ->where('buyer_id', $buyer->id)
+                    ->where('seller_id', $seller->id)
+                    ->when($orderId, fn ($q) => $q->where('order_id', $orderId), fn ($q) => $q->whereNull('order_id'))
+                    ->first();
 
-        return response()->json([
-            'data' => $this->transformConversation(
-                $conversation->fresh(['seller.sellerDetail', 'product', 'messages']),
-                withMessages: true,
-            ),
-        ], 201);
+                if (! $conversation) {
+                    $conversation = Conversation::create([
+                        'buyer_id' => $buyer->id,
+                        'seller_id' => $seller->id,
+                        'order_id' => $orderId,
+                        'product_id' => $productId,
+                        'subject' => $data['subject'] ?? null,
+                        'status' => 'open',
+                    ]);
+                } elseif ($productId && $conversation->product_id !== $productId) {
+                    // A new question about a different product: the thread's
+                    // reference follows the product being asked about now.
+                    $conversation->product_id = $productId;
+                }
+
+                $this->appendMessage($conversation, $buyer->id, 'buyer', $body, $attachments);
+
+                return $conversation;
+            });
+        } catch (\Throwable $e) {
+            $this->deleteAttachments($attachments);
+
+            throw $e;
+        }
+
+        return response()->json(['data' => $this->conversationDetail($conversation->fresh())], 201);
     }
 
+    /**
+     * GET /api/buyer/messages/conversations/{id}
+     *
+     * Opening a thread is what marks the seller's messages read.
+     */
     public function showConversation(Request $request, string $id): JsonResponse
     {
         $conversation = $this->findForBuyer($request, $id);
@@ -127,14 +169,16 @@ class MessageController extends Controller
 
         $this->markConversationRead($conversation);
 
-        return response()->json([
-            'data' => $this->transformConversation(
-                $conversation->fresh(['seller.sellerDetail', 'product', 'messages']),
-                withMessages: true,
-            ),
-        ]);
+        return response()->json(['data' => $this->conversationDetail($conversation->fresh())]);
     }
 
+    /**
+     * GET /api/buyer/messages/conversations/{id}/messages?before=<id>|after=<id>
+     *
+     * `before`: the page of older messages ending just before that one.
+     * `after`: everything newer than that one (the poll). Neither: the
+     * latest page. Does not mark anything read.
+     */
     public function messages(Request $request, string $id): JsonResponse
     {
         $conversation = $this->findForBuyer($request, $id);
@@ -143,18 +187,36 @@ class MessageController extends Controller
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        $messages = $conversation->messages()
-            ->orderByDesc('created_at')
-            ->limit(self::MESSAGE_PAGE)
-            ->get()
-            ->sortBy('created_at')
-            ->values();
+        $before = $this->resolveCursor($conversation, $request->string('before')->toString());
+        $after = $this->resolveCursor($conversation, $request->string('after')->toString());
+
+        if ($after) {
+            $messages = $conversation->messages()
+                ->where(fn (Builder $q) => $this->newerThan($q, $after))
+                ->reorder()
+                ->orderBy('created_at')
+                ->orderBy('id')
+                ->limit(200)
+                ->get();
+
+            return response()->json([
+                'data' => $this->transformMessages($messages),
+                'meta' => ['hasMore' => false],
+            ]);
+        }
+
+        [$messages, $hasMore] = $this->latestPage($conversation->messages(), $before);
 
         return response()->json([
-            'data' => $messages->map(fn (Message $m) => $this->transformMessage($m)),
+            'data' => $this->transformMessages($messages),
+            'meta' => ['hasMore' => $hasMore],
         ]);
     }
 
+    /**
+     * POST /api/buyer/messages/conversations/{id}/messages
+     * (JSON or multipart: body?, images[]?, client_id?, product_id?)
+     */
     public function sendMessage(SendMessageRequest $request, string $id): JsonResponse
     {
         $conversation = $this->findForBuyer($request, $id);
@@ -163,11 +225,41 @@ class MessageController extends Controller
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        $message = DB::transaction(function () use ($conversation, $request) {
-            return $this->appendMessage($conversation, $request->user()->id, 'buyer', $request->validated('body'));
-        });
+        $buyer = $request->user();
+        $body = trim((string) $request->validated('body', ''));
+        $productId = $request->validated('product_id');
 
-        return response()->json(['data' => $this->transformMessage($message)], 201);
+        if ($productId && ! Product::whereKey($productId)->where('seller_id', $conversation->seller_id)->exists()) {
+            throw ValidationException::withMessages(['product_id' => 'That product does not belong to this seller.']);
+        }
+
+        $attachments = $this->storeImages($buyer->id, $request->file('images', []));
+
+        if ($attachments === null) {
+            return $this->uploadFailed();
+        }
+
+        try {
+            $message = DB::transaction(function () use ($conversation, $buyer, $body, $attachments, $productId) {
+                // Asking about another product: the reference follows it.
+                if ($productId && $conversation->product_id !== $productId) {
+                    $conversation->product_id = $productId;
+                }
+
+                return $this->appendMessage($conversation, $buyer->id, 'buyer', $body, $attachments);
+            });
+        } catch (\Throwable $e) {
+            $this->deleteAttachments($attachments);
+
+            throw $e;
+        }
+
+        return response()->json([
+            'data' => array_merge(
+                $this->transformMessages(collect([$message]))[0],
+                ['clientId' => $request->validated('client_id')],
+            ),
+        ], 201);
     }
 
     public function markRead(Request $request, string $id): JsonResponse
@@ -198,7 +290,7 @@ class MessageController extends Controller
         $conversation->update(['status' => $data['status']]);
 
         return response()->json([
-            'data' => $this->transformConversation($conversation->fresh(['seller.sellerDetail', 'product'])),
+            'data' => $this->transformConversation($conversation->fresh(['seller.sellerDetail', 'product', 'order'])),
         ]);
     }
 
@@ -211,23 +303,35 @@ class MessageController extends Controller
 
     private function findForBuyer(Request $request, string $id): ?Conversation
     {
+        if (! Str::isUuid($id)) {
+            return null;
+        }
+
         return Conversation::query()
             ->where('buyer_id', $request->user()->id)
             ->whereKey($id)
             ->first();
     }
 
-    private function appendMessage(Conversation $conversation, string $senderId, string $role, string $body): Message
+    /**
+     * @param  list<array{id: string, name: string, path: string, mime: string, size: int}>  $attachments
+     */
+    private function appendMessage(Conversation $conversation, string $senderId, string $role, string $body, array $attachments = []): Message
     {
         $message = $conversation->messages()->create([
             'sender_id' => $senderId,
             'sender_role' => $role,
             'body' => $body,
+            'attachments' => $attachments,
         ]);
+
+        $preview = $body !== ''
+            ? mb_substr($body, 0, 160)
+            : (count($attachments) === 1 ? 'Photo' : count($attachments).' photos');
 
         $conversation->forceFill([
             'last_message_at' => $message->created_at,
-            'last_message_preview' => mb_substr($body, 0, 160),
+            'last_message_preview' => $preview,
             'last_message_sender_role' => $role,
         ]);
 
@@ -253,56 +357,250 @@ class MessageController extends Controller
     }
 
     /**
+     * @return array{id: string, name: string, path: string, mime: string, size: int}
+     */
+    /**
+     * Uploads every photo or none: on a storage failure the ones already
+     * uploaded are removed and null is returned.
+     *
+     * @param  array<int, UploadedFile>  $images
+     * @return array<int, array<string, mixed>>|null
+     */
+    private function storeImages(string $buyerId, array $images): ?array
+    {
+        $attachments = [];
+
+        try {
+            foreach ($images as $image) {
+                $attachments[] = $this->storeAttachment($buyerId, $image);
+            }
+        } catch (\RuntimeException $e) {
+            report($e);
+            $this->deleteAttachments($attachments);
+
+            return null;
+        }
+
+        return $attachments;
+    }
+
+    private function uploadFailed(): JsonResponse
+    {
+        return response()->json(['message' => 'Your photo couldn\'t be uploaded. Please try again.'], 502);
+    }
+
+    private function storeAttachment(string $buyerId, UploadedFile $file): array
+    {
+        $mime = (string) $file->getMimeType();
+        $path = $buyerId.'/'.Str::uuid().'.'.$this->storage->extensionForMime($mime);
+
+        $this->storage->ensureBucket(self::ATTACHMENTS_BUCKET, public: false);
+        $this->storage->upload(self::ATTACHMENTS_BUCKET, $path, (string) file_get_contents($file->getRealPath()), $mime);
+
+        return [
+            'id' => (string) Str::uuid(),
+            'name' => mb_substr($file->getClientOriginalName() ?: 'photo', 0, 120),
+            'path' => $path,
+            'mime' => $mime,
+            'size' => (int) $file->getSize(),
+        ];
+    }
+
+    /**
+     * @param  list<array{path: string}>  $attachments
+     */
+    private function deleteAttachments(array $attachments): void
+    {
+        $paths = array_values(array_filter(array_column($attachments, 'path')));
+
+        if ($paths) {
+            $this->storage->delete(self::ATTACHMENTS_BUCKET, $paths);
+        }
+    }
+
+    private function resolveCursor(Conversation $conversation, string $messageId): ?Message
+    {
+        if (! Str::isUuid($messageId)) {
+            return null;
+        }
+
+        return $conversation->messages()->whereKey($messageId)->first();
+    }
+
+    private function olderThan(Builder $query, Message $cursor): void
+    {
+        $query->where('created_at', '<', $cursor->created_at)
+            ->orWhere(fn (Builder $q) => $q->where('created_at', $cursor->created_at)->where('id', '<', $cursor->id));
+    }
+
+    private function newerThan(Builder $query, Message $cursor): void
+    {
+        $query->where('created_at', '>', $cursor->created_at)
+            ->orWhere(fn (Builder $q) => $q->where('created_at', $cursor->created_at)->where('id', '>', $cursor->id));
+    }
+
+    /**
+     * The newest page (optionally ending before $before), oldest first.
+     *
+     * @param  HasMany<Message, Conversation>  $relation
+     * @return array{0: Collection<int, Message>, 1: bool}
+     */
+    private function latestPage(HasMany $relation, ?Message $before): array
+    {
+        $rows = $relation
+            ->when($before, fn ($q) => $q->where(fn (Builder $w) => $this->olderThan($w, $before)))
+            // The relation sorts oldest first; this page wants newest first.
+            ->reorder()
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->limit(self::MESSAGE_PAGE + 1)
+            ->get();
+
+        $hasMore = $rows->count() > self::MESSAGE_PAGE;
+
+        return [$rows->take(self::MESSAGE_PAGE)->reverse()->values(), $hasMore];
+    }
+
+    /**
+     * Inbox row: what the list shows, no message bodies.
+     *
      * @return array<string, mixed>
      */
-    private function transformConversation(Conversation $c, bool $withMessages = false): array
+    private function transformConversation(Conversation $c): array
     {
         $sellerName = $c->seller?->sellerDetail?->business_name
             ?? $c->seller?->full_name
             ?? 'BuyTheWay Seller';
 
-        $out = [
+        return [
             'id' => $c->id,
             'seller' => $sellerName,
             'sellerId' => $c->seller_id,
+            'sellerLogo' => Avatar::url($c->seller?->avatar_path ?? null),
+            'sellerCategory' => $c->seller?->sellerDetail?->line_of_business,
             'status' => $c->status,
-            // No presence system yet — always reported offline rather than
-            // faked. memberSince is the seller account's real join year.
-            'online' => false,
-            'memberSince' => optional($c->seller?->created_at)->year,
             'unread' => (int) $c->buyer_unread_count,
-            'updatedAt' => optional($c->last_message_at)->toIso8601String(),
+            'updatedAt' => optional($c->last_message_at ?? $c->created_at)->toIso8601String(),
             'lastMessagePreview' => $c->last_message_preview,
+            'lastMessageFromMe' => $c->last_message_sender_role === 'buyer',
             'product' => $c->product ? [
                 'id' => $c->product->id,
                 'name' => $c->product->name,
-                'price' => (float) $c->product->price,
-                'oldPrice' => $c->product->compare_price ? (float) $c->product->compare_price : null,
             ] : null,
+            'order' => $c->order ? ['number' => $c->order->order_number] : null,
         ];
-
-        if ($withMessages) {
-            $out['messages'] = $c->messages
-                ->sortBy('created_at')
-                ->values()
-                ->map(fn (Message $m) => $this->transformMessage($m))
-                ->all();
-        }
-
-        return $out;
     }
 
     /**
+     * Thread view: the row, its product / order references and the latest
+     * page of messages.
+     *
      * @return array<string, mixed>
      */
-    private function transformMessage(Message $m): array
+    private function conversationDetail(Conversation $c): array
     {
+        $c->loadMissing(['seller.sellerDetail', 'product', 'order.items']);
+
+        [$messages, $hasMore] = $this->latestPage($c->messages(), null);
+
+        return array_merge($this->transformConversation($c), [
+            'product' => $this->productReference($c),
+            'order' => $this->orderReference($c),
+            'messages' => $this->transformMessages($messages),
+            'hasMore' => $hasMore,
+        ]);
+    }
+
+    /**
+     * The product as it is today (current price), not a historical price.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function productReference(Conversation $c): ?array
+    {
+        $product = $c->product;
+
+        if (! $product || $product->seller_id !== $c->seller_id) {
+            return null;
+        }
+
         return [
+            'id' => $product->id,
+            'name' => $product->name,
+            'price' => (float) $product->price,
+            'oldPrice' => $product->compare_price && (float) $product->compare_price > (float) $product->price
+                ? (float) $product->compare_price
+                : null,
+            'image' => ProductImage::urls($product->images)[0] ?? null,
+            'available' => $product->status === 'active',
+        ];
+    }
+
+    /**
+     * The order with the prices the buyer actually paid. Only when it is
+     * this buyer's order with this seller.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function orderReference(Conversation $c): ?array
+    {
+        $order = $c->order;
+
+        if (! $order || $order->buyer_profile_id !== $c->buyer_id || $order->seller_id !== $c->seller_id) {
+            return null;
+        }
+
+        return [
+            'id' => $order->id,
+            'number' => $order->order_number,
+            'status' => $order->status,
+            'placedAt' => optional($order->placed_at)->toIso8601String(),
+            'total' => (float) $order->total,
+            'items' => $order->items->map(fn ($item) => [
+                'name' => $item->product_name,
+                'variant' => $item->variant,
+                'quantity' => (int) $item->quantity,
+                'unitPrice' => (float) $item->unit_price,
+            ])->values()->all(),
+        ];
+    }
+
+    /**
+     * @param  Collection<int, Message>  $messages
+     * @return list<array<string, mixed>>
+     */
+    private function transformMessages(Collection $messages): array
+    {
+        $paths = $messages
+            ->flatMap(fn (Message $m) => collect($m->attachments ?? [])->pluck('path'))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $signed = $paths ? $this->storage->createSignedUrls(self::ATTACHMENTS_BUCKET, $paths) : [];
+
+        return $messages->map(fn (Message $m) => [
             'id' => $m->id,
             'from' => $m->sender_role,
             'text' => $m->body,
             'at' => optional($m->created_at)->toIso8601String(),
+            'attachments' => collect($m->attachments ?? [])
+                ->filter(fn ($a) => is_array($a))
+                ->map(fn (array $a) => [
+                    'id' => $a['id'] ?? null,
+                    'name' => $a['name'] ?? 'attachment',
+                    'mime' => $a['mime'] ?? null,
+                    'size' => $a['size'] ?? null,
+                    'url' => isset($a['path']) ? ($signed[$a['path']] ?? null) : null,
+                ])
+                ->values()
+                ->all(),
+            // Real read receipts for the buyer's own messages (the seller
+            // app sets read_at when the seller opens the thread). No
+            // "delivered" state exists, so none is claimed.
+            'status' => $m->sender_role === 'buyer' ? ($m->read_at ? 'read' : 'sent') : null,
             'readAt' => optional($m->read_at)->toIso8601String(),
-        ];
+        ])->values()->all();
     }
 }

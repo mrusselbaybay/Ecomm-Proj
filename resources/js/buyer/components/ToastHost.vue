@@ -4,8 +4,8 @@
 | ToastHost — the one on-screen home for buyer notifications
 |--------------------------------------------------------------------------
 |
-| Mounted once in Dashboard.vue (every buyer page renders inside it), the
-| same way <Chat/> is. Reads the shared queue from useToasts.js.
+| Mounted once in Dashboard.vue (every buyer page renders inside it).
+| Reads the shared queue from useToasts.js.
 |
 | Accessibility / UX:
 |   - fixed top-centre, below the sticky header, and above nothing that

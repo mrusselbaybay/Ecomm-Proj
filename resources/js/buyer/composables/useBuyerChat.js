@@ -1,438 +1,785 @@
-import { computed, ref, watch } from 'vue';
+import { computed, reactive, ref } from 'vue';
 
 import { buyerApi } from './useBuyerApi';
+import { authHeaders, getSupabase } from './useBuyerSession';
+import { fetchJson, storeEndpoint } from './useStores';
+import { useToasts } from './useToasts';
 
 /*
 |--------------------------------------------------------------------------
-| useBuyerChat — buyer <-> seller messaging
+| useBuyerChat — buyer <-> seller messaging (the Messages modal)
 |--------------------------------------------------------------------------
 |
-| Backed by the Laravel Buyer API (/api/buyer/messages/* ->
-| App\Http\Controllers\Buyer\MessageController, conversations / messages
-| tables).
+| Backed by /api/buyer/messages/* (App\Http\Controllers\Buyer\
+| MessageController). Module-level state so the inbox, the selected
+| thread, drafts, unsent photos and sends in flight all survive closing
+| and reopening the modal (MessagesModal.vue, mounted once in Dashboard).
 |
-| The exported surface is unchanged so Chat.vue and Header.vue need no
-| edits. Conversation / message objects are mapped here to the exact
-| shape Chat.vue already renders:
+| Opening: the header's Messages button (openChat) or a page's Message
+| seller button (messageSeller), which goes straight to that seller's
+| thread. When there is none yet, a "new conversation" screen keyed
+| `new:<seller>:<order>` holds the draft; the first send creates the
+| conversation, so sellers never see empty threads.
 |
-|   conversation: { id, seller, online, memberSince, unread, updatedAt,
-|                   product: { name, price, oldPrice } | null,
-|                   messages: [{ id, from: 'buyer'|'seller', text, at }] }
+| Updates: the project has no realtime channel the buyer can safely
+| subscribe to (the messages table has no row-level security), so while
+| the modal is open this polls: the open thread every THREAD_MS for
+| messages newer than the last one it has, the inbox every INBOX_MS.
+| While it's closed only the inbox is refreshed, every CLOSED_MS, for the
+| header badge.
+| Polling pauses in a hidden tab and catches up at once when the tab is
+| shown again or the network comes back, so nothing is missed. Messages
+| are merged by id, so a poll can never show one twice.
 |
-| Times are formatted to short labels here (the server returns ISO).
-|
-| The project has no websocket / Supabase-Realtime wiring, so while the
-| popup is open this polls every POLL_MS: it re-fetches the active thread
-| (picking up the seller's replies) and refreshes the other threads'
-| unread badges. Optimistic "local-" bubbles are preserved across a poll.
-| `startConversation` is the entry point used by the "Message Seller"
-| buttons on ProductDetails.vue / OrderDetails.vue.
+| Read state: a thread is marked read only when it is open on screen (the
+| inbox loading never marks anything). Buyer messages show "Sent" or
+| "Read" from the server's read_at; there is no delivery or presence data,
+| so neither is shown.
 |
 */
 
-const POLL_MS = 15000;
+const THREAD_MS = 8000;
+const INBOX_MS = 20000;
+const CLOSED_MS = 60000;
 
-const isChatOpen = ref(false);
+export const IMAGE_RULES = {
+    mimes: ['image/jpeg', 'image/png', 'image/webp'],
+    maxBytes: 5 * 1024 * 1024,
+    maxCount: 4
+};
 
 const conversations = ref([]);
-const isLoading = ref(false);
-const loadError = ref('');
-const activeConversationId = ref(null);
+const inboxLoaded = ref(false);
+const inboxLoading = ref(false);
+const inboxError = ref('');
+const unreadFromServer = ref(0);
 
-const unreadCount = ref(0);
+const activeId = ref(null);
 
-let loadedOnce = false;
-let inFlight = null;
-let unreadPrimed = false;
-let pollTimer = null;
+const chatOpen = ref(false);
 
-const activeConversation = computed(
-    () => conversations.value.find(c => c.id === activeConversationId.value) || null,
-);
+/** A seller with no thread yet: { key, sellerId, seller, sellerLogo, sellerCategory, product, order }. */
+const composeTarget = ref(null);
+
+/** Bumped to ask the open modal to show a conversation: { conversationId, seq }. */
+const chatRequest = ref(null);
+
+/** Conversation id -> the product the buyer came from (sent with the next message). */
+const askingAbout = reactive({});
+
+let returnFocusTo = null;
+let requestSeq = 0;
+
+const toasts = useToasts();
+
+/** id -> { loaded, loading, error, hasMore, loadingOlder, messages, product, order, pending } */
+const threads = reactive({});
+
+/** id -> { text, files: [{ key, file, url, error }] } */
+const drafts = reactive({});
 
 const totalUnread = computed(() => {
-    const fromList = conversations.value.reduce((sum, c) => sum + (c.unread || 0), 0);
+    if (!inboxLoaded.value) {
+        return unreadFromServer.value;
+    }
 
-    return Math.max(fromList, unreadCount.value);
+    return conversations.value.reduce((sum, c) => sum + (c.unread || 0), 0);
 });
 
-/*
-|--------------------------------------------------------------------------
-| Time formatting (server sends ISO; Chat.vue shows these labels as-is)
-|--------------------------------------------------------------------------
-*/
+function thread(id) {
+    if (!threads[id]) {
+        threads[id] = { loaded: false, loading: false, error: '', hasMore: false, loadingOlder: false, messages: [], product: null, order: null, pending: [] };
+    }
 
-function timeOfDay(date) {
-    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return threads[id];
 }
 
-function threadTimeLabel(iso) {
-    if (!iso) {
-        return '';
+export function draftFor(id) {
+    if (!drafts[id]) {
+        drafts[id] = { text: '', files: [] };
     }
 
-    const date = new Date(iso);
-
-    if (Number.isNaN(date.getTime())) {
-        return '';
-    }
-
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayMs = 24 * 60 * 60 * 1000;
-
-    if (date >= startOfToday) {
-        return timeOfDay(date);
-    }
-
-    if (date >= new Date(startOfToday.getTime() - dayMs)) {
-        return 'Yesterday';
-    }
-
-    if (date >= new Date(startOfToday.getTime() - 6 * dayMs)) {
-        return date.toLocaleDateString(undefined, { weekday: 'short' });
-    }
-
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return drafts[id];
 }
 
-function mapMessage(message) {
-    return {
-        id: message.id,
-        from: message.from === 'seller' ? 'seller' : 'buyer',
-        text: message.text,
-        at: threadTimeLabel(message.at) || timeOfDay(new Date()),
-    };
+function upsertConversation(row) {
+    const index = conversations.value.findIndex(c => c.id === row.id);
+
+    if (index === -1) {
+        conversations.value = [row, ...conversations.value];
+    } else {
+        conversations.value[index] = { ...conversations.value[index], ...row };
+    }
+
+    sortInbox();
 }
 
-function mapConversation(conversation) {
-    return {
-        id: conversation.id,
-        seller: conversation.seller || 'BuyTheWay Seller',
-        sellerId: conversation.sellerId || null,
-        status: conversation.status || 'open',
-        online: Boolean(conversation.online),
-        memberSince: conversation.memberSince || null,
-        unread: Number(conversation.unread || 0),
-        updatedAt: threadTimeLabel(conversation.updatedAt),
-        product: conversation.product
-            ? {
-                name: conversation.product.name,
-                price: conversation.product.price,
-                oldPrice: conversation.product.oldPrice,
-            }
-            : null,
-        messages: Array.isArray(conversation.messages)
-            ? conversation.messages.map(mapMessage)
-            : [],
-    };
+function sortInbox() {
+    conversations.value = [...conversations.value].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 }
 
-// Server messages are authoritative; any optimistic "local-" bubbles not
-// yet echoed back are re-appended so a poll / refetch never makes the
-// buyer's just-sent message flicker out.
-function withPendingLocal(existing, incoming) {
-    const pending = (existing?.messages || []).filter(m => String(m.id).startsWith('local-'));
+/** Adds server messages, never twice, keeping (at, id) order. */
+function mergeMessages(t, incoming, { prepend = false } = {}) {
+    const known = new Set(t.messages.map(m => m.id));
+    const fresh = incoming.filter(m => !known.has(m.id));
 
-    return { ...incoming, messages: [...incoming.messages, ...pending] };
+    if (!fresh.length) {
+        return [];
+    }
+
+    t.messages = prepend ? [...fresh, ...t.messages] : [...t.messages, ...fresh];
+
+    // A pending bubble whose message has now arrived some other way.
+    const ids = new Set(fresh.map(m => m.id));
+    t.pending = t.pending.filter(p => !p.serverId || !ids.has(p.serverId));
+
+    return fresh;
 }
 
 /*
 |--------------------------------------------------------------------------
-| Load
+| Inbox
 |--------------------------------------------------------------------------
 */
 
-async function fetchConversations() {
-    isLoading.value = true;
-    loadError.value = '';
+async function loadInbox({ quiet = false } = {}) {
+    if (inboxLoading.value) {
+        return;
+    }
+
+    inboxLoading.value = !quiet || !inboxLoaded.value;
+
+    if (!quiet) {
+        inboxError.value = '';
+    }
 
     try {
-        const data = await buyerApi('/buyer/messages/conversations');
-        conversations.value = (data || []).map(mapConversation);
+        const response = await fetch('/api/buyer/messages/conversations', { headers: await authHeaders() });
+        const body = await response.json().catch(() => ({}));
 
-        if (!activeConversationId.value && conversations.value.length) {
-            activeConversationId.value = conversations.value[0].id;
+        if (!response.ok) {
+            const error = new Error(body.message || 'Could not load your messages.');
+            error.status = response.status;
+
+            throw error;
         }
 
-        loadedOnce = true;
+        // Keep the open thread's locally-known read state: if it's on
+        // screen it has been read, whatever an in-flight poll says.
+        conversations.value = (body.data || []).map(row => (row.id === activeId.value && threads[row.id]?.loaded ? { ...row, unread: 0 } : row));
+        sortInbox();
+        unreadFromServer.value = body.meta?.unread_total ?? 0;
+        inboxLoaded.value = true;
+        inboxError.value = '';
     } catch (err) {
-        if (err?.status && err.status !== 401) {
-            loadError.value = err?.message || 'Could not load your messages.';
+        if (!quiet || !inboxLoaded.value) {
+            inboxError.value = err?.status === 401
+                ? 'Your session has ended. Please sign in again.'
+                : err?.message || 'Could not load your messages.';
         }
-
-        conversations.value = [];
     } finally {
-        isLoading.value = false;
+        inboxLoading.value = false;
     }
-}
-
-function loadConversations({ force = false } = {}) {
-    if (inFlight) {
-        return inFlight;
-    }
-
-    if (loadedOnce && !force) {
-        return Promise.resolve();
-    }
-
-    inFlight = fetchConversations().finally(() => {
-        inFlight = null;
-    });
-
-    return inFlight;
 }
 
 async function refreshUnreadCount() {
     try {
         const data = await buyerApi('/buyer/messages/unread-count');
-        unreadCount.value = Number(data?.count || 0);
-    } catch (err) {
-        // Silent — powers a header badge; keep the last known value.
+        unreadFromServer.value = Number(data?.count || 0);
+    } catch {
+        // Signed out or offline: the badge just stays as it was.
     }
 }
 
 /*
 |--------------------------------------------------------------------------
-| Polling (while the popup is open)
+| Threads
 |--------------------------------------------------------------------------
 */
 
-// Refresh the badges / previews / new threads without disturbing the
-// messages already loaded into the open thread.
-async function syncConversationMeta() {
-    try {
-        const data = await buyerApi('/buyer/messages/conversations');
+async function openThread(id) {
+    activeId.value = id;
 
-        for (const incoming of data || []) {
-            const local = conversations.value.find(c => c.id === incoming.id);
+    const t = thread(id);
 
-            if (local) {
-                local.unread = Number(incoming.unread || 0);
-                local.updatedAt = threadTimeLabel(incoming.updatedAt);
-                local.status = incoming.status || local.status;
-                local.online = Boolean(incoming.online);
-            } else {
-                conversations.value.push(mapConversation(incoming));
-            }
-        }
-    } catch (err) {
-        // Background refresh — a transient miss just retries next tick.
-    }
-}
+    if (t.loaded) {
+        await pollThread(id);
 
-async function refreshActiveConversation() {
-    const id = activeConversationId.value;
-
-    if (!id) {
         return;
     }
 
+    t.loading = true;
+    t.error = '';
+
+    try {
+        // Opening a thread is what marks it read on the server.
+        const data = await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}`);
+
+        t.messages = data.messages || [];
+        t.hasMore = Boolean(data.hasMore);
+        t.product = data.product || null;
+        t.order = data.order || null;
+        t.loaded = true;
+
+        const row = { ...data, unread: 0 };
+
+        delete row.messages;
+        delete row.hasMore;
+        upsertConversation(row);
+    } catch (err) {
+        t.error = err?.status === 404
+            ? 'This conversation isn’t available.'
+            : err?.message || 'Could not load this conversation.';
+    } finally {
+        t.loading = false;
+    }
+}
+
+function closeThread() {
+    activeId.value = null;
+}
+
+async function loadOlder(id) {
+    const t = thread(id);
+    const first = t.messages[0];
+
+    if (!t.hasMore || t.loadingOlder || !first) {
+        return [];
+    }
+
+    t.loadingOlder = true;
+
+    try {
+        const response = await fetch(`/api/buyer/messages/conversations/${encodeURIComponent(id)}/messages?before=${encodeURIComponent(first.id)}`, { headers: await authHeaders() });
+        const body = await response.json();
+
+        if (!response.ok) {
+            throw new Error(body.message || 'Could not load earlier messages.');
+        }
+
+        t.hasMore = Boolean(body.meta?.hasMore);
+
+        return mergeMessages(t, body.data || [], { prepend: true });
+    } finally {
+        t.loadingOlder = false;
+    }
+}
+
+/**
+ * Fetches messages newer than the last one this thread has. Returns the
+ * new ones (so the page can decide whether to scroll or show a pill).
+ */
+async function pollThread(id) {
+    const t = threads[id];
+    const last = t?.messages[t.messages.length - 1];
+
+    if (!t?.loaded || !last) {
+        return [];
+    }
+
+    try {
+        const response = await fetch(`/api/buyer/messages/conversations/${encodeURIComponent(id)}/messages?after=${encodeURIComponent(last.id)}`, { headers: await authHeaders() });
+
+        if (!response.ok) {
+            return [];
+        }
+
+        const body = await response.json();
+        const fresh = mergeMessages(t, body.data || []);
+
+        if (fresh.length) {
+            const latest = fresh[fresh.length - 1];
+
+            upsertConversation({
+                id,
+                updatedAt: latest.at,
+                lastMessagePreview: latest.text || (latest.attachments?.length ? 'Photo' : ''),
+                lastMessageFromMe: latest.from === 'buyer'
+            });
+        }
+
+        return fresh;
+    } catch {
+        return [];
+    }
+}
+
+/** Marks the open thread read (only call while it's visible). */
+async function markRead(id) {
+    const row = conversations.value.find(c => c.id === id);
+
+    if (row && row.unread > 0) {
+        row.unread = 0;
+    }
+
+    try {
+        await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}/read`, { method: 'PUT' });
+    } catch {
+        // Next poll / open will retry.
+    }
+}
+
+/** Refreshes buyer read receipts ("Sent" -> "Read") for the open thread. */
+async function refreshReceipts(id) {
+    const t = threads[id];
+
+    if (!t?.loaded || !t.messages.some(m => m.from === 'buyer' && m.status !== 'read')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/buyer/messages/conversations/${encodeURIComponent(id)}/messages`, { headers: await authHeaders() });
+
+        if (!response.ok) {
+            return;
+        }
+
+        const body = await response.json();
+        const status = new Map((body.data || []).map(m => [m.id, m]));
+
+        t.messages = t.messages.map(m => (status.has(m.id) ? { ...m, status: status.get(m.id).status, readAt: status.get(m.id).readAt } : m));
+    } catch {
+        // Receipts catch up on the next tick.
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Sending
+|--------------------------------------------------------------------------
+*/
+
+let localSeq = 0;
+
+async function bearer() {
+    const { data: { session } } = await getSupabase().auth.getSession();
+
+    if (!session?.access_token) {
+        const error = new Error('Your session has ended. Please sign in again.');
+        error.status = 401;
+
+        throw error;
+    }
+
+    return session.access_token;
+}
+
+function isNewKey(id) {
+    return String(id).startsWith('new:');
+}
+
+function upload(id, pending) {
+    return new Promise((resolve, reject) => {
+        bearer().then((token) => {
+            const form = new FormData();
+            const target = pending.target;
+            const asking = target ? target.product : askingAbout[id];
+
+            if (pending.text) {
+                form.append('body', pending.text);
+            }
+
+            pending.files.forEach(item => form.append('images[]', item.file));
+            form.append('client_id', pending.localId);
+
+            if (asking?.id) {
+                form.append('product_id', asking.id);
+            }
+
+            if (target) {
+                form.append('seller_id', target.sellerId);
+
+                if (target.order?.number) {
+                    form.append('order_number', target.order.number);
+                    form.append('subject', `Order ${target.order.number}`);
+                }
+            }
+
+            const xhr = new XMLHttpRequest();
+
+            xhr.open('POST', target
+                ? '/api/buyer/messages/conversations'
+                : `/api/buyer/messages/conversations/${encodeURIComponent(id)}/messages`);
+            xhr.setRequestHeader('Accept', 'application/json');
+            xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+            xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable && pending.files.length) {
+                    pending.progress = Math.round((event.loaded / event.total) * 100);
+                }
+            };
+
+            xhr.onload = () => {
+                let body = {};
+
+                try {
+                    body = JSON.parse(xhr.responseText || '{}');
+                } catch {
+                    body = {};
+                }
+
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(body.data);
+
+                    return;
+                }
+
+                const firstError = body.errors ? Object.values(body.errors).flat()[0] : null;
+                const error = new Error(firstError || body.message || 'Your message wasn’t sent.');
+                error.status = xhr.status;
+                reject(error);
+            };
+
+            xhr.onerror = () => reject(new Error('No connection. Your message wasn’t sent.'));
+            xhr.send(form);
+        }).catch(reject);
+    });
+}
+
+async function deliver(id, pending) {
+    const t = thread(id);
+
+    pending.status = 'sending';
+    pending.error = '';
+    pending.progress = pending.files.length ? 0 : null;
+
+    try {
+        const result = await upload(id, pending);
+
+        pending.files.forEach(item => URL.revokeObjectURL(item.url));
+
+        if (pending.target) {
+            adoptStarted(id, result, pending);
+
+            return;
+        }
+
+        pending.serverId = result.id;
+        mergeMessages(t, [result]);
+        t.pending = t.pending.filter(p => p.localId !== pending.localId);
+
+        upsertConversation({ id, updatedAt: result.at, lastMessagePreview: result.text || 'Photo', lastMessageFromMe: true });
+
+        if (askingAbout[id]) {
+            delete askingAbout[id];
+            refreshReferences(id);
+        }
+    } catch (err) {
+        pending.status = 'failed';
+        pending.error = err?.status === 401 ? 'Your session has ended. Sign in again to send.' : err?.message || 'Your message wasn’t sent.';
+
+        // Never fail silently behind a closed modal.
+        if (!chatOpen.value) {
+            const name = pending.target?.seller || conversations.value.find(c => c.id === id)?.seller || 'the seller';
+
+            toasts.error(`Your message to ${name} wasn’t sent. Open Messages to retry.`);
+        }
+    }
+}
+
+/**
+ * The first message created the conversation: swap the new-conversation
+ * screen for the real thread, keeping anything typed meanwhile.
+ */
+function adoptStarted(key, data, pending) {
+    const row = { ...data, unread: 0 };
+    const t = thread(data.id);
+
+    delete row.messages;
+    delete row.hasMore;
+
+    t.messages = data.messages || [];
+    t.hasMore = Boolean(data.hasMore);
+    t.product = data.product || null;
+    t.order = data.order || null;
+    t.loaded = true;
+    t.pending = [...t.pending, ...thread(key).pending.filter(p => p.localId !== pending.localId)];
+    upsertConversation(row);
+
+    const leftover = drafts[key];
+
+    if (leftover && (leftover.text || leftover.files.length)) {
+        drafts[data.id] = leftover;
+    }
+
+    delete drafts[key];
+    delete threads[key];
+
+    if (composeTarget.value?.key === key) {
+        composeTarget.value = null;
+        activeId.value = data.id;
+        chatRequest.value = { conversationId: data.id, seq: ++requestSeq };
+    }
+}
+
+/** Product / order cards after the reference changed on the server. */
+async function refreshReferences(id) {
     try {
         const data = await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}`);
-        const index = conversations.value.findIndex(c => c.id === id);
+        const t = thread(id);
 
-        if (index !== -1) {
-            conversations.value[index] = withPendingLocal(conversations.value[index], mapConversation(data));
-        }
-    } catch (err) {
-        // Leave the thread as-is on a transient miss.
+        t.product = data.product || null;
+        t.order = data.order || null;
+        upsertConversation({ id, product: data.product ? { id: data.product.id, name: data.product.name } : null });
+    } catch {
+        // The card catches up next time the thread opens.
     }
 }
 
-function pollTick() {
-    if (!isChatOpen.value) {
+/**
+ * Sends the draft for a thread. The draft is cleared straight away (the
+ * bubble shows as "Sending…"); if sending fails the bubble keeps the
+ * text and photos for Retry, or can be put back into the composer.
+ */
+function send(id) {
+    const draft = draftFor(id);
+    const text = draft.text.trim();
+    const files = draft.files.filter(item => !item.error);
+
+    if (!text && !files.length) {
+        return null;
+    }
+
+    // A new conversation is created once: wait for the first send.
+    if (isNewKey(id) && thread(id).pending.some(p => p.status === 'sending')) {
+        return null;
+    }
+
+    const pending = reactive({
+        localId: `local-${Date.now()}-${++localSeq}`,
+        text,
+        files,
+        at: new Date().toISOString(),
+        status: 'sending',
+        progress: files.length ? 0 : null,
+        error: '',
+        serverId: null,
+        target: isNewKey(id) && composeTarget.value?.key === id ? { ...composeTarget.value } : null
+    });
+
+    thread(id).pending.push(pending);
+    draft.text = '';
+    draft.files = [];
+
+    deliver(id, pending);
+
+    return pending;
+}
+
+function retry(id, localId) {
+    const pending = thread(id).pending.find(p => p.localId === localId);
+
+    if (pending && pending.status === 'failed') {
+        deliver(id, pending);
+    }
+}
+
+/** Puts a failed message back into the composer instead of retrying. */
+function restoreToDraft(id, localId) {
+    const t = thread(id);
+    const pending = t.pending.find(p => p.localId === localId);
+
+    if (!pending) {
         return;
     }
 
-    refreshActiveConversation();
-    syncConversationMeta();
+    const draft = draftFor(id);
+
+    draft.text = [pending.text, draft.text].filter(Boolean).join('\n');
+    draft.files = [...pending.files, ...draft.files].slice(0, IMAGE_RULES.maxCount);
+    t.pending = t.pending.filter(p => p.localId !== localId);
 }
 
-function startPolling() {
-    if (pollTimer) {
-        return;
-    }
+async function setStatus(id, status) {
+    const row = await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status })
+    });
 
-    pollTimer = setInterval(pollTick, POLL_MS);
+    upsertConversation(row);
+
+    return row;
 }
-
-function stopPolling() {
-    if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-    }
-}
-
-watch(isChatOpen, open => {
-    if (open) {
-        startPolling();
-    } else {
-        stopPolling();
-    }
-});
 
 /*
 |--------------------------------------------------------------------------
-| Open / close
+| Opening and closing the modal
 |--------------------------------------------------------------------------
 */
 
-async function openChat() {
-    isChatOpen.value = true;
-    await loadConversations();
-
-    if (activeConversationId.value) {
-        openConversation(activeConversationId.value);
+/** Opens the modal (on a conversation when given one). */
+function openChat({ conversationId = null } = {}) {
+    if (!chatOpen.value) {
+        returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     }
+
+    chatOpen.value = true;
+
+    if (conversationId) {
+        composeTarget.value = null;
+        chatRequest.value = { conversationId, seq: ++requestSeq };
+    }
+}
+
+/**
+ * Message seller (product, store and order pages): straight to that
+ * seller's thread — the order's own thread when there is an order — or a
+ * new-conversation screen when there isn't one yet. A product travels
+ * with the next message so the thread's reference follows it.
+ *
+ * @param {{ sellerId: string, seller?: string, sellerLogo?: string, sellerCategory?: string,
+ *           product?: { id, name, price, image }, order?: { number, status, items } }} target
+ */
+async function messageSeller(target) {
+    openChat();
+
+    // Nothing else is shown (or typed into) while the thread is found.
+    activeId.value = null;
+    composeTarget.value = null;
+    chatRequest.value = { pending: true, seq: ++requestSeq };
+
+    if (!inboxLoaded.value) {
+        await loadInbox();
+    }
+
+    if (!inboxLoaded.value) {
+        // Signed out or offline: the modal shows why.
+        chatRequest.value = null;
+
+        return;
+    }
+
+    const orderNumber = target.order?.number ? String(target.order.number).replace(/^#/, '') : null;
+    const match = conversations.value.find(c => c.sellerId === target.sellerId && (orderNumber ? c.order?.number === orderNumber : !c.order));
+
+    if (match) {
+        if (target.product) {
+            askingAbout[match.id] = target.product;
+        }
+
+        openChat({ conversationId: match.id });
+
+        return;
+    }
+
+    const key = `new:${target.sellerId}:${orderNumber || ''}`;
+    const t = thread(key);
+
+    t.loaded = true;
+    t.product = target.product ? { ...target.product, oldPrice: null, available: true } : null;
+    t.order = target.order ? { ...target.order, number: orderNumber } : null;
+
+    composeTarget.value = { ...target, key, order: t.order };
+    chatRequest.value = { compose: key, seq: ++requestSeq };
+
+    // Pages don't always know the store's logo (or, for an order, its
+    // name): fill them in when the store answers.
+    if (!target.seller || !target.sellerLogo) {
+        fetchJson(storeEndpoint(target.sellerId)).then((body) => {
+            const store = body.data || {};
+            const current = composeTarget.value;
+
+            if (current?.key === key) {
+                composeTarget.value = {
+                    ...current,
+                    seller: current.seller || store.name,
+                    sellerLogo: current.sellerLogo || store.logo || null,
+                    sellerCategory: current.sellerCategory || store.category || null
+                };
+            }
+        }).catch(() => {
+            // The header falls back to "Seller".
+        });
+    }
+}
+
+/** Drops the product chip for a thread ("not about this product"). */
+function clearAskingAbout(id) {
+    delete askingAbout[id];
 }
 
 function closeChat() {
-    isChatOpen.value = false;
+    chatOpen.value = false;
+
+    const target = returnFocusTo;
+
+    returnFocusTo = null;
+
+    if (target?.isConnected) {
+        requestAnimationFrame(() => target.focus({ preventScroll: true }));
+    }
 }
 
+/** The header's Messages button. */
 function toggleChat() {
-    if (isChatOpen.value) {
+    if (chatOpen.value) {
         closeChat();
     } else {
         openChat();
     }
 }
 
-async function openConversation(id) {
-    activeConversationId.value = id;
-
-    try {
-        const data = await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}`);
-        const mapped = mapConversation(data);
-        const index = conversations.value.findIndex(c => c.id === id);
-
-        if (index !== -1) {
-            conversations.value[index] = withPendingLocal(conversations.value[index], mapped);
-        } else {
-            conversations.value.unshift(mapped);
-        }
-
-        refreshUnreadCount();
-    } catch (err) {
-        // Leave whatever's already shown for this thread.
-    }
-}
-
-/*
-|--------------------------------------------------------------------------
-| Send
-|--------------------------------------------------------------------------
-|
-| Kept synchronous-returning (a boolean) so Chat.vue's handleSend() works
-| unchanged: the message is appended optimistically, then the POST runs in
-| the background and swaps in the server's copy (or drops the optimistic
-| bubble on failure).
-|
-*/
-
-function sendMessage(text) {
-    const convo = activeConversation.value;
-    const body = (text || '').trim();
-
-    if (!convo || !body) {
-        return false;
-    }
-
-    const localId = `local-${Date.now()}`;
-
-    convo.messages.push({
-        id: localId,
-        from: 'buyer',
-        text: body,
-        at: timeOfDay(new Date()),
-    });
-    convo.updatedAt = timeOfDay(new Date());
-
-    buyerApi(`/buyer/messages/conversations/${encodeURIComponent(convo.id)}/messages`, {
-        method: 'POST',
-        body: JSON.stringify({ body }),
-    })
-        .then(message => {
-            const idx = convo.messages.findIndex(m => m.id === localId);
-
-            if (idx !== -1 && message) {
-                convo.messages[idx] = mapMessage(message);
-            }
-        })
-        .catch(err => {
-            console.error('Error sending message:', err);
-            convo.messages = convo.messages.filter(m => m.id !== localId);
-        });
-
-    return true;
-}
-
-/**
- * Start (or reuse) a thread with a seller and send the first message.
- * `payload` = { sellerId, orderNumber?, productId?, subject?, body }
- * (orderNumber is the display id, e.g. "#SN-40412" — the leading "#" is
- * stripped here). Returns the mapped conversation. On success the popup
- * opens on the new thread.
- */
-async function startConversation(payload) {
-    try {
-        const data = await buyerApi('/buyer/messages/conversations', {
-            method: 'POST',
-            body: JSON.stringify({
-                seller_id: payload.sellerId,
-                order_number: payload.orderNumber ? String(payload.orderNumber).replace(/^#/, '') : null,
-                product_id: payload.productId || null,
-                subject: payload.subject || null,
-                body: payload.body,
-            }),
-        });
-
-        const mapped = mapConversation(data);
-        const index = conversations.value.findIndex(c => c.id === mapped.id);
-
-        if (index !== -1) {
-            conversations.value[index] = mapped;
-        } else {
-            conversations.value.unshift(mapped);
-        }
-
-        loadedOnce = true;
-        activeConversationId.value = mapped.id;
-        isChatOpen.value = true;
-
-        return mapped;
-    } catch (err) {
-        console.error('Error starting conversation:', err);
-
-        throw err;
-    }
-}
-
 export function useBuyerChat() {
-    // Prime the header's unread badge once per page load. Silently no-ops
-    // for a signed-out visitor (the request 401s and is swallowed).
-    if (!unreadPrimed) {
-        unreadPrimed = true;
-        refreshUnreadCount();
-    }
-
     return {
-        isChatOpen,
         conversations,
-        isLoading,
-        loadError,
-        activeConversationId,
-        activeConversation,
+        inboxLoaded,
+        inboxLoading,
+        inboxError,
+        activeId,
+        threads,
+        drafts,
         totalUnread,
+        chatOpen,
+        chatRequest,
+        composeTarget,
+        askingAbout,
 
-        loadConversations,
+        THREAD_MS,
+        INBOX_MS,
+
+        loadInbox,
         refreshUnreadCount,
+        openThread,
+        closeThread,
+        loadOlder,
+        pollThread,
+        markRead,
+        refreshReceipts,
+        send,
+        retry,
+        restoreToDraft,
+        setStatus,
         openChat,
         closeChat,
-        toggleChat,
-        openConversation,
-        sendMessage,
-        startConversation,
+        messageSeller,
+        clearAskingAbout,
+        toggleChat
     };
+}
+
+// Prime the header badge once per page load (silently no-ops when
+// signed out: the request 401s and is swallowed).
+let unreadPrimed = false;
+
+export function primeUnread() {
+    if (unreadPrimed) {
+        return;
+    }
+
+    unreadPrimed = true;
+    refreshUnreadCount();
+
+    // One page-wide timer: keeps the header badge right while the modal
+    // is closed (the open modal polls on its own).
+    setInterval(() => {
+        if (chatOpen.value || document.hidden) {
+            return;
+        }
+
+        if (inboxLoaded.value) {
+            loadInbox({ quiet: true });
+        } else {
+            refreshUnreadCount();
+        }
+    }, CLOSED_MS);
 }

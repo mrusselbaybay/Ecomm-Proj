@@ -13,8 +13,10 @@ const navRequest = ref(null);
 let seq = 0;
 
 /**
- * @param {'home'|'cart'|'account'|'orders'|'wishlist'|'reviews'|'addresses'|'payments'|'product'|'category'|'deals'} view
- * @param {object|null} payload  the product for 'product', the category name for 'category'
+ * @param {'home'|'cart'|'account'|'orders'|'wishlist'|'reviews'|'addresses'|'payments'|'product'|'category'|'deals'|'stores'|'store'|'messages'} view
+ * @param {object|null} payload  the product for 'product', the category name for 'category',
+ *                               the store ({ id, name, ... }) for 'store',
+ *                               { conversationId } for 'messages'
  */
 export function requestBuyerView(view, payload = null) {
     seq += 1;
