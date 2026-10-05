@@ -221,6 +221,8 @@ async function saveProfile(payload) {
                     barangay: payload.barangay,
                     street: payload.street,
                     house_no: payload.house_no,
+                    latitude: payload.pin?.lat ?? null,
+                    longitude: payload.pin?.lng ?? null,
                     business_name: payload.business_name,
                 },
             },

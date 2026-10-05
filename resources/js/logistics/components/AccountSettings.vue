@@ -559,6 +559,17 @@
                         </div>
                     </div>
 
+                    <AddressPinPicker
+                        v-model="formData.pin"
+                        style="margin-top: 1rem"
+                        :disabled="!isEditing"
+                        :street="formData.street"
+                        :barangay="formData.barangay"
+                        :municipality="formData.municipality_name"
+                        :province="formData.province_name"
+                        hint="Your hub location — shown on parcel tracking maps and used by couriers."
+                    />
+
                     <p
                         v-if="addressApiError"
                         class="save-msg error"
@@ -1076,6 +1087,7 @@ import { getSupabase, useLogistics } from '../composables/useLogistics';
 import { apiRequest } from '../../shared/accountApi';
 import { useLogisticsProfile } from '../composables/useLogisticsProfile';
 import { usePsgc } from '../composables/usePsgc';
+import AddressPinPicker from '../../shared/AddressPinPicker.vue';
 import AvatarCropper from './AvatarCropper.vue';
 import NavIcon from './NavIcon.vue';
 
@@ -1149,6 +1161,7 @@ function emptyFormData() {
         barangay: '',
         street: '',
         house_no: '',
+        pin: null,
     };
 }
 
@@ -1304,6 +1317,10 @@ watch(
         }
 
         hydrateFields(value, ADDRESS_FIELDS);
+        formData.pin = savedFormData.pin =
+            value.latitude != null && value.longitude != null
+                ? { lat: Number(value.latitude), lng: Number(value.longitude) }
+                : null;
         hydrated.address = true;
 
         // Some stored addresses have a province/municipality NAME but no

@@ -4,6 +4,7 @@ namespace App\Http\Requests\Buyer;
 
 use App\Models\BuyerAddress;
 use Illuminate\Foundation\Http\FormRequest;
+use App\Support\MapPin;
 use Illuminate\Validation\Rule;
 
 class UpdateAddressRequest extends FormRequest
@@ -32,6 +33,7 @@ class UpdateAddressRequest extends FormRequest
             'postal_code' => ['nullable', 'string', 'max:12'],
             'label' => ['nullable', Rule::in(BuyerAddress::LABELS)],
             'is_default' => ['nullable', 'boolean'],
+            ...MapPin::rules(),
         ];
     }
 }

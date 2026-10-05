@@ -70,7 +70,7 @@ class CheckoutService
      * (buyer_addresses) when one is given, otherwise the buyer's profile
      * address (public.addresses) — the pre-address-book behaviour.
      *
-     * @return array{address: ?BuyerAddress, region_name: ?string, province_code: ?string, province_name: ?string, municipality_name: ?string, barangay: ?string}
+     * @return array{address: ?BuyerAddress, region_name: ?string, province_code: ?string, province_name: ?string, municipality_name: ?string, barangay: ?string, latitude: ?float, longitude: ?float}
      *
      * @throws ValidationException when the saved address isn't the buyer's or lacks PSGC fields.
      */
@@ -94,6 +94,8 @@ class CheckoutService
                 'province_name' => $saved->province,
                 'municipality_name' => $saved->city,
                 'barangay' => $saved->barangay,
+                'latitude' => $saved->latitude,
+                'longitude' => $saved->longitude,
             ];
         }
 
@@ -106,6 +108,8 @@ class CheckoutService
             'province_name' => $profile?->province_name,
             'municipality_name' => $profile?->municipality_name,
             'barangay' => $profile?->barangay,
+            'latitude' => $profile?->latitude,
+            'longitude' => $profile?->longitude,
         ];
     }
 
@@ -337,6 +341,12 @@ class CheckoutService
             'shipping_province_name' => $destination['province_name'],
             'shipping_municipality_name' => $destination['municipality_name'],
             'shipping_barangay' => $destination['barangay'],
+            // Exact pins (when set) snapshotted so a later address edit
+            // never moves this order on the tracking map.
+            'shipping_latitude' => $destination['latitude'],
+            'shipping_longitude' => $destination['longitude'],
+            'pickup_latitude' => $seller?->address?->latitude,
+            'pickup_longitude' => $seller?->address?->longitude,
             // The seller's own structured address, same source shape as
             // the buyer's above — App\Services\TransferTriggerService
             // compares this against shipping_* to decide whether the

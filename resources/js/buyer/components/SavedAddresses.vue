@@ -350,6 +350,16 @@ function addressLines(address) {
                                 <span>{{ address.phone }}</span>
                             </div>
 
+                            <div
+                                class="flex items-center gap-2 text-sm mt-1.5"
+                                :class="address.pin ? 'text-[#0d9488]' : 'text-slate-400'"
+                            >
+                                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" />
+                                </svg>
+                                <span>{{ address.pin ? 'Pinned on map' : 'No map pin — edit to add one' }}</span>
+                            </div>
+
                             <p
                                 v-if="!address.isComplete"
                                 class="mt-4 flex items-start gap-2 px-3 py-2.5 rounded-xl bg-amber-50 text-xs font-medium text-amber-800"

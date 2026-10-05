@@ -8,6 +8,7 @@ use App\Models\Document;
 use App\Models\Profile;
 use App\Models\SellerDetail;
 use App\Models\StatusAuditLog;
+use App\Support\MapPin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -156,6 +157,7 @@ class AccountController extends Controller
             'barangay' => ['required', 'string', 'max:150'],
             'street' => ['required', 'string', 'max:255'],
             'house_no' => ['nullable', 'string', 'max:50'],
+            ...MapPin::rules(),
         ];
     }
 

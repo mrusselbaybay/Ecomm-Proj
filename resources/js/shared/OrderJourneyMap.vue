@@ -23,19 +23,12 @@
 */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
-// Leaflet (~42KB gz + its CSS) is loaded on demand — this shared
-// component is imported in a few places but the map only actually renders
-// on an order-details view with a mappable route.
+import { loadLeaflet, OSM_ATTRIBUTION, OSM_TILES } from './leaflet';
+
 let L = null;
 
 async function ensureLeaflet() {
-    if (L) {
-        return L;
-    }
-
-    const [mod] = await Promise.all([import('leaflet'), import('leaflet/dist/leaflet.css')]);
-
-    L = mod.default;
+    L ??= await loadLeaflet();
 
     return L;
 }
@@ -65,6 +58,23 @@ const live = computed(() => !!props.journey?.live);
 const estimated = computed(() => !!props.journey?.estimated);
 const cancelled = computed(() => !!props.journey?.cancelled);
 const phases = computed(() => props.journey?.phases ?? []);
+
+// Route stops (seller -> hubs -> buyer). Older payloads without `stops`
+// fall back to just origin + destination.
+const stops = computed(() => {
+    const j = props.journey;
+
+    if (j?.stops?.length >= 2) {
+        return j.stops;
+    }
+
+    return j?.origin && j?.destination
+        ? [{ ...j.origin, role: 'origin', at: 'x' }, { ...j.destination, role: 'destination', at: j.delivered ? 'x' : null }]
+        : [];
+});
+const reachedIndex = computed(() => props.journey?.reachedIndex ?? (props.journey?.delivered ? stops.value.length - 1 : 0));
+const activeLeg = computed(() => props.journey?.activeLeg ?? null);
+const statusLabel = computed(() => props.journey?.statusLabel || '');
 
 const ageText = ref('');
 
@@ -103,12 +113,57 @@ function courierIcon() {
     });
 }
 
-function pinIcon(kind) {
+function pinIcon(kind, reached) {
     return L.divIcon({
         className: 'jm-pin-wrap',
-        html: `<span class="jm-pin jm-pin--${kind}"></span>`,
+        html: `<span class="jm-pin jm-pin--${kind}${reached ? '' : ' is-pending'}"></span>`,
         iconSize: [16, 16],
         iconAnchor: [8, 8],
+    });
+}
+
+const ROLE_KIND = { origin: 'origin', hub: 'hub', destination: 'dest' };
+
+function escapeHtml(text) {
+    return String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+// Legs + stop markers live in one layer group, redrawn only when the
+// route itself changes (not on every live ping).
+let routeKey = '';
+
+function drawRoute() {
+    const key = JSON.stringify([stops.value.map((s) => [s.lat, s.lng, s.at ? 1 : 0]), reachedIndex.value, activeLeg.value]);
+
+    if (key === routeKey && layers.route) {
+        return;
+    }
+
+    routeKey = key;
+    layers.route?.remove();
+    layers.route = L.layerGroup().addTo(map);
+
+    const list = stops.value;
+
+    for (let i = 0; i < list.length - 1; i++) {
+        const done = i < reachedIndex.value;
+        const active = i === activeLeg.value;
+
+        L.polyline([ll(list[i]), ll(list[i + 1])], {
+            color: done || active ? '#0d9488' : '#64748b',
+            weight: done ? 4 : 3,
+            opacity: done || active ? 0.9 : 0.6,
+            dashArray: done ? null : active ? '8 6' : '4 8',
+            className: active ? 'jm-leg-active' : '',
+        }).addTo(layers.route);
+    }
+
+    list.forEach((stop, i) => {
+        const reached = i <= reachedIndex.value;
+
+        L.marker(ll(stop), { icon: pinIcon(ROLE_KIND[stop.role] || 'hub', reached), title: stop.name, keyboard: false })
+            .bindTooltip(`${escapeHtml(stop.name)}${stop.exact === false ? ' <em>(approx.)</em>' : ''}`, { direction: 'top', offset: [0, -8] })
+            .addTo(layers.route);
     });
 }
 
@@ -117,11 +172,7 @@ function fitAll() {
         return;
     }
 
-    const pts = [
-        ll(props.journey.origin),
-        ll(props.journey.destination),
-        ...(props.journey.trail || []).map(ll),
-    ];
+    const pts = [...stops.value.map(ll), ...(props.journey.trail || []).map(ll)];
 
     if (props.journey.parcel) {
         pts.push(ll(props.journey.parcel));
@@ -145,20 +196,10 @@ async function initMap() {
 
         map = L.map(mapEl.value, { scrollWheelZoom: false, zoomControl: true });
 
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 18,
-            attribution: '&copy; OpenStreetMap contributors',
-        }).addTo(map);
+        L.tileLayer(OSM_TILES, { maxZoom: 18, attribution: OSM_ATTRIBUTION }).addTo(map);
 
-        const o = props.journey.origin;
-        const d = props.journey.destination;
-
-        layers.route = L.polyline([ll(o), ll(d)], {
-            color: '#64748b',
-            weight: 2,
-            opacity: 0.7,
-            dashArray: '4 8',
-        }).addTo(map);
+        routeKey = '';
+        drawRoute();
 
         layers.trail = L.polyline((props.journey.trail || []).map(ll), {
             color: '#0d9488',
@@ -166,10 +207,7 @@ async function initMap() {
             opacity: 0.9,
         }).addTo(map);
 
-        L.marker(ll(o), { icon: pinIcon('origin'), title: o.name }).addTo(map);
-        L.marker(ll(d), { icon: pinIcon('dest'), title: d.name }).addTo(map);
-
-        layers.courier = L.marker(props.journey.parcel ? ll(props.journey.parcel) : ll(o), {
+        layers.courier = L.marker(props.journey.parcel ? ll(props.journey.parcel) : ll(stops.value[0]), {
             icon: courierIcon(),
             zIndexOffset: 1000,
             keyboard: false,
@@ -227,6 +265,7 @@ function destroyMap() {
     }
 
     layers = {};
+    routeKey = '';
 }
 
 watch(
@@ -245,6 +284,8 @@ watch(
 
             return;
         }
+
+        drawRoute();
 
         if (layers.trail) {
             layers.trail.setLatLngs((j.trail || []).map(ll));
@@ -301,13 +342,23 @@ function fmt(iso) {
             <span v-else-if="estimated" class="journey-flag">Estimated position</span>
         </div>
 
+        <p v-if="statusLabel && !cancelled" class="journey-status">{{ statusLabel }}</p>
+
         <div v-if="hasRoute" class="journey-map-wrap">
             <div ref="mapEl" class="journey-map"></div>
 
-            <div class="journey-endpoints">
-                <span><i class="journey-dot journey-dot--origin"></i>{{ journey.origin.name }}</span>
-                <span><i class="journey-dot journey-dot--dest"></i>{{ journey.destination.name }}</span>
-            </div>
+            <ol class="journey-stops" aria-label="Route">
+                <li
+                    v-for="(stop, i) in stops"
+                    :key="i"
+                    class="journey-stop"
+                    :class="{ 'is-reached': i <= reachedIndex, 'is-here': i === reachedIndex && !journey.delivered }"
+                >
+                    <i class="journey-dot" :class="`journey-dot--${ROLE_KIND[stop.role] || 'hub'}`"></i>
+                    <span class="journey-stop-name">{{ stop.name }}</span>
+                    <span v-if="stop.exact === false" class="journey-stop-approx" title="No map pin — shown at the town centre">approx.</span>
+                </li>
+            </ol>
         </div>
 
         <p v-else class="journey-nomap">
@@ -472,20 +523,82 @@ function fmt(iso) {
     }
 }
 
-.journey-endpoints {
+.journey-status {
+    margin: -4px 0 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--jm-accent);
+}
+
+.journey-stops {
+    list-style: none;
     display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    margin-top: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    margin: 8px 0 0;
+    padding: 0;
     color: var(--jm-muted);
     font-size: 11.5px;
 }
 
-.journey-endpoints span {
+.journey-stop {
     display: inline-flex;
     align-items: center;
     gap: 5px;
     min-width: 0;
+    opacity: 0.6;
+}
+
+.journey-stop.is-reached {
+    opacity: 1;
+}
+
+.journey-stop.is-here .journey-stop-name {
+    color: var(--jm-ink);
+    font-weight: 700;
+}
+
+.journey-stop:not(:last-child)::after {
+    content: '→';
+    margin-left: 2px;
+    color: var(--jm-line);
+}
+
+.journey-stop-approx {
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    font-size: 10px;
+}
+
+.journey-dot--hub {
+    background: #f59e0b;
+    border-radius: 2px;
+}
+
+.journey-map :deep(.jm-pin--hub) {
+    background: #f59e0b;
+    border-radius: 4px;
+}
+
+.journey-map :deep(.jm-pin.is-pending) {
+    background: #fff;
+    border-color: #94a3b8;
+}
+
+.journey-map :deep(.jm-leg-active) {
+    animation: jm-dash 1s linear infinite;
+}
+
+@keyframes jm-dash {
+    to { stroke-dashoffset: -14; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .journey-map :deep(.jm-leg-active) {
+        animation: none;
+    }
 }
 
 .journey-dot {

@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasMapPin;
 use App\Models\Concerns\HasUuidPrimaryKey;
 use Illuminate\Database\Eloquent\Model;
 
 class Address extends Model
 {
-    use HasUuidPrimaryKey;
+    use HasMapPin, HasUuidPrimaryKey;
 
     protected $table = 'addresses';
     public $incrementing = false;

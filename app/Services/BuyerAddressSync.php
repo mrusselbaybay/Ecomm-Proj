@@ -36,6 +36,7 @@ class BuyerAddressSync
             'recipient_name' => $buyer->full_name,
             'contact_no' => (string) $buyer->contact_no,
             ...$this->fromAccount($account),
+            ...$this->seedPin($account),
             'label' => 'Home',
             'is_default' => true,
         ]);
@@ -61,6 +62,8 @@ class BuyerAddressSync
                 'barangay' => $default->barangay,
                 'street' => $default->line1,
                 'house_no' => $default->house_no,
+                'latitude' => $default->latitude,
+                'longitude' => $default->longitude,
             ],
         );
     }
@@ -98,5 +101,17 @@ class BuyerAddressSync
             'city' => (string) $account->municipality_name,
             'barangay' => $account->barangay,
         ];
+    }
+
+    /**
+     * The account form has no pin picker, so a pin is only carried over
+     * when seeding — an account edit otherwise leaves the saved address's
+     * pin alone (HasMapPin clears it if the area changed).
+     *
+     * @return array<string, mixed>
+     */
+    private function seedPin(Address $account): array
+    {
+        return ['latitude' => $account->latitude, 'longitude' => $account->longitude];
     }
 }

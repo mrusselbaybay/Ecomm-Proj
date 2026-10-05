@@ -16,6 +16,7 @@
 */
 import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 
+import AddressPinPicker from '../../shared/AddressPinPicker.vue';
 import { usePsgc } from '../../shared/usePsgc';
 import { useBuyerAccount } from '../composables/useBuyerAccount';
 import { isValidLocalMobile, toLocalMobile } from '../composables/usePhone';
@@ -63,7 +64,8 @@ const form = reactive({
     line1: props.initial?.line1 || '',
     postalCode: props.initial?.postalCode || '',
     label: props.initial?.label || 'Home',
-    makeDefault: Boolean(props.initial?.isDefault)
+    makeDefault: Boolean(props.initial?.isDefault),
+    pin: props.initial?.pin || null
 });
 
 const errors = ref({});
@@ -318,6 +320,16 @@ const id = name => `${props.idPrefix}-${name}`;
                 <p v-if="errors.postalCode" class="text-xs text-red-500 mt-1 px-1">{{ errors.postalCode }}</p>
             </div>
         </div>
+
+        <AddressPinPicker
+            v-model="form.pin"
+            class="sm:col-span-2"
+            :street="form.line1"
+            :barangay="form.barangay"
+            :municipality="form.city"
+            :province="form.province"
+            hint="Pin your door so the rider finds you without calling."
+        />
 
         <div class="sm:col-span-2 flex flex-wrap items-center justify-between gap-4">
             <div class="flex gap-2" role="radiogroup" aria-label="Address type">

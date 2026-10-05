@@ -1,7 +1,7 @@
 # Graph Report - BuyTheWay - Web  (2026-10-05)
 
 ## Corpus Check
-- 807 files · ~794,954 words
+- 807 files · ~794,677 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 86 file(s) not represented in the graph (top: .csv 53, (none) 18, .css 10)
 
@@ -1867,9 +1867,9 @@ Nodes (9): Buyer, BuyTheWay — System Features, Courier, Database scripts, Logi
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `vue` connect `vue` to `AddressForm.vue`, `ProductReviewsDrawer.vue`, `BarangayAssignments.vue`, `Inventory.vue`, `admin/components/Profile.vue`, `Team.vue`, `ProductCouponsEditor.vue`, `Applications.vue`, `ProductCouponCards.vue`, `SwitchAccountCard.vue`, `AcceptInvite.vue`, `QuantityStepper.vue`, `AccountSettings.vue`, `seller/components/Profile.vue`, `SearchableSelect.vue`, `useLogistics.js`, `useBuyer.js`, `ParcelOperations.vue`, `Account.vue`, `PrepareOrders.vue`, `useSellerProducts.js`, `buyer/components/Dashboard.vue`, `CourierHandover.vue`, `seller/components/Messages.vue`, `seller/components/Dashboard.vue`, `ProductDetails.vue`, `seller/components/OrderDetails.vue`, `logistics/components/Messages.vue`, `Feedback.vue`, `QrCode`, `useReports.js`, `SellerLayout.vue`, `LogisticsLayout.vue`, `PickupCourierLayout.vue`, `admin/components/Chat.vue`, `Registrations.vue`, `Checkout.vue`, `RefundRequestsDrawer.vue`, `package.json`, `buyer/components/OrderDetails.vue`, `useOrders.js`, `Users.vue`, `js/seller/composables/useSeller.js`, `AttachmentVideoPlayer.vue`, `Home.vue`, `Riders.vue`, `OrderTracking.vue`, `seller/components/Orders.vue`, `Complaints.vue`, `useDeliveries.js`, `Header.vue`, `CategoryListing.vue`, `PaymentMethods.vue`, `useLogisticsProfile.js`, `Compliance.vue`, `useProductReviews.js`, `useMessaging.js`, `useBuyerAccount.js`, `SavedAddresses.vue`, `getSupabase`, `ReturnRequestModal.vue`, `seller/components/Reports.vue`, `OrderJourneyMap.vue`, `AdminLayout.vue`, `useFeedback.js`, `CustomerServicePage.vue`, `admin/components/Reports.vue`, `useAdmin.js`, `Commission.vue`, `buyer/components/AvatarCropper.vue`, `logistics/components/AvatarCropper.vue`, `seller/components/AvatarCropper.vue`, `useLogisticsUi.js`, `buyer/components/Chat.vue`, `buyer/components/Orders.vue`, `ReviewModal.vue`, `useSellerNotifications.js`, `app-logistics.js`, `admin/components/AvatarCropper.vue`, `ConfirmActionDialog.vue`, `AddressPinPicker.vue`, `CashFlowPanel.vue`, `app.js`, `useHomeSession.js`, `OrderStatusBadge.vue`, `useCouriers.js`, `PasswordStrength.vue`, `OrderFilters.vue`?**
-  _High betweenness centrality (0.551) - this node is a cross-community bridge._
+  _High betweenness centrality (0.559) - this node is a cross-community bridge._
 - **Why does `Detection Checklist` connect `Detection Checklist` to `Eloquent Best Practices`, `QuantityStepper.vue`?**
-  _High betweenness centrality (0.366) - this node is a cross-community bridge._
+  _High betweenness centrality (0.370) - this node is a cross-community bridge._
 - **What connects `fs`, `path`, `fs` to the rest of the system?**
   _3248 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `ParcelAssignment` be split into smaller, more focused modules?**

@@ -415,6 +415,18 @@
                             </div>
                         </div>
 
+                        <AddressPinPicker
+                            v-model="formData.pin"
+                            style="margin-top: 1rem"
+                            :disabled="!isEditing"
+                            theme="dark"
+                            :street="formData.street"
+                            :barangay="formData.barangay"
+                            :municipality="formData.municipality_name"
+                            :province="formData.province_name"
+                            hint="Your pickup point — couriers use this pin to collect parcels."
+                        />
+
                         <p
                             v-if="addressApiError"
                             class="save-msg error"
@@ -746,6 +758,7 @@ import { useSeller, getSupabase } from '../composables/useSeller';
 import { apiRequest } from '../../shared/accountApi';
 import AvatarCropper from './AvatarCropper.vue';
 import SwitchAccountCard from '../../shared/SwitchAccountCard.vue';
+import AddressPinPicker from '../../shared/AddressPinPicker.vue';
 
 const {
     profile,
@@ -804,6 +817,7 @@ function emptyFormData() {
         barangay: '',
         street: '',
         house_no: '',
+        pin: null,
         business_name: '',
         line_of_business: '',
     };
@@ -944,6 +958,10 @@ watch(
         }
 
         hydrateFields(value, ADDRESS_FIELDS);
+        formData.pin = savedFormData.pin =
+            value.latitude != null && value.longitude != null
+                ? { lat: Number(value.latitude), lng: Number(value.longitude) }
+                : null;
         hydrated.address = true;
 
         // Some stored addresses (older onboarding, a past relocation

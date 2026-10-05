@@ -36,6 +36,7 @@ use App\Http\Controllers\Logistics\MessageController as LogisticsMessageControll
 use App\Http\Controllers\Messaging\MessageAttachmentController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\GeoLocateController;
 use App\Http\Controllers\PsgcProxyController;
 use App\Mail\RegistrationApproved;
 use Illuminate\Support\Facades\Mail;
@@ -190,6 +191,11 @@ Route::prefix('psgc')->name('psgc.')->group(function () {
     Route::get('/cities-municipalities', [PsgcProxyController::class, 'citiesMunicipalities'])->name('cities-municipalities');
     Route::get('/barangays', [PsgcProxyController::class, 'barangays'])->name('barangays');
 });
+
+// Where to open the address pin picker (see GeoLocateController).
+Route::get('/geo/locate', GeoLocateController::class)
+    ->middleware('throttle:30,1')
+    ->name('geo.locate');
 
 // ============================================================
 // COURIER WORK ROUTES

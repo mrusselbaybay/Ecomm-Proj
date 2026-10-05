@@ -30,6 +30,7 @@ class Order extends Model
         'shipping_region_name', 'shipping_province_name', 'shipping_municipality_name',
         'shipping_barangay', 'shipping_street', 'shipping_house_no',
         'pickup_region_name', 'pickup_province_name', 'pickup_municipality_name', 'pickup_barangay',
+        'shipping_latitude', 'shipping_longitude', 'pickup_latitude', 'pickup_longitude',
         'status', 'payment_method', 'payment_status',
         'subtotal', 'shipping_fee', 'tax', 'discount', 'total',
         'shipping_carrier', 'shipping_service', 'tracking_number',
@@ -56,6 +57,10 @@ class Order extends Model
         'placed_at' => 'datetime',
         'received_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'shipping_latitude' => 'float',
+        'shipping_longitude' => 'float',
+        'pickup_latitude' => 'float',
+        'pickup_longitude' => 'float',
     ];
 
     public const PAYMENT_STATUSES = ['Unpaid', 'Paid', 'Refunded'];

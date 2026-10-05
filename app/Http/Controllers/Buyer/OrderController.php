@@ -8,13 +8,14 @@ use App\Models\OrderReturnRequest;
 use App\Models\ParcelAssignment;
 use App\Services\OrderCancellationService;
 use App\Services\Payments\OrderReceiptService;
+use App\Support\ProductImage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
-    private const WITH = ['items.review', 'items.returnRequests', 'seller.sellerDetail', 'statusHistory', 'parcelAssignment.rider', 'returnRequests'];
+    private const WITH = ['items.product:id,images', 'items.review', 'items.returnRequests', 'seller.sellerDetail', 'statusHistory', 'parcelAssignment.rider', 'returnRequests'];
 
     /**
      * GET /api/buyer/orders
@@ -193,6 +194,9 @@ class OrderController extends Controller
                 'name' => $item->product_name,
                 'seller' => $sellerName,
                 'category' => $item->category,
+                // Primary product photo for order cards (null when the
+                // product was deleted or has none — the app shows an icon).
+                'image' => $item->product ? (ProductImage::urls($item->product->images)[0] ?? null) : null,
                 'variation' => $item->variant,
                 'quantity' => $item->quantity,
                 'unit_price' => (float) $item->unit_price,

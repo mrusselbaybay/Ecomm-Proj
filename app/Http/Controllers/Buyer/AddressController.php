@@ -66,6 +66,8 @@ class AddressController extends Controller
                 'postal_code' => $data['postal_code'] ?? null,
                 'label' => $data['label'] ?? 'Home',
                 'is_default' => $makeDefault,
+                'latitude' => $data['latitude'] ?? null,
+                'longitude' => $data['longitude'] ?? null,
             ]);
         });
 
@@ -93,7 +95,7 @@ class AddressController extends Controller
 
             $address->fill(collect($data)->only([
                 'recipient_name', 'contact_no', 'house_no', 'line1', 'region_name', 'province_code', 'province',
-                'municipality_code', 'city', 'barangay', 'postal_code', 'label',
+                'municipality_code', 'city', 'barangay', 'postal_code', 'label', 'latitude', 'longitude',
             ])->all());
 
             if (array_key_exists('is_default', $data) && $data['is_default']) {
@@ -184,6 +186,7 @@ class AddressController extends Controller
             'label' => $address->label,
             'isDefault' => (bool) $address->is_default,
             'isComplete' => $address->isRoutable(),
+            'pin' => $address->mapPin(),
             'lastUsedAt' => $address->last_used_at?->toIso8601String(),
         ];
     }

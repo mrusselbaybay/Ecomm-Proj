@@ -155,6 +155,8 @@ function normalize(input) {
         postal_code: (input.postalCode || '').trim() || null,
         label: ADDRESS_LABELS.includes(input.label) ? input.label : 'Home',
         is_default: Boolean(input.makeDefault),
+        // Only callers that carry a pin (AddressForm) may set or clear it.
+        ...('pin' in input ? { latitude: input.pin?.lat ?? null, longitude: input.pin?.lng ?? null } : {}),
     };
 }
 
