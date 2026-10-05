@@ -34,12 +34,19 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
-    
+
     // ✅ CORRECT: Single Supabase config with all keys
     'supabase' => [
         'url' => env('VITE_SUPABASE_URL'),
         'anon_key' => env('VITE_SUPABASE_ANON_KEY'),
         'service_role_key' => env('SUPABASE_SERVICE_ROLE_KEY'), // For backend operations
+    ],
+
+    // Saving cards / linking e-wallets for buyers (see App\Support\SavedPaymentSupport).
+    // Server-side only; nothing here is exposed to the browser.
+    'payment_vault' => [
+        'provider' => env('PAYMENT_VAULT_PROVIDER'),
+        'secret_key' => env('PAYMENT_VAULT_SECRET_KEY'),
     ],
 
 ];
