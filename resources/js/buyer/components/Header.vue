@@ -2,7 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import BrandMark from './BrandMark.vue';
 import { useBuyer } from '../composables/useBuyer';
-import { useBuyerChat } from '../composables/useBuyerChat';
+import { primeUnread, useBuyerChat } from '../composables/useBuyerChat';
 import { useBuyerProducts } from '../composables/useBuyerProducts';
 import { useBuyerSession } from '../composables/useBuyerSession';
 import { requestBuyerView } from '../composables/useBuyerNav';
@@ -27,6 +27,12 @@ const props = defineProps({
     searchQuery: {
         type: String,
         default: ''
+    },
+    // Highlights a non-category destination in the category bar / drawer
+    // ('stores' on the store directory and store pages).
+    activeView: {
+        type: String,
+        default: ''
     }
 });
 
@@ -41,6 +47,9 @@ const emit = defineEmits([
 
 const { cartItemCount, favoriteCount } = useBuyer();
 const { totalUnread, toggleChat } = useBuyerChat();
+
+// The Messages badge: one unread-count request per page load.
+primeUnread();
 const { products } = useBuyerProducts();
 const { buyerProfile } = useBuyerSession();
 
@@ -99,6 +108,11 @@ function selectCategory(category) {
 function goToDeals() {
     closeAll();
     requestBuyerView('deals');
+}
+
+function goToStores() {
+    closeAll();
+    requestBuyerView('stores');
 }
 
 /*
@@ -229,12 +243,14 @@ const accountOpen = ref(false);
 
 const accountName = computed(() => buyerProfile.value?.first_name || '');
 
+// Shopping destinations first, then account settings (see useAccountNav).
 const accountLinks = [
     { view: 'orders', label: 'My orders' },
     { view: 'wishlist', label: 'Wishlist' },
-    { view: 'addresses', label: 'Saved addresses' },
-    { view: 'payments', label: 'Payment methods' },
-    { view: 'reviews', label: 'My reviews' }
+    { view: 'reviews', label: 'My reviews' },
+    { view: 'account', section: 'following', label: 'Followed stores' },
+    { view: 'account', section: 'addresses', label: 'Addresses' },
+    { view: 'account', section: 'help', label: 'Help & support' }
 ];
 
 function toggleAccount() {
@@ -243,12 +259,12 @@ function toggleAccount() {
 
 function openProfile() {
     closeAll();
-    emit('account-click');
+    requestBuyerView('account', { section: 'profile' });
 }
 
-function goToView(view) {
+function goToView(view, section = null) {
     closeAll();
-    requestBuyerView(view);
+    requestBuyerView(view, section ? { section } : null);
 }
 
 /*
@@ -479,6 +495,7 @@ onUnmounted(() => {
                     type="button"
                     class="icon-btn header-action"
                     data-chat-trigger
+                    aria-haspopup="dialog"
                     :aria-label="totalUnread > 0 ? `Messages, ${totalUnread} unread` : 'Messages'"
                     @click="toggleChat"
                 >
@@ -547,9 +564,9 @@ onUnmounted(() => {
                         </button>
                         <button
                             v-for="link in accountLinks"
-                            :key="link.view"
+                            :key="link.label"
                             type="button"
-                            @click="goToView(link.view)"
+                            @click="goToView(link.view, link.section)"
                         >
                             {{ link.label }}
                         </button>
@@ -609,6 +626,17 @@ onUnmounted(() => {
                         @click="goToDeals"
                     >
                         Deals
+                    </button>
+                </li>
+                <li>
+                    <button
+                        type="button"
+                        class="category-bar-link"
+                        :class="{ 'is-active': activeView === 'stores' }"
+                        :aria-current="activeView === 'stores' ? 'page' : undefined"
+                        @click="goToStores"
+                    >
+                        Stores
                     </button>
                 </li>
                 <li
@@ -680,6 +708,14 @@ onUnmounted(() => {
                     Deals
                 </button>
                 <button
+                    type="button"
+                    class="header-drawer-link"
+                    :class="{ 'is-active': activeView === 'stores' }"
+                    @click="goToStores"
+                >
+                    Stores
+                </button>
+                <button
                     v-for="category in shopCategories"
                     :key="category"
                     type="button"
@@ -729,10 +765,10 @@ onUnmounted(() => {
                 </button>
                 <button
                     v-for="link in accountLinks"
-                    :key="link.view"
+                    :key="link.label"
                     type="button"
                     class="header-drawer-link"
-                    @click="goToView(link.view)"
+                    @click="goToView(link.view, link.section)"
                 >
                     {{ link.label }}
                 </button>

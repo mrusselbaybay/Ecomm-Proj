@@ -19,9 +19,9 @@ const footerCategories = categories.filter(category => category !== 'All');
 const accountLinks = [
     { view: 'orders', label: 'Orders & tracking' },
     { view: 'wishlist', label: 'Wishlist' },
-    { view: 'addresses', label: 'Saved addresses' },
-    { view: 'payments', label: 'Payment methods' },
-    { view: 'reviews', label: 'My reviews' }
+    { view: 'reviews', label: 'My reviews' },
+    { view: 'account', section: 'addresses', label: 'Addresses' },
+    { view: 'account', section: 'help', label: 'Help & support' }
 ];
 </script>
 
@@ -57,6 +57,12 @@ const accountLinks = [
                 </button>
                 <button
                     type="button"
+                    @click="requestBuyerView('stores')"
+                >
+                    Stores
+                </button>
+                <button
+                    type="button"
                     @click="emit('cart-click')"
                 >
                     Your cart
@@ -85,9 +91,9 @@ const accountLinks = [
                 <h2 class="site-footer-heading">Your account</h2>
                 <button
                     v-for="link in accountLinks"
-                    :key="link.view"
+                    :key="link.label"
                     type="button"
-                    @click="requestBuyerView(link.view)"
+                    @click="requestBuyerView(link.view, link.section ? { section: link.section } : null)"
                 >
                     {{ link.label }}
                 </button>

@@ -33,6 +33,18 @@ return Application::configure(basePath: dirname(__DIR__))
             'seller' => EnsureUserIsSeller::class,
             'buyer' => EnsureUserIsBuyer::class,
         ]);
+
+        // These APIs authenticate every request with a Supabase bearer
+        // token ('supabase.auth'), never the session cookie, so a CSRF
+        // token protects nothing and only blocked their writes with 419.
+        // Cookie/session routes (including the unauthenticated
+        // /api/admin/notify-* mailers) keep CSRF.
+        $middleware->validateCsrfTokens(except: [
+            'api/buyer/*',
+            'api/seller/*',
+            'api/admin/sellers/*',
+            'api/admin/seller-verifications',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

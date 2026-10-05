@@ -5,6 +5,8 @@ import ProductDetails from './ProductDetails.vue';
 import Cart from './Cart.vue';
 import Checkout from './Checkout.vue';
 import CategoryListing from './CategoryListing.vue';
+import StoreDirectory from './StoreDirectory.vue';
+import StorePage from './StorePage.vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
@@ -13,19 +15,28 @@ import ProductRail from './ProductRail.vue';
 import SearchResults from './SearchResults.vue';
 import OffersCarousel from './OffersCarousel.vue';
 import Orders from './Orders.vue';
-import Account from './Account.vue';
+import AccountArea from './AccountArea.vue';
+import AccountLayout from './AccountLayout.vue';
 import Wishlist from './Wishlist.vue';
 import Reviews from './Reviews.vue';
-import SavedAddresses from './SavedAddresses.vue';
-import PaymentMethods from './PaymentMethods.vue';
-import Chat from './Chat.vue';
+import MessagesModal from './MessagesModal.vue';
 import ToastHost from './ToastHost.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerProducts } from '../composables/useBuyerProducts';
 import { useBuyerSession } from '../composables/useBuyerSession';
+import { useBuyerChat } from '../composables/useBuyerChat';
 import { useBuyerNav } from '../composables/useBuyerNav';
+import { useConfirm } from '../composables/useConfirm';
+import {
+    SETTINGS_SECTIONS,
+    accountFromQuery,
+    accountUrl,
+    dirtyLabels,
+    discardUnsavedChanges,
+    hasUnsavedChanges
+} from '../composables/useAccountNav';
 import { vReveal } from '../composables/useReveal';
 import {
     categoryFromQuery,
@@ -37,6 +48,16 @@ import {
     categories,
     metaFor
 } from '../composables/useCategoryMeta';
+import {
+    directoryStateFromQuery,
+    directoryUrl,
+    isDirectoryQuery,
+    rememberDirectoryState,
+    rememberStoreState,
+    storeIdFromQuery,
+    storePageUrl,
+    storeStateFromQuery
+} from '../composables/useStoreBrowseState';
 
 /*
 |--------------------------------------------------------------------------
@@ -73,9 +94,27 @@ const { navRequest } = useBuyerNav();
 
 const searchQuery = ref('');
 const submittedQuery = ref('');
+
+// A shared / refreshed store link (?store=<id>&...) or store directory link
+// (?view=stores&...) opens straight onto that page with its browse state.
+const initialStoreId = storeIdFromQuery(window.location.search);
+const initialStoresView = !initialStoreId && isDirectoryQuery(window.location.search);
+
+if (initialStoreId) {
+    rememberStoreState(initialStoreId, storeStateFromQuery(window.location.search));
+}
+
+if (initialStoresView) {
+    rememberDirectoryState(directoryStateFromQuery(window.location.search));
+}
+
 // A shared / refreshed category link (?category=...&filters) opens straight
 // onto that category page with its filters; anything else starts home.
 const initialCategory = (() => {
+    if (initialStoreId || initialStoresView) {
+        return null;
+    }
+
     const fromUrl = categoryFromQuery(window.location.search);
 
     if (!fromUrl || fromUrl === 'All' || !categories.includes(fromUrl)) {
@@ -94,14 +133,40 @@ const selectedCategory = ref(initialCategory || 'All');
 // below. Stays null while selectedCategory is 'All'.
 const browsingCategory = ref(initialCategory);
 
+// The store directory (StoreDirectory.vue) and one store's page
+// (StorePage.vue). browsingStore holds whatever is already known about the
+// store ({ id } at minimum) so its page can render the name immediately.
+const showStores = ref(initialStoresView);
+const browsingStore = ref(initialStoreId ? { id: initialStoreId } : null);
+
 const selectedProduct = ref(null);
 const showCart = ref(false);
-const showOrders = ref(false);
-const showAccount = ref(false);
-const showWishlist = ref(false);
-const showReviews = ref(false);
+// A refreshed or shared account link (?account=<id>) opens that page.
+const initialAccount = accountFromQuery(window.location.search);
+
+// ?messages opens the Messages modal (?messages=<conversation id> on that
+// conversation); the parameter is dropped once it has been read.
+const initialMessages = (() => {
+    const params = new URLSearchParams(window.location.search);
+
+    if (!params.has('messages')) {
+        return null;
+    }
+
+    const id = params.get('messages') || '';
+
+    return { id: /^[0-9a-f-]{36}$/i.test(id) ? id : null };
+})();
+
+const { openChat } = useBuyerChat();
+
+const showOrders = ref(initialAccount === 'orders');
+const showAccount = ref(SETTINGS_SECTIONS.includes(initialAccount));
+// Which settings section AccountArea shows (it stays mounted across them).
+const accountSection = ref(SETTINGS_SECTIONS.includes(initialAccount) ? initialAccount : 'profile');
+const showWishlist = ref(initialAccount === 'wishlist');
+const showReviews = ref(initialAccount === 'reviews');
 const showAddresses = ref(false);
-const showPayments = ref(false);
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
 
@@ -345,7 +410,7 @@ const currentView = computed(() => {
     }
 
     if (showAccount.value) {
-        return 'account';
+        return `account-${accountSection.value}`;
     }
 
     if (showWishlist.value) {
@@ -360,10 +425,6 @@ const currentView = computed(() => {
         return 'addresses';
     }
 
-    if (showPayments.value) {
-        return 'payments';
-    }
-
     if (checkoutItems.value.length > 0) {
         return 'checkout';
     }
@@ -374,6 +435,14 @@ const currentView = computed(() => {
 
     if (selectedProduct.value) {
         return `product-${selectedProduct.value.id}`;
+    }
+
+    if (browsingStore.value) {
+        return `store-${browsingStore.value.id}`;
+    }
+
+    if (showStores.value) {
+        return 'stores';
     }
 
     if (browsingCategory.value) {
@@ -433,12 +502,14 @@ function viewSnapshot() {
         showCart: showCart.value,
         showOrders: showOrders.value,
         showAccount: showAccount.value,
+        accountSection: accountSection.value,
         showWishlist: showWishlist.value,
         showReviews: showReviews.value,
         showAddresses: showAddresses.value,
-        showPayments: showPayments.value,
         product: plain(selectedProduct.value),
         browsingCategory: browsingCategory.value,
+        showStores: showStores.value,
+        browsingStore: plain(browsingStore.value),
         submittedQuery: submittedQuery.value,
         checkoutItems: plain(checkoutItems.value) || [],
         checkoutSource: checkoutSource.value
@@ -452,14 +523,16 @@ function applySnapshot(state) {
     showCart.value = state.showCart;
     showOrders.value = state.showOrders;
     showAccount.value = state.showAccount;
+    accountSection.value = state.accountSection || 'profile';
     showWishlist.value = state.showWishlist;
     showReviews.value = state.showReviews;
     showAddresses.value = state.showAddresses;
-    showPayments.value = state.showPayments;
     selectedProduct.value = state.product
         ? products.value.find(product => product.id === state.product.id) || state.product
         : null;
     browsingCategory.value = state.browsingCategory;
+    showStores.value = Boolean(state.showStores);
+    browsingStore.value = state.browsingStore || null;
     selectedCategory.value = state.browsingCategory || 'All';
     submittedQuery.value = state.submittedQuery;
     searchQuery.value = state.submittedQuery;
@@ -480,15 +553,39 @@ watch(currentView, () => {
     window.history.pushState(viewSnapshot(), '', urlForCurrentView());
 }, { flush: 'post' });
 
-// Category pages carry their filters in the URL (CategoryListing keeps the
-// current entry up to date); every other view uses the bare page URL.
+// Category pages, the store directory and store pages carry their browse
+// state in the URL (each page keeps the current entry up to date); every
+// other view uses the bare page URL.
 function urlForCurrentView() {
+    if (showAccount.value) {
+        return accountUrl(accountSection.value);
+    }
+
+    if (['orders', 'wishlist', 'reviews'].includes(currentView.value)) {
+        return accountUrl(currentView.value);
+    }
+
+    if (browsingStore.value && currentView.value.startsWith('store-')) {
+        return storePageUrl(browsingStore.value.id);
+    }
+
+    if (currentView.value === 'stores') {
+        return directoryUrl();
+    }
+
     return browsingCategory.value && currentView.value.startsWith('category-')
         ? categoryUrl(browsingCategory.value)
         : window.location.pathname;
 }
 
 function handlePopState(event) {
+    // The entry's URL is the truth for a store page's / the directory's state.
+    if (event.state?.browsingStore && storeIdFromQuery(window.location.search) === event.state.browsingStore.id) {
+        rememberStoreState(event.state.browsingStore.id, storeStateFromQuery(window.location.search));
+    } else if (event.state?.showStores && isDirectoryQuery(window.location.search)) {
+        rememberDirectoryState(directoryStateFromQuery(window.location.search));
+    }
+
     // The entry's URL is the truth for a category page's filters.
     if (event.state?.browsingCategory && categoryFromQuery(window.location.search) === event.state.browsingCategory) {
         rememberFilterState(
@@ -506,6 +603,10 @@ onMounted(() => {
     window.history.scrollRestoration = 'manual';
     window.history.replaceState(viewSnapshot(), '', urlForCurrentView());
     window.addEventListener('popstate', handlePopState);
+
+    if (initialMessages) {
+        openChat({ conversationId: initialMessages.id });
+    }
 
     // per_page bumped to the API's max (see ProductController@index) so
     // CategoryListing and search — which filter this same in-memory list
@@ -548,9 +649,15 @@ function closeAllSubViews() {
     showWishlist.value = false;
     showReviews.value = false;
     showAddresses.value = false;
-    showPayments.value = false;
     checkoutItems.value = [];
     checkoutSource.value = null;
+}
+
+// The store pages are browse views like a category page: leaving for a
+// category, a global search or home closes them.
+function closeStoreViews() {
+    showStores.value = false;
+    browsingStore.value = null;
 }
 
 function selectCategory(category) {
@@ -559,6 +666,7 @@ function selectCategory(category) {
     searchQuery.value = '';
 
     closeAllSubViews();
+    closeStoreViews();
 
     browsingCategory.value = category === 'All' ? null : category;
 }
@@ -583,6 +691,41 @@ function viewProduct(product) {
 function backToProducts() {
     restoreTarget = browseViewBeforeProduct;
     selectedProduct.value = null;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Stores
+|--------------------------------------------------------------------------
+|
+| The directory and a store page sit at the same level as a category page,
+| so opening either leaves category / search browsing. Opening a store from
+| the directory keeps the directory underneath; its breadcrumb returns
+| there with the directory's own state intact.
+|
+*/
+
+function leaveCatalogBrowsing() {
+    closeAllSubViews();
+    browsingCategory.value = null;
+    selectedCategory.value = 'All';
+    submittedQuery.value = '';
+    searchQuery.value = '';
+}
+
+function openStores() {
+    leaveCatalogBrowsing();
+    browsingStore.value = null;
+    showStores.value = true;
+}
+
+function openStore(store) {
+    if (!store?.id) {
+        return;
+    }
+
+    leaveCatalogBrowsing();
+    browsingStore.value = plain(store);
 }
 
 /*
@@ -788,6 +931,7 @@ function handleSearch(query) {
     selectedCategory.value = 'All';
     browsingCategory.value = null;
     closeAllSubViews();
+    closeStoreViews();
 }
 
 function handleSelectCategory(category) {
@@ -800,6 +944,7 @@ function handleBrowseAll() {
     submittedQuery.value = '';
     browsingCategory.value = null;
     closeAllSubViews();
+    closeStoreViews();
 }
 
 /*
@@ -813,14 +958,12 @@ function handleBrowseAll() {
 |--------------------------------------------------------------------------
 */
 
-function openAccount() {
+function openAccount(section = 'profile') {
     closeAllSubViews();
+    accountSection.value = SETTINGS_SECTIONS.includes(section) ? section : 'profile';
     showAccount.value = true;
 }
 
-function closeAccount() {
-    showAccount.value = false;
-}
 
 function openOrders() {
     closeAllSubViews();
@@ -850,22 +993,15 @@ function closeReviews() {
     showReviews.value = false;
 }
 
+// The address book is now a section of the account settings.
 function openAddresses() {
-    closeAllSubViews();
-    showAddresses.value = true;
+    openAccount('addresses');
 }
 
-function closeAddresses() {
-    showAddresses.value = false;
-}
 
+// Payment methods are a section of the account settings.
 function openPayments() {
-    closeAllSubViews();
-    showPayments.value = true;
-}
-
-function closePayments() {
-    showPayments.value = false;
+    openAccount('payments');
 }
 /*
 |--------------------------------------------------------------------------
@@ -883,131 +1019,152 @@ function goToDeals() {
 const navHandlers = {
     home: handleBrowseAll,
     cart: openCart,
-    account: openAccount,
+    account: (payload) => openAccount(payload?.section),
+    messages: (payload) => openChat({ conversationId: payload?.conversationId || null }),
     orders: openOrders,
     wishlist: openWishlist,
     reviews: openReviews,
     addresses: openAddresses,
     payments: openPayments,
     deals: goToDeals,
+    stores: openStores,
+    store: openStore,
     category: (category) => category && selectCategory(category),
     product: (product) => product && viewProduct(product)
 };
 
-watch(navRequest, (request) => {
-    navHandlers[request?.view]?.(request.payload);
+const { confirm } = useConfirm();
+
+/**
+ * Leaving the account area (or switching section) with unsaved edits asks
+ * first; choosing to leave discards them.
+ */
+async function confirmLeaveAccount(targetView) {
+    if (!showAccount.value || !hasUnsavedChanges() || targetView === currentView.value) {
+        return true;
+    }
+
+    const ok = await confirm({
+        title: 'Leave without saving?',
+        message: `Your changes in ${dirtyLabels().join(' and ')} haven’t been saved.`,
+        confirmLabel: 'Leave without saving',
+        cancelLabel: 'Keep editing',
+        tone: 'danger'
+    });
+
+    if (ok) {
+        discardUnsavedChanges();
+    }
+
+    return ok;
+}
+
+watch(navRequest, async (request) => {
+    if (!request) {
+        return;
+    }
+
+    const target = request.view === 'account' ? `account-${request.payload?.section || 'profile'}` : request.view;
+
+    if (!(await confirmLeaveAccount(target))) {
+        return;
+    }
+
+    navHandlers[request.view]?.(request.payload);
 });
+
+// Every page that lives in AccountLayout, and the sidebar item it marks.
+const isAccountPage = computed(() => showOrders.value || showAccount.value || showWishlist.value || showReviews.value);
+
+const accountNavActive = computed(() => {
+    if (showOrders.value) {
+        return 'orders';
+    }
+
+    if (showWishlist.value) {
+        return 'wishlist';
+    }
+
+    if (showReviews.value) {
+        return 'reviews';
+    }
+
+    return accountSection.value;
+});
+
+function guardedFromAccount(action) {
+    return async (...args) => {
+        if (await confirmLeaveAccount(null)) {
+            action(...args);
+        }
+    };
+}
 </script>
 
 <template>
 
     <!-- ================================================================ -->
-    <!-- ORDERS -->
+    <!-- ACCOUNT: settings, orders, wishlist, reviews -->
+    <!-- One AccountLayout (header, sidebar, frame) stays mounted while the -->
+    <!-- page inside it changes; only the content transitions. -->
     <!-- ================================================================ -->
 
-    <Orders
-        v-if="showOrders"
-        @back="closeOrders"
-        @go-home="handleBrowseAll"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-        @view-profile="openAccount"
-        @view-wishlist="openWishlist"
-        @view-reviews="openReviews"
-        @view-addresses="openAddresses"
-        @view-payments="openPayments"
-    />
+    <AccountLayout
+        v-if="isAccountPage"
+        :active="accountNavActive"
+        @back="guardedFromAccount(handleBrowseAll)()"
+        @search="guardedFromAccount(handleSearch)($event)"
+        @select-category="guardedFromAccount(handleSelectCategory)($event)"
+        @open-cart="guardedFromAccount(openCart)()"
+    >
+        <Transition
+            name="acc-swap"
+            mode="out-in"
+        >
+            <Orders
+                v-if="showOrders"
+                key="orders"
+                @back="closeOrders"
+                @go-home="handleBrowseAll"
+                @view-profile="openAccount"
+                @view-wishlist="openWishlist"
+                @view-reviews="openReviews"
+                @view-addresses="openAddresses"
+                @view-payments="openPayments"
+            />
 
-    <!-- ================================================================ -->
-    <!-- ACCOUNT -->
-    <!-- ================================================================ -->
+            <AccountArea
+                v-else-if="showAccount"
+                key="settings"
+                :section="accountSection"
+            />
 
-    <Account
-        v-else-if="showAccount"
-        @back="closeAccount"
-        @view-orders="openOrders"
-        @view-wishlist="openWishlist"
-        @view-reviews="openReviews"
-        @view-addresses="openAddresses"
-        @view-payments="openPayments"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-    />
+            <Wishlist
+                v-else-if="showWishlist"
+                key="wishlist"
+                @back="closeWishlist"
+                @go-home="handleBrowseAll"
+                @view-profile="openAccount"
+                @view-orders="openOrders"
+                @view-reviews="openReviews"
+                @view-addresses="openAddresses"
+                @view-payments="openPayments"
+                @select-product="viewProduct"
+            />
 
-    <!-- ================================================================ -->
-    <!-- WISHLIST -->
-    <!-- ================================================================ -->
-
-    <Wishlist
-        v-else-if="showWishlist"
-        @back="closeWishlist"
-        @go-home="handleBrowseAll"
-        @view-profile="openAccount"
-        @view-orders="openOrders"
-        @view-reviews="openReviews"
-        @view-addresses="openAddresses"
-        @view-payments="openPayments"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-        @select-product="viewProduct"
-    />
-
-    <!-- ================================================================ -->
-    <!-- REVIEWS -->
-    <!-- ================================================================ -->
-
-    <Reviews
-        v-else-if="showReviews"
-        @back="closeReviews"
-        @go-home="handleBrowseAll"
-        @view-profile="openAccount"
-        @view-orders="openOrders"
-        @view-wishlist="openWishlist"
-        @view-addresses="openAddresses"
-        @view-payments="openPayments"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-    />
-
-    <!-- ================================================================ -->
-    <!-- SAVED ADDRESSES -->
-    <!-- ================================================================ -->
-
-    <SavedAddresses
-        v-else-if="showAddresses"
-        @back="closeAddresses"
-        @go-home="handleBrowseAll"
-        @view-profile="openAccount"
-        @view-orders="openOrders"
-        @view-wishlist="openWishlist"
-        @view-reviews="openReviews"
-        @view-payments="openPayments"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-    />
-
-    <!-- ================================================================ -->
-    <!-- PAYMENT METHODS -->
-    <!-- ================================================================ -->
-
-    <PaymentMethods
-        v-else-if="showPayments"
-        @back="closePayments"
-        @go-home="handleBrowseAll"
-        @view-profile="openAccount"
-        @view-orders="openOrders"
-        @view-wishlist="openWishlist"
-        @view-reviews="openReviews"
-        @view-addresses="openAddresses"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-    />
+            <Reviews
+                v-else
+                key="reviews"
+                @back="closeReviews"
+                @go-home="handleBrowseAll"
+                @view-profile="openAccount"
+                @view-orders="openOrders"
+                @view-wishlist="openWishlist"
+                @view-addresses="openAddresses"
+                @view-payments="openPayments"
+            />
+        </Transition>
+    </AccountLayout>
 
     <!-- ================================================================ -->
     <!-- CHECKOUT -->
@@ -1061,6 +1218,42 @@ watch(navRequest, (request) => {
         @select-category="handleSelectCategory"
         @open-cart="openCart"
         @view-profile="openAccount"
+        @browse-all="handleBrowseAll"
+        @browse-categories="handleBrowseAll"
+    />
+
+    <!-- ================================================================ -->
+    <!-- STORE PAGE -->
+    <!-- ================================================================ -->
+
+    <StorePage
+        v-else-if="browsingStore"
+        :key="browsingStore.id"
+        :store-id="browsingStore.id"
+        :initial-store="browsingStore.name ? browsingStore : null"
+        @back="handleBrowseAll"
+        @open-stores="openStores"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+        @account-click="openAccount"
+        @select-product="viewProduct"
+        @browse-all="handleBrowseAll"
+        @browse-categories="handleBrowseAll"
+    />
+
+    <!-- ================================================================ -->
+    <!-- STORE DIRECTORY -->
+    <!-- ================================================================ -->
+
+    <StoreDirectory
+        v-else-if="showStores"
+        @back="handleBrowseAll"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+        @account-click="openAccount"
+        @open-store="openStore"
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
     />
@@ -1428,10 +1621,11 @@ watch(navRequest, (request) => {
 
     <!-- Messaging popup — mounted once here, outside the view switch above,
          so it stays alive on every buyer page. -->
-    <Chat />
 
     <!-- Buyer-wide notification + confirmation hosts, mounted once outside
          the view switch so they cover every buyer page. -->
+    <MessagesModal />
+
     <ToastHost />
     <ConfirmDialog />
 

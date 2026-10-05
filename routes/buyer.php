@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Buyer\AccountController;
+use App\Http\Controllers\Buyer\AccountSettingsController;
 use App\Http\Controllers\Buyer\AddressController;
 use App\Http\Controllers\Buyer\CheckoutController;
 use App\Http\Controllers\Buyer\MessageController;
@@ -8,6 +9,7 @@ use App\Http\Controllers\Buyer\OrderController;
 use App\Http\Controllers\Buyer\PaymentMethodController;
 use App\Http\Controllers\Buyer\ReturnController;
 use App\Http\Controllers\Buyer\ReviewController;
+use App\Http\Controllers\Buyer\StoreFollowController;
 use App\Http\Controllers\Buyer\WishlistController;
 use Illuminate\Support\Facades\Route;
 
@@ -35,6 +37,11 @@ Route::middleware(['supabase.auth', 'buyer'])->prefix('api/buyer')->name('api.bu
     // Buyer's own account/profile row (public.profiles).
     Route::get('/account', [AccountController::class, 'show'])->name('account.show');
     Route::put('/account/profile', [AccountController::class, 'updateProfile'])->name('account.profile.update');
+    Route::post('/account/avatar', [AccountSettingsController::class, 'uploadAvatar'])->name('account.avatar.store');
+    Route::delete('/account/avatar', [AccountSettingsController::class, 'destroyAvatar'])->name('account.avatar.destroy');
+    Route::get('/account/preferences', [AccountSettingsController::class, 'preferences'])->name('account.preferences.show');
+    Route::put('/account/preferences', [AccountSettingsController::class, 'updatePreferences'])->name('account.preferences.update');
+    Route::get('/account/export', [AccountSettingsController::class, 'export'])->name('account.export');
 
     Route::get('/reviews', [ReviewController::class, 'index'])->name('reviews.index');
     Route::post('/reviews', [ReviewController::class, 'store'])->name('reviews.store');
@@ -53,10 +60,15 @@ Route::middleware(['supabase.auth', 'buyer'])->prefix('api/buyer')->name('api.bu
     Route::post('/wishlist', [WishlistController::class, 'store'])->name('wishlist.store');
     Route::delete('/wishlist/{productId}', [WishlistController::class, 'destroy'])->name('wishlist.destroy');
 
-    // Saved payment methods (buyer_payment_methods table).
+    Route::get('/follows', [StoreFollowController::class, 'index'])->name('follows.index');
+    Route::get('/follows/{storeId}', [StoreFollowController::class, 'show'])->name('follows.show');
+    Route::post('/follows/{storeId}', [StoreFollowController::class, 'store'])->name('follows.store');
+    Route::delete('/follows/{storeId}', [StoreFollowController::class, 'destroy'])->name('follows.destroy');
+
+    // Saved payment methods (buyer_payment_methods). Methods are only ever
+    // added by a payment provider's setup flow — there is no endpoint that
+    // accepts card or wallet details (see SavedPaymentSupport).
     Route::get('/payment-methods', [PaymentMethodController::class, 'index'])->name('payment-methods.index');
-    Route::post('/payment-methods', [PaymentMethodController::class, 'store'])->name('payment-methods.store');
-    Route::put('/payment-methods/{id}', [PaymentMethodController::class, 'update'])->name('payment-methods.update');
     Route::delete('/payment-methods/{id}', [PaymentMethodController::class, 'destroy'])->name('payment-methods.destroy');
     Route::put('/payment-methods/{id}/primary', [PaymentMethodController::class, 'setPrimary'])->name('payment-methods.primary');
 
