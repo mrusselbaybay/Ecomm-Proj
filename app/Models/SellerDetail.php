@@ -7,9 +7,16 @@ use Illuminate\Database\Eloquent\Model;
 class SellerDetail extends Model
 {
     protected $table = 'seller_details';
+
     protected $primaryKey = 'profile_id';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
-    protected $fillable = ['profile_id', 'business_name', 'line_of_business'];
+    protected $fillable = [
+        'profile_id', 'business_name', 'line_of_business',
+        // Store page content (see the add_store_profile_columns migration).
+        'banner_path', 'description', 'return_policy',
+    ];
 }

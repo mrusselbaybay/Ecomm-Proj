@@ -1,10 +1,12 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\AccountRegistrationController;
-use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\SellerVerificationController;
+use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Logistics\LogisticsNotificationController;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -54,14 +56,19 @@ Route::prefix('api/admin')->name('api.admin.')->group(function () {
     Route::get('/dashboard/notifications', [DashboardController::class, 'notifications'])->name('dashboard.notifications');
 });
 
-// ---------- API Routes for Logistics ----------
-Route::prefix('api/logistics')->name('api.logistics.')->group(function () {
-    Route::post('/notify-application-accepted', [\App\Http\Controllers\Logistics\LogisticsNotificationController::class, 'applicationAccepted'])
-        ->name('notify.accepted');
-    Route::post('/notify-application-rejected', [\App\Http\Controllers\Logistics\LogisticsNotificationController::class, 'applicationRejected'])
-        ->name('notify.rejected');
+// ---------- Admin seller verification (Supabase bearer token, admins only) ----------
+Route::middleware(['supabase.auth', 'admin'])->prefix('api/admin')->name('api.admin.')->group(function () {
+    Route::get('/seller-verifications', [SellerVerificationController::class, 'index'])->name('seller-verifications.index');
+    Route::put('/sellers/{sellerId}/verification', [SellerVerificationController::class, 'update'])->name('sellers.verification.update');
 });
 
+// ---------- API Routes for Logistics ----------
+Route::prefix('api/logistics')->name('api.logistics.')->group(function () {
+    Route::post('/notify-application-accepted', [LogisticsNotificationController::class, 'applicationAccepted'])
+        ->name('notify.accepted');
+    Route::post('/notify-application-rejected', [LogisticsNotificationController::class, 'applicationRejected'])
+        ->name('notify.rejected');
+});
 
 // ---------- API Routes for Seller (Seller Order Page) ----------
 $sellerRoutes = __DIR__.'/seller.php';
@@ -86,7 +93,7 @@ if (file_exists($buyerRoutes)) {
 Route::prefix('api/signup')->name('api.signup.')->group(function () {
     Route::post('/register', [AuthController::class, 'registerUser'])->name('register');
     Route::post('/register-logistics', [AuthController::class, 'registerLogistics'])->name('register-logistics');
-    });
+});
 // ---------- Buyer SPA ----------
 Route::prefix('buyer')->name('buyer.')->group(function () {
     Route::get('/{any?}', function () {

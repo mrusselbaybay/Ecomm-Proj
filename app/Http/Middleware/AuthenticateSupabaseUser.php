@@ -25,26 +25,34 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * The verification result is cached briefly per-token so a page that fires
  * several API calls in a row doesn't round-trip to Supabase for each one.
+ *
+ * `supabase.auth:optional` is for public endpoints that add viewer-specific
+ * fields (e.g. a store's follow status): a missing or invalid token just
+ * continues as a guest instead of failing with 401.
  */
 class AuthenticateSupabaseUser
 {
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next, ?string $mode = null): Response
     {
+        if ($mode === 'optional') {
+            return $this->handleOptional($request, $next);
+        }
+
         $token = $this->bearerToken($request);
 
-        if (!$token) {
+        if (! $token) {
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
         $supabaseUserId = $this->resolveSupabaseUserId($token);
 
-        if (!$supabaseUserId) {
+        if (! $supabaseUserId) {
             return response()->json(['message' => 'Invalid or expired session.'], 401);
         }
 
         $profile = Profile::find($supabaseUserId);
 
-        if (!$profile) {
+        if (! $profile) {
             return response()->json(['message' => 'No profile found for this account.'], 401);
         }
 
@@ -53,11 +61,24 @@ class AuthenticateSupabaseUser
         return $next($request);
     }
 
+    private function handleOptional(Request $request, Closure $next): Response
+    {
+        $token = $this->bearerToken($request);
+        $supabaseUserId = $token ? $this->resolveSupabaseUserId($token) : null;
+        $profile = $supabaseUserId ? Profile::find($supabaseUserId) : null;
+
+        if ($profile) {
+            $request->setUserResolver(fn () => $profile);
+        }
+
+        return $next($request);
+    }
+
     private function bearerToken(Request $request): ?string
     {
         $header = $request->header('Authorization', '');
 
-        if (!str_starts_with($header, 'Bearer ')) {
+        if (! str_starts_with($header, 'Bearer ')) {
             return null;
         }
 
@@ -74,13 +95,13 @@ class AuthenticateSupabaseUser
      */
     private function resolveSupabaseUserId(string $token): ?string
     {
-        $cacheKey = 'supabase_auth_token:' . hash('sha256', $token);
+        $cacheKey = 'supabase_auth_token:'.hash('sha256', $token);
 
         return Cache::remember($cacheKey, now()->addSeconds(30), function () use ($token) {
-            $url = rtrim((string) config('services.supabase.url'), '/') . '/auth/v1/user';
+            $url = rtrim((string) config('services.supabase.url'), '/').'/auth/v1/user';
             $anonKey = config('services.supabase.anon_key');
 
-            if (!$url || !$anonKey) {
+            if (! $url || ! $anonKey) {
                 return null;
             }
 
@@ -95,7 +116,7 @@ class AuthenticateSupabaseUser
                 return null;
             }
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 return null;
             }
 

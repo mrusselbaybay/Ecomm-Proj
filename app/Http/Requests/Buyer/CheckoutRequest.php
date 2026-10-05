@@ -2,7 +2,7 @@
 
 namespace App\Http\Requests\Buyer;
 
-use App\Services\CheckoutService;
+use App\Support\CheckoutOptions;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -27,8 +27,8 @@ class CheckoutRequest extends FormRequest
             'delivery_address.contact_number' => ['nullable', 'string', 'max:30'],
             'delivery_address.address' => ['required', 'string', 'max:500'],
 
-            'shipping_method' => ['nullable', 'string', 'max:100'],
-            'payment_method' => ['required', 'string', Rule::in(CheckoutService::PAYMENT_METHODS)],
+            'shipping_method' => ['nullable', 'string', Rule::in(array_keys(CheckoutOptions::SHIPPING))],
+            'payment_method' => ['required', 'string', Rule::in(CheckoutOptions::paymentMethodIds())],
             'voucher_code' => ['nullable', 'string', 'max:100'],
 
             // Client-sent totals are informational only — never trusted.

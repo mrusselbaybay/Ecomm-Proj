@@ -980,3 +980,22 @@
   width: 0.85rem;
   height: 0.85rem;
 }
+
+/* Seller verification (separate from account approval) */
+.verified-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #ecfdf5;
+    color: #047857;
+    font-size: 11px;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
+.btn-verify.is-verified {
+    color: #b45309;
+}

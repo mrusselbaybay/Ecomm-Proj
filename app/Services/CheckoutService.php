@@ -8,32 +8,13 @@ use App\Models\OrderStatusHistory;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Profile;
+use App\Support\CheckoutOptions;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class CheckoutService
 {
-    /**
-     * Flat per-parcel shipping fees, mirroring the options presented in
-     * resources/js/buyer/components/Checkout.vue's `shippingOptions`.
-     * Charged once per seller order (each seller ships their own parcel),
-     * not once per cart.
-     */
-    private const SHIPPING_FEES = [
-        'standard' => 60.0,
-        'express' => 120.0,
-    ];
-
-    /**
-     * Payment methods checkout can complete. There is no payment gateway,
-     * so only cash on delivery is accepted and every order starts Unpaid.
-     * Mirrored by resources/js/buyer/composables/usePayment.js.
-     *
-     * @var list<string>
-     */
-    public const PAYMENT_METHODS = ['cod'];
-
     /**
      * @param  array{items: array<int, array{product_id: string, variant_id?: string, quantity: int, variation?: string}>,
      *                delivery_address: array{recipient_name: string, contact_number?: string, address: string},
@@ -45,8 +26,10 @@ class CheckoutService
      */
     public function checkout(Profile $buyer, array $payload): Collection
     {
-        $shippingMethod = $payload['shipping_method'] ?? 'standard';
-        $shippingFee = self::SHIPPING_FEES[$shippingMethod] ?? self::SHIPPING_FEES['standard'];
+        // Flat per-parcel fee from CheckoutOptions, charged once per seller
+        // order (each seller ships their own parcel), not once per cart.
+        $shippingMethod = $payload['shipping_method'] ?? CheckoutOptions::DEFAULT_SHIPPING;
+        $shippingFee = CheckoutOptions::shippingFee($shippingMethod);
         $address = $payload['delivery_address'];
 
         return DB::transaction(function () use ($buyer, $payload, $shippingMethod, $shippingFee, $address) {

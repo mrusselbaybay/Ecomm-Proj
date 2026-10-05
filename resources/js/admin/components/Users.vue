@@ -116,6 +116,14 @@
             </td>
             <td>
               <span class="role-badge" :class="roleBadgeClass(user.role)">{{ formatRole(user.role) }}</span>
+              <span
+                v-if="user.role === 'seller' && isVerified(user)"
+                class="verified-chip"
+                :title="verificationTitle(user)"
+              >
+                <svg class="icon-xs" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 8.5l2.5 2.5L12 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Verified
+              </span>
             </td>
             <td>
               <span class="badge" :class="approvalBadgeClass(user.status)">
@@ -179,6 +187,16 @@
                     class="btn-danger-outline"
                     :disabled="user.account_status === 'deactivated'">
                     Deactivate
+                  </button>
+                  <button
+                    v-if="user.role === 'seller'"
+                    @click="toggleVerification(user)"
+                    class="btn-outline btn-verify"
+                    :class="{ 'is-verified': isVerified(user) }"
+                    :disabled="verificationBusy === user.id || !verificationsLoaded"
+                    :aria-pressed="isVerified(user)"
+                  >
+                    {{ verificationBusy === user.id ? 'Saving...' : isVerified(user) ? 'Revoke verification' : 'Verify seller' }}
                   </button>
                 </template>
               </div>
@@ -647,6 +665,84 @@ function showToast(message, type = 'success') {
   setTimeout(() => {
     toasts.value = toasts.value.filter(t => t.id !== id);
   }, 4000);
+}
+
+// ============================================================
+// SELLER VERIFICATION
+// ------------------------------------------------------------
+// Separate from approval: approving lets a seller trade, verifying
+// shows buyers a "Verified" badge on the store. Writes go through the
+// Laravel admin API (supabase.auth + admin middleware); the
+// seller_verifications table is not writable through Supabase.
+// ============================================================
+const verifications = ref({});
+const verificationsLoaded = ref(false);
+const verificationBusy = ref(null);
+
+async function adminApi(path, options = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const response = await fetch(`/api/admin${path}`, {
+    ...options,
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session?.access_token || ''}`
+    }
+  });
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(body.message || `Request failed (${response.status}).`);
+  }
+
+  return body.data;
+}
+
+async function loadVerifications() {
+  try {
+    const rows = await adminApi('/seller-verifications');
+    verifications.value = Object.fromEntries((rows || []).map(row => [row.sellerId, row]));
+    verificationsLoaded.value = true;
+  } catch (error) {
+    console.warn('Could not load seller verifications:', error);
+  }
+}
+
+function isVerified(user) {
+  return Boolean(verifications.value[user.id]?.isVerified);
+}
+
+function verificationTitle(user) {
+  const row = verifications.value[user.id];
+  if (!row?.verifiedAt) return 'Verified seller';
+  const when = new Date(row.verifiedAt).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
+  return `Verified ${when}${row.verifiedBy ? ` by ${row.verifiedBy}` : ''}`;
+}
+
+async function toggleVerification(user) {
+  const verify = !isVerified(user);
+  const ok = await askConfirm(
+    verify ? 'Verify seller' : 'Revoke verification',
+    verify
+      ? `Mark ${displayName(user)} as a verified seller? Buyers will see a "Verified" badge on their store.`
+      : `Remove the verified badge from ${displayName(user)}'s store?`,
+    { confirmLabel: verify ? 'Verify' : 'Revoke', variant: verify ? 'primary' : 'danger' }
+  );
+  if (!ok) return;
+
+  verificationBusy.value = user.id;
+  try {
+    const row = await adminApi(`/sellers/${encodeURIComponent(user.id)}/verification`, {
+      method: 'PUT',
+      body: JSON.stringify({ verified: verify })
+    });
+    verifications.value = { ...verifications.value, [user.id]: row };
+    showToast(verify ? `${displayName(user)} is now verified.` : `Verification removed from ${displayName(user)}.`, 'success');
+  } catch (error) {
+    showToast('Could not update verification: ' + error.message, 'error');
+  } finally {
+    verificationBusy.value = null;
+  }
 }
 
 // ============================================================
@@ -1279,6 +1375,7 @@ function showRejectionReason(user) {
 // ============================================================
 onMounted(async () => {
   loadData();
+  loadVerifications();
   try {
     const { data } = await supabase.auth.getUser();
     currentAdminId.value = data?.user?.id || null;

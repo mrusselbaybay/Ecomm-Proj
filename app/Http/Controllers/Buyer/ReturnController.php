@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Buyer\StoreReturnRequest;
 use App\Models\OrderItem;
 use App\Models\OrderReturnRequest;
+use App\Support\PlatformReturnPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -48,7 +49,7 @@ class ReturnController extends Controller
             ]);
         }
 
-        if ($orderItem->order->status !== 'Delivered') {
+        if ($orderItem->order->status !== PlatformReturnPolicy::ELIGIBLE_ORDER_STATUS) {
             throw ValidationException::withMessages([
                 'order_item_id' => 'You can only request a return for items from delivered orders.',
             ]);
@@ -61,7 +62,7 @@ class ReturnController extends Controller
         }
 
         $hasOpen = OrderReturnRequest::where('order_item_id', $orderItem->id)
-            ->whereIn('status', ['pending', 'approved'])
+            ->whereIn('status', PlatformReturnPolicy::OPEN_REQUEST_STATUSES)
             ->exists();
 
         if ($hasOpen) {
