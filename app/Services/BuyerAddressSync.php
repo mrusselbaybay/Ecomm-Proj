@@ -78,7 +78,12 @@ class BuyerAddressSync
             return;
         }
 
-        $default->update($this->fromAccount($account));
+        // Carry the account's pin across when it has one; otherwise the
+        // saved address keeps its own (HasMapPin clears it on an area change).
+        $default->update([
+            ...$this->fromAccount($account),
+            ...($account->latitude !== null ? $this->seedPin($account) : []),
+        ]);
     }
 
     private function accountAddress(Profile $buyer): ?Address
@@ -104,9 +109,9 @@ class BuyerAddressSync
     }
 
     /**
-     * The account form has no pin picker, so a pin is only carried over
-     * when seeding — an account edit otherwise leaves the saved address's
-     * pin alone (HasMapPin clears it if the area changed).
+     * The account address's pin, copied onto the default saved address when
+     * seeding, or on an account edit that has one (HasMapPin clears a pin
+     * left behind by an area change).
      *
      * @return array<string, mixed>
      */

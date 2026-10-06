@@ -7,10 +7,6 @@
 | Adapted from a pasted reference design ("ShopVerse Order Tracking") the
 | same way as the rest of the account area — but the reference leans
 | heavily on things this app has no data for at all:
-|   - A live map with the courier's real-time GPS position and
-|     "2.4 miles away" distance — there's no location-ping system, and
-|     orders aren't even linked to a specific courier record (orders only
-|     store `shipping_carrier` as a free-text company name).
 |   - A named courier with a photo, vehicle, plate number, and a
 |     "Message Courier" / "Contact Courier" channel — same reason, no
 |     order-to-courier assignment exists to look any of that up from.
@@ -21,15 +17,17 @@
 | and already flowing through the app: tracking_number, shipping_carrier,
 | and the same timestamped status history (order_status_history) that
 | OrderDetails.vue's timeline uses — via useOrderTimeline.js, so the two
-| pages can't show conflicting versions of "what happened when." Where the
-| reference's map would sit, this shows a plain-language status summary
-| instead of a fabricated visual.
+| pages can't show conflicting versions of "what happened when." The map
+| is the shared OrderJourneyMap: real stops (seller, hubs, you) from the
+| parcel's custody chain, plus live GPS when the courier sends it.
 |
 */
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
+import OrderJourneyMap from '../../shared/OrderJourneyMap.vue';
 import { useBuyer } from '../composables/useBuyer';
+import { buyerApi } from '../composables/useBuyerApi';
 import {
     trackingSteps,
     stepLabels,
@@ -64,6 +62,93 @@ const emit = defineEmits([
 const { ORDER_STATUSES } = useBuyer();
 
 const isCancelled = computed(() => props.order?.status === ORDER_STATUSES.CANCELLED);
+
+/*
+|--------------------------------------------------------------------------
+| Parcel map (GET /api/buyer/orders/{id}/tracking)
+|--------------------------------------------------------------------------
+|
+| Seller -> logistics hubs -> you, with the parcel on the last stop it
+| reached (or the courier's live GPS). Re-polled while the server says the
+| parcel can still move (journey.active) and the tab is visible, so a
+| status change shows up within one poll without reloading the page.
+*/
+const TRACKING_POLL_MS = 12000;
+
+const journey = ref(null);
+const journeyLoading = ref(false);
+let trackingTimer = null;
+let trackingFor = null;
+
+async function fetchJourney() {
+    const number = (props.order?.orderId || '').replace(/^#/, '');
+
+    if (!number) {
+        return;
+    }
+
+    try {
+        const data = await buyerApi(`/buyer/orders/${encodeURIComponent(number)}/tracking`);
+
+        // Ignore a late answer for an order we've since navigated away from.
+        if (number === trackingFor) {
+            journey.value = data;
+        }
+    } catch {
+        // Keep the last good map; the next poll retries.
+    }
+}
+
+function stopTrackingPoll() {
+    clearInterval(trackingTimer);
+    trackingTimer = null;
+}
+
+function syncTrackingPoll() {
+    if (journey.value?.active && !document.hidden) {
+        if (!trackingTimer) {
+            trackingTimer = setInterval(fetchJourney, TRACKING_POLL_MS);
+        }
+    } else {
+        stopTrackingPoll();
+    }
+}
+
+async function loadJourney() {
+    stopTrackingPoll();
+    journey.value = null;
+    trackingFor = (props.order?.orderId || '').replace(/^#/, '') || null;
+
+    if (!trackingFor || isCancelled.value) {
+        return;
+    }
+
+    journeyLoading.value = true;
+    await fetchJourney();
+    journeyLoading.value = false;
+}
+
+function handleVisibilityChange() {
+    // Back on the tab: refresh straight away instead of waiting a full poll.
+    if (!document.hidden && journey.value?.active) {
+        fetchJourney();
+    }
+
+    syncTrackingPoll();
+}
+
+watch(() => props.order?.orderId, loadJourney);
+watch(() => journey.value?.active, syncTrackingPoll);
+
+onMounted(() => {
+    loadJourney();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+});
+
+onBeforeUnmount(() => {
+    stopTrackingPoll();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+});
 
 const deliveryAddress = computed(() => props.order?.delivery_address || {});
 
@@ -358,6 +443,24 @@ function handleHeaderSelectCategory(category) {
 
                             <template v-else>
 
+                                <!-- Parcel map -->
+                                <section
+                                    v-if="journeyLoading && !journey"
+                                    class="bg-white rounded-3xl border border-slate-100 p-6"
+                                    aria-busy="true"
+                                    aria-label="Loading parcel map"
+                                >
+                                    <div class="h-4 w-40 rounded bg-slate-100 animate-pulse mb-4"></div>
+                                    <div class="h-[360px] rounded-2xl bg-slate-100 animate-pulse"></div>
+                                </section>
+                                <section
+                                    v-else-if="journey"
+                                    class="bg-white rounded-3xl border border-slate-100 p-6"
+                                    style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                                >
+                                    <OrderJourneyMap :journey="journey" />
+                                </section>
+
                                 <!-- Status Hero — replaces the reference's live map, which this app
                                      has no location data to actually back. -->
                                 <section
@@ -375,7 +478,7 @@ function handleHeaderSelectCategory(category) {
                                     >
                                         Last updated {{ lastUpdatedLabel }}
                                     </p>
-                                    <p class="text-xs text-slate-400 mt-6 max-w-sm mx-auto border-t border-slate-100 pt-4">
+                                    <p v-if="!journey" class="text-xs text-slate-400 mt-6 max-w-sm mx-auto border-t border-slate-100 pt-4">
                                         Live courier location isn't available yet — once your order ships, you can follow it directly with {{ order.shipping_carrier || 'the courier' }} using the tracking number above.
                                     </p>
                                 </section>

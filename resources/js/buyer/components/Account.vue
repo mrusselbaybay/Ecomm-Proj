@@ -11,6 +11,7 @@ import {
 import { useBuyerAccount } from '../composables/useBuyerAccount';
 import { useBuyerAddresses } from '../composables/useBuyerAddresses';
 import AvatarCropper from './AvatarCropper.vue';
+import AddressPinPicker from '../../shared/AddressPinPicker.vue';
 import SwitchAccountCard from '../../shared/SwitchAccountCard.vue';
 import { getSupabase } from '../composables/useBuyerSession';
 
@@ -130,7 +131,8 @@ const draft = reactive({
     municipalityName: '',
     barangay: '',
     street: '',
-    houseNo: ''
+    houseNo: '',
+    pin: null
 });
 
 const maximumBirthday = computed(() => {
@@ -193,6 +195,9 @@ function copyStateToDraft() {
         draft.barangay = address.value.barangay || '';
         draft.street = address.value.street || '';
         draft.houseNo = address.value.house_no || '';
+        draft.pin = address.value.latitude != null && address.value.longitude != null
+            ? { lat: Number(address.value.latitude), lng: Number(address.value.longitude) }
+            : null;
     } else {
         draft.regionCode = '';
         draft.regionName = '';
@@ -203,6 +208,7 @@ function copyStateToDraft() {
         draft.barangay = '';
         draft.street = '';
         draft.houseNo = '';
+        draft.pin = null;
     }
 }
 
@@ -309,6 +315,11 @@ function validateProfile() {
         nextErrors.street = 'Street is required.';
     }
 
+    // Riders and the tracking map need the exact spot, not just the barangay.
+    if (!draft.pin) {
+        nextErrors.pin = 'Pin your exact location on the map.';
+    }
+
     errors.value = nextErrors;
 
     return Object.keys(nextErrors).length === 0;
@@ -335,7 +346,9 @@ async function saveProfile() {
         municipality_name: draft.municipalityName,
         barangay: draft.barangay,
         street: draft.street.trim(),
-        house_no: draft.houseNo.trim() || null
+        house_no: draft.houseNo.trim() || null,
+        latitude: draft.pin?.lat ?? null,
+        longitude: draft.pin?.lng ?? null
     });
 
     if (!saved) {
@@ -1472,6 +1485,19 @@ onBeforeUnmount(() => {
                                     >
                                     <small v-if="errors.street">{{ errors.street }}</small>
                                 </label>
+                            </div>
+
+                            <div class="account-pin" data-field="pin">
+                                <AddressPinPicker
+                                    v-model="draft.pin"
+                                    :disabled="!isEditing"
+                                    :street="draft.street"
+                                    :barangay="draft.barangay"
+                                    :municipality="draft.municipalityName"
+                                    :province="draft.provinceName"
+                                    hint="Required — pin your door so the rider finds you without calling."
+                                />
+                                <small v-if="errors.pin" class="account-pin-error" role="alert">{{ errors.pin }}</small>
                             </div>
 
                             <p v-if="addressApiError" class="account-form-error">

@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\OrderReturnRequest;
 use App\Models\ParcelAssignment;
 use App\Services\OrderCancellationService;
+use App\Services\OrderTrackingService;
 use App\Services\Payments\OrderReceiptService;
 use App\Support\ProductImage;
 use Illuminate\Http\JsonResponse;
@@ -49,6 +50,26 @@ class OrderController extends Controller
         }
 
         return response()->json(['data' => $this->transform($order)]);
+    }
+
+    /**
+     * GET /api/buyer/orders/{id}/tracking
+     *
+     * Just the tracking-map payload, polled by OrderTracking.vue while the
+     * parcel is still moving. Loads only what the journey needs.
+     */
+    public function tracking(Request $request, string $id): JsonResponse
+    {
+        $order = Order::with(['statusHistory', 'seller.address', 'seller.sellerDetail'])
+            ->where('buyer_profile_id', $request->user()->id)
+            ->where('order_number', ltrim($id, '#'))
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Order not found.'], 404);
+        }
+
+        return response()->json(['data' => (new OrderTrackingService)->journey($order, viewer: 'buyer')]);
     }
 
     /**

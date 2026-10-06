@@ -37,6 +37,7 @@ Route::middleware(['auth.token', 'buyer'])->prefix('api/buyer')->name('api.buyer
 
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{id}', [OrderController::class, 'show'])->name('orders.show');
+    Route::get('/orders/{id}/tracking', [OrderController::class, 'tracking'])->name('orders.tracking');
     Route::post('/orders/{id}/cancel', [OrderController::class, 'cancel'])->name('orders.cancel');
     Route::post('/orders/{id}/receive', [OrderController::class, 'receive'])->name('orders.receive');
 

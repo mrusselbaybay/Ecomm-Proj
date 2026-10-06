@@ -111,3 +111,30 @@ it('falls back to the offline town centre, then the whole country, when geocodin
         ->assertOk()
         ->assertJsonPath('data.precision', 'country');
 });
+
+it('saves the Account page pin and mirrors it onto the default saved address', function () {
+    $buyer = makeBuyer();
+    actingAsBuyer($buyer);
+
+    $profile = [
+        'first_name' => 'Juan', 'last_name' => 'Cruz', 'sex' => 'Male',
+        'birthday' => '1990-01-01', 'contact_no' => '09171234567',
+        'region_code' => 'Luzon', 'region_name' => 'Luzon',
+        'province_code' => '0434', 'province_name' => 'Laguna',
+        'municipality_code' => '043404', 'municipality_name' => 'Calamba',
+        'barangay' => 'Real', 'street' => 'Mabini St',
+    ];
+
+    $this->putJson('/api/buyer/profile', [...$profile, 'latitude' => 14.2117, 'longitude' => 121.1653])
+        ->assertOk()
+        ->assertJsonPath('address.latitude', 14.2117);
+
+    $this->getJson('/api/buyer/addresses')
+        ->assertOk()
+        ->assertJsonPath('data.0.pin.lat', 14.2117);
+
+    // An older client (no pin keys) editing the same area keeps the pin.
+    $this->putJson('/api/buyer/profile', [...$profile, 'street' => 'Rizal St'])
+        ->assertOk()
+        ->assertJsonPath('address.latitude', 14.2117);
+});

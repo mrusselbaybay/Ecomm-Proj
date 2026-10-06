@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Buyer;
 
+use App\Support\MapPin;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -40,6 +41,7 @@ class UpdateBuyerProfileRequest extends FormRequest
             'barangay' => ['required', 'string', 'max:255'],
             'street' => ['required', 'string', 'max:255'],
             'house_no' => ['nullable', 'string', 'max:50'],
+            ...MapPin::rules(),
         ];
     }
 

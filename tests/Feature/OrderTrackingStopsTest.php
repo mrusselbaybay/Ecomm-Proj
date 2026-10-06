@@ -150,3 +150,213 @@ it('reverses the route for a return: buyer -> hub -> seller', function () {
         ->and(last($journey['stops'])['lat'])->toBe(14.21)
         ->and($journey['statusLabel'])->toBe('At Hub B');
 });
+
+it('says the courier is on the way while one is dispatched to the seller', function () {
+    $order = pinnedOrder();
+    $hub = hubCompany('Hub A', [14.20, 121.15]);
+
+    ParcelAssignment::create([
+        'order_id' => $order->id,
+        'received_at' => now(),
+        'logistics_company_id' => $hub->id,
+        'status' => ParcelAssignment::STATUS_ASSIGNED,
+        'rider_profile_id' => makeBuyer()->id,
+        'assigned_at' => now(),
+    ]);
+
+    $journey = (new OrderTrackingService)->journey($order);
+
+    expect($journey['statusLabel'])->toBe('Courier on the way to pickup')
+        ->and($journey['parcel'])->toBe(['lat' => 14.21, 'lng' => 121.16])
+        ->and($journey['activeLeg'])->toBeNull()
+        ->and($journey['active'])->toBeTrue();
+});
+
+it('shows a transferred parcel at the receiving hub while it is being checked in', function () {
+    $order = pinnedOrder();
+    $hubA = hubCompany('Hub A', [14.20, 121.15]);
+    $hubB = hubCompany('Hub B', [10.30, 123.90], 'Cebu City', 'Cebu');
+
+    ParcelAssignment::create([
+        'order_id' => $order->id, 'received_at' => now()->subDay(),
+        'logistics_company_id' => $hubA->id, 'status' => ParcelAssignment::STATUS_TRANSFERRED,
+        'inventory_scanned_at' => now()->subDay(), 'transferred_at' => now()->subHour(),
+    ]);
+    ParcelAssignment::create([
+        'order_id' => $order->id, 'received_at' => now(),
+        'logistics_company_id' => $hubB->id, 'status' => ParcelAssignment::STATUS_FOR_INVENTORY,
+        'for_inventory_at' => now(), 'inventory_origin' => ParcelAssignment::INVENTORY_ORIGIN_TRANSFER_RECEIPT,
+    ]);
+
+    $journey = (new OrderTrackingService)->journey($order);
+
+    expect($journey['reachedIndex'])->toBe(2)
+        ->and($journey['statusLabel'])->toBe('Arrived at Hub B — being checked in')
+        ->and($journey['parcel'])->toBe(['lat' => 10.3, 'lng' => 123.9]);
+});
+
+it('gives the buyer their own order map, with the seller only at town level', function () {
+    $order = pinnedOrder();
+    $buyer = \App\Models\Profile::find($order->buyer_profile_id);
+
+    actingAsBuyer($buyer);
+
+    $this->getJson("/api/buyer/orders/{$order->order_number}/tracking")
+        ->assertOk()
+        ->assertJsonPath('data.stops.0.exact', false)
+        ->assertJsonPath('data.stops.1.exact', true)
+        ->assertJsonPath('data.stops.1.lat', 10.31);
+
+    actingAsBuyer(makeBuyer());
+
+    $this->getJson("/api/buyer/orders/{$order->order_number}/tracking")->assertNotFound();
+});
+
+it('freezes the route when the order is cancelled', function () {
+    $order = pinnedOrder();
+    $order->update(['status' => 'Cancelled']);
+
+    $journey = (new OrderTrackingService)->journey($order->fresh(['seller.address', 'seller.sellerDetail']));
+
+    expect($journey['statusLabel'])->toBe('Cancelled')
+        ->and($journey['activeLeg'])->toBeNull()
+        ->and($journey['active'])->toBeFalse();
+});
+
+it('keeps the original delivery route as history while a return is under way', function () {
+    $order = pinnedOrder();
+    $hubA = hubCompany('Hub A', [14.20, 121.15]);
+    $hubB = hubCompany('Hub B', [10.30, 123.90], 'Cebu City', 'Cebu');
+
+    ParcelAssignment::create([
+        'order_id' => $order->id, 'received_at' => now()->subDays(3),
+        'logistics_company_id' => $hubA->id, 'status' => ParcelAssignment::STATUS_HANDED_OFF,
+        'inventory_scanned_at' => now()->subDays(3), 'delivered_at' => now()->subDays(2),
+    ]);
+    $return = \App\Models\OrderReturnRequest::create([
+        'order_id' => $order->id, 'order_item_id' => $order->items()->value('id'),
+        'buyer_profile_id' => $order->buyer_profile_id, 'seller_id' => $order->seller_id,
+        'request_type' => 'return_refund', 'reason' => 'damaged', 'details' => 'Cracked.',
+        'quantity' => 1, 'estimated_amount' => 100, 'evidence' => ['x'], 'status' => 'approved',
+    ]);
+    ParcelAssignment::create([
+        'order_id' => $order->id, 'received_at' => now(), 'return_request_id' => $return->id,
+        'logistics_company_id' => $hubB->id, 'status' => ParcelAssignment::STATUS_RECEIVED,
+    ]);
+
+    $journey = (new OrderTrackingService)->journey($order);
+
+    expect($journey['isReturn'])->toBeTrue()
+        ->and(collect($journey['previousStops'])->pluck('name')->all())->toContain('Hub A')
+        ->and(last($journey['previousStops'])['at'])->not->toBeNull()
+        ->and($journey['stops'][0]['lat'])->toBe(10.31);
+});
+
+it('draws the whole GPS trail, not just the last day, thinned to a sane size', function () {
+    $order = pinnedOrder();
+
+    $rows = collect(range(1, 450))->map(fn (int $i) => [
+        'id' => (string) Str::uuid(),
+        'order_id' => $order->id,
+        'lat' => 14.0 + $i / 1000,
+        'lng' => 121.0,
+        'source' => 'simulator',
+        'recorded_at' => now()->subDays(3)->addMinutes($i),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    \App\Models\ParcelLocation::insert($rows->all());
+
+    $trail = (new OrderTrackingService)->journey($order)['trail'];
+
+    expect($trail)->toHaveCount(300)
+        ->and($trail[0]['lat'])->toBe(14.001)   // oldest kept
+        ->and(last($trail)['lat'])->toBe(14.45); // newest kept
+});
+
+it('follows a return from buyer pickup to delivery back at the seller, latest return only', function () {
+    $order = pinnedOrder();
+    $hub = hubCompany('Hub B', [10.30, 123.90], 'Cebu City', 'Cebu');
+    $makeReturn = fn () => \App\Models\OrderReturnRequest::create([
+        'order_id' => $order->id, 'order_item_id' => $order->items()->value('id'),
+        'buyer_profile_id' => $order->buyer_profile_id, 'seller_id' => $order->seller_id,
+        'request_type' => 'return_refund', 'reason' => 'damaged', 'details' => 'Cracked.',
+        'quantity' => 1, 'estimated_amount' => 100, 'evidence' => ['x'], 'status' => 'approved',
+    ]);
+
+    // An older, finished return on another hub must not leak into the route.
+    $old = $makeReturn();
+    ParcelAssignment::create([
+        'order_id' => $order->id, 'received_at' => now()->subDays(5), 'return_request_id' => $old->id,
+        'logistics_company_id' => hubCompany('Old Hub', [12.0, 122.0])->id,
+        'status' => ParcelAssignment::STATUS_HANDED_OFF, 'delivered_at' => now()->subDays(4),
+    ])->forceFill(['created_at' => now()->subDays(5)])->save();
+
+    $return = $makeReturn();
+    $leg = ParcelAssignment::create([
+        'order_id' => $order->id, 'received_at' => now(), 'return_request_id' => $return->id,
+        'logistics_company_id' => $hub->id, 'status' => ParcelAssignment::STATUS_SORTED,
+    ]);
+
+    $tracking = fn () => (new OrderTrackingService)->journey($order->fresh(['seller.address', 'seller.sellerDetail']));
+
+    $j = $tracking();
+    expect(collect($j['stops'])->pluck('name')->all())->not->toContain('Old Hub')
+        ->and($j['statusLabel'])->toBe('Waiting for return pickup')
+        ->and($j['active'])->toBeTrue();
+
+    expect($j['parcel'])->toBe(['lat' => 10.31, 'lng' => 123.89]); // to pick up -> at the buyer
+
+    // Collected from the buyer — a return skips the inventory scan
+    // (returnPickupBypass): straight to handed_off, delivery rider assigned.
+    $leg->update(['status' => ParcelAssignment::STATUS_HANDED_OFF, 'handed_off_at' => now(),
+        'for_inventory_at' => null, 'inventory_origin' => null,
+        'rider_profile_id' => makeBuyer()->id, 'assigned_at' => now()]);
+    $j = $tracking();
+    expect($j['reachedIndex'])->toBe(1)
+        ->and($j['statusLabel'])->toBe('On the way back to the seller')
+        ->and($j['parcel'])->toBe(['lat' => 10.3, 'lng' => 123.9])
+        ->and($j['delivered'])->toBeFalse();
+
+    // Delivered back to the seller — still never scanned, must not freeze.
+    $leg->update(['delivered_at' => now()]);
+    $j = $tracking();
+    expect($j['statusLabel'])->toBe('Returned to seller')
+        ->and($j['parcel'])->toBe(['lat' => 14.21, 'lng' => 121.16])
+        ->and($j['returned'])->toBeTrue()
+        ->and($j['active'])->toBeFalse();
+});
+
+it('shows a return that was transferred back at the origin hub', function () {
+    $order = pinnedOrder();
+    $origin = hubCompany('Origin Hub', [14.20, 121.15]);
+    $dest = hubCompany('Destination Hub', [10.30, 123.90], 'Cebu City', 'Cebu');
+    $return = \App\Models\OrderReturnRequest::create([
+        'order_id' => $order->id, 'order_item_id' => $order->items()->value('id'),
+        'buyer_profile_id' => $order->buyer_profile_id, 'seller_id' => $order->seller_id,
+        'request_type' => 'return_refund', 'reason' => 'damaged', 'details' => 'Cracked.',
+        'quantity' => 1, 'estimated_amount' => 100, 'evidence' => ['x'], 'status' => 'approved',
+    ]);
+
+    // Leg 1 at the destination hub: collected from the buyer, transferred on.
+    $first = ParcelAssignment::create([
+        'order_id' => $order->id, 'received_at' => now()->subDay(), 'return_request_id' => $return->id,
+        'logistics_company_id' => $dest->id, 'status' => ParcelAssignment::STATUS_TRANSFERRED,
+        'handed_off_at' => now()->subDay(), 'transfer_to_company_id' => $origin->id, 'transferred_at' => now()->subHour(),
+    ]);
+    $first->forceFill(['created_at' => now()->subDay()])->save();
+
+    // Leg 2: the transfer receipt at the origin hub (born past the scan).
+    ParcelAssignment::create([
+        'order_id' => $order->id, 'received_at' => now(), 'return_request_id' => $return->id,
+        'logistics_company_id' => $origin->id, 'status' => ParcelAssignment::STATUS_HANDED_OFF,
+        'previous_assignment_id' => $first->id,
+    ]);
+
+    $j = (new OrderTrackingService)->journey($order->fresh(['seller.address', 'seller.sellerDetail']));
+
+    expect(collect($j['stops'])->pluck('name')->slice(1, 2)->values()->all())->toBe(['Destination Hub', 'Origin Hub'])
+        ->and($j['reachedIndex'])->toBe(2)
+        ->and($j['statusLabel'])->toBe('At Origin Hub')
+        ->and($j['parcel'])->toBe(['lat' => 14.2, 'lng' => 121.15]);
+});

@@ -47,10 +47,11 @@ class OrderTrackingService
     /** A ping older than this (minutes) no longer counts as "live". */
     private const LIVE_WINDOW_MINUTES = 15;
 
-    /** Trail pings older than this (hours) are not drawn. */
-    private const TRAIL_WINDOW_HOURS = 24;
+    /** Pings read for the whole-journey trail (hard cap on the query). */
+    private const TRAIL_FETCH_MAX = 3000;
 
-    private const TRAIL_MAX_POINTS = 60;
+    /** Points actually sent: the full trail, evenly thinned to this. */
+    private const TRAIL_MAX_POINTS = 300;
 
     /**
      * Ordered journey phases mapped onto Order::STATUSES. Each carries the
@@ -64,8 +65,14 @@ class OrderTrackingService
         ['key' => 'delivered', 'label' => 'Delivered', 'status' => 'Delivered', 'progress' => 1.0],
     ];
 
-    public function journey(Order $order): array
+    /**
+     * @param  'seller'|'buyer'  $viewer  A buyer only sees the seller's pickup
+     *                                    point at town level (it may be a home).
+     */
+    public function journey(Order $order, string $viewer = 'seller'): array
     {
+        $this->viewer = $viewer;
+
         $history = $order->relationLoaded('statusHistory')
             ? $order->statusHistory
             : $order->statusHistory()->orderBy('created_at')->get();
@@ -130,7 +137,10 @@ class OrderTrackingService
         return [
             'currentStatus' => $currentStatus,
             'cancelled' => $cancelled,
-            'delivered' => $currentStatus === 'Delivered',
+            // Forward delivery done and no return under way (during a return
+            // the order stays "Delivered", but the parcel is moving again).
+            'delivered' => $currentStatus === 'Delivered' && ! $route['isReturn'],
+            'returned' => $route['isReturn'] && $route['reachedIndex'] === count($stops) - 1,
             'progress' => round($progress, 3),
             'live' => $live,
             // False only when the dot is a real recent ping, or is simply
@@ -142,7 +152,7 @@ class OrderTrackingService
             'lastPingAt' => optional($latest?->recorded_at)->toIso8601String(),
             'pingSource' => $live ? $latest->source : null,
             'speedKph' => $live ? $latest->speed_kph : null,
-            'trail' => $pings->reverse()->values()->map(fn (ParcelLocation $p) => [
+            'trail' => $this->thin($pings->reverse()->values())->map(fn (ParcelLocation $p) => [
                 'lat' => round($p->lat, 6),
                 'lng' => round($p->lng, 6),
                 'at' => optional($p->recorded_at)->toIso8601String(),
@@ -153,11 +163,17 @@ class OrderTrackingService
             'mappable' => $mappable,
             'parcel' => $parcel,
             'stops' => $stops,
+            // The original delivery (seller -> buyer), shown as history during a return.
+            'previousStops' => $route['previousStops'],
             'reachedIndex' => $route['reachedIndex'],
             // Leg i runs stops[i] -> stops[i + 1]; null when not moving.
             'activeLeg' => $route['activeLeg'],
             'isReturn' => $route['isReturn'],
             'statusLabel' => $cancelled ? 'Cancelled' : $route['label'],
+            // Worth polling: the parcel can still change stop (incl. a
+            // return in progress after delivery).
+            'active' => ! $cancelled && $mappable && $route['reachedIndex'] < count($stops) - 1
+                && ($route['hasChain'] || in_array($currentStatus, ['Confirmed', 'Processing', 'Packed', 'Ready for Pickup', 'In Transit'], true)),
             'trackingNumber' => $order->tracking_number,
             'carrier' => $order->shipping_carrier,
             'disclaimer' => match (true) {
@@ -177,6 +193,8 @@ class OrderTrackingService
 
     private bool $hubAddresses = true;
 
+    private string $viewer = 'seller';
+
     /**
      * The newest pings for this order, capped and time-bounded so a stale
      * trail from days ago never renders. Newest first.
@@ -191,7 +209,7 @@ class OrderTrackingService
             return $order->parcelLocations
                 ->sortByDesc('recorded_at')
                 ->values()
-                ->take(self::TRAIL_MAX_POINTS);
+                ->take(self::TRAIL_FETCH_MAX);
         }
 
         if (! self::$pingsTableExists && ! Schema::hasTable('parcel_locations')) {
@@ -200,10 +218,29 @@ class OrderTrackingService
 
         self::$pingsTableExists = true;
 
+        // The whole journey, not just the last day: the trail is the
+        // history of where the parcel actually went.
         return $order->parcelLocations()
-            ->where('recorded_at', '>=', now()->subHours(self::TRAIL_WINDOW_HOURS))
-            ->limit(self::TRAIL_MAX_POINTS)
-            ->get();
+            ->limit(self::TRAIL_FETCH_MAX)
+            ->get(['lat', 'lng', 'recorded_at', 'source', 'speed_kph']);
+    }
+
+    /**
+     * Evenly sample a long oldest-first trail down to TRAIL_MAX_POINTS,
+     * always keeping the first and last ping so the line's ends are exact.
+     */
+    private function thin(Collection $pings): Collection
+    {
+        $count = $pings->count();
+
+        if ($count <= self::TRAIL_MAX_POINTS) {
+            return $pings;
+        }
+
+        $step = ($count - 1) / (self::TRAIL_MAX_POINTS - 1);
+
+        return collect(range(0, self::TRAIL_MAX_POINTS - 1))
+            ->map(fn (int $i) => $pings[(int) round($i * $step)]);
     }
 
     /**
@@ -231,9 +268,62 @@ class OrderTrackingService
 
         // A return, once started, is the journey that matters now.
         $returnRows = $rows->filter(fn (ParcelAssignment $r) => $r->isReturn())->values();
+
+        // Several returns on one order (e.g. items sent back separately) each
+        // have their own legs — follow only the latest one, never a mix.
+        if ($returnRows->isNotEmpty()) {
+            $latestReturnId = $returnRows->last()->return_request_id;
+            $returnRows = $returnRows->where('return_request_id', $latestReturnId)->values();
+        }
+
         $isReturn = $returnRows->isNotEmpty();
         $chain = $isReturn ? $returnRows : $rows->reject(fn (ParcelAssignment $r) => $r->isReturn())->values();
 
+        $stops = $this->buildStops($order, $chain, $isReturn);
+
+        // During a return, the original delivery stays on the map as
+        // history (drawn faded underneath the return route).
+        $previousStops = $isReturn
+            // A return only exists once the original delivery happened.
+            ? $this->buildStops($order, $rows->reject(fn (ParcelAssignment $r) => $r->isReturn())->values(), false, delivered: true)
+            : [];
+
+        // The furthest stop with a timestamp is where the parcel is; every
+        // stop before it was necessarily passed, even if one of them never
+        // got its own timestamp (so one gap can't freeze the marker).
+        $reachedIndex = 0;
+        foreach ($stops as $i => $stop) {
+            if ($stop['at'] !== null) {
+                $reachedIndex = $i;
+            }
+        }
+
+        $activeLeg = null;
+        $next = $stops[$reachedIndex + 1] ?? null;
+        if (! $cancelled && $next && $this->isMoving($chain, $stops[$reachedIndex], $next)) {
+            $activeLeg = $reachedIndex;
+        }
+
+        return [
+            'stops' => $stops,
+            'previousStops' => count($previousStops) > 1 ? $previousStops : [],
+            'reachedIndex' => $reachedIndex,
+            'activeLeg' => $activeLeg,
+            'isReturn' => $isReturn,
+            'hasChain' => $chain->isNotEmpty(),
+            'allExact' => collect($stops)->every(fn (array $s) => $s['exact']),
+            'label' => $this->label($stops, $reachedIndex, $activeLeg, $isReturn, $chain),
+        ];
+    }
+
+    /**
+     * Sender -> each hub that held the parcel -> receiver, each stamped with
+     * when the parcel got there (null = not yet).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function buildStops(Order $order, Collection $chain, bool $isReturn, bool $delivered = false): array
+    {
         $seller = $this->sellerPoint($order);
         $buyer = $this->buyerPoint($order);
         [$from, $to] = $isReturn ? [$buyer, $seller] : [$seller, $buyer];
@@ -245,7 +335,7 @@ class OrderTrackingService
             }
         };
 
-        $push($from, 'origin', ($isReturn ? $chain->first()->created_at : $order->placed_at) ?? $order->created_at);
+        $push($from, 'origin', ($isReturn ? $chain->first()?->created_at : $order->placed_at) ?? $order->created_at);
 
         $lastCompanyId = null;
         foreach ($chain as $row) {
@@ -267,42 +357,31 @@ class OrderTrackingService
         }
 
         $deliveredAt = $chain->pluck('delivered_at')->filter()->last()
-            ?? (! $isReturn && $order->status === 'Delivered' ? ($order->received_at ?? $order->updated_at) : null);
+            ?? (! $isReturn && ($delivered || $order->status === 'Delivered')
+                ? ($order->received_at ?? $order->updated_at)
+                : null);
         $push($to, 'destination', $deliveredAt);
 
-        // Stops are reached in order - a later timestamp can't skip an unreached hub.
-        $reachedIndex = 0;
-        foreach ($stops as $i => $stop) {
-            if ($stop['at'] === null) {
-                break;
-            }
-            $reachedIndex = $i;
-        }
-
-        $activeLeg = null;
-        $next = $stops[$reachedIndex + 1] ?? null;
-        if (! $cancelled && $next && $this->isMoving($chain, $stops[$reachedIndex], $next)) {
-            $activeLeg = $reachedIndex;
-        }
-
-        return [
-            'stops' => $stops,
-            'reachedIndex' => $reachedIndex,
-            'activeLeg' => $activeLeg,
-            'isReturn' => $isReturn,
-            'hasChain' => $chain->isNotEmpty(),
-            'allExact' => collect($stops)->every(fn (array $s) => $s['exact']),
-            'label' => $this->label($stops, $reachedIndex, $activeLeg, $isReturn, $chain->isNotEmpty()),
-        ];
+        return $stops;
     }
 
-    /** When this company physically had the parcel at its hub. */
+    /**
+     * When this company had the parcel in its custody (shown at its hub).
+     *
+     * A return skips the For Inventory scan entirely (see
+     * ParcelAutoAssignService::returnPickupBypass): collected from the buyer
+     * it goes straight to handed_off, and a return transfer receipt is born
+     * past the scan too. So for returns, custody = collected from the buyer
+     * (first leg) or the receipt row existing (later legs).
+     */
     private function hubArrival(ParcelAssignment $row): ?CarbonInterface
     {
+        $isReceipt = $row->previous_assignment_id !== null
+            || $row->inventory_origin === ParcelAssignment::INVENTORY_ORIGIN_TRANSFER_RECEIPT;
+
         return $row->inventory_scanned_at
-            ?? ($row->inventory_origin === ParcelAssignment::INVENTORY_ORIGIN_TRANSFER_RECEIPT
-                ? ($row->for_inventory_at ?? $row->created_at)
-                : null)
+            ?? ($isReceipt ? ($row->for_inventory_at ?? $row->created_at) : null)
+            ?? ($row->isReturn() ? $row->handed_off_at : null)
             ?? $row->transferred_at;
     }
 
@@ -336,8 +415,10 @@ class OrderTrackingService
             && in_array($last->status, [ParcelAssignment::STATUS_ASSIGNED, ParcelAssignment::STATUS_HANDED_OFF], true);
     }
 
-    private function label(array $stops, int $reached, ?int $activeLeg, bool $isReturn, bool $hasChain): string
+    private function label(array $stops, int $reached, ?int $activeLeg, bool $isReturn, Collection $chain): string
     {
+        $last = $chain->last();
+
         $here = $stops[$reached] ?? null;
 
         if (! $here) {
@@ -359,12 +440,20 @@ class OrderTrackingService
         }
 
         if ($here['role'] === 'hub') {
-            return 'At '.$here['name'];
+            // Physically here (transfer receipt) but not scanned into inventory yet.
+            return $last?->status === ParcelAssignment::STATUS_FOR_INVENTORY && ! $last->inventory_scanned_at
+                ? 'Arrived at '.$here['name'].' — being checked in'
+                : 'At '.$here['name'];
         }
 
+        // Still at the sender: a courier dispatched to collect it?
+        $first = $chain->first();
+        $courierDispatched = $first?->status === ParcelAssignment::STATUS_ASSIGNED && $first->rider_profile_id !== null;
+
         return match (true) {
+            $courierDispatched => $isReturn ? 'Courier on the way to collect your return' : 'Courier on the way to pickup',
             $isReturn => 'Waiting for return pickup',
-            $hasChain => 'Waiting for courier pickup',
+            $first !== null => 'Waiting for courier pickup',
             default => 'Preparing order',
         };
     }
@@ -375,7 +464,9 @@ class OrderTrackingService
         $address = $order->seller?->address;
 
         return $this->point(
-            MapPin::from($order->pickup_latitude, $order->pickup_longitude) ?? $address?->mapPin(),
+            $this->viewer === 'buyer'
+                ? null
+                : (MapPin::from($order->pickup_latitude, $order->pickup_longitude) ?? $address?->mapPin()),
             $order->pickup_municipality_name ?: $address?->municipality_name,
             $order->pickup_province_name ?: $address?->province_name,
             $order->seller?->sellerDetail?->business_name ?: 'Seller',

@@ -188,6 +188,7 @@ function validate() {
     if (!form.municipalityCode) next.city = 'Select a city / municipality.';
     if (!form.barangay) next.barangay = 'Select a barangay.';
     if (!form.line1.trim()) next.line1 = 'Street is required.';
+    if (!form.pin) next.pin = 'Pin your exact location on the map.';
     if (form.postalCode.trim() && !/^\d{4}$/.test(form.postalCode.trim())) next.postalCode = 'PH postal codes are 4 digits.';
 
     errors.value = next;
@@ -321,15 +322,17 @@ const id = name => `${props.idPrefix}-${name}`;
             </div>
         </div>
 
-        <AddressPinPicker
-            v-model="form.pin"
-            class="sm:col-span-2"
-            :street="form.line1"
-            :barangay="form.barangay"
-            :municipality="form.city"
-            :province="form.province"
-            hint="Pin your door so the rider finds you without calling."
-        />
+        <div :id="id('pin')" class="sm:col-span-2" tabindex="-1" :aria-invalid="!!errors.pin">
+            <AddressPinPicker
+                v-model="form.pin"
+                :street="form.line1"
+                :barangay="form.barangay"
+                :municipality="form.city"
+                :province="form.province"
+                hint="Required — pin your door so the rider finds you without calling."
+            />
+            <p v-if="errors.pin" class="text-xs text-red-500 mt-1 px-1" role="alert">{{ errors.pin }}</p>
+        </div>
 
         <div class="sm:col-span-2 flex flex-wrap items-center justify-between gap-4">
             <div class="flex gap-2" role="radiogroup" aria-label="Address type">

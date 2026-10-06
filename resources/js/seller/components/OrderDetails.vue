@@ -808,7 +808,9 @@ const journeyCard = ref(null);
 // Anything that has shipped, or could have before being cancelled/rejected
 // afterward (see Delivery.vue's "Issues" tab), still requests it as
 // before — this only ever skips work it's certain is wasted.
-const PRE_SHIPMENT_STATUSES = ['New', 'Confirmed', 'Processing', 'Packed', 'Ready for Pickup'];
+// "Ready for Pickup" is excluded: that's when a courier gets dispatched
+// and the map's "Courier on the way to pickup" stage applies.
+const PRE_SHIPMENT_STATUSES = ['New', 'Confirmed', 'Processing', 'Packed'];
 
 async function loadOrder() {
     isLoading.value = true;
@@ -873,8 +875,17 @@ function stopTrackingPoll() {
     trackingTimer = null;
 }
 
-function syncTrackingPoll(status) {
-    if (status === 'In Transit' && !document.hidden) {
+// Poll while the parcel can still change stop — the server's
+// journey.active covers courier dispatch, hub hops and returns, not just
+// "In Transit". Older payloads without the flag fall back to the status.
+function trackingActive() {
+    const journey = order.value?.journey;
+
+    return journey && 'active' in journey ? journey.active : order.value?.status === 'In Transit';
+}
+
+function syncTrackingPoll() {
+    if (trackingActive() && !document.hidden) {
         if (!trackingTimer) {
             pollTracking();
             trackingTimer = setInterval(pollTracking, TRACKING_POLL_MS);
@@ -885,10 +896,10 @@ function syncTrackingPoll(status) {
 }
 
 function handleVisibilityChange() {
-    syncTrackingPoll(order.value?.status);
+    syncTrackingPoll();
 }
 
-watch(() => order.value?.status, syncTrackingPoll);
+watch(() => [order.value?.status, order.value?.journey?.active], syncTrackingPoll);
 watch(() => props.orderId, loadOrder);
 
 onMounted(() => {

@@ -31768,7 +31768,7 @@
       "file_type": "code",
       "norm_label": ".buildstops()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L325"
+      "source_location": "L321"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_buyerpoint",
@@ -31780,7 +31780,7 @@
       "file_type": "code",
       "norm_label": ".buyerpoint()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L476"
+      "source_location": "L462"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_hubarrival",
@@ -31792,7 +31792,7 @@
       "file_type": "code",
       "norm_label": ".hubarrival()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L377"
+      "source_location": "L365"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_hubpoint",
@@ -31804,7 +31804,7 @@
       "file_type": "code",
       "norm_label": ".hubpoint()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L488"
+      "source_location": "L474"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_indexofstatus",
@@ -31816,7 +31816,7 @@
       "file_type": "code",
       "norm_label": ".indexofstatus()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L527"
+      "source_location": "L513"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_interpolate",
@@ -31828,7 +31828,7 @@
       "file_type": "code",
       "norm_label": ".interpolate()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L517"
+      "source_location": "L503"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_ismoving",
@@ -31840,7 +31840,7 @@
       "file_type": "code",
       "norm_label": ".ismoving()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L389"
+      "source_location": "L375"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_journey",
@@ -31864,7 +31864,7 @@
       "file_type": "code",
       "norm_label": ".label()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L418"
+      "source_location": "L404"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_lastreachedstatus",
@@ -31876,7 +31876,7 @@
       "file_type": "code",
       "norm_label": ".lastreachedstatus()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L538"
+      "source_location": "L524"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_point",
@@ -31888,7 +31888,7 @@
       "file_type": "code",
       "norm_label": ".point()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L505"
+      "source_location": "L491"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_recentpings",
@@ -31900,7 +31900,7 @@
       "file_type": "code",
       "norm_label": ".recentpings()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L206"
+      "source_location": "L203"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_route",
@@ -31912,7 +31912,7 @@
       "file_type": "code",
       "norm_label": ".route()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L250"
+      "source_location": "L247"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_sellerpoint",
@@ -31924,7 +31924,7 @@
       "file_type": "code",
       "norm_label": ".sellerpoint()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L462"
+      "source_location": "L448"
     },
     {
       "id": "app_services_ordertrackingservice_ordertrackingservice_thin",
@@ -31936,7 +31936,7 @@
       "file_type": "code",
       "norm_label": ".thin()",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L232"
+      "source_location": "L229"
     },
     {
       "id": "resources_js_seller_components_orders_orderfilters_clearchip",
@@ -119105,7 +119105,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L327",
+      "source_location": "L323",
       "weight": 1.0
     },
     {
@@ -119117,7 +119117,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L328",
+      "source_location": "L324",
       "weight": 1.0
     },
     {
@@ -119129,7 +119129,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L343",
+      "source_location": "L339",
       "weight": 1.0
     },
     {
@@ -119141,7 +119141,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L343",
+      "source_location": "L339",
       "weight": 1.0
     },
     {
@@ -119153,7 +119153,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L480",
+      "source_location": "L466",
       "weight": 1.0
     },
     {
@@ -119165,7 +119165,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L481",
+      "source_location": "L467",
       "weight": 1.0
     },
     {
@@ -119177,7 +119177,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L497",
+      "source_location": "L483",
       "weight": 1.0
     },
     {
@@ -119189,7 +119189,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L409",
+      "source_location": "L395",
       "weight": 1.0
     },
     {
@@ -119237,7 +119237,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L155",
+      "source_location": "L152",
       "weight": 1.0
     },
     {
@@ -119273,7 +119273,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L508",
+      "source_location": "L494",
       "weight": 1.0
     },
     {
@@ -119285,7 +119285,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L282",
+      "source_location": "L279",
       "weight": 1.0
     },
     {
@@ -119297,7 +119297,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L303",
+      "source_location": "L299",
       "weight": 1.0
     },
     {
@@ -119309,7 +119309,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L315",
+      "source_location": "L311",
       "weight": 1.0
     },
     {
@@ -119321,7 +119321,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L466",
+      "source_location": "L452",
       "weight": 1.0
     },
     {
@@ -119333,7 +119333,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L469",
+      "source_location": "L455",
       "weight": 1.0
     },
     {
@@ -195147,7 +195147,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L325",
+      "source_location": "L321",
       "weight": 1.0
     },
     {
@@ -195159,7 +195159,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L325",
+      "source_location": "L321",
       "weight": 1.0
     },
     {
@@ -195171,7 +195171,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L476",
+      "source_location": "L462",
       "weight": 1.0
     },
     {
@@ -195183,7 +195183,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L488",
+      "source_location": "L474",
       "weight": 1.0
     },
     {
@@ -195195,7 +195195,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L389",
+      "source_location": "L375",
       "weight": 1.0
     },
     {
@@ -195219,7 +195219,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L418",
+      "source_location": "L404",
       "weight": 1.0
     },
     {
@@ -195231,7 +195231,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L206",
+      "source_location": "L203",
       "weight": 1.0
     },
     {
@@ -195243,7 +195243,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L250",
+      "source_location": "L247",
       "weight": 1.0
     },
     {
@@ -195255,7 +195255,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L462",
+      "source_location": "L448",
       "weight": 1.0
     },
     {
@@ -196551,7 +196551,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L380",
+      "source_location": "L368",
       "weight": 1.0
     },
     {
@@ -203175,7 +203175,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L377",
+      "source_location": "L365",
       "weight": 1.0
     },
     {
@@ -203187,7 +203187,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L232",
+      "source_location": "L229",
       "weight": 1.0
     },
     {
@@ -287484,7 +287484,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L206",
+      "source_location": "L203",
       "weight": 1.0
     },
     {
@@ -287495,7 +287495,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L232",
+      "source_location": "L229",
       "weight": 1.0
     },
     {
@@ -287506,7 +287506,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L250",
+      "source_location": "L247",
       "weight": 1.0
     },
     {
@@ -287517,7 +287517,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L325",
+      "source_location": "L321",
       "weight": 1.0
     },
     {
@@ -287528,7 +287528,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L377",
+      "source_location": "L365",
       "weight": 1.0
     },
     {
@@ -287539,7 +287539,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L389",
+      "source_location": "L375",
       "weight": 1.0
     },
     {
@@ -287550,7 +287550,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L418",
+      "source_location": "L404",
       "weight": 1.0
     },
     {
@@ -287561,7 +287561,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L462",
+      "source_location": "L448",
       "weight": 1.0
     },
     {
@@ -287572,7 +287572,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L476",
+      "source_location": "L462",
       "weight": 1.0
     },
     {
@@ -287583,7 +287583,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L488",
+      "source_location": "L474",
       "weight": 1.0
     },
     {
@@ -287594,7 +287594,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L505",
+      "source_location": "L491",
       "weight": 1.0
     },
     {
@@ -287605,7 +287605,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L517",
+      "source_location": "L503",
       "weight": 1.0
     },
     {
@@ -287616,7 +287616,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L527",
+      "source_location": "L513",
       "weight": 1.0
     },
     {
@@ -287627,7 +287627,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L538",
+      "source_location": "L524",
       "weight": 1.0
     },
     {
@@ -297131,7 +297131,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L352",
+      "source_location": "L348",
       "weight": 1.0
     },
     {
@@ -297142,7 +297142,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L405",
+      "source_location": "L391",
       "weight": 1.0
     },
     {
@@ -297153,7 +297153,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "app/Services/OrderTrackingService.php",
-      "source_location": "L444",
+      "source_location": "L430",
       "weight": 1.0
     },
     {

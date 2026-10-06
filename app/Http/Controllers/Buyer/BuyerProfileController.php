@@ -75,6 +75,14 @@ class BuyerProfileController extends Controller
                 'house_no' => $request->validated('house_no'),
             ];
 
+            // Only a client that sends a pin (the web Account page) may set
+            // or clear it; older clients leave it alone (HasMapPin still
+            // drops it if the area changed).
+            if ($request->has('latitude')) {
+                $addressPayload['latitude'] = $request->validated('latitude');
+                $addressPayload['longitude'] = $request->validated('longitude');
+            }
+
             $address = Address::updateOrCreate(
                 ['owner_kind' => 'profile', 'profile_id' => $profile->id],
                 $addressPayload,
@@ -229,6 +237,8 @@ class BuyerProfileController extends Controller
             'barangay' => $address->barangay,
             'street' => $address->street,
             'house_no' => $address->house_no,
+            'latitude' => $address->latitude,
+            'longitude' => $address->longitude,
             'full_address' => $address->full_address,
         ];
     }

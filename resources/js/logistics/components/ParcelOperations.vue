@@ -200,11 +200,7 @@
                             <td data-label="Destination">
                                 <span
                                     class="badge badge-slate address-phase-badge"
-                                    >{{
-                                        parcel.phase === 'pickup'
-                                            ? 'Pick up from seller'
-                                            : 'Deliver to buyer'
-                                    }}</span
+                                    >{{ phaseLabel(parcel) }}</span
                                 >
                                 <span class="parcel-recipient">{{
                                     parcel.order.buyer_name || '—'
@@ -344,11 +340,7 @@
                                     <span class="details-subtitle-dot"
                                         >·</span
                                     >
-                                    {{
-                                        detailsParcel.phase === 'pickup'
-                                            ? 'Pick up from seller'
-                                            : 'Deliver to buyer'
-                                    }}
+                                    {{ phaseLabel(detailsParcel) }}
                                 </p>
                             </div>
                             <button
@@ -585,7 +577,7 @@
                                                 </dd>
                                             </div>
                                             <div class="details-info-row">
-                                                <dt>Pickup address</dt>
+                                                <dt>{{ detailsParcel.is_return ? 'Return drop-off address' : 'Pickup address' }}</dt>
                                                 <dd>
                                                     {{
                                                         detailsData.seller
@@ -1215,6 +1207,16 @@ import {
 import { useLogistics } from '../composables/useLogistics';
 import { useLogisticsUi } from '../composables/useLogisticsUi';
 import NavIcon from './NavIcon.vue';
+
+// A return runs the forward flow in reverse: collected from the BUYER,
+// delivered back to the SELLER (see ParcelAssignment::routingOrder()).
+function phaseLabel(parcel) {
+    if (parcel?.phase === 'pickup') {
+        return parcel.is_return ? 'Pick up from buyer' : 'Pick up from seller';
+    }
+
+    return parcel?.is_return ? 'Return to seller' : 'Deliver to buyer';
+}
 
 const emit = defineEmits(['open-section']);
 

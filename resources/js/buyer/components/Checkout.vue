@@ -10,6 +10,7 @@ import { metaFor } from '../composables/useCategoryMeta';
 import { useConfirm } from '../composables/useConfirm';
 import { isValidLocalMobile, toLocalMobile } from '../composables/usePhone';
 import { useToasts } from '../composables/useToasts';
+import AddressPinPicker from '../../shared/AddressPinPicker.vue';
 import AddressForm from './AddressForm.vue';
 import Footer from './Footer.vue';
 import Header from './Header.vue';
@@ -81,6 +82,7 @@ const {
     selectedAddressId,
     formatAddress,
     addAddress,
+    updateAddress,
     ADDRESS_LABELS
 } = useBuyerAddresses();
 const {
@@ -102,6 +104,41 @@ if (!buyerProfile.value) {
 const isDeliveryDetailsLoading = computed(
     () => (isAddressBookLoading.value && !hasAddresses.value) || isLoadingProfile.value
 );
+
+/*
+| Exact map pin — required to place an order (riders and the tracking map
+| need the door, not the barangay). Pinned inline here and saved straight
+| onto the selected address, so the buyer never leaves checkout.
+*/
+const selectedNeedsPin = computed(() => {
+    const saved = selectedAddress.value;
+
+    if (saved) {
+        return saved.isComplete && !saved.pin;
+    }
+
+    return !!buyerAddress.value && buyerAddress.value.latitude == null;
+});
+const isSavingPin = ref(false);
+
+async function saveSelectedPin(pin) {
+    const saved = selectedAddress.value;
+
+    if (!pin || !saved || isSavingPin.value) {
+        return;
+    }
+
+    isSavingPin.value = true;
+
+    try {
+        await updateAddress(saved.id, { ...saved, makeDefault: saved.isDefault, pin });
+        success('Location pinned.');
+    } catch (err) {
+        toastError(err?.message || 'Could not save the pin. Please try again.');
+    } finally {
+        isSavingPin.value = false;
+    }
+}
 
 // Falls back to the default when nothing is picked yet or the picked one
 // was deleted (here or on the Saved Addresses page).
@@ -635,6 +672,15 @@ async function placeOrder() {
         return;
     }
 
+    if (selectedNeedsPin.value) {
+        warning(selectedAddress.value
+            ? 'Pin your exact delivery location on the map first.'
+            : 'Add a delivery address with a map pin first.');
+        document.getElementById('checkout-pin')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+        return;
+    }
+
     if (!checkoutForm.recipientName.trim()) {
         warning('Add a recipient name to your account or a saved address before checking out.');
 
@@ -947,6 +993,22 @@ async function placeOrder() {
                                             <button type="button" class="font-bold underline underline-offset-2" @click="emit('manage-addresses')">Saved Addresses</button>
                                             or pick another.
                                         </small>
+
+                                        <div v-if="selectedNeedsPin && selectedAddress" id="checkout-pin" class="mt-3">
+                                            <AddressPinPicker
+                                                :model-value="selectedAddress.pin || null"
+                                                :disabled="isSavingPin"
+                                                :street="selectedAddress.line1"
+                                                :barangay="selectedAddress.barangay"
+                                                :municipality="selectedAddress.city"
+                                                :province="selectedAddress.province"
+                                                hint="Required before ordering — pin your door so the rider finds you."
+                                                @update:model-value="saveSelectedPin"
+                                            />
+                                        </div>
+                                        <small v-else-if="selectedNeedsPin" id="checkout-pin" class="checkout-field-hint !text-amber-700">
+                                            Your address has no map pin. Add a delivery address (with its pin) using “Change”.
+                                        </small>
                                     </div>
                                 </div>
 
@@ -972,6 +1034,7 @@ async function placeOrder() {
                                                 </strong>
                                                 <span class="break-words">{{ formatAddress(address) }}</span>
                                                 <span v-if="!address.isComplete" class="!text-amber-700 font-semibold">Needs update before use</span>
+                                                <span v-else-if="!address.pin" class="!text-amber-700 font-semibold">No map pin — you'll pin it before ordering</span>
                                             </div>
                                         </label>
                                     </div>
