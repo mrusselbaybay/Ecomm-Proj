@@ -1,12 +1,9 @@
 <?php
 
 use App\Http\Controllers\Admin\AccountRegistrationController;
-use App\Http\Controllers\Api\AccountController;
-use App\Http\Controllers\Api\RoleSwitchController;
 use App\Http\Controllers\Admin\AdminNotificationController;
 use App\Http\Controllers\Admin\AdminProfileController;
 use App\Http\Controllers\Admin\CommissionController;
-use App\Http\Controllers\CashFlowController;
 use App\Http\Controllers\Admin\ComplaintController;
 use App\Http\Controllers\Admin\CustomerServiceController as AdminCustomerServiceController;
 use App\Http\Controllers\Admin\DashboardController;
@@ -14,21 +11,25 @@ use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\SellerComplianceController;
 use App\Http\Controllers\Admin\StaffAccountController;
 use App\Http\Controllers\Admin\UserAccountController;
+use App\Http\Controllers\Api\AccountController;
 use App\Http\Controllers\Api\Courier\CourierApplicationController;
 use App\Http\Controllers\Api\Courier\CourierProfileController;
 use App\Http\Controllers\Api\Courier\LogisticsCompanyController;
 use App\Http\Controllers\Api\Courier\ResignationRequestController as CourierResignationRequestController;
+use App\Http\Controllers\Api\Logistics\InvitationController as LogisticsInvitationController;
+use App\Http\Controllers\Api\Logistics\LogisticsAccountController;
+use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
 use App\Http\Controllers\Api\Logistics\LogisticsBarangayAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsProvincialAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsRegionalAssignmentController;
-use App\Http\Controllers\Api\Logistics\LogisticsAccountController;
-use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
-use App\Http\Controllers\Api\Logistics\InvitationController as LogisticsInvitationController;
-use App\Http\Controllers\Api\Logistics\TeamController as LogisticsTeamController;
 use App\Http\Controllers\Api\Logistics\ParcelAssignmentController;
 use App\Http\Controllers\Api\Logistics\ParcelInventoryController;
 use App\Http\Controllers\Api\Logistics\ResignationRequestController as LogisticsResignationRequestController;
+use App\Http\Controllers\Api\Logistics\TeamController as LogisticsTeamController;
+use App\Http\Controllers\Api\RoleSwitchController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Buyer\CouponController;
+use App\Http\Controllers\CashFlowController;
 use App\Http\Controllers\CustomerService\SupportTicketController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
@@ -69,7 +70,7 @@ Route::prefix('auth')->group(function () {
 Route::get('/products', [ProductController::class, 'index'])->name('products.index');
 Route::get('/products/{id}', [ProductController::class, 'show'])->name('products.show');
 Route::get('/products/{id}/reviews', [ProductController::class, 'reviews'])->name('products.reviews');
-Route::get('/products/{id}/coupons', [\App\Http\Controllers\Buyer\CouponController::class, 'forProduct'])->name('products.coupons');
+Route::get('/products/{id}/coupons', [CouponController::class, 'forProduct'])->name('products.coupons');
 
 // ============================================================
 // CUSTOMER SERVICE (all active public account roles)
@@ -452,6 +453,12 @@ Route::middleware(['auth.token', 'admin'])
     ->group(function () use ($sharedAdminRoutes): void {
         $sharedAdminRoutes();
 
+        Route::get('/compliance/products', [SellerComplianceController::class, 'index'])->name('compliance.products.index');
+        Route::post('/compliance/products/{product}/actions', [SellerComplianceController::class, 'store'])->name('compliance.products.actions.store');
+
+        Route::get('/commissions', [CommissionController::class, 'index'])->name('commissions.index');
+        Route::get('/commissions/cash-flow', [CashFlowController::class, 'platform'])->name('commissions.cash-flow');
+
         Route::get('/complaints', [ComplaintController::class, 'index'])->name('complaints.index');
         Route::get('/complaints/{complaint}', [ComplaintController::class, 'show'])->name('complaints.show');
         Route::put('/complaints/{complaint}', [ComplaintController::class, 'update'])->name('complaints.update');
@@ -470,19 +477,12 @@ Route::middleware(['auth.token', 'admin'])
     });
 
 // Logistics admin (served inside the logistics portal): couriers, drivers &
-// logistics companies. Also owns seller compliance, commissions and reports,
-// which moved here from the platform admin.
+// logistics companies and reports.
 Route::middleware(['auth.token', 'admin:logistics_admin'])
     ->prefix('logistics-admin')
     ->name('logistics-admin.')
     ->group(function () use ($sharedAdminRoutes): void {
         $sharedAdminRoutes();
-
-        Route::get('/compliance/products', [SellerComplianceController::class, 'index'])->name('compliance.products.index');
-        Route::post('/compliance/products/{product}/actions', [SellerComplianceController::class, 'store'])->name('compliance.products.actions.store');
-
-        Route::get('/commissions', [CommissionController::class, 'index'])->name('commissions.index');
-        Route::get('/commissions/cash-flow', [CashFlowController::class, 'platform'])->name('commissions.cash-flow');
 
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');

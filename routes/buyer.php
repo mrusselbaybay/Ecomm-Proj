@@ -4,6 +4,7 @@ use App\Http\Controllers\Buyer\AccountController;
 use App\Http\Controllers\Buyer\AddressController;
 use App\Http\Controllers\Buyer\BuyerProfileController;
 use App\Http\Controllers\Buyer\CheckoutController;
+use App\Http\Controllers\Buyer\CouponController;
 use App\Http\Controllers\Buyer\MessageController;
 use App\Http\Controllers\Buyer\OrderController;
 use App\Http\Controllers\Buyer\PaymentMethodController;
@@ -31,9 +32,9 @@ Route::middleware(['auth.token', 'buyer'])->prefix('api/buyer')->name('api.buyer
     Route::post('/checkout', [CheckoutController::class, 'store'])->name('checkout.store');
 
     // Coupon wallet: claim from the product page, quote/auto-apply at checkout.
-    Route::get('/coupons', [\App\Http\Controllers\Buyer\CouponController::class, 'index'])->name('coupons.index');
-    Route::post('/coupons/quote', [\App\Http\Controllers\Buyer\CouponController::class, 'quote'])->name('coupons.quote');
-    Route::post('/coupons/{couponId}/claim', [\App\Http\Controllers\Buyer\CouponController::class, 'claim'])->name('coupons.claim');
+    Route::get('/coupons', [CouponController::class, 'index'])->name('coupons.index');
+    Route::post('/coupons/quote', [CouponController::class, 'quote'])->name('coupons.quote');
+    Route::post('/coupons/{couponId}/claim', [CouponController::class, 'claim'])->name('coupons.claim');
 
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{id}', [OrderController::class, 'show'])->name('orders.show');
@@ -87,6 +88,7 @@ Route::middleware(['auth.token', 'buyer'])->prefix('api/buyer')->name('api.buyer
 
     // Buyer <-> seller messaging (conversations / messages tables).
     Route::get('/messages/unread-count', [MessageController::class, 'unreadCount'])->name('messages.unread-count');
+    Route::get('/messages/quick-questions', [MessageController::class, 'quickQuestions'])->name('messages.quick-questions');
     Route::get('/messages/conversations', [MessageController::class, 'conversations'])->name('messages.conversations');
     Route::post('/messages/conversations', [MessageController::class, 'startConversation'])->name('messages.conversations.start');
     Route::post('/messages/courier-conversations', [MessageController::class, 'startCourierConversation'])->name('messages.courier-conversations.start');

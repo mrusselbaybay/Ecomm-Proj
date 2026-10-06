@@ -1286,6 +1286,8 @@ onBeforeUnmount(() => {
     flex-direction: column;
     height: 100vh;
     min-height: 0;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 .seller-content-wrapper.chat-shell .content-header {
     flex-shrink: 0;

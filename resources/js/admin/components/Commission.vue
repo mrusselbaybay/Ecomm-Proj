@@ -11,7 +11,7 @@
         </div>
 
         <CashFlowPanel
-            endpoint="/api/logistics-admin/commissions/cash-flow"
+            endpoint="/api/admin/commissions/cash-flow"
             title="Escrow commission (5%)"
             description="Platform commission actually collected from released escrow, net of refunds."
         />

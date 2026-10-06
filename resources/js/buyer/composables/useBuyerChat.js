@@ -73,6 +73,8 @@ const activeConversationId = ref(null);
 const isViewingArchived = ref(false);
 
 const unreadCount = ref(0);
+const quickQuestions = ref([]);
+let quickQuestionsRequest = 0;
 
 let loadedOnce = false;
 let inFlight = null;
@@ -224,7 +226,23 @@ function mapMessage(message) {
             }
             : null,
         at: threadTimeLabel(message.at) || timeOfDay(new Date()),
+        source: message.source || 'manual',
+        isAutomatic: Boolean(message.isAutomatic),
     };
+}
+
+async function loadQuickQuestions() {
+    const requestId = ++quickQuestionsRequest;
+    const query = activeConversationId.value
+        ? `?conversation_id=${encodeURIComponent(activeConversationId.value)}`
+        : '';
+    const questions = await buyerApi(`/buyer/messages/quick-questions${query}`);
+
+    if (requestId === quickQuestionsRequest) {
+        quickQuestions.value = questions;
+    }
+
+    return questions;
 }
 
 function mapConversation(conversation) {
@@ -253,6 +271,14 @@ function mapConversation(conversation) {
         // can show a snippet for a conversation that hasn't actually been
         // opened yet in this session, e.g. one a checkout just auto-started.
         lastMessagePreview: conversation.lastMessagePreview || null,
+        order: conversation.order
+            ? {
+                id: conversation.order.id,
+                orderNumber: conversation.order.orderNumber,
+                status: conversation.order.status,
+                trackingNumber: conversation.order.trackingNumber || null,
+            }
+            : null,
         product: conversation.product
             ? {
                 name: conversation.product.name,
@@ -549,6 +575,9 @@ watch(isChatOpen, open => {
 watch(activeConversationId, () => {
     if (isChatOpen.value) {
         subscribeActiveConversation();
+        loadQuickQuestions().catch(() => {
+            quickQuestions.value = [];
+        });
     }
 });
 
@@ -898,6 +927,7 @@ function sendMessage(text, attachmentIds = [], attachmentPreviews = [], context 
             attachment_ids: attachmentIds,
             order_id: context.orderId || null,
             product_id: context.productId || null,
+            quick_question_key: context.quickQuestionKey || null,
         }),
     })
         .then(message => {
@@ -905,6 +935,11 @@ function sendMessage(text, attachmentIds = [], attachmentPreviews = [], context 
 
             if (idx !== -1 && message) {
                 convo.messages[idx] = mapMessage(message);
+            }
+
+            if (message?.autoReply && !convo.messages.some(item => item.id === message.autoReply.id)) {
+                convo.messages.push(mapMessage(message.autoReply));
+                messagesAppendedTick.value += 1;
             }
         })
         .catch(err => {
@@ -1333,6 +1368,7 @@ export function useBuyerChat() {
         messagesAppendedTick,
         activeConversation,
         totalUnread,
+        quickQuestions,
         isViewingArchived,
 
         loadConversations,
@@ -1347,6 +1383,7 @@ export function useBuyerChat() {
         showArchivedConversations,
         showInboxConversations,
         loadOlderMessages,
+        loadQuickQuestions,
         sendMessage,
         retryMessage,
         fetchConversationProducts,

@@ -2706,6 +2706,10 @@
     color: #dc2626;
 }
 
+.product-stock--select {
+    color: #64748b;
+}
+
 /* Savings text next to .product-details-price / .product-old-price */
 
 .product-savings {

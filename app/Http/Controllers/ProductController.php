@@ -266,7 +266,10 @@ class ProductController extends Controller
             'sku' => $product->sku,
             'price' => (float) $product->price,
             'oldPrice' => $product->compare_price ? (float) $product->compare_price : null,
-            'stock' => (int) $product->stock,
+            // A product with variants sells from its active variants. The
+            // cached products.stock field may briefly lag behind an inventory
+            // adjustment, so buyer views receive the calculated total.
+            'stock' => $product->effectiveStock(),
             'lowStockThreshold' => $product->low_stock_threshold,
             // Only ever 'active' reaches a buyer (see catalogQuery()), but
             // returned explicitly so the frontend never has to infer it.

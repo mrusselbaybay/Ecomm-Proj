@@ -10,7 +10,7 @@ class StoreSellerComplianceActionRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->getAttribute('role') === 'logistics_admin';
+        return $this->user()?->getAttribute('role') === 'admin';
     }
 
     /**

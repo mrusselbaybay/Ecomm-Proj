@@ -6,6 +6,7 @@ use App\Models\Concerns\HasUuidPrimaryKey;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -32,6 +33,8 @@ class Message extends Model
         'attachments',
         'read_at',
         'edited_at',
+        'source',
+        'quick_question_key',
         // Which purchase (if any) this specific message/inquiry was about —
         // the conversation itself no longer carries a single order/product,
         // since one buyer<->seller thread can now span several purchases.
@@ -73,5 +76,10 @@ class Message extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id');
+    }
+
+    public function automationSuggestion(): HasOne
+    {
+        return $this->hasOne(ChatAutomationSuggestion::class, 'source_message_id');
     }
 }

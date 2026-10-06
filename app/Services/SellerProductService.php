@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\ModerateProductJob;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Profile;
@@ -57,6 +58,8 @@ class SellerProductService
             $product->load('variants');
             $this->inventory->syncProductStock($product);
             $this->inventory->syncProductPrice($product);
+
+            ModerateProductJob::dispatch($product->id)->afterCommit();
 
             return $product->fresh(self::EAGER);
         });
@@ -147,6 +150,8 @@ class SellerProductService
                     $seller->id,
                 );
             }
+
+            ModerateProductJob::dispatch($product->id)->afterCommit();
 
             return $product->fresh(self::EAGER);
         });

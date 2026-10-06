@@ -283,6 +283,34 @@ const availableStock = computed(() => {
     return hasStock.value ? props.product.stock : null;
 });
 
+const stockPresentation = computed(() => {
+    if (hasVariants.value && !allOptionsSelected.value) {
+        return {
+            label: 'Select a variant',
+            className: 'product-stock--select',
+        };
+    }
+
+    if (hasVariants.value && !selectedVariant.value) {
+        return {
+            label: 'This combination is unavailable',
+            className: 'product-stock--out',
+        };
+    }
+
+    if (inStock.value === null) {
+        return {
+            label: 'Stock unavailable',
+            className: 'product-stock--select',
+        };
+    }
+
+    return {
+        label: inStock.value ? 'In Stock' : 'Out of Stock',
+        className: inStock.value ? 'product-stock--in' : 'product-stock--out',
+    };
+});
+
 const hasSpecifications = computed(() => {
     return !!props.product?.specifications &&
         Object.keys(props.product.specifications).length > 0;
@@ -688,11 +716,11 @@ function selectRelatedProduct(item) {
                         No reviews yet
                     </span>
                     <span
-                        v-if="hasStock"
+                        v-if="hasStock || hasVariants"
                         class="product-stock"
-                        :class="inStock ? 'product-stock--in' : 'product-stock--out'"
+                        :class="stockPresentation.className"
                     >
-                        {{ inStock ? 'In Stock' : 'Out of Stock' }}
+                        {{ stockPresentation.label }}
                     </span>
                 </div>
 

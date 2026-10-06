@@ -43,6 +43,16 @@ return [
         'verify_ssl' => env('SUPABASE_VERIFY_SSL', true),
     ],
 
+    'product_moderation' => [
+        'enabled' => env('PRODUCT_MODERATION_ENABLED', false),
+        'mode' => env('PRODUCT_MODERATION_MODE', 'review_only'),
+        'url' => env('OPENAI_MODERATION_URL', 'https://api.openai.com/v1/moderations'),
+        'token' => env('OPENAI_API_KEY'),
+        'model' => env('OPENAI_MODERATION_MODEL', 'omni-moderation-latest'),
+        'connect_timeout' => env('PRODUCT_MODERATION_CONNECT_TIMEOUT', 3),
+        'timeout' => env('PRODUCT_MODERATION_TIMEOUT', 15),
+    ],
+
     // Socialite driver config for "Continue with Google". Only used to
     // talk to Google — the resulting identity is bridged into a real
     // Supabase session (see AuthController::handleGoogleCallback).

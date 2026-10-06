@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\SellerNotification;
 use Throwable;
 
@@ -64,6 +65,30 @@ class SellerNotifier
             ],
             orderId: $order->id,
             dedupeKey: "order_status_changed:{$order->id}:{$to}",
+        );
+    }
+
+    public function productVerified(Product $product, string $eventId): void
+    {
+        $this->notify(
+            sellerId: $product->seller_id,
+            type: 'product_verified',
+            title: "Your product \"{$product->name}\" is now live",
+            body: 'It passed compliance review and is visible to buyers.',
+            data: ['productId' => $product->id, 'productName' => $product->name],
+            dedupeKey: "product_verified:{$eventId}",
+        );
+    }
+
+    public function productRemoved(Product $product, ?string $reason, string $eventId): void
+    {
+        $this->notify(
+            sellerId: $product->seller_id,
+            type: 'product_removed',
+            title: "Your product \"{$product->name}\" was removed",
+            body: $reason ?: 'It no longer meets marketplace policy and was taken down.',
+            data: ['productId' => $product->id, 'productName' => $product->name],
+            dedupeKey: "product_removed:{$eventId}",
         );
     }
 

@@ -1,16 +1,18 @@
 <?php
 
+use App\Http\Controllers\CashFlowController;
 use App\Http\Controllers\Seller\CategoryConfigController;
+use App\Http\Controllers\Seller\ChatAutomationController;
 use App\Http\Controllers\Seller\MessageController;
+use App\Http\Controllers\Seller\ProductCouponController;
+use App\Http\Controllers\Seller\RefundRequestController;
+use App\Http\Controllers\Seller\SellerCourierController;
 use App\Http\Controllers\Seller\SellerDeliveryController;
 use App\Http\Controllers\Seller\SellerFeedbackController;
 use App\Http\Controllers\Seller\SellerInventoryController;
 use App\Http\Controllers\Seller\SellerNotificationController;
 use App\Http\Controllers\Seller\SellerOrderController;
-use App\Http\Controllers\Seller\SellerCourierController;
 use App\Http\Controllers\Seller\SellerProductController;
-use App\Http\Controllers\CashFlowController;
-use App\Http\Controllers\Seller\RefundRequestController;
 use App\Http\Controllers\Seller\SellerReportController;
 use Illuminate\Support\Facades\Route;
 
@@ -53,10 +55,10 @@ Route::middleware(['auth.token', 'seller'])->prefix('api/seller')->name('api.sel
     // records an inventory_movements row for every change.
     Route::post('/products/{id}/stock-adjustments', [SellerInventoryController::class, 'adjust'])->name('products.stock.adjust');
     // Product-level, seller-funded coupons (created in batches from the edit page).
-    Route::get('/products/{id}/coupons', [\App\Http\Controllers\Seller\ProductCouponController::class, 'index'])->name('products.coupons.index');
-    Route::post('/products/{id}/coupons', [\App\Http\Controllers\Seller\ProductCouponController::class, 'store'])->name('products.coupons.store');
-    Route::put('/coupons/{id}', [\App\Http\Controllers\Seller\ProductCouponController::class, 'update'])->name('coupons.update');
-    Route::delete('/coupons/{id}', [\App\Http\Controllers\Seller\ProductCouponController::class, 'destroy'])->name('coupons.destroy');
+    Route::get('/products/{id}/coupons', [ProductCouponController::class, 'index'])->name('products.coupons.index');
+    Route::post('/products/{id}/coupons', [ProductCouponController::class, 'store'])->name('products.coupons.store');
+    Route::put('/coupons/{id}', [ProductCouponController::class, 'update'])->name('coupons.update');
+    Route::delete('/coupons/{id}', [ProductCouponController::class, 'destroy'])->name('coupons.destroy');
     Route::get('/products/{id}/stock-movements', [SellerInventoryController::class, 'movements'])->name('products.stock.movements');
 
     Route::get('/category-config', [CategoryConfigController::class, 'show'])->name('category-config');
@@ -133,6 +135,13 @@ Route::middleware(['auth.token', 'seller'])->prefix('api/seller')->name('api.sel
     // Buyer\MessageController on feature/buyer). Every query is scoped to
     // the authenticated seller; another seller's conversation 404s.
     Route::prefix('messages')->name('messages.')->group(function () {
+        Route::get('/automation', [ChatAutomationController::class, 'show'])->name('automation.show');
+        Route::put('/automation', [ChatAutomationController::class, 'update'])->name('automation.update');
+        Route::put('/automation/questions/{question}', [ChatAutomationController::class, 'updateResponse'])->name('automation.questions.update');
+        Route::post('/automation/keyword-rules', [ChatAutomationController::class, 'storeKeywordRule'])->name('automation.keyword-rules.store');
+        Route::put('/automation/keyword-rules/{rule}', [ChatAutomationController::class, 'updateKeywordRule'])->name('automation.keyword-rules.update');
+        Route::delete('/automation/keyword-rules/{rule}', [ChatAutomationController::class, 'destroyKeywordRule'])->name('automation.keyword-rules.destroy');
+        Route::put('/conversations/{id}/automation', [ChatAutomationController::class, 'updateConversation'])->name('conversations.automation.update');
         Route::get('/unread-count', [MessageController::class, 'unreadCount'])->name('unread-count');
         Route::get('/export', [MessageController::class, 'export'])->name('export');
         Route::get('/conversations', [MessageController::class, 'conversations'])->name('conversations.index');

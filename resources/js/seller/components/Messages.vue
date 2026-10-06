@@ -8,8 +8,144 @@
                     <p class="msg-list-eyebrow">Inbox</p>
                     <h2 class="msg-list-title">Messages</h2>
                 </div>
-                <span v-if="tabCount('unread')" class="msg-list-unread">{{ tabCount('unread') }} unread</span>
+                <div class="msg-list-header-actions">
+                    <span v-if="tabCount('unread')" class="msg-list-unread">{{ tabCount('unread') }} unread</span>
+                    <button type="button" class="btn-outline btn-sm" @click="toggleAutomationSettings">
+                        Auto-reply
+                    </button>
+                </div>
             </div>
+
+            <section v-if="showAutomationSettings" class="msg-automation-panel" aria-label="Auto-reply settings" @click.self="closeAutomationSettings">
+                <div class="msg-automation-dialog" role="dialog" aria-modal="true" aria-labelledby="msg-automation-title">
+                <div class="msg-automation-heading">
+                    <div>
+                        <span class="msg-automation-eyebrow">Chat automation</span>
+                        <strong id="msg-automation-title">Smart auto-reply</strong>
+                        <p>Set when the bot responds and customize every answer buyers can receive.</p>
+                    </div>
+                    <button type="button" class="msg-automation-close" aria-label="Close auto-reply settings" @click="closeAutomationSettings">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                    </button>
+                </div>
+
+                <template v-if="isLoadingAutomation">
+                    <div class="msg-automation-loading">
+                        <span class="loading-spinner"></span>
+                        <p class="msg-automation-help">Loading your auto-reply settings...</p>
+                    </div>
+                </template>
+                <template v-else>
+                    <div class="msg-automation-card">
+                        <div class="msg-automation-section-heading">
+                            <div>
+                                <strong>Bot behavior</strong>
+                                <p>Choose how replies are handled and when buyers see them.</p>
+                            </div>
+                            <span class="msg-automation-status" :class="`is-${automationSettings.botMode}`">{{ botModeLabel }}</span>
+                        </div>
+                        <div class="msg-automation-control-grid">
+                            <label class="msg-automation-control" for="chat-bot-mode">
+                                <span class="field-label">Bot mode</span>
+                                <select id="chat-bot-mode" v-model="automationSettings.botMode" class="field-input">
+                                    <option value="off">Off · reply manually</option>
+                                    <option value="suggest">Suggest only · review before sending</option>
+                                    <option value="auto">Auto-reply · send matched answers immediately</option>
+                                </select>
+                                <small>{{ botModeHelp }}</small>
+                            </label>
+
+                            <label class="msg-automation-control" for="chat-seller-status">
+                                <span class="field-label">Seller status</span>
+                                <select id="chat-seller-status" v-model="automationSettings.sellerStatus" class="field-input">
+                                    <option value="automatic">Automatic from activity</option>
+                                    <option value="online">Online</option>
+                                    <option value="away">Away</option>
+                                </select>
+                                <small>Away buyers receive matched answers immediately.</small>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="msg-automation-card">
+                        <div class="msg-automation-section-heading">
+                            <div>
+                                <strong>Free-text away response</strong>
+                                <p>Sent when an away buyer message does not match a quick question or keyword.</p>
+                            </div>
+                        </div>
+                        <textarea id="generic-away-response" v-model="automationSettings.genericAwayResponse" class="field-input" rows="3" maxlength="1000" aria-label="Free-text away response"></textarea>
+                    </div>
+
+                    <div class="msg-automation-section-heading msg-automation-section-heading-main">
+                        <div>
+                            <strong>Quick-question answers</strong>
+                            <p>These answers are linked to the quick buttons shown in buyer chat.</p>
+                        </div>
+                    </div>
+
+                    <div class="msg-automation-question-grid">
+                        <div v-for="question in automationQuestions" :key="question.key" class="msg-automation-question">
+                            <label class="field-label" :for="`auto-${question.key}`">
+                                {{ question.question }}
+                                <small>{{ question.contextType === 'order' ? 'Order question' : 'General question' }}</small>
+                            </label>
+                            <textarea :id="`auto-${question.key}`" v-model="question.response" class="field-input" rows="3" maxlength="1000"></textarea>
+                            <label class="msg-automation-enabled">
+                                <input v-model="question.enabled" type="checkbox">
+                                Use this automatic answer
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="msg-automation-placeholder-help">
+                        <strong>Dynamic placeholders</strong>
+                        <span>{{ placeholderHelp }}</span>
+                    </div>
+
+                    <div class="msg-automation-card">
+                        <div class="msg-automation-section-heading">
+                            <div>
+                                <strong>Keyword rules</strong>
+                                <p>A whole word or phrase match uses the first active rule by priority.</p>
+                            </div>
+                            <button type="button" class="btn-outline btn-sm" @click="addKeywordRule">Add rule</button>
+                        </div>
+                        <p v-if="!automationKeywordRules.length" class="msg-automation-empty">No keyword rules yet. Add one for terms such as “warranty” or “discount”.</p>
+                        <div v-for="rule in automationKeywordRules" :key="rule.id" class="msg-automation-keyword-rule">
+                            <div class="msg-automation-rule-fields">
+                                <label>
+                                    <span class="field-label">Buyer message contains</span>
+                                    <input v-model="rule.keyword" class="field-input" maxlength="100" placeholder="Keyword, e.g. warranty">
+                                </label>
+                                <label class="msg-automation-priority">
+                                    <span class="field-label">Priority</span>
+                                    <input v-model.number="rule.priority" class="field-input" type="number" min="1" max="1000" aria-label="Rule priority">
+                                </label>
+                            </div>
+                            <label>
+                                <span class="field-label">Premade answer</span>
+                                <textarea v-model="rule.responseTemplate" class="field-input" rows="3" maxlength="1000" placeholder="Write the exact response buyers should receive"></textarea>
+                            </label>
+                            <div class="msg-automation-rule-actions">
+                                <label class="msg-automation-enabled"><input v-model="rule.isActive" type="checkbox"> Active</label>
+                                <button type="button" class="msg-automation-remove" @click="removeKeywordRule(rule)">Remove rule</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <p v-if="automationError" class="msg-inline-error">{{ automationError }}</p>
+                    <p v-if="automationSuccess" class="save-msg success msg-automation-save-status">Auto-reply settings saved.</p>
+                    <div class="msg-automation-footer">
+                        <button type="button" class="btn-outline" @click="closeAutomationSettings">Cancel</button>
+                        <button type="button" class="btn-primary" :disabled="isSavingAutomation" @click="saveAutomationSettings">
+                            <span v-if="isSavingAutomation" class="btn-spinner"></span>
+                            {{ isSavingAutomation ? 'Saving...' : 'Save auto-replies' }}
+                        </button>
+                    </div>
+                </template>
+                </div>
+            </section>
 
             <div v-if="logisticsContacts.length" class="logistics-contact-strip">
                 <div class="logistics-contact-heading">
@@ -203,6 +339,14 @@
                                     Order {{ activeConversation.order.orderNumber }}
                                 </span>
                                 <span class="badge" :class="statusBadgeClass(activeConversation.status)">{{ statusLabel(activeConversation.status) }}</span>
+                                <button
+                                    v-if="activeConversation.buyer.role === 'buyer' && activeConversation.automationPaused"
+                                    type="button"
+                                    class="msg-retry-link"
+                                    @click="resumeConversationAutomation"
+                                >
+                                    Resume auto-reply
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -284,7 +428,7 @@
                 </header>
 
                 <!-- Messages viewport -->
-                <div ref="viewportEl" class="msg-viewport custom-scrollbar" @scroll="onViewportScroll">
+                <div ref="viewportEl" class="msg-viewport" role="log" aria-label="Conversation messages" tabindex="0" @scroll="onViewportScroll">
                     <div v-if="isLoadingOlderMessages" class="msg-loading-older">
                         <div class="loading-spinner" style="width: 1.3rem; height: 1.3rem"></div>
                     </div>
@@ -434,7 +578,15 @@
                                     </div>
 
                                     <div v-if="item.message.body" class="msg-bubble" :class="item.message.senderRole === 'seller' ? 'sent' : 'received'">
+                                        <span v-if="item.message.isAutomatic" class="msg-auto-reply-label">Automatic reply</span>
                                         <p>{{ item.message.body }}</p>
+                                    </div>
+                                    <div v-if="item.message.suggestion?.status === 'pending'" class="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                                        <strong class="block">Suggested reply</strong>
+                                        <p class="mt-1 whitespace-pre-wrap">{{ item.message.suggestion.response }}</p>
+                                        <button type="button" class="btn-outline btn-sm mt-2" @click="useSuggestedReply(item.message.suggestion.response)">
+                                            Review in composer
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -468,6 +620,21 @@
 
                 <!-- Composer -->
                 <div class="msg-composer">
+                    <div v-if="activeConversation?.buyer?.role === 'buyer' && activeConversation.automationPaused" class="msg-automation-paused-banner" role="status">
+                        <span class="msg-automation-paused-icon" aria-hidden="true">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" /><path d="M16 3h5v5" /><path d="m21 3-9 9" /></svg>
+                        </span>
+                        <span class="msg-automation-paused-copy">
+                            <strong>Auto-reply is paused for this buyer</strong>
+                            <span>A manual seller reply paused the bot for this conversation. New buyer messages will wait until you resume it.</span>
+                            <span v-if="resumeAutomationError" class="msg-automation-paused-error">{{ resumeAutomationError }}</span>
+                        </span>
+                        <button type="button" class="btn-primary btn-sm" :disabled="isResumingAutomation" @click="resumeConversationAutomation">
+                            <span v-if="isResumingAutomation" class="btn-spinner"></span>
+                            {{ isResumingAutomation ? 'Resuming...' : 'Resume auto-reply' }}
+                        </button>
+                    </div>
+
                     <p v-if="activeConversation && activeConversation.status !== 'open'" class="msg-composer-notice">
                         This conversation is {{ activeConversation.status }}.
                         <button type="button" class="msg-retry-link" @click="setConversationStatus(activeConversationId, 'open')">Reopen it</button>
@@ -768,6 +935,13 @@ const {
     loadMoreConversations,
     loadLogisticsContacts,
     startLogisticsConversation,
+    loadChatAutomation,
+    updateChatAutomation,
+    updateQuickReplyResponse,
+    createKeywordRule,
+    updateKeywordRule,
+    deleteKeywordRule,
+    setConversationAutomation,
 
     activeConversationId,
     activeConversation,
@@ -801,6 +975,118 @@ const {
     saveDraft,
     clearDraft,
 } = useMessaging();
+
+const showAutomationSettings = ref(false);
+const isLoadingAutomation = ref(false);
+const isSavingAutomation = ref(false);
+const isResumingAutomation = ref(false);
+const automationError = ref('');
+const automationSuccess = ref(false);
+const resumeAutomationError = ref('');
+const automationSettings = ref({
+    botMode: 'off',
+    sellerStatus: 'automatic',
+    genericAwayResponse: '',
+    genericReplyCooldownMinutes: 240,
+});
+const automationQuestions = ref([]);
+const automationKeywordRules = ref([]);
+const automationPlaceholders = ref([]);
+const placeholderHelp = computed(() => automationPlaceholders.value.map(item => `{{${item}}}`).join(', '));
+const botModeLabel = computed(() => ({
+    off: 'Manual',
+    suggest: 'Suggest only',
+    auto: 'Auto-reply on',
+}[automationSettings.value.botMode] || 'Manual'));
+const botModeHelp = computed(() => ({
+    off: 'Messages go to your inbox for a manual response.',
+    suggest: 'Matched answers are prepared for you to review before sending.',
+    auto: 'Matched answers are sent immediately while the bot is allowed to respond.',
+}[automationSettings.value.botMode] || 'Messages go to your inbox for a manual response.'));
+
+async function toggleAutomationSettings() {
+    showAutomationSettings.value = !showAutomationSettings.value;
+    automationSuccess.value = false;
+
+    if (!showAutomationSettings.value || automationQuestions.value.length) return;
+
+    isLoadingAutomation.value = true;
+    automationError.value = '';
+    try {
+        const data = await loadChatAutomation();
+        automationSettings.value = data.settings;
+        automationQuestions.value = data.questions;
+        automationKeywordRules.value = data.keywordRules || [];
+        automationPlaceholders.value = data.placeholders || [];
+    } catch (error) {
+        automationError.value = error?.message || 'Could not load auto-reply settings.';
+    } finally {
+        isLoadingAutomation.value = false;
+    }
+}
+
+function closeAutomationSettings() {
+    showAutomationSettings.value = false;
+    automationError.value = '';
+    automationSuccess.value = false;
+}
+
+async function saveAutomationSettings() {
+    isSavingAutomation.value = true;
+    automationError.value = '';
+    automationSuccess.value = false;
+    try {
+        automationSettings.value = await updateChatAutomation(automationSettings.value);
+        automationQuestions.value = await Promise.all(automationQuestions.value.map(updateQuickReplyResponse));
+        automationKeywordRules.value = await Promise.all(automationKeywordRules.value.map(rule => (
+            String(rule.id).startsWith('local-') ? createKeywordRule(rule) : updateKeywordRule(rule)
+        )));
+        automationSuccess.value = true;
+    } catch (error) {
+        automationError.value = error?.message || 'Could not save auto-reply settings.';
+    } finally {
+        isSavingAutomation.value = false;
+    }
+}
+
+function addKeywordRule() {
+    automationKeywordRules.value.push({
+        id: `local-${Date.now()}`,
+        keyword: '',
+        responseTemplate: '',
+        isActive: true,
+        priority: 100,
+    });
+}
+
+async function removeKeywordRule(rule) {
+    automationError.value = '';
+
+    try {
+        if (!String(rule.id).startsWith('local-')) {
+            await deleteKeywordRule(rule.id);
+        }
+
+        automationKeywordRules.value = automationKeywordRules.value.filter(item => item.id !== rule.id);
+    } catch (error) {
+        automationError.value = error?.message || 'Could not remove the keyword rule.';
+    }
+}
+
+async function resumeConversationAutomation() {
+    if (!activeConversationId.value || isResumingAutomation.value) return;
+
+    isResumingAutomation.value = true;
+    resumeAutomationError.value = '';
+
+    try {
+        await setConversationAutomation(activeConversationId.value, false);
+    } catch (error) {
+        resumeAutomationError.value = error?.message || 'Could not resume auto-reply.';
+    } finally {
+        isResumingAutomation.value = false;
+    }
+}
 
 // 'archived' isn't a tab here — the archive shortcut next to the search
 // bar (.msg-archived-shortcut) already covers that filter, so listing it
@@ -1066,6 +1352,19 @@ function applyQuickReply(template) {
     nextTick(autosizeTextarea);
 }
 
+function useSuggestedReply(response) {
+    draftText.value = response;
+
+    if (activeConversationId.value) {
+        saveDraft(activeConversationId.value, draftText.value);
+    }
+
+    nextTick(() => {
+        autosizeTextarea();
+        textareaEl.value?.focus();
+    });
+}
+
 // ---- "Inquire about a certain product" parcel picker ----
 function toggleProductPicker() {
     isProductPickerOpen.value = !isProductPickerOpen.value;
@@ -1277,7 +1576,9 @@ function onDocClick(e) {
 // users, who currently have no way to dismiss any of these without a mouse.
 function onGlobalKeydown(e) {
     if (e.key !== 'Escape') return;
-    if (showReportModal.value) {
+    if (showAutomationSettings.value) {
+        closeAutomationSettings();
+    } else if (showReportModal.value) {
         showReportModal.value = false;
     } else if (pendingParcelInquiry.value) {
         pendingParcelInquiry.value = null;

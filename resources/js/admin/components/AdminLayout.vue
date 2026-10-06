@@ -336,8 +336,8 @@ const pathBase = isLogisticsAdmin ? '/logistics' : '/admin';
 const panelLabel = isLogisticsAdmin ? 'Logistics Admin Panel' : 'Admin Panel';
 
 const SCOPE_SECTIONS = {
-    platform: ['dashboard', 'registrations', 'accounts', 'complaints', 'settings', 'chat', 'profile'],
-    logistics: ['dashboard', 'registrations', 'accounts', 'compliance', 'commission', 'reports', 'profile'],
+    platform: ['dashboard', 'registrations', 'accounts', 'compliance', 'complaints', 'commission', 'settings', 'chat', 'profile'],
+    logistics: ['dashboard', 'registrations', 'accounts', 'reports', 'profile'],
 };
 const allowedSections = new Set(SCOPE_SECTIONS[adminScope.value]);
 

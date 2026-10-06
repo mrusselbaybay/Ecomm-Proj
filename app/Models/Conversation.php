@@ -47,6 +47,9 @@ class Conversation extends Model
         'seller_unread_count',
         'logistics_unread_count',
         'courier_unread_count',
+        'automation_paused_until',
+        'seller_attention_status',
+        'last_auto_reply_at',
     ];
 
     protected $casts = [
@@ -55,6 +58,8 @@ class Conversation extends Model
         'seller_unread_count' => 'integer',
         'logistics_unread_count' => 'integer',
         'courier_unread_count' => 'integer',
+        'automation_paused_until' => 'datetime',
+        'last_auto_reply_at' => 'datetime',
     ];
 
     public const STATUSES = ['open', 'active', 'resolved', 'closed', 'blocked', 'under_review'];

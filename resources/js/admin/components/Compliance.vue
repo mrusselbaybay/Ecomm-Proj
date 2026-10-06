@@ -24,7 +24,7 @@
             <article
                 v-for="item in summaryCards"
                 :key="item.label"
-                class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                class="min-h-24 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm"
             >
                 <p
                     class="text-xs font-semibold tracking-wide text-slate-500 uppercase"
@@ -37,12 +37,14 @@
             </article>
         </section>
 
-        <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="flex flex-wrap gap-3">
+        <div
+            class="grid gap-4 lg:grid-cols-[minmax(20rem,33rem)_minmax(0,1fr)] lg:items-end"
+        >
+            <div class="space-y-3">
                 <input
                     v-model="search"
                     type="search"
-                    class="field-input w-72"
+                    class="field-input"
                     :placeholder="
                         showingHistory
                             ? 'Search compliance history...'
@@ -53,7 +55,7 @@
                 <select
                     v-if="!showingHistory"
                     v-model="categoryState"
-                    class="field-input w-52"
+                    class="field-input"
                     @change="loadProducts(1)"
                 >
                     <option value="">All category checks</option>
@@ -63,7 +65,7 @@
                 <select
                     v-if="!showingHistory"
                     v-model="productStatus"
-                    class="field-input w-44"
+                    class="field-input"
                     @change="loadProducts(1)"
                 >
                     <option value="">All product statuses</option>
@@ -73,13 +75,32 @@
                 </select>
             </div>
 
-            <button class="btn-outline" type="button" @click="toggleHistory">
-                {{
-                    showingHistory
-                        ? 'Back to compliance review'
-                        : 'Compliance history'
-                }}
-            </button>
+            <div class="flex flex-wrap gap-2 lg:justify-end">
+                <button
+                    v-if="!showingHistory"
+                    class="btn-success"
+                    type="button"
+                    :disabled="verifyingAll || verifiableProducts.length === 0"
+                    @click="verifyAllProducts"
+                >
+                    {{
+                        verifyingAll
+                            ? 'Verifying...'
+                            : `Verify all (${verifiableProducts.length})`
+                    }}
+                </button>
+                <button
+                    class="btn-outline"
+                    type="button"
+                    @click="toggleHistory"
+                >
+                    {{
+                        showingHistory
+                            ? 'Back to compliance review'
+                            : 'Compliance history'
+                    }}
+                </button>
+            </div>
         </div>
 
         <div v-if="showingHistory">
@@ -91,7 +112,7 @@
         </div>
 
         <div
-            class="overflow-x-auto rounded-xl border border-slate-200 bg-white"
+            class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm"
         >
             <table class="admin-table">
                 <thead>
@@ -100,6 +121,7 @@
                         <th>Seller</th>
                         <th>Registered category</th>
                         <th>Product category</th>
+                        <th>AI review</th>
                         <th>
                             {{ showingHistory ? 'Latest action' : 'Review' }}
                         </th>
@@ -107,9 +129,13 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <SkeletonRows v-if="loading && !hasLoadedOnce" :columns="6" :rows="5" />
+                    <SkeletonRows
+                        v-if="loading && !hasLoadedOnce"
+                        :columns="7"
+                        :rows="5"
+                    />
                     <tr v-else-if="products.length === 0">
-                        <td colspan="6" class="py-8 text-center text-slate-500">
+                        <td colspan="7" class="py-8 text-center text-slate-500">
                             No products match these filters.
                         </td>
                     </tr>
@@ -142,6 +168,61 @@
                             }}
                         </td>
                         <td>{{ product.category || 'Uncategorized' }}</td>
+                        <td>
+                            <div
+                                v-if="product.moderation"
+                                class="space-y-1"
+                                :title="product.moderation.reasoning"
+                            >
+                                <span
+                                    class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold capitalize"
+                                    :class="
+                                        aiStatusBadgeClass(
+                                            product.moderation.ai_status,
+                                        )
+                                    "
+                                >
+                                    {{
+                                        product.moderation.ai_status.toLowerCase()
+                                    }}
+                                    ·
+                                    {{
+                                        Math.round(
+                                            product.moderation
+                                                .confidence_score * 100,
+                                        )
+                                    }}%
+                                </span>
+                                <p
+                                    v-if="
+                                        product.moderation.flagged_signals
+                                            .length
+                                    "
+                                    class="text-xs text-red-600"
+                                >
+                                    Flagged:
+                                    {{
+                                        product.moderation.flagged_signals.join(
+                                            ', ',
+                                        )
+                                    }}
+                                </p>
+                                <p
+                                    v-else
+                                    class="text-xs text-slate-500 capitalize"
+                                >
+                                    {{
+                                        product.moderation.final_status.replaceAll(
+                                            '_',
+                                            ' ',
+                                        )
+                                    }}
+                                </p>
+                            </div>
+                            <span v-else class="text-xs text-slate-400">
+                                Not yet reviewed
+                            </span>
+                        </td>
                         <td>
                             <div v-if="showingHistory" class="space-y-1">
                                 <span
@@ -201,7 +282,7 @@
                                     class="btn-warning"
                                     @click="openAction(product, 'warn')"
                                 >
-                                    Warn
+                                    Flag
                                 </button>
                                 <button
                                     v-if="
@@ -209,9 +290,26 @@
                                         product.status !== 'archived'
                                     "
                                     class="btn-danger"
+                                    title="Remove product"
                                     @click="openAction(product, 'remove')"
                                 >
-                                    Remove
+                                    <span class="sr-only">Remove product</span>
+                                    <svg
+                                        aria-hidden="true"
+                                        width="15"
+                                        height="15"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <path d="M3 6h18" />
+                                        <path d="M8 6V4h8v2" />
+                                        <path d="M19 6l-1 14H6L5 6" />
+                                        <path d="M10 11v5M14 11v5" />
+                                    </svg>
                                 </button>
                                 <button
                                     v-if="product.status === 'archived'"
@@ -230,7 +328,7 @@
                                     class="btn-danger"
                                     @click="openAction(product, 'suspend')"
                                 >
-                                    Suspend seller
+                                    Suspend
                                 </button>
                             </div>
                         </td>
@@ -354,6 +452,7 @@ const loading = ref(false);
 // update the table in place once it resolves.
 const hasLoadedOnce = ref(false);
 const saving = ref(false);
+const verifyingAll = ref(false);
 const selectedProduct = ref(null);
 const selectedAction = ref('');
 const reason = ref('');
@@ -382,6 +481,10 @@ const summaryCards = computed(() => [
     { label: 'Warnings issued', value: summary.value.warnings },
 ]);
 
+const verifiableProducts = computed(() =>
+    products.value.filter((product) => product.status === 'pending_review'),
+);
+
 const actionLabels = {
     verify: 'Verify product',
     warn: 'Issue warning',
@@ -404,6 +507,18 @@ function statusBadgeClass(status) {
     }
 
     return 'bg-slate-100 text-slate-600';
+}
+
+function aiStatusBadgeClass(aiStatus) {
+    if (aiStatus === 'APPROVE') {
+        return 'bg-emerald-100 text-emerald-700';
+    }
+
+    if (aiStatus === 'REJECT') {
+        return 'bg-red-100 text-red-700';
+    }
+
+    return 'bg-amber-100 text-amber-700';
 }
 
 function historyAction(product) {
@@ -478,6 +593,52 @@ async function loadProducts(page = 1) {
     }
 }
 
+async function verifyAllProducts() {
+    const productsToVerify = [...verifiableProducts.value];
+
+    if (
+        productsToVerify.length === 0 ||
+        !window.confirm(
+            `Verify all ${productsToVerify.length} pending products on this page?`,
+        )
+    ) {
+        return;
+    }
+
+    verifyingAll.value = true;
+    let verifiedCount = 0;
+
+    try {
+        for (const product of productsToVerify) {
+            await adminFetch(
+                `/api/admin/compliance/products/${product.id}/actions`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'verify',
+                        reason: null,
+                        notes: 'Verified through the compliance bulk action.',
+                    }),
+                },
+            );
+            verifiedCount += 1;
+        }
+
+        showMessage(
+            `${verifiedCount} ${verifiedCount === 1 ? 'product was' : 'products were'} verified.`,
+        );
+    } catch (error) {
+        showMessage(
+            `${verifiedCount} ${verifiedCount === 1 ? 'product was' : 'products were'} verified before the action stopped. ${error.message}`,
+            'error',
+        );
+    } finally {
+        verifyingAll.value = false;
+        await loadProducts(1);
+    }
+}
+
 function openAction(product, action) {
     selectedProduct.value = product;
     selectedAction.value = action;
@@ -530,6 +691,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
 <style scoped>
 .field-input {
     width: 100%;
+    min-height: 2.55rem;
     border: 1px solid #d1d5db;
     border-radius: 0.5rem;
     background: white;
@@ -552,6 +714,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
 }
 .admin-table {
     width: 100%;
+    min-width: 68rem;
     border-collapse: collapse;
     font-size: 0.82rem;
 }
@@ -571,6 +734,9 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
     color: #334155;
     vertical-align: top;
 }
+.admin-table tbody tr:last-child td {
+    border-bottom: 0;
+}
 .modal-card {
     border-radius: 0.85rem;
     background: white;
@@ -581,10 +747,18 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
 .btn-warning,
 .btn-danger,
 .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.1rem;
     border-radius: 0.4rem;
     padding: 0.4rem 0.7rem;
     font-size: 0.75rem;
     font-weight: 600;
+    transition:
+        border-color 150ms ease,
+        background-color 150ms ease,
+        color 150ms ease;
 }
 .btn-outline {
     border: 1px solid #d1d5db;
@@ -605,6 +779,21 @@ onBeforeUnmount(() => clearTimeout(searchTimer));
     border: 1px solid #fecaca;
     background: #fef2f2;
     color: #b91c1c;
+}
+.btn-outline:hover:not(:disabled) {
+    border-color: #94a3b8;
+    background: #f8fafc;
+}
+.btn-success:hover:not(:disabled),
+.btn-primary:hover:not(:disabled) {
+    background: #0f766e;
+}
+.btn-warning:hover:not(:disabled) {
+    background: #fef3c7;
+}
+.btn-danger:hover:not(:disabled) {
+    border-color: #fca5a5;
+    background: #fee2e2;
 }
 button:disabled {
     cursor: not-allowed;

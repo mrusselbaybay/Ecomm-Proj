@@ -6,6 +6,7 @@ use App\Models\Concerns\HasUuidPrimaryKey;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Product extends Model
 {
@@ -45,6 +46,16 @@ class Product extends Model
     public function complianceActions(): HasMany
     {
         return $this->hasMany(SellerComplianceAction::class);
+    }
+
+    public function moderationLogs(): HasMany
+    {
+        return $this->hasMany(ProductModerationLog::class);
+    }
+
+    public function latestModeration(): HasOne
+    {
+        return $this->hasOne(ProductModerationLog::class)->latest('created_at');
     }
 
     public function options(): HasMany

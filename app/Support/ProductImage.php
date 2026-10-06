@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Services\FileStorage;
+
 /**
  * Normalizes whatever is stored in products.images / product_variants.image
  * into safe, ready-to-render URL strings for the buyer-facing API.
@@ -113,14 +115,16 @@ class ProductImage
             return $raw;
         }
 
-        // Root-relative path (stored uploads, the placeholder): make it
-        // absolute so the mobile app can load it too.
+        // Stored local uploads already carry a root-relative path. Preserve
+        // it so the buyer browser requests the same host that served the
+        // catalog response instead of the APP_URL host, which may point to
+        // a different environment during local development.
         if (str_starts_with($raw, '/')) {
-            return url($raw);
+            return $raw;
         }
 
         // Otherwise it's a path inside the product image bucket.
-        return app(\App\Services\FileStorage::class)->publicUrl(self::BUCKET, $raw);
+        return app(FileStorage::class)->publicUrl(self::BUCKET, $raw);
     }
 
     private static function isUrlObject(mixed $value): bool

@@ -255,6 +255,81 @@ async function startLogisticsConversation(parcelAssignmentId) {
     return body.data;
 }
 
+async function loadChatAutomation() {
+    const body = await apiFetch('/messages/automation');
+
+    return body.data;
+}
+
+async function updateChatAutomation(settings) {
+    const body = await apiFetch('/messages/automation', {
+        method: 'PUT',
+        body: JSON.stringify({
+            bot_mode: settings.botMode,
+            seller_status: settings.sellerStatus,
+            generic_away_response: settings.genericAwayResponse,
+            generic_reply_cooldown_minutes: settings.genericReplyCooldownMinutes,
+        }),
+    });
+
+    return body.data;
+}
+
+async function createKeywordRule(rule) {
+    const body = await apiFetch('/messages/automation/keyword-rules', {
+        method: 'POST',
+        body: JSON.stringify({
+            keyword: rule.keyword,
+            response_template: rule.responseTemplate,
+            is_active: rule.isActive,
+            priority: rule.priority,
+        }),
+    });
+
+    return body.data;
+}
+
+async function updateKeywordRule(rule) {
+    const body = await apiFetch(`/messages/automation/keyword-rules/${encodeURIComponent(rule.id)}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+            keyword: rule.keyword,
+            response_template: rule.responseTemplate,
+            is_active: rule.isActive,
+            priority: rule.priority,
+        }),
+    });
+
+    return body.data;
+}
+
+async function deleteKeywordRule(ruleId) {
+    await apiFetch(`/messages/automation/keyword-rules/${encodeURIComponent(ruleId)}`, { method: 'DELETE' });
+}
+
+async function updateQuickReplyResponse(question) {
+    const body = await apiFetch(`/messages/automation/questions/${encodeURIComponent(question.key)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ response: question.response, enabled: question.enabled }),
+    });
+
+    return body.data;
+}
+
+async function setConversationAutomation(conversationId, paused) {
+    const body = await apiFetch(`/messages/conversations/${encodeURIComponent(conversationId)}/automation`, {
+        method: 'PUT',
+        body: JSON.stringify({ paused }),
+    });
+
+    if (activeConversation.value?.id === conversationId) {
+        activeConversation.value.automationPaused = body.data.paused;
+        activeConversation.value.automationPausedUntil = body.data.pausedUntil;
+    }
+
+    return body.data;
+}
+
 function buildQuery() {
     const params = new URLSearchParams();
     const f = filters.value;
@@ -630,6 +705,15 @@ async function sendMessage(conversationId, body, attachmentIds = [], context = {
         if (idx !== -1) messages.value[idx] = stabilizeMessage(res.data);
         const cached = conversationCache.get(conversationId);
         if (cached) cached.messages = messages.value;
+
+        // A manual seller reply pauses automation for direct buyer chats.
+        // Reflect that server-side rule immediately so the seller sees the
+        // resume banner without having to reload or reopen the conversation.
+        if (activeConversation.value?.id === conversationId && activeConversation.value?.buyer?.role === 'buyer') {
+            activeConversation.value.automationPaused = true;
+            activeConversation.value.automationPausedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        }
+
         return res.data;
     } catch (err) {
         console.error('Error sending message:', err);
@@ -824,6 +908,13 @@ export function useMessaging() {
         loadMoreConversations,
         loadLogisticsContacts,
         startLogisticsConversation,
+        loadChatAutomation,
+        updateChatAutomation,
+        updateQuickReplyResponse,
+        createKeywordRule,
+        updateKeywordRule,
+        deleteKeywordRule,
+        setConversationAutomation,
 
         activeConversationId,
         activeConversation,
