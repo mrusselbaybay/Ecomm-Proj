@@ -9,17 +9,20 @@ use App\Models\ParcelAssignment;
 use App\Models\ParcelScanEvent;
 use App\Models\ParcelTransferRequest;
 use App\Models\Profile;
+use App\Services\DeliveryAttemptService;
+use App\Services\FileStorage;
 use App\Services\ParcelAutoAssignService;
 use App\Services\ParcelIntakeService;
 use App\Services\ReturnShipmentService;
 use App\Services\SellerNotifier;
-use App\Services\FileStorage;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Backs the "Deliveries" tab of the Flutter driver app
@@ -112,7 +115,7 @@ class DriverDeliveryController extends Controller
         $profile = $request->user();
 
         $assignments = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
+            ->with(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
             // Rows currently dispatched to this rider — assigned, out for
             // delivery, or carrying a cross-region transfer — PLUS rows
             // they ran the pickup leg on and have since handed back to
@@ -144,6 +147,8 @@ class DriverDeliveryController extends Controller
             ->where(function (Builder $query) use ($profile): void {
                 $query->where('rider_profile_id', $profile->id)
                     ->whereIn('status', [
+                        ParcelAssignment::STATUS_FAILED_ATTEMPT,
+                        ParcelAssignment::STATUS_NEEDS_DISPATCHER_REVIEW,
                         ParcelAssignment::STATUS_ASSIGNED,
                         ParcelAssignment::STATUS_HANDED_OFF,
                         ParcelAssignment::STATUS_READY_TO_TRANSFER,
@@ -210,7 +215,7 @@ class DriverDeliveryController extends Controller
         }
 
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
+            ->with(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
             ->where('order_id', $order->id)
             ->where('rider_profile_id', $profile->id)
             // Same exclusion as [index] — a transfer leg a scan can't
@@ -295,7 +300,7 @@ class DriverDeliveryController extends Controller
         // succeeded, instead of falling through to the idempotent
         // "already moved on" branch below.
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
+            ->with(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
             ->whereKey($parcelAssignment)
             ->where(function (Builder $query) use ($profile): void {
                 $query->where(function (Builder $q) use ($profile): void {
@@ -387,7 +392,7 @@ class DriverDeliveryController extends Controller
             ], $this->autoAssign->returnPickupBypass($lockedAssignment)));
         });
 
-        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
+        $assignment->refresh()->load(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
 
         return response()->json(['data' => $this->present($assignment, $profile)]);
     }
@@ -402,6 +407,29 @@ class DriverDeliveryController extends Controller
      * parcel QR is verified against this parcel and logged as a 'delivery'
      * scan — alongside the photo, not instead of it.
      */
+    public function failAttempt(Request $request, string $parcelAssignment, DeliveryAttemptService $attempts): JsonResponse
+    {
+        $data = $request->validate([
+            'reason_code' => ['required', Rule::in(array_keys(DeliveryAttemptService::REASONS))],
+            'description' => ['nullable', 'required_if:reason_code,others', 'string', 'max:1000'],
+        ]);
+        $assignment = ParcelAssignment::with(['order', 'logisticsCompany'])->whereKey($parcelAssignment)
+            ->where('rider_profile_id', $request->user()->id)->firstOrFail();
+        if ($this->awaitingDispatchDecision($assignment)) {
+            throw ValidationException::withMessages(['delivery' => 'This parcel is awaiting a dispatch decision.']);
+        }
+        $assignment = $attempts->fail($parcelAssignment, $request->user()->id, $data['reason_code'], $data['description'] ?? null);
+
+        return response()->json(['data' => $this->present($assignment->load(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']), $request->user())]);
+    }
+
+    public function reattempt(Request $request, string $parcelAssignment, DeliveryAttemptService $attempts): JsonResponse
+    {
+        $assignment = $attempts->reattempt($parcelAssignment, $request->user()->id);
+
+        return response()->json(['data' => $this->present($assignment->load(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']), $request->user())]);
+    }
+
     public function deliver(Request $request, string $parcelAssignment): JsonResponse
     {
         /** @var Profile $profile */
@@ -417,7 +445,7 @@ class DriverDeliveryController extends Controller
         ]);
 
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
+            ->with(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
             ->where('rider_profile_id', $profile->id)
             ->whereKey($parcelAssignment)
             ->first();
@@ -480,6 +508,12 @@ class DriverDeliveryController extends Controller
             // touching the same order) can't race this one — same pattern
             // as SellerOrderController::updateStatus().
             $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->first();
+            $lockedAssignment = ParcelAssignment::whereKey($assignment->id)->lockForUpdate()->firstOrFail();
+            if ($lockedAssignment->rider_profile_id !== $profile->id
+                || $lockedAssignment->status !== ParcelAssignment::STATUS_HANDED_OFF
+                || $lockedOrder->status !== 'In Transit') {
+                throw ValidationException::withMessages(['delivery' => 'This order is no longer out for delivery. Refresh and try again.']);
+            }
             $lockedOrder->status = 'Delivered';
             $lockedOrder->save();
 
@@ -497,7 +531,7 @@ class DriverDeliveryController extends Controller
             ]);
         });
 
-        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
+        $assignment->refresh()->load(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
 
         // Best-effort: let the seller know their order was delivered. No
         // BuyerNotifier exists in this project yet (see SellerNotifier's
@@ -554,7 +588,7 @@ class DriverDeliveryController extends Controller
             $this->returns->complete($locked);
         });
 
-        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
+        $assignment->refresh()->load(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
 
         return response()->json(['data' => $this->present($assignment, $profile)]);
     }
@@ -587,7 +621,7 @@ class DriverDeliveryController extends Controller
         ]);
 
         $assignment = ParcelAssignment::query()
-            ->with(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
+            ->with(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest'])
             ->where('rider_profile_id', $profile->id)
             ->whereKey($parcelAssignment)
             ->first();
@@ -658,7 +692,7 @@ class DriverDeliveryController extends Controller
                 ?->update(['resulting_assignment_id' => $receipt->id]);
         });
 
-        $assignment->refresh()->load(['order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
+        $assignment->refresh()->load(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
 
         return response()->json(['data' => $this->present($assignment, $profile)]);
     }
@@ -807,6 +841,12 @@ class DriverDeliveryController extends Controller
             'is_return' => $isReturn,
             'return_reason' => $isReturn ? $assignment->returnRequest?->reasonLabel() : null,
             'status' => $this->deliveryStatus($assignment, $order, $viewer),
+            'delivery_attempt' => DeliveryAttemptService::summary($isReturn ? null : $order),
+            'can_mark_failed' => ! $isReturn && $order?->status === 'In Transit'
+                && $assignment->status === ParcelAssignment::STATUS_HANDED_OFF
+                && $assignment->rider_profile_id === $viewer?->id
+                && $assignment->transfer_to_company_id === null
+                && ! $this->awaitingDispatchDecision($assignment),
         ];
     }
 
@@ -893,6 +933,10 @@ class DriverDeliveryController extends Controller
      */
     private function deliveryStatus(ParcelAssignment $assignment, ?Order $order, ?Profile $viewer = null): string
     {
+        if (DeliveryAttemptService::isFailed($assignment)) {
+            return $assignment->status;
+        }
+
         if ($assignment->status === ParcelAssignment::STATUS_TRANSFER_ASSIGNED) {
             return 'transfer_assigned';
         }

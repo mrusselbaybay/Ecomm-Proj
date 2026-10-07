@@ -19,11 +19,9 @@ import { computed, ref } from 'vue';
 import { apiRequest, fetchOwnProfile } from '../../shared/accountApi';
 import { createClient } from '../../shared/backendClient';
 
-
 let _supabase = null;
 function getSupabase() {
     if (!_supabase) {
-
         // Shared with the admin panel's client (see admin/composables/useAdmin.js).
         window.__btwSupabase ??= createClient();
         _supabase = window.__btwSupabase;
@@ -187,7 +185,8 @@ async function checkAuth() {
             return false;
         }
 
-        const { data: profile, error: profileError } = await fetchOwnProfile(supabase);
+        const { data: profile, error: profileError } =
+            await fetchOwnProfile(supabase);
 
         if (
             profileError ||
@@ -322,7 +321,10 @@ async function resolveCompany() {
 
     try {
         // Owner, active staff member, or suspended ("suspended" role, no company).
-        const { data: membership, error } = await apiRequest(supabase, '/api/logistics/membership');
+        const { data: membership, error } = await apiRequest(
+            supabase,
+            '/api/logistics/membership',
+        );
 
         if (error) {
             throw error;
@@ -650,7 +652,10 @@ async function setAssignmentRider(assignmentId, riderProfileId) {
 // roster, unpaginated, used for the summary table further down the page —
 // this is fetched only when the picker is actually opened. Not cached: the
 // pool changes as riders are accepted/let go.
-async function loadAvailableRiders(assignmentId, { search = '', page = 1 } = {}) {
+async function loadAvailableRiders(
+    assignmentId,
+    { search = '', page = 1 } = {},
+) {
     const params = new URLSearchParams();
 
     if (search) {
@@ -735,7 +740,10 @@ async function addTierRiders(tier, riderProfileIds) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rider_profile_ids: riderProfileIds }),
     });
-    const payload = await readJson(response, `Failed to add riders to the ${tier} pool.`);
+    const payload = await readJson(
+        response,
+        `Failed to add riders to the ${tier} pool.`,
+    );
 
     TIER_STATE[tier].value = payload.assignment || null;
 
@@ -747,7 +755,10 @@ async function removeTierRider(tier, riderProfileId) {
         `${TIER_BASE_PATH[tier]}/riders/${riderProfileId}`,
         { method: 'DELETE' },
     );
-    const payload = await readJson(response, `Failed to remove that rider from the ${tier} pool.`);
+    const payload = await readJson(
+        response,
+        `Failed to remove that rider from the ${tier} pool.`,
+    );
 
     TIER_STATE[tier].value = payload.assignment || null;
 
@@ -788,6 +799,32 @@ async function receiveParcel(trackingNumber) {
     );
     const payload = await readJson(response, 'Failed to receive the parcel.');
 
+    upsertRow(parcelAssignments, payload.data);
+
+    return payload.data;
+}
+
+async function reviewFailedDelivery(
+    id,
+    riderProfileId = null,
+    flagReturn = false,
+) {
+    const action = flagReturn
+        ? 'flag-failed-return'
+        : riderProfileId
+          ? 'reassign-failed'
+          : 'approve-reattempt';
+    const response = await logisticsFetch(
+        `/api/logistics/parcel-assignments/${id}/${action}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(
+                riderProfileId ? { rider_profile_id: riderProfileId } : {},
+            ),
+        },
+    );
+    const payload = await readJson(response, 'Failed to review the delivery.');
     upsertRow(parcelAssignments, payload.data);
 
     return payload.data;
@@ -1029,6 +1066,10 @@ const pendingTransferCount = computed(
  * with the courier already, nothing left for this desk to do.
  */
 function isParcelActionable(parcel) {
+    if (['failed_attempt', 'needs_dispatcher_review'].includes(parcel.status)) {
+        return false;
+    }
+
     // 'transferred' is gone for good; 'transfer_pending' is parked
     // waiting on the receiving company and only offers a "cancel
     // request" affordance, not a routing decision. 'for_inventory' has
@@ -1069,6 +1110,8 @@ function isParcelActionable(parcel) {
 // the same way.
 const parcelStats = computed(() => {
     const stats = {
+        failedAttempt: 0,
+        needsReview: 0,
         toPickUp: 0,
         awaitingInventory: 0,
         toDeliver: 0,
@@ -1092,7 +1135,11 @@ const parcelStats = computed(() => {
             }
         }
 
-        if (parcel.status === 'transferred') {
+        if (parcel.status === 'failed_attempt') {
+            stats.failedAttempt += 1;
+        } else if (parcel.status === 'needs_dispatcher_review') {
+            stats.needsReview += 1;
+        } else if (parcel.status === 'transferred') {
             stats.transferred += 1;
         } else if (parcel.status === 'for_inventory') {
             stats.awaitingInventory += 1;
@@ -1286,6 +1333,7 @@ export function useLogistics() {
         loadParcelAssignments,
         receiveParcel,
         assignParcel,
+        reviewFailedDelivery,
         autoAssignParcel,
         handoffParcel,
         assignTransferCourier,

@@ -9,7 +9,8 @@ use App\Models\OrderStatusHistory;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Profile;
-use App\Services\Coupons\CouponService;
+use App\Services\Vouchers\PlatformVoucherService;
+use App\Services\Vouchers\VoucherService;
 use App\Support\StreetCleaner;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +19,10 @@ use Illuminate\Validation\ValidationException;
 
 class CheckoutService
 {
-    public function __construct(private readonly CouponService $coupons) {}
+    public function __construct(
+        private readonly VoucherService $vouchers,
+        private readonly PlatformVoucherService $platformVouchers,
+    ) {}
 
     /**
      * Flat per-parcel shipping options — the single source of truth for
@@ -31,6 +35,11 @@ class CheckoutService
         'express' => ['name' => 'Express Delivery', 'description' => 'Estimated 1-2 days', 'fee' => 120.0],
         'same_day' => ['name' => 'Same Day Delivery', 'description' => 'Delivered today, order by 2 PM', 'fee' => 220.0],
     ];
+
+    public static function shippingFee(string $method): ?float
+    {
+        return self::SHIPPING_OPTIONS[$method]['fee'] ?? null;
+    }
 
     /**
      * Shipping options for a cart, with Same Day only available when every
@@ -74,7 +83,7 @@ class CheckoutService
      *
      * @throws ValidationException when the saved address isn't the buyer's or lacks PSGC fields.
      */
-    private function destination(Profile $buyer, ?string $addressId): array
+    public function destination(Profile $buyer, ?string $addressId): array
     {
         if ($addressId) {
             $saved = BuyerAddress::where('buyer_profile_id', $buyer->id)->whereKey($addressId)->first();
@@ -154,18 +163,10 @@ class CheckoutService
                 ->get()
                 ->keyBy('id');
 
-            // One wallet coupon per line, never the same coupon on two lines.
-            $couponLines = collect($payload['items'])->filter(fn ($l) => ! empty($l['coupon_id']));
-            if ($couponLines->pluck('coupon_id')->duplicates()->isNotEmpty()) {
-                throw ValidationException::withMessages(['items' => 'A coupon can only be applied to one item.']);
-            }
-            $wallet = $this->coupons->lockForRedemption(
-                $buyer,
-                $couponLines->mapWithKeys(fn ($l) => [$l['coupon_id'] => $l['product_id']])->all(),
-            );
+            $voucherSelection = $this->voucherSelection($buyer, $payload);
 
             $itemsBySeller = collect($payload['items'])
-                ->map(function (array $line) use ($products, $variants, $wallet) {
+                ->map(function (array $line) use ($products, $variants) {
                     $product = $products->get($line['product_id']);
 
                     if (! $product || $product->status !== 'active') {
@@ -230,16 +231,11 @@ class CheckoutService
                         ))
                         : ($line['variation'] ?? null);
 
-                    // Coupon discounts ONE unit, capped at that unit's price.
-                    $coupon = ! empty($line['coupon_id']) ? $wallet->get($line['coupon_id']) : null;
-
                     return [
                         'product' => $product,
                         'variant' => $variant,
                         'quantity' => $quantity,
                         'unit_price' => $unitPrice,
-                        'coupon' => $coupon,
-                        'coupon_discount' => $coupon ? $coupon->coupon->discountFor($unitPrice) : 0.0,
                         'variant_label' => $variantLabel,
                         'variant_options' => $variantOptions,
                     ];
@@ -262,6 +258,32 @@ class CheckoutService
                 ]);
             }
 
+            // Seller vouchers first (per seller order), then the cart-wide
+            // platform pass on top of them. Both lock what they use.
+            $itemsBySeller = $itemsBySeller->map(fn (Collection $lines) => $lines->values());
+            $sellerApplied = [];
+            foreach ($itemsBySeller as $sellerId => $lines) {
+                $ids = $voucherSelection[(string) $sellerId] ?? [];
+                $sellerApplied[$sellerId] = $this->vouchers->applySelection(
+                    $buyer,
+                    (string) $sellerId,
+                    $lines->map(fn (array $l) => ['product_id' => $l['product']->id, 'subtotal' => $l['unit_price'] * $l['quantity']])->all(),
+                    $shippingFee,
+                    $ids['discount'] ?? null,
+                    $ids['shipping'] ?? null,
+                );
+            }
+
+            $platformApplied = $this->platformVouchers->applySelection(
+                $buyer,
+                $destination['region_name'],
+                $this->platformContext($itemsBySeller, $sellerApplied),
+                $shippingFee,
+                $payload['platform_vouchers']['discount_voucher_id'] ?? null,
+                $payload['platform_vouchers']['shipping_voucher_id'] ?? null,
+            );
+            $checkoutId = (string) Str::uuid();
+
             $orders = collect();
 
             foreach ($itemsBySeller as $sellerId => $lines) {
@@ -275,6 +297,9 @@ class CheckoutService
                     $shippingMethod,
                     $shippingFee,
                     (string) ($payload['payment_method'] ?? 'cod'),
+                    $sellerApplied[$sellerId],
+                    $platformApplied['orders'][$sellerId] ?? null,
+                    $checkoutId,
                 );
 
                 $orders->push($order);
@@ -314,9 +339,20 @@ class CheckoutService
         string $shippingMethod,
         float $shippingFee,
         string $paymentMethod,
+        array $applied,
+        ?array $platform,
+        string $checkoutId,
     ): Order {
         $subtotal = $lines->sum(fn (array $line) => $line['unit_price'] * $line['quantity']);
-        $discount = round($lines->sum('coupon_discount'), 2);
+
+        $itemDiscount = $applied['discount']['amount'] ?? 0.0;
+        $sellerShipping = $applied['shipping']['amount'] ?? 0.0;
+        // Seller-funded: `discount` is the seller's voucher cost (items + shipping).
+        $discount = round($itemDiscount + $sellerShipping, 2);
+        // Platform-funded share of this order (comes out of the platform's cut, not the seller's).
+        $platformShipping = $platform['shipping'] ?? 0.0;
+        $platformDiscount = round(($platform['discount'] ?? 0.0) + $platformShipping, 2);
+        $shippingDiscount = round($sellerShipping + $platformShipping, 2);
 
         $order = Order::create([
             'order_number' => $this->generateOrderNumber(),
@@ -362,7 +398,9 @@ class CheckoutService
             'shipping_fee' => $shippingFee,
             'tax' => 0,
             'discount' => $discount,
-            'total' => $subtotal + $shippingFee - $discount,
+            'shipping_discount' => $shippingDiscount,
+            'platform_discount' => $platformDiscount,
+            'total' => round($subtotal + $shippingFee - $discount - $platformDiscount, 2),
             'shipping_service' => $shippingMethod,
             'placed_at' => now(),
         ]);
@@ -375,7 +413,8 @@ class CheckoutService
         $variantDecrements = [];
         $productDecrements = [];
 
-        foreach ($lines as $line) {
+        foreach ($lines as $i => $line) {
+            $lineDiscount = $applied['discount']['allocations'][$i] ?? 0.0;
             /** @var Product $product */
             $product = $line['product'];
             /** @var ProductVariant|null $variant */
@@ -400,9 +439,9 @@ class CheckoutService
                 'unit_price' => $unitPrice,
                 'quantity' => $quantity,
                 'subtotal' => $unitPrice * $quantity,
-                'buyer_coupon_id' => $line['coupon']?->id,
-                'coupon_code' => $line['coupon']?->coupon->code,
-                'coupon_discount' => $line['coupon_discount'],
+                'voucher_code' => $lineDiscount > 0 ? $applied['discount']['voucher']->code : null,
+                'voucher_discount' => $lineDiscount,
+                'platform_discount' => $platform['allocations'][$i] ?? 0.0,
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
@@ -418,9 +457,13 @@ class CheckoutService
 
         OrderItem::insert($itemRows);
 
-        foreach ($lines->values() as $i => $line) {
-            if ($line['coupon']) {
-                $this->coupons->markRedeemed($line['coupon'], $itemRows[$i]['id']);
+        foreach (array_filter([$applied['discount'], $applied['shipping']]) as $use) {
+            $this->vouchers->redeem($order, $buyer, $use['voucher'], $use['amount']);
+        }
+        // Platform vouchers: one redemption per seller order, one use per checkout.
+        foreach (['discount', 'shipping'] as $slot) {
+            if (($platform[$slot] ?? 0) > 0) {
+                $this->vouchers->redeem($order, $buyer, $platform["{$slot}_voucher"], $platform[$slot], $checkoutId);
             }
         }
 
@@ -446,6 +489,60 @@ class CheckoutService
         ]);
 
         return $order->setRelation('items', $itemModels);
+    }
+
+    /**
+     * seller id => ['discount' => ?voucher id, 'shipping' => ?voucher id].
+     * Legacy clients (mobile) send a wallet id per line as items.*.coupon_id
+     * instead; that becomes the line's seller's discount voucher.
+     *
+     * @return array<string, array{discount: ?string, shipping: ?string}>
+     */
+    private function voucherSelection(Profile $buyer, array $payload): array
+    {
+        $selection = [];
+        foreach ($payload['vouchers'] ?? [] as $row) {
+            $selection[$row['seller_id']] = [
+                'discount' => $row['discount_voucher_id'] ?? null,
+                'shipping' => $row['shipping_voucher_id'] ?? null,
+            ];
+        }
+
+        $walletIds = collect($payload['items'])->pluck('coupon_id')->filter()->unique()->values()->all();
+        if ($walletIds === [] || isset($payload['vouchers'])) {
+            return $selection;
+        }
+
+        $mapped = $this->vouchers->vouchersForWalletIds($buyer, $walletIds);
+        if (count($mapped) !== count($walletIds)) {
+            throw ValidationException::withMessages(['items' => 'A selected coupon is not in your wallet.']);
+        }
+        foreach ($mapped as $voucherId => $sellerId) {
+            if (isset($selection[$sellerId]['discount'])) {
+                throw ValidationException::withMessages(['items' => 'Only one voucher can be applied per shop.']);
+            }
+            $selection[$sellerId] = ['discount' => $voucherId, 'shipping' => null];
+        }
+
+        return $selection;
+    }
+
+    /**
+     * Per seller order: what the platform pass needs to know about the
+     * lines and the seller vouchers already applied to them.
+     *
+     * @param  Collection<string, Collection<int, array>>  $itemsBySeller
+     */
+    private function platformContext(Collection $itemsBySeller, array $sellerApplied): array
+    {
+        return PlatformVoucherService::context(
+            $itemsBySeller->map(fn (Collection $lines) => $lines->map(fn (array $l) => [
+                'product_id' => $l['product']->id,
+                'category' => $l['product']->category,
+                'subtotal' => $l['unit_price'] * $l['quantity'],
+            ])->all())->all(),
+            $sellerApplied,
+        );
     }
 
     private function generateOrderNumber(): string

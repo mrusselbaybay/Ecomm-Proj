@@ -570,9 +570,9 @@
     "semantic_hash": ""
   },
   "app/Http/Controllers/Buyer/OrderController.php": {
-    "mtime": 1791265859.529002,
-    "seen": 1791266043.4527943,
-    "ast_hash": "ebed2bba474b96468b7cc4cd9ba23c66",
+    "mtime": 1791284261.8883595,
+    "seen": 1791284444.2382796,
+    "ast_hash": "a7aac7bd61c11267fd48684fefa32552",
     "semantic_hash": ""
   },
   "app/Http/Controllers/Buyer/PaymentMethodController.php": {
@@ -582,9 +582,9 @@
     "semantic_hash": ""
   },
   "app/Http/Controllers/Buyer/ReturnController.php": {
-    "mtime": 1790866753.9555411,
-    "seen": 1790867245.3428223,
-    "ast_hash": "9085acd9286ad91181832e40fa509d19",
+    "mtime": 1791284261.891363,
+    "seen": 1791284444.2382886,
+    "ast_hash": "e75fc9098639b1ef73bd05f3a969f385",
     "semantic_hash": ""
   },
   "app/Http/Controllers/Buyer/ReviewController.php": {
@@ -738,9 +738,9 @@
     "semantic_hash": ""
   },
   "app/Http/Controllers/Seller/SellerOrderController.php": {
-    "mtime": 1790866753.9575417,
-    "seen": 1790867245.342894,
-    "ast_hash": "9f930cd2b044114a3cbe74fb69d6cf2f",
+    "mtime": 1791284261.8956983,
+    "seen": 1791284444.2384746,
+    "ast_hash": "df5c34bf6906b7e5e9010d759cf8df13",
     "semantic_hash": ""
   },
   "app/Http/Controllers/Seller/SellerProductController.php": {
@@ -876,9 +876,9 @@
     "semantic_hash": ""
   },
   "app/Http/Requests/Buyer/CheckoutRequest.php": {
-    "mtime": 1790913180.0123174,
-    "seen": 1790913570.832772,
-    "ast_hash": "d2f6a3a166efda077c8fa805b867a235",
+    "mtime": 1791284261.8990774,
+    "seen": 1791284444.2386394,
+    "ast_hash": "c40fbfd281eba40e75715ef3bca56835",
     "semantic_hash": ""
   },
   "app/Http/Requests/Buyer/DeactivateBuyerAccountRequest.php": {
@@ -1356,21 +1356,21 @@
     "semantic_hash": ""
   },
   "app/Models/Order.php": {
-    "mtime": 1791215121.2941606,
-    "seen": 1791215208.9496496,
-    "ast_hash": "3c1ee63b92ddc3bb643124ceac69827e",
+    "mtime": 1791284261.9018111,
+    "seen": 1791284444.2392247,
+    "ast_hash": "4f041c3ef83300369e3ecf778d6b3354",
     "semantic_hash": ""
   },
   "app/Models/OrderItem.php": {
-    "mtime": 1790866685.2857935,
-    "seen": 1790867245.3431444,
-    "ast_hash": "9af89c2c7d12c0b7a2ac90dbf75a865d",
+    "mtime": 1791284261.90444,
+    "seen": 1791284444.2392292,
+    "ast_hash": "9b50153001f5f88dbe4e14272ac44da2",
     "semantic_hash": ""
   },
   "app/Models/OrderReturnRequest.php": {
-    "mtime": 1790866685.284788,
-    "seen": 1790867245.3431466,
-    "ast_hash": "8668e2981cd4e4d7d96b1212a4531176",
+    "mtime": 1791284261.9081604,
+    "seen": 1791284444.2392335,
+    "ast_hash": "45266b00588ab722757cbe030df2b74c",
     "semantic_hash": ""
   },
   "app/Models/OrderStatusHistory.php": {
@@ -1530,9 +1530,9 @@
     "semantic_hash": ""
   },
   "app/Services/CheckoutService.php": {
-    "mtime": 1791215121.2991693,
-    "seen": 1791215208.9497266,
-    "ast_hash": "c287978b84740cb64273482353ed95d6",
+    "mtime": 1791284261.9105644,
+    "seen": 1791284444.2393966,
+    "ast_hash": "f0692cf993c49ff413ea453f0330a2cc",
     "semantic_hash": ""
   },
   "app/Services/DeliveryConversationService.php": {
@@ -1560,15 +1560,15 @@
     "semantic_hash": ""
   },
   "app/Services/OrderCancellationService.php": {
-    "mtime": 1790866753.95654,
-    "seen": 1790867245.3432312,
-    "ast_hash": "0c119f66f857fa11bdbec43e1e125db4",
+    "mtime": 1791284261.9141426,
+    "seen": 1791284444.2394269,
+    "ast_hash": "343a7a2593b700b4dfdce2f7279f43ee",
     "semantic_hash": ""
   },
   "app/Services/OrderTrackingService.php": {
-    "mtime": 1791268822.8387187,
-    "seen": 1791268907.7890153,
-    "ast_hash": "d6c8f0ef7af186ca78d8aef9ed58a389",
+    "mtime": 1791270458.7144856,
+    "seen": 1791270591.4974887,
+    "ast_hash": "8d76ecaddbcdb2b48625dfd721177fc9",
     "semantic_hash": ""
   },
   "app/Services/ParcelAutoAssignService.php": {
@@ -2472,15 +2472,15 @@
     "semantic_hash": ""
   },
   "resources/js/admin/components/AdminDashboardHome.vue": {
-    "mtime": 1789886422.6974816,
-    "seen": 1789911226.7962754,
-    "ast_hash": "6fddcb9f23bd4524c7e9f43b492aa46a",
+    "mtime": 1791284262.0816202,
+    "seen": 1791284444.2405837,
+    "ast_hash": "2d257e25e831d42dfc6508eeebaac752",
     "semantic_hash": ""
   },
   "resources/js/admin/components/AdminLayout.vue": {
-    "mtime": 1790338749.952021,
-    "seen": 1790338870.157432,
-    "ast_hash": "38ffed3862c9fbba2c7a446d4e75c58c",
+    "mtime": 1791284262.0842545,
+    "seen": 1791284444.2405875,
+    "ast_hash": "cfdfd3f8bd57543f268c982cfbccb938",
     "semantic_hash": ""
   },
   "resources/js/admin/components/AvatarCropper.vue": {
@@ -2568,9 +2568,9 @@
     "semantic_hash": ""
   },
   "resources/js/buyer/components/Account.vue": {
-    "mtime": 1791268324.8141296,
-    "seen": 1791268490.4071097,
-    "ast_hash": "36fe079bdb8555c0b52a4fc2eb54918a",
+    "mtime": 1791284262.091604,
+    "seen": 1791284444.2407026,
+    "ast_hash": "c35b40c20d9d13efadced0ec7b445163",
     "semantic_hash": ""
   },
   "resources/js/buyer/components/AvatarCropper.vue": {
@@ -2616,9 +2616,9 @@
     "semantic_hash": ""
   },
   "resources/js/buyer/components/Checkout.vue": {
-    "mtime": 1791268380.4531357,
-    "seen": 1791268490.4071343,
-    "ast_hash": "8aff8000b511ab8051dfedbb25ee6de6",
+    "mtime": 1791284262.0981045,
+    "seen": 1791284444.240743,
+    "ast_hash": "657fe13c0d12edac16f27b7d4e7fb9c8",
     "semantic_hash": ""
   },
   "resources/js/buyer/components/ConfirmDialog.vue": {
@@ -2628,9 +2628,9 @@
     "semantic_hash": ""
   },
   "resources/js/buyer/components/Dashboard.vue": {
-    "mtime": 1790913467.079522,
-    "seen": 1790913570.8339212,
-    "ast_hash": "01a5b11e1d0f2f1836f366e3a98fac46",
+    "mtime": 1791284262.1021514,
+    "seen": 1791284444.2407522,
+    "ast_hash": "0954381429dde638cc6269953677529d",
     "semantic_hash": ""
   },
   "resources/js/buyer/components/Footer.vue": {
@@ -2640,15 +2640,15 @@
     "semantic_hash": ""
   },
   "resources/js/buyer/components/Header.vue": {
-    "mtime": 1790869519.91827,
-    "seen": 1790869590.0368621,
-    "ast_hash": "ecab04a68d458c5d1eb6e52e7279dee3",
+    "mtime": 1791284262.1056454,
+    "seen": 1791284444.2407603,
+    "ast_hash": "6698e6a199736708ebd6d73c2d244e29",
     "semantic_hash": ""
   },
   "resources/js/buyer/components/OrderDetails.vue": {
-    "mtime": 1790869519.9127357,
-    "seen": 1790869590.0368714,
-    "ast_hash": "eb7ad14b95ba7edd94b3350f99b65d8c",
+    "mtime": 1791284262.1115572,
+    "seen": 1791284444.2407675,
+    "ast_hash": "06bb6045fb8c6a3cb63d78f80a8c149a",
     "semantic_hash": ""
   },
   "resources/js/buyer/components/OrderTracking.vue": {
@@ -2676,9 +2676,9 @@
     "semantic_hash": ""
   },
   "resources/js/buyer/components/ProductDetails.vue": {
-    "mtime": 1790866992.6160944,
-    "seen": 1790867245.3437057,
-    "ast_hash": "7d1b09768337d5c5323b32fcb640d2d8",
+    "mtime": 1791284262.1149652,
+    "seen": 1791284444.2407875,
+    "ast_hash": "293c7494d331e2f5af0b4a430d09e009",
     "semantic_hash": ""
   },
   "resources/js/buyer/components/ProductReviewsDrawer.vue": {
@@ -2982,9 +2982,9 @@
     "semantic_hash": ""
   },
   "resources/js/seller/components/Inventory.vue": {
-    "mtime": 1790867153.8185945,
-    "seen": 1790867245.3438535,
-    "ast_hash": "3fa719e9db95d66f01c1b378d877653c",
+    "mtime": 1791284262.1273406,
+    "seen": 1791284444.2412043,
+    "ast_hash": "14f1fc57aee44f3c0cb66234b4368984",
     "semantic_hash": ""
   },
   "resources/js/seller/components/Messages.vue": {
@@ -3144,9 +3144,9 @@
     "semantic_hash": ""
   },
   "resources/js/shared/OrderJourneyMap.vue": {
-    "mtime": 1791267751.9461732,
-    "seen": 1791267854.5664287,
-    "ast_hash": "275a1683b7e595df4d3b956ae898d222",
+    "mtime": 1791270471.5920908,
+    "seen": 1791270591.4982142,
+    "ast_hash": "0444127cee5dfe79f476b12896d6d90f",
     "semantic_hash": ""
   },
   "resources/js/shared/customerServiceApi.js": {
@@ -3390,15 +3390,15 @@
     "semantic_hash": ""
   },
   "routes/api.php": {
-    "mtime": 1791215121.418658,
-    "seen": 1791215208.9506376,
-    "ast_hash": "7ee40fdba7fd0b20ae18c9bac84088ab",
+    "mtime": 1791284262.131379,
+    "seen": 1791284444.2418692,
+    "ast_hash": "484e32832fb4ee5b0f9330407d00fa51",
     "semantic_hash": ""
   },
   "routes/buyer.php": {
-    "mtime": 1791265859.531781,
-    "seen": 1791266043.4543383,
-    "ast_hash": "4f4e617b30e36dbb805c818a37ab46bf",
+    "mtime": 1791284262.1343575,
+    "seen": 1791284444.2418742,
+    "ast_hash": "2598a270a7818244999e3921d608c0f1",
     "semantic_hash": ""
   },
   "routes/catalog.php": {
@@ -3408,9 +3408,9 @@
     "semantic_hash": ""
   },
   "routes/console.php": {
-    "mtime": 1790866685.2802572,
-    "seen": 1790867245.3440425,
-    "ast_hash": "8a56c302859c22eb731f794bf39300da",
+    "mtime": 1791284262.1375213,
+    "seen": 1791284444.2418864,
+    "ast_hash": "9b4b1d429d5815cfe1a57f98b417ef6a",
     "semantic_hash": ""
   },
   "routes/driver.php": {
@@ -3420,9 +3420,9 @@
     "semantic_hash": ""
   },
   "routes/seller.php": {
-    "mtime": 1790866685.279258,
-    "seen": 1790867245.3440466,
-    "ast_hash": "59ebc234c4acf4547cec67bdd38808f3",
+    "mtime": 1791284262.1410816,
+    "seen": 1791284444.2418952,
+    "ast_hash": "e15912c45f86553d43dc1827e037f524",
     "semantic_hash": ""
   },
   "routes/web.php": {
@@ -4662,9 +4662,9 @@
     "semantic_hash": ""
   },
   "app/Services/Payments/MockPaymentService.php": {
-    "mtime": 1790866685.2822604,
-    "seen": 1790867245.3432431,
-    "ast_hash": "78cb64384a16c01e63d22667de5050e3",
+    "mtime": 1791284261.9176521,
+    "seen": 1791284444.239444,
+    "ast_hash": "e3dc9b14dbcfd356e66c5da3a9b4b328",
     "semantic_hash": ""
   },
   "app/Services/Payments/Money.php": {
@@ -4674,9 +4674,9 @@
     "semantic_hash": ""
   },
   "app/Services/Payments/PaymentSplitter.php": {
-    "mtime": 1790866685.281257,
-    "seen": 1790867245.3432496,
-    "ast_hash": "17bd7030e1e096cb8bfaa9c21bfa13b7",
+    "mtime": 1791284261.920653,
+    "seen": 1791284444.2394507,
+    "ast_hash": "1e400d83ed6e15a5d7c33458f2e6ba39",
     "semantic_hash": ""
   },
   "database/migrations/2026_09_27_000000_create_mock_escrow_ledger_tables.php": {
@@ -4776,9 +4776,9 @@
     "semantic_hash": ""
   },
   "app/Services/ReturnShipmentService.php": {
-    "mtime": 1790866685.283772,
-    "seen": 1790867245.3432572,
-    "ast_hash": "73df20e7f56fff33d4a79590fbf8cbc9",
+    "mtime": 1791284261.9236548,
+    "seen": 1791284444.2394586,
+    "ast_hash": "221fb975c9e8e80501c0cba1154b2fb8",
     "semantic_hash": ""
   },
   "database/migrations/2026_10_01_000100_add_return_shipment_columns.php": {
@@ -4793,88 +4793,22 @@
     "ast_hash": "8b79bbd54175d24bb9268913048c8e61",
     "semantic_hash": ""
   },
-  "app/Console/Commands/ExpireCoupons.php": {
-    "mtime": 1790866747.088595,
-    "seen": 1790867245.3426986,
-    "ast_hash": "3e7c2792c39994d8e1dd78d5c7c324c7",
-    "semantic_hash": ""
-  },
-  "app/Http/Controllers/Buyer/CouponController.php": {
-    "mtime": 1790866631.749778,
-    "seen": 1790867245.3428123,
-    "ast_hash": "e5c5a2de65866bc08bf3d6cc3057ddd5",
-    "semantic_hash": ""
-  },
-  "app/Http/Controllers/Seller/ProductCouponController.php": {
-    "mtime": 1790866630.6578636,
-    "seen": 1790867245.3428774,
-    "ast_hash": "5ca840831a2a181128f041bfdb611e10",
-    "semantic_hash": ""
-  },
-  "app/Models/BuyerCoupon.php": {
-    "mtime": 1790866556.4753172,
-    "seen": 1790867245.343092,
-    "ast_hash": "a0230b5ccf07ca7d25af380ecc5ab24c",
-    "semantic_hash": ""
-  },
-  "app/Models/ProductCoupon.php": {
-    "mtime": 1790866555.3718882,
-    "seen": 1790867245.3431635,
-    "ast_hash": "79c263a877397fdd7347f15483bc1bcc",
-    "semantic_hash": ""
-  },
-  "app/Services/Coupons/CouponService.php": {
-    "mtime": 1790866685.2762537,
-    "seen": 1790867245.3432178,
-    "ast_hash": "2e9bda36d1426f916712272aa3a6baa5",
-    "semantic_hash": ""
-  },
   "database/migrations/2026_10_01_000300_create_coupon_tables.php": {
     "mtime": 1790866554.2414546,
     "seen": 1790867245.3435602,
     "ast_hash": "6cd6c29bd55fd0aefe42d173e60137e7",
     "semantic_hash": ""
   },
-  "resources/js/buyer/components/MyCoupons.vue": {
-    "mtime": 1790869519.91827,
-    "seen": 1790869590.0368671,
-    "ast_hash": "dfdc02cc94e76a8c46d8fddf249f3590",
-    "semantic_hash": ""
-  },
-  "resources/js/buyer/components/ProductCouponCards.vue": {
-    "mtime": 1790869536.449853,
-    "seen": 1790869590.0368943,
-    "ast_hash": "02bfb49a0703c58d750ac45d9b9a0192",
-    "semantic_hash": ""
-  },
-  "resources/js/buyer/composables/useBuyerCoupons.js": {
-    "mtime": 1790866902.2301862,
-    "seen": 1790867245.3437395,
-    "ast_hash": "63ca898e85af21a19b903d4d8acf03c8",
-    "semantic_hash": ""
-  },
-  "resources/js/seller/components/ProductCouponsEditor.vue": {
-    "mtime": 1790869536.4523728,
-    "seen": 1790869590.0371866,
-    "ast_hash": "2dca07c60cf03b206f4d4d04e317bd5c",
-    "semantic_hash": ""
-  },
-  "tests/Feature/Buyer/CouponTest.php": {
-    "mtime": 1790866870.9173045,
-    "seen": 1790867245.34407,
-    "ast_hash": "0ff9eb1febedc489491d122a79e7eb83",
-    "semantic_hash": ""
-  },
   "resources/js/buyer/components/AccountSidebar.vue": {
-    "mtime": 1790869492.426952,
-    "seen": 1790869590.0368078,
-    "ast_hash": "f0ec5bec82b5c0ac54f1e9bb72c5ec3c",
+    "mtime": 1791284262.0945992,
+    "seen": 1791284444.240707,
+    "ast_hash": "44e3477616cadd5e850844762236010a",
     "semantic_hash": ""
   },
   "resources/js/buyer/composables/useBuyerNav.js": {
-    "mtime": 1790869491.3264267,
-    "seen": 1790869590.036973,
-    "ast_hash": "abf5981e348c449bd9f1e9cc722a9dd6",
+    "mtime": 1791284262.1203432,
+    "seen": 1791284444.2408624,
+    "ast_hash": "34fff2b7cf4a0a01fe37e6069469ec8c",
     "semantic_hash": ""
   },
   "database/migrations/2026_10_02_000100_add_psgc_columns_to_buyer_addresses_table.php": {
@@ -5022,9 +4956,117 @@
     "semantic_hash": ""
   },
   "tests/Feature/OrderTrackingStopsTest.php": {
-    "mtime": 1791268840.929957,
-    "seen": 1791268907.7903519,
-    "ast_hash": "6dad0adcdf34862896ccc6af01844b01",
+    "mtime": 1791270493.186307,
+    "seen": 1791270591.4984372,
+    "ast_hash": "74ff52128e6ea199704414176a715e85",
+    "semantic_hash": ""
+  },
+  "app/Http/Controllers/Buyer/VoucherController.php": {
+    "mtime": 1791283772.1165109,
+    "seen": 1791284444.2382977,
+    "ast_hash": "ead77b719a0fd28e9dc938b5f6ec5fe7",
+    "semantic_hash": ""
+  },
+  "app/Http/Controllers/Seller/VoucherController.php": {
+    "mtime": 1791283433.6535673,
+    "seen": 1791284444.2384868,
+    "ast_hash": "94cd0330835274a197d8cd170d2e5d4a",
+    "semantic_hash": ""
+  },
+  "app/Models/BuyerVoucher.php": {
+    "mtime": 1791283433.8325994,
+    "seen": 1791284444.23901,
+    "ast_hash": "af1052fbefd696656d913a8fa9beae7d",
+    "semantic_hash": ""
+  },
+  "app/Models/VoucherRedemption.php": {
+    "mtime": 1791283525.055097,
+    "seen": 1791284444.239359,
+    "ast_hash": "a83a6a961e939e023c5d8551f11b72f2",
+    "semantic_hash": ""
+  },
+  "app/Services/Vouchers/VoucherService.php": {
+    "mtime": 1791283818.172876,
+    "seen": 1791284444.239478,
+    "ast_hash": "c23e201a04322e5277557e350162c539",
+    "semantic_hash": ""
+  },
+  "database/migrations/2026_10_06_000100_replace_coupons_with_seller_vouchers.php": {
+    "mtime": 1791271757.5940297,
+    "seen": 1791272572.989003,
+    "ast_hash": "0e228eee1ed79cd68d85b07b2987d40b",
+    "semantic_hash": ""
+  },
+  "resources/js/buyer/components/MyVouchers.vue": {
+    "mtime": 1791284262.1081321,
+    "seen": 1791284444.2407637,
+    "ast_hash": "cd5fbb85f3d20003250644bcb389b90b",
+    "semantic_hash": ""
+  },
+  "resources/js/buyer/components/ProductVoucherCards.vue": {
+    "mtime": 1791284262.1171412,
+    "seen": 1791284444.2407956,
+    "ast_hash": "9d0fcd098920fe11bdc3f2a4424da058",
+    "semantic_hash": ""
+  },
+  "resources/js/buyer/composables/useBuyerVouchers.js": {
+    "mtime": 1791284262.122346,
+    "seen": 1791284444.240879,
+    "ast_hash": "27313ee2db23790ce902b231eaf0ec2d",
+    "semantic_hash": ""
+  },
+  "resources/js/seller/components/SellerVoucherModal.vue": {
+    "mtime": 1791274231.4634187,
+    "seen": 1791274299.4408245,
+    "ast_hash": "2afacf3aba9714d1ad1e0d360941d083",
+    "semantic_hash": ""
+  },
+  "tests/Feature/Buyer/VoucherTest.php": {
+    "mtime": 1791284262.1433854,
+    "seen": 1791284444.242007,
+    "ast_hash": "6a1474fccff58ed37e55088cb3c5c333",
+    "semantic_hash": ""
+  },
+  "resources/js/buyer/components/VoucherTicket.vue": {
+    "mtime": 1791282635.4375677,
+    "seen": 1791282769.9152236,
+    "ast_hash": "c7537d33fa2293bd2e4bd2bc03b11951",
+    "semantic_hash": ""
+  },
+  "app/Http/Controllers/Admin/VoucherController.php": {
+    "mtime": 1791283831.750718,
+    "seen": 1791284444.2381277,
+    "ast_hash": "f1e800c165077f1387ad9c758835b50f",
+    "semantic_hash": ""
+  },
+  "app/Models/Voucher.php": {
+    "mtime": 1791283632.001044,
+    "seen": 1791284444.2393541,
+    "ast_hash": "80ba87b38dc2bf866aaa98b46b0c7942",
+    "semantic_hash": ""
+  },
+  "app/Services/Vouchers/PlatformVoucherService.php": {
+    "mtime": 1791283753.784716,
+    "seen": 1791284444.2394755,
+    "ast_hash": "b3394e9c18a66b1f84727852c565a7d6",
+    "semantic_hash": ""
+  },
+  "database/migrations/2026_10_07_000100_add_platform_vouchers.php": {
+    "mtime": 1791284293.7949824,
+    "seen": 1791284444.2403643,
+    "ast_hash": "a32c1572c3623384ba5f6d780c673b9e",
+    "semantic_hash": ""
+  },
+  "resources/js/admin/components/PlatformVoucherModal.vue": {
+    "mtime": 1791284208.6076257,
+    "seen": 1791284444.2406576,
+    "ast_hash": "3a1c5852ccfa9b220799bc2e70c6248d",
+    "semantic_hash": ""
+  },
+  "tests/Feature/Admin/PlatformVoucherTest.php": {
+    "mtime": 1791284294.27059,
+    "seen": 1791284444.2419114,
+    "ast_hash": "ad7dd2a1bc44d3d9fb56910e7213d2aa",
     "semantic_hash": ""
   }
 }

@@ -8,10 +8,10 @@ use InvalidArgumentException;
  * Pure split of an order total:
  *   Platform  = (Goods + Shipping) × 5%   (off the top)
  *   Logistics = Shipping × 95%            (1 co: all; 2 cos: 60/40; 3+: rate card)
- *   Seller    = remainder (= Goods × 95% − coupon discount, absorbs rounding so the sum is exact)
+ *   Seller    = remainder (= Goods × 95% − voucher discount, absorbs rounding so the sum is exact)
  *
- * Coupons are seller-funded: platform and logistics are computed on the
- * pre-discount amounts, and the whole discount comes out of the seller's share.
+ * Vouchers (item and shipping) are seller-funded: platform and logistics are
+ * computed on the pre-discount amounts, and the whole discount comes out of the seller's share.
  */
 final class PaymentSplitter
 {

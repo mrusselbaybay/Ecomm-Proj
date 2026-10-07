@@ -21,6 +21,10 @@ class ParcelAssignment extends Model
 
     public const STATUS_ASSIGNED = 'assigned';
 
+    public const STATUS_FAILED_ATTEMPT = 'failed_attempt';
+
+    public const STATUS_NEEDS_DISPATCHER_REVIEW = 'needs_dispatcher_review';
+
     // A NEW company has physically taken custody of this parcel but
     // Logistics hasn't scanned it in yet — set at the two points that
     // happens (see $inventory_origin below) instead of landing straight
@@ -86,6 +90,8 @@ class ParcelAssignment extends Model
     // way. Display-only (see Couriers.vue / LogisticsApplicationResource)
     // — never enforced as a hard cap.
     public const ACTIVE_STATUSES_FOR_QUOTA = [
+        self::STATUS_FAILED_ATTEMPT,
+        self::STATUS_NEEDS_DISPATCHER_REVIEW,
         self::STATUS_ASSIGNED,
         self::STATUS_HANDED_OFF,
         self::STATUS_TRANSFER_ASSIGNED,

@@ -54,7 +54,9 @@ class SellerReportService
 
         $orderCount = (clone $validOrders)->count();
         $discounts = (float) (clone $validOrders)->sum('discount');
-        $refunds = (float) (clone $validOrders)->where('payment_status', 'Refunded')->sum('total');
+        // Refunded orders lose what the seller would have earned: the buyer's
+        // payment plus any platform-funded voucher on top of it.
+        $refunds = (float) (clone $validOrders)->where('payment_status', 'Refunded')->sum(DB::raw('total + platform_discount'));
 
         $itemAgg = OrderItem::query()
             ->join('orders', 'orders.id', '=', 'order_items.order_id')

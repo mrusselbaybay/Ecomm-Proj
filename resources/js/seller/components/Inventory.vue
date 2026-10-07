@@ -94,6 +94,13 @@
                 </div>
             </div>
             <div class="toolbar-right">
+                <button type="button" class="chip-btn" title="Shop & product vouchers" @click="showVouchers = true">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />
+                        <path d="M13 5v2M13 17v2M13 11v2" />
+                    </svg>
+                    Vouchers
+                </button>
                 <div class="filter-btn-wrap">
                     <button
                         ref="filterBtnEl"
@@ -1426,12 +1433,6 @@
                             </div>
                         </section>
 
-                        <!-- COUPONS (existing products only — needs a product id) -->
-                        <ProductCouponsEditor
-                            v-if="!isNewProduct && activeProductId"
-                            :product-id="String(activeProductId)"
-                            :price="Number(form.price) || 0"
-                        />
 
             </div>
         </div>
@@ -1775,6 +1776,7 @@
         </div>
         </Transition>
 
+        <SellerVoucherModal v-if="showVouchers" @close="showVouchers = false" />
     </div>
 </template>
 
@@ -1790,12 +1792,15 @@ import {
     Legend,
     Filler,
 } from 'chart.js';
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, defineAsyncComponent } from 'vue';
 import { useSeller } from '../composables/useSeller';
 import { useSellerProducts } from '../composables/useSellerProducts';
-import ProductCouponsEditor from './ProductCouponsEditor.vue';
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
+
+// Vouchers modal (lazy: only fetched the first time a seller opens it).
+const SellerVoucherModal = defineAsyncComponent(() => import('./SellerVoucherModal.vue'));
+const showVouchers = ref(false);
 
 const {
     products,

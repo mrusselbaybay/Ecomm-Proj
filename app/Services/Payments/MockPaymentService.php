@@ -22,6 +22,9 @@ use LogicException;
  */
 class MockPaymentService
 {
+    /** Platform-funded voucher cost (debited on release, credited back on refunds/returns). */
+    public const ACCOUNT_SUBSIDY = 'platform_subsidy';
+
     public const ESCROW_UNFUNDED = 'unfunded';
     public const ESCROW_FUNDED = 'funded';
     public const ESCROW_RELEASED = 'released';
@@ -64,8 +67,11 @@ class MockPaymentService
             $total = Money::toCents($order->total);
             $shipping = Money::toCents($order->shipping_fee);
             $discount = Money::toCents($order->discount ?? 0);
+            // Platform-funded vouchers: shares are computed as if the buyer
+            // paid it, and the platform tops escrow up (platform_subsidy).
+            $subsidy = Money::toCents($order->platform_discount ?? 0);
             $shares = PaymentSplitter::split(
-                $total - $shipping + $discount,
+                $total - $shipping + $discount + $subsidy,
                 $shipping,
                 $order->seller_id,
                 $this->logisticsChain($order->id),
@@ -75,7 +81,8 @@ class MockPaymentService
 
             // Pre-release partial refunds already left escrow; each party
             // gets its full share minus its proportional part of them.
-            $alreadyRefunded = Money::allocate($this->refundedCents($order->id), array_column($shares, 'cents'));
+            $refunded = $this->refundedCents($order->id);
+            $alreadyRefunded = Money::allocate($this->grossUp($refunded, $total, $subsidy), array_column($shares, 'cents'));
 
             $lines = [];
             $released = 0;
@@ -84,11 +91,15 @@ class MockPaymentService
                 $released += $payout;
                 $lines[] = ['account' => $share['account'], 'party_id' => $share['party_id'], 'credit' => $payout];
             }
-            array_unshift($lines, ['account' => 'escrow', 'party_id' => null, 'debit' => $released]);
+            $fromEscrow = $total - $refunded;
+            array_unshift($lines, ['account' => 'escrow', 'party_id' => null, 'debit' => $fromEscrow]);
+            if ($released !== $fromEscrow) {
+                $lines[] = ['account' => self::ACCOUNT_SUBSIDY, 'party_id' => null, 'debit' => $released - $fromEscrow];
+            }
 
             $order->forceFill(['escrow_status' => self::ESCROW_RELEASED])->save();
 
-            return [$lines, ['shares' => $shares], $released];
+            return [$lines, ['shares' => $shares, 'subsidy_cents' => $subsidy], $released];
         });
     }
 
@@ -119,11 +130,20 @@ class MockPaymentService
             } else {
                 // Allocate cumulatively so repeated partial refunds never drift
                 // from the exact full split.
-                $shares = EscrowTransaction::where('order_id', $order->id)
-                    ->where('type', EscrowTransaction::TYPE_RELEASE)->first()->meta['shares'];
+                $meta = EscrowTransaction::where('order_id', $order->id)
+                    ->where('type', EscrowTransaction::TYPE_RELEASE)->first()->meta;
+                $shares = $meta['shares'];
+                $subsidy = (int) ($meta['subsidy_cents'] ?? 0);
                 $weights = array_column($shares, 'cents');
-                $prev = Money::allocate($before, $weights);
-                $next = Money::allocate($after, $weights);
+                // Parties return what they were paid (subsidy included);
+                // the subsidy part goes back to the platform, not the buyer.
+                $grossBefore = $this->grossUp($before, $total, $subsidy);
+                $grossAfter = $this->grossUp($after, $total, $subsidy);
+                $prev = Money::allocate($grossBefore, $weights);
+                $next = Money::allocate($grossAfter, $weights);
+                if ($grossAfter - $grossBefore !== $cents) {
+                    $lines[] = ['account' => self::ACCOUNT_SUBSIDY, 'party_id' => null, 'credit' => $grossAfter - $grossBefore - $cents];
+                }
 
                 foreach ($shares as $i => $share) {
                     // Largest-remainder can shift a centavo between parties
@@ -160,14 +180,14 @@ class MockPaymentService
      * Escrow still held (buyer never confirmed receipt) is released first so
      * every party's forward share exists before the return is netted off it.
      *
-     * A couponed item refunds what the buyer actually paid ($itemCents); the
+     * A vouchered item refunds what the buyer actually paid ($itemCents); the
      * platform's commission is clawed back on the pre-discount price, so the
      * seller returns exactly the reduced share it received and keeps the
-     * coupon cost it already gave.
+     * voucher cost it already gave.
      *
      * @param  list<string>  $returnChain  companies on the return legs, pickup-from-buyer first
      */
-    public function settleReturn(string $orderId, string $returnRequestId, int $itemCents, int $shippingRefundCents, int $returnShippingCents, array $returnChain, int $couponDiscountCents = 0): EscrowTransaction
+    public function settleReturn(string $orderId, string $returnRequestId, int $itemCents, int $shippingRefundCents, int $returnShippingCents, array $returnChain, int $voucherDiscountCents = 0, int $platformDiscountCents = 0): EscrowTransaction
     {
         $order = Order::findOrFail($orderId);
         if ($order->escrow_status === self::ESCROW_UNFUNDED) {
@@ -180,7 +200,7 @@ class MockPaymentService
 
         $buyerCents = $itemCents + $shippingRefundCents;
 
-        return $this->run("return:{$returnRequestId}", $orderId, EscrowTransaction::TYPE_RETURN, $buyerCents, function (Order $order) use ($itemCents, $shippingRefundCents, $returnShippingCents, $returnChain, $buyerCents, $couponDiscountCents) {
+        return $this->run("return:{$returnRequestId}", $orderId, EscrowTransaction::TYPE_RETURN, $buyerCents, function (Order $order) use ($itemCents, $shippingRefundCents, $returnShippingCents, $returnChain, $buyerCents, $voucherDiscountCents, $platformDiscountCents) {
             if ($order->escrow_status !== self::ESCROW_RELEASED) {
                 throw new LogicException("Cannot settle a return from escrow status [{$order->escrow_status}].");
             }
@@ -194,7 +214,9 @@ class MockPaymentService
                 throw new InvalidArgumentException('Refund exceeds the amount still refundable.');
             }
 
-            $goodsCommission = Money::percent($itemCents + $couponDiscountCents, PaymentSplitter::PLATFORM_BPS);
+            // Commission is on the pre-discount price; the platform-funded
+            // part of the item goes back to the platform subsidy account.
+            $goodsCommission = Money::percent($itemCents + $voucherDiscountCents + $platformDiscountCents, PaymentSplitter::PLATFORM_BPS);
             $returnShares = $returnShippingCents > 0
                 ? PaymentSplitter::split(0, $returnShippingCents, $order->seller_id, $returnChain)
                 : [];
@@ -202,9 +224,12 @@ class MockPaymentService
             $lines = [
                 ['account' => 'buyer', 'party_id' => $order->buyer_profile_id, 'credit' => $buyerCents],
                 ['account' => PaymentSplitter::ACCOUNT_SELLER, 'party_id' => $order->seller_id,
-                    'debit' => $itemCents - $goodsCommission + $shippingRefundCents + $returnShippingCents],
+                    'debit' => $itemCents + $platformDiscountCents - $goodsCommission + $shippingRefundCents + $returnShippingCents],
                 ['account' => PaymentSplitter::ACCOUNT_PLATFORM, 'party_id' => null, 'debit' => $goodsCommission],
             ];
+            if ($platformDiscountCents > 0) {
+                $lines[] = ['account' => self::ACCOUNT_SUBSIDY, 'party_id' => null, 'credit' => $platformDiscountCents];
+            }
             foreach ($returnShares as $share) {
                 if ($share['cents'] > 0) {
                     $lines[] = ['account' => $share['account'], 'party_id' => $share['party_id'], 'credit' => $share['cents']];
@@ -221,7 +246,8 @@ class MockPaymentService
                 'item_cents' => $itemCents,
                 'shipping_refund_cents' => $shippingRefundCents,
                 'return_shipping_cents' => $returnShippingCents,
-                'coupon_discount_cents' => $couponDiscountCents,
+                'voucher_discount_cents' => $voucherDiscountCents,
+                'platform_discount_cents' => $platformDiscountCents,
                 'return_shares' => $returnShares,
             ]];
         });
@@ -255,6 +281,19 @@ class MockPaymentService
     /**
      * @param  callable(Order): array  $build  returns [lines, meta, amount?]
      */
+    /**
+     * Buyer cents → the matching slice of the gross (buyer + platform
+     * subsidy) that the parties were paid. Identity without a subsidy.
+     */
+    private function grossUp(int $buyerCents, int $total, int $subsidy): int
+    {
+        if ($subsidy === 0 || $total === 0) {
+            return $buyerCents;
+        }
+
+        return $buyerCents >= $total ? $total + $subsidy : (int) round($buyerCents * ($total + $subsidy) / $total);
+    }
+
     private function run(string $key, string $orderId, string $type, ?int $amount, callable $build): EscrowTransaction
     {
         return DB::transaction(function () use ($key, $orderId, $type, $amount, $build) {

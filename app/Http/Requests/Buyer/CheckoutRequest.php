@@ -19,8 +19,18 @@ class CheckoutRequest extends FormRequest
             'items.*.variant_id' => ['nullable', 'uuid', 'exists:product_variants,id'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.variation' => ['nullable', 'string', 'max:100'],
-            // A claimed wallet coupon (buyer_coupons.id); validated in CouponService.
+            // Legacy (mobile): a claimed wallet entry (buyer_vouchers.id) per line.
             'items.*.coupon_id' => ['nullable', 'uuid'],
+            // Per seller order: max one discount + one shipping voucher
+            // (vouchers.id); validated in VoucherService::applySelection().
+            'vouchers' => ['nullable', 'array', 'max:50'],
+            'vouchers.*.seller_id' => ['required', 'uuid', 'distinct'],
+            'vouchers.*.discount_voucher_id' => ['nullable', 'uuid'],
+            'vouchers.*.shipping_voucher_id' => ['nullable', 'uuid'],
+            // Cart-wide BuyTheWay vouchers; validated in PlatformVoucherService::applySelection().
+            'platform_vouchers' => ['nullable', 'array'],
+            'platform_vouchers.discount_voucher_id' => ['nullable', 'uuid'],
+            'platform_vouchers.shipping_voucher_id' => ['nullable', 'uuid'],
 
             'delivery_address' => ['required', 'array'],
             // Saved address (buyer_addresses.id) to route the order to;

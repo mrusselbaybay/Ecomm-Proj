@@ -7,7 +7,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Profile;
-use App\Services\Coupons\CouponService;
+use App\Services\Vouchers\VoucherService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -77,7 +77,7 @@ class OrderCancellationService
                 }
             }
 
-            app(CouponService::class)->releaseForOrder($order);
+            app(VoucherService::class)->releaseForOrder($order);
 
             $order->status = 'Cancelled';
 

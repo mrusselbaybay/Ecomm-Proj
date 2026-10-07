@@ -77,7 +77,10 @@
                 type="button"
                 role="tab"
                 class="stage-tile"
-                :class="[`tone-${tile.tone}`, { 'is-active': stage === tile.key }]"
+                :class="[
+                    `tone-${tile.tone}`,
+                    { 'is-active': stage === tile.key },
+                ]"
                 :aria-selected="stage === tile.key"
                 @click="setStage(tile.key)"
             >
@@ -86,7 +89,9 @@
                 </span>
                 <span class="stage-tile-copy">
                     <span v-if="loading" class="skeleton skeleton-stat"></span>
-                    <span v-else class="stage-tile-value">{{ tile.count }}</span>
+                    <span v-else class="stage-tile-value">{{
+                        tile.count
+                    }}</span>
                     <span class="stage-tile-label">{{ tile.label }}</span>
                 </span>
             </button>
@@ -113,9 +118,11 @@
                 >
                     <NavIcon name="alert" :size="14" />
                     Exceptions
-                    <span v-if="exceptionCount" class="exception-toggle-count">{{
-                        exceptionCount
-                    }}</span>
+                    <span
+                        v-if="exceptionCount"
+                        class="exception-toggle-count"
+                        >{{ exceptionCount }}</span
+                    >
                 </button>
                 <button
                     v-if="hasActiveFilters"
@@ -194,7 +201,9 @@
                                             : '—'
                                     }}
                                     <span class="parcel-meta-dot">·</span>
-                                    {{ parcel.order.service_type || 'Standard' }}
+                                    {{
+                                        parcel.order.service_type || 'Standard'
+                                    }}
                                 </span>
                             </td>
                             <td data-label="Destination">
@@ -224,26 +233,43 @@
                             </td>
                             <td data-label="Status">
                                 <div class="status-stack">
-                                <span
-                                    class="badge status-badge"
-                                    :class="statusClass(parcel)"
-                                >
-                                    <NavIcon
-                                        :name="statusIcon(parcel)"
-                                        :size="12"
-                                    />
-                                    {{ statusLabel(parcel) }}
-                                </span>
-                                <span
-                                    v-if="returnTag(parcel)"
-                                    class="badge status-badge"
-                                    :class="returnTag(parcel).cls"
-                                    :title="parcel.return_reason ? `Return reason: ${parcel.return_reason}` : ''"
-                                >
-                                    <NavIcon name="return" :size="12" />
-                                    {{ returnTag(parcel).label }}
-                                </span>
+                                    <span
+                                        class="badge status-badge"
+                                        :class="statusClass(parcel)"
+                                    >
+                                        <NavIcon
+                                            :name="statusIcon(parcel)"
+                                            :size="12"
+                                        />
+                                        {{ statusLabel(parcel) }}
+                                    </span>
+                                    <span
+                                        v-if="returnTag(parcel)"
+                                        class="badge status-badge"
+                                        :class="returnTag(parcel).cls"
+                                        :title="
+                                            parcel.return_reason
+                                                ? `Return reason: ${parcel.return_reason}`
+                                                : ''
+                                        "
+                                    >
+                                        <NavIcon name="return" :size="12" />
+                                        {{ returnTag(parcel).label }}
+                                    </span>
                                 </div>
+                                <span
+                                    v-if="
+                                        parcel.delivery_attempt
+                                            ?.latest_attempt &&
+                                        isFailedDelivery(parcel)
+                                    "
+                                    class="parcel-meta"
+                                >
+                                    {{
+                                        parcel.delivery_attempt.latest_attempt
+                                            .reason_label
+                                    }}
+                                </span>
                                 <span
                                     v-if="
                                         !parcel.is_scanned &&
@@ -253,7 +279,10 @@
                                     >Not yet scanned in</span
                                 >
                             </td>
-                            <td class="col-action text-right" data-label="Actions">
+                            <td
+                                class="col-action text-right"
+                                data-label="Actions"
+                            >
                                 <div class="row-actions">
                                     <button
                                         type="button"
@@ -263,6 +292,15 @@
                                         @click="openDetails(parcel)"
                                     >
                                         <NavIcon name="search" :size="15" />
+                                    </button>
+                                    <button
+                                        v-if="isFailedDelivery(parcel)"
+                                        type="button"
+                                        class="btn-sm-outline"
+                                        @click="openFailureReview(parcel)"
+                                    >
+                                        <NavIcon name="alert" :size="14" />
+                                        Review
                                     </button>
                                     <button
                                         v-if="isParcelActionable(parcel)"
@@ -318,6 +356,245 @@
              transform, so it would otherwise be the containing block for
              the fixed overlay and let the dim backdrop scroll away). -->
         <Teleport to=".logistics-shell">
+            <div
+                v-if="failureParcel"
+                class="modal-overlay"
+                @click.self="closeFailureReview"
+            >
+                <section
+                    ref="failureReviewPanel"
+                    class="modal-panel failure-review"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="failure-review-title"
+                    aria-describedby="failure-review-guidance"
+                    tabindex="-1"
+                    @keydown.esc="closeFailureReview"
+                    @keydown.tab="trapFailureReviewFocus"
+                >
+                    <div class="modal-header">
+                        <div class="failure-review-heading">
+                            <span class="failure-review-icon"
+                                ><NavIcon name="alert" :size="22"
+                            /></span>
+                            <div>
+                                <h3 id="failure-review-title">
+                                    {{ statusLabel(failureParcel) }}
+                                </h3>
+                                <p class="failure-review-tracking">
+                                    {{
+                                        failureParcel.order.tracking_number ||
+                                        failureParcel.order.order_number
+                                    }}
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            class="modal-close"
+                            aria-label="Close delivery review"
+                            :disabled="reviewSaving"
+                            @click="closeFailureReview"
+                        >
+                            <NavIcon name="close" :size="16" />
+                        </button>
+                    </div>
+                    <div class="failure-review-reason">
+                        <span class="failure-review-label"
+                            >Latest failure reason</span
+                        >
+                        <p class="failure-review-reason-title">
+                            {{
+                                failureParcel.delivery_attempt.latest_attempt
+                                    ?.reason_label || 'Reason unavailable'
+                            }}
+                        </p>
+                        <p
+                            v-if="
+                                failureParcel.delivery_attempt.latest_attempt
+                                    ?.description
+                            "
+                        >
+                            {{
+                                failureParcel.delivery_attempt.latest_attempt
+                                    .description
+                            }}
+                        </p>
+                        <p class="failure-review-muted">
+                            Failed
+                            {{
+                                formatManila(
+                                    failureParcel.delivery_attempt
+                                        .latest_attempt?.failed_at,
+                                )
+                            }}
+                        </p>
+                    </div>
+                    <dl class="failure-review-facts">
+                        <div>
+                            <dt>Failed attempts</dt>
+                            <dd>
+                                {{
+                                    failureParcel.delivery_attempt.attempt_count
+                                }}
+                                of
+                                {{
+                                    failureParcel.delivery_attempt.attempt_limit
+                                }}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>Current courier</dt>
+                            <dd>
+                                {{
+                                    failureParcel.rider
+                                        ? personName(failureParcel.rider)
+                                        : 'Unassigned'
+                                }}
+                            </dd>
+                        </div>
+                        <div class="failure-review-retry">
+                            <dt>
+                                <NavIcon name="clock" :size="15" /> Earliest
+                                re-attempt
+                            </dt>
+                            <dd>
+                                {{
+                                    formatManila(
+                                        failureParcel.delivery_attempt.retry_at,
+                                    )
+                                }}
+                            </dd>
+                        </div>
+                    </dl>
+                    <p
+                        id="failure-review-guidance"
+                        class="failure-review-guidance"
+                    >
+                        The parcel stays with the current courier. They must
+                        start the re-attempt from their delivery list after the
+                        time above.
+                    </p>
+                    <p
+                        v-if="failureParcel.delivery_attempt.needs_review"
+                        class="callout-amber"
+                    >
+                        Dispatcher approval is required. Approval grants one
+                        additional attempt for this order.
+                    </p>
+                    <p
+                        v-if="failureParcel.delivery_attempt.return_flagged_at"
+                        class="callout-amber"
+                    >
+                        Flagged for the separate return-to-sender process at
+                        {{
+                            formatManila(
+                                failureParcel.delivery_attempt
+                                    .return_flagged_at,
+                            )
+                        }}. Approving or reassigning clears this flag.
+                    </p>
+                    <div class="failure-review-assignment">
+                        <label
+                            for="failed-delivery-rider"
+                            class="failure-review-label"
+                            >Courier for next attempt</label
+                        >
+                        <select
+                            class="field-input"
+                            id="failed-delivery-rider"
+                            v-model="reviewRiderId"
+                            :disabled="reviewSaving"
+                            aria-describedby="failure-review-assignment-hint"
+                        >
+                            <option value="">Keep current courier</option>
+                            <option
+                                v-for="rider in assignmentRiders.filter(
+                                    (rider) =>
+                                        rider.id !== failureParcel.rider?.id,
+                                )"
+                                :key="rider.id"
+                                :value="rider.id"
+                            >
+                                {{ personName(rider) }}
+                            </option>
+                        </select>
+                        <p
+                            id="failure-review-assignment-hint"
+                            class="failure-review-muted"
+                        >
+                            {{
+                                reviewRiderId
+                                    ? 'Changing couriers keeps the same retry time. If approval is required, reassignment also grants one additional attempt.'
+                                    : failureParcel.delivery_attempt
+                                            .needs_review
+                                      ? 'Approve one additional attempt for the current courier. The retry time stays the same.'
+                                      : 'No reassignment or approval needed to keep the current courier.'
+                            }}
+                        </p>
+                    </div>
+                    <p
+                        v-if="reviewError"
+                        role="alert"
+                        class="failure-review-error"
+                    >
+                        {{ reviewError }}
+                    </p>
+                    <div class="modal-actions failure-review-actions">
+                        <button
+                            v-if="
+                                failureParcel.delivery_attempt.needs_review &&
+                                !failureParcel.delivery_attempt
+                                    .return_flagged_at
+                            "
+                            type="button"
+                            class="btn-outline failure-review-return"
+                            :disabled="reviewSaving"
+                            @click="submitFailureReview(true)"
+                        >
+                            <NavIcon name="return" :size="16" />
+                            Flag for return
+                        </button>
+                        <button
+                            type="button"
+                            class="btn-outline"
+                            :disabled="reviewSaving"
+                            @click="closeFailureReview"
+                        >
+                            {{
+                                failureParcel.delivery_attempt.needs_review ||
+                                reviewRiderId
+                                    ? 'Cancel'
+                                    : 'Done'
+                            }}
+                        </button>
+                        <button
+                            v-if="
+                                reviewRiderId ||
+                                failureParcel.delivery_attempt.needs_review
+                            "
+                            type="button"
+                            class="btn-primary"
+                            :disabled="
+                                reviewSaving ||
+                                (!reviewRiderId &&
+                                    !failureParcel.delivery_attempt
+                                        .needs_review)
+                            "
+                            @click="submitFailureReview(false)"
+                        >
+                            {{
+                                reviewSaving
+                                    ? 'Saving...'
+                                    : reviewRiderId
+                                      ? 'Reassign courier'
+                                      : 'Approve another attempt'
+                            }}
+                        </button>
+                    </div>
+                </section>
+            </div>
+
             <!-- ---------------- Details drawer ---------------- -->
             <Transition name="drawer">
                 <div
@@ -337,9 +614,7 @@
                                 </h3>
                                 <p class="details-subtitle">
                                     {{ detailsParcel.order.buyer_name }}
-                                    <span class="details-subtitle-dot"
-                                        >·</span
-                                    >
+                                    <span class="details-subtitle-dot">·</span>
                                     {{ phaseLabel(detailsParcel) }}
                                 </p>
                             </div>
@@ -456,7 +731,9 @@
                                         class="empty-state"
                                     >
                                         <NavIcon name="parcels" :size="26" />
-                                        <span>No line items on this order.</span>
+                                        <span
+                                            >No line items on this order.</span
+                                        >
                                     </p>
                                     <ul v-else class="details-item-list">
                                         <li
@@ -516,8 +793,7 @@
                                     <div class="details-seller-copy">
                                         <div>
                                             <strong>{{
-                                                detailsData.seller
-                                                    .shop_name ||
+                                                detailsData.seller.shop_name ||
                                                 detailsData.seller.name ||
                                                 'Seller'
                                             }}</strong>
@@ -571,13 +847,18 @@
                                                 <dt>Email</dt>
                                                 <dd>
                                                     {{
-                                                        detailsData.seller
-                                                            .email
+                                                        detailsData.seller.email
                                                     }}
                                                 </dd>
                                             </div>
                                             <div class="details-info-row">
-                                                <dt>{{ detailsParcel.is_return ? 'Return drop-off address' : 'Pickup address' }}</dt>
+                                                <dt>
+                                                    {{
+                                                        detailsParcel.is_return
+                                                            ? 'Return drop-off address'
+                                                            : 'Pickup address'
+                                                    }}
+                                                </dt>
                                                 <dd>
                                                     {{
                                                         detailsData.seller
@@ -599,9 +880,19 @@
                                         <NavIcon name="return" :size="16" />
                                         <span>
                                             <strong>Return &amp; refund</strong>
-                                            — {{ detailsParcel.return_reason || 'No reason given' }}
-                                            <template v-if="detailsParcel.return_details">
-                                                <br /><small>{{ detailsParcel.return_details }}</small>
+                                            —
+                                            {{
+                                                detailsParcel.return_reason ||
+                                                'No reason given'
+                                            }}
+                                            <template
+                                                v-if="
+                                                    detailsParcel.return_details
+                                                "
+                                            >
+                                                <br /><small>{{
+                                                    detailsParcel.return_details
+                                                }}</small>
                                             </template>
                                         </span>
                                     </div>
@@ -640,7 +931,63 @@
                                             yet.</span
                                         >
                                     </p>
-                                    <ul v-else class="details-history-list">
+                                    <section
+                                        v-if="
+                                            detailsData.delivery_attempts
+                                                ?.length
+                                        "
+                                        aria-label="Failed delivery history"
+                                    >
+                                        <h4>Failed delivery attempts</h4>
+                                        <ul class="details-history-list">
+                                            <li
+                                                v-for="attempt in detailsData.delivery_attempts"
+                                                :key="attempt.attempt_number"
+                                                class="details-history-row"
+                                            >
+                                                <div
+                                                    class="details-history-copy"
+                                                >
+                                                    <strong
+                                                        >Attempt
+                                                        {{
+                                                            attempt.attempt_number
+                                                        }}:
+                                                        {{
+                                                            attempt.reason_label
+                                                        }}</strong
+                                                    >
+                                                    <span
+                                                        v-if="
+                                                            attempt.description
+                                                        "
+                                                        class="parcel-meta"
+                                                        >{{
+                                                            attempt.description
+                                                        }}</span
+                                                    >
+                                                    <span class="parcel-meta"
+                                                        >{{
+                                                            attempt.courier_name ||
+                                                            attempt.courier_id
+                                                        }}
+                                                        ?
+                                                        {{
+                                                            formatManila(
+                                                                attempt.failed_at,
+                                                            )
+                                                        }}</span
+                                                    >
+                                                </div>
+                                            </li>
+                                        </ul>
+                                    </section>
+                                    <ul
+                                        v-if="
+                                            detailsData.status_history?.length
+                                        "
+                                        class="details-history-list"
+                                    >
                                         <li
                                             v-for="(
                                                 entry, idx
@@ -665,7 +1012,7 @@
                                                     entry.status
                                                 }}</strong>
                                                 <span class="parcel-meta">{{
-                                                    formatDate(
+                                                    formatManila(
                                                         entry.created_at,
                                                     )
                                                 }}</span>
@@ -1043,7 +1390,7 @@
                                         ? 'Confirm courier handoff'
                                         : awaitingDispatchDecision
                                           ? 'Assign delivery'
-                                        : 'Assign pickup courier'
+                                          : 'Assign pickup courier'
                             }}
                         </button>
                     </div>
@@ -1196,6 +1543,7 @@
 <script setup>
 import {
     computed,
+    nextTick,
     onActivated,
     onBeforeUnmount,
     onDeactivated,
@@ -1232,6 +1580,7 @@ const {
     loadBarangayAssignments,
     loadTransferRequests,
     assignParcel,
+    reviewFailedDelivery,
     handoffParcel,
     assignTransferCourier,
     fetchTransferOptions,
@@ -1311,6 +1660,14 @@ const activeAssignments = computed(() =>
 // Kept in sync with useLogistics.js's parcelStats, which mirrors this
 // exact branching for the tab counts.
 function stageOf(parcel) {
+    if (parcel.status === 'failed_attempt') {
+        return 'failedAttempt';
+    }
+
+    if (parcel.status === 'needs_dispatcher_review') {
+        return 'needsReview';
+    }
+
     // A return leg handed back to the seller — terminal, like 'transferred'.
     if (parcel.is_return && parcel.delivered_at) {
         return 'returned';
@@ -1387,6 +1744,12 @@ function stageOf(parcel) {
 // read like", instead of three places that used to drift.
 const STAGE_META = {
     all: { label: 'All parcels', icon: 'parcels', tone: 'brand' },
+    failedAttempt: { label: 'Failed Attempt', icon: 'alert', tone: 'warning' },
+    needsReview: {
+        label: 'Needs Dispatcher Review',
+        icon: 'alert',
+        tone: 'warning',
+    },
     toPickUp: { label: 'To pick up', icon: 'inbox', tone: 'warning' },
     awaitingInventory: {
         label: 'Awaiting inventory',
@@ -1419,9 +1782,11 @@ function matchesStage(parcel, key) {
     if (key === 'all') {
         return true;
     }
+
     if (key === 'toReturn') {
         return parcel.is_return && !parcel.is_returned;
     }
+
     if (key === 'returned') {
         return parcel.is_return && parcel.is_returned;
     }
@@ -1442,8 +1807,7 @@ const stageRail = computed(() =>
     Object.keys(STAGE_META).map((key) => ({
         key,
         ...STAGE_META[key],
-        count:
-            key === 'all' ? parcelStats.value.total : parcelStats.value[key],
+        count: key === 'all' ? parcelStats.value.total : parcelStats.value[key],
     })),
 );
 
@@ -1451,7 +1815,10 @@ const stageRail = computed(() =>
 // to miss in a fast-scrolling queue, so they get their own cross-stage
 // filter rather than only a note buried in the routing modal.
 function isException(parcel) {
-    return Boolean(parcel.required_vehicle_type);
+    return (
+        Boolean(parcel.required_vehicle_type) ||
+        ['failed_attempt', 'needs_dispatcher_review'].includes(parcel.status)
+    );
 }
 
 const exceptionCount = computed(
@@ -1579,6 +1946,97 @@ function clearFilters() {
 // Fetched lazily, one parcel at a time, only once the drawer is actually
 // opened — the queue list itself never carries this weight (see
 // ParcelAssignmentController::details on the backend).
+const failureParcel = ref(null);
+const failureReviewPanel = ref(null);
+let failureReviewTrigger = null;
+const reviewRiderId = ref('');
+const reviewSaving = ref(false);
+const reviewError = ref('');
+const isFailedDelivery = (parcel) =>
+    ['failed_attempt', 'needs_dispatcher_review'].includes(parcel.status);
+const formatManila = (value) =>
+    value
+        ? new Date(value).toLocaleString('en-PH', {
+              timeZone: 'Asia/Manila',
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+          }) + ' PHT'
+        : 'Unknown time';
+async function openFailureReview(parcel) {
+    failureReviewTrigger = document.activeElement;
+    failureParcel.value = parcel;
+    reviewRiderId.value = '';
+    reviewError.value = '';
+    await nextTick();
+    failureReviewPanel.value?.focus();
+}
+function closeFailureReview() {
+    if (!reviewSaving.value) {
+        failureParcel.value = null;
+        failureReviewTrigger?.focus();
+    }
+}
+function trapFailureReviewFocus(event) {
+    const panel = failureReviewPanel.value;
+    const controls = panel?.querySelectorAll(
+        'button:not(:disabled), select:not(:disabled)',
+    );
+
+    if (!controls?.length) {
+        event.preventDefault();
+        panel?.focus();
+
+        return;
+    }
+
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+
+    if (
+        event.shiftKey &&
+        (document.activeElement === first || document.activeElement === panel)
+    ) {
+        event.preventDefault();
+        last.focus();
+    } else if (
+        !event.shiftKey &&
+        (document.activeElement === last || document.activeElement === panel)
+    ) {
+        event.preventDefault();
+        first.focus();
+    }
+}
+async function submitFailureReview(flagReturn = false) {
+    if (reviewSaving.value) {
+        return;
+    }
+
+    reviewSaving.value = true;
+    reviewError.value = '';
+
+    try {
+        await reviewFailedDelivery(
+            failureParcel.value.id,
+            flagReturn ? null : reviewRiderId.value || null,
+            flagReturn,
+        );
+        failureParcel.value = null;
+        failureReviewTrigger?.focus();
+        notify(
+            flagReturn
+                ? 'Flagged for the separate return process. Courier re-attempts remain blocked.'
+                : 'Delivery review saved. The next-day waiting period is unchanged.',
+        );
+    } catch (error) {
+        reviewError.value = error.message;
+    } finally {
+        reviewSaving.value = false;
+    }
+}
+
 const detailsParcel = ref(null);
 const detailsData = ref(null);
 const detailsLoading = ref(false);
@@ -1616,6 +2074,10 @@ const currentStatusNote = computed(() => {
 
     if (!parcel) {
         return '';
+    }
+
+    if (isFailedDelivery(parcel)) {
+        return `${parcel.delivery_attempt.latest_attempt?.reason_label || 'Failed attempt'}. Available from ${formatManila(parcel.delivery_attempt.retry_at)}${parcel.delivery_attempt.needs_review ? ', after dispatcher approval' : ''}.`;
     }
 
     if (parcel.status === 'transfer_pending') {
@@ -2020,6 +2482,144 @@ onBeforeUnmount(stopPolling);
 </script>
 
 <style scoped>
+.failure-review {
+    max-width: 560px;
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    font-family: var(--lg-font-body);
+    color: var(--lg-ink);
+    font-size: 14px;
+    line-height: 1.5;
+}
+.failure-review-heading {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.failure-review-icon {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--lg-radius-sm);
+    background: var(--lg-warning-bg);
+    color: var(--lg-warning);
+}
+.failure-review .modal-header {
+    align-items: flex-start;
+    margin-bottom: 22px;
+}
+.failure-review .modal-header h3 {
+    font-family: var(--lg-font-display);
+    font-size: 18px;
+    margin: 0;
+}
+.failure-review .modal-close {
+    width: 44px;
+    height: 44px;
+}
+.failure-review-tracking {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--lg-slate-600);
+    overflow-wrap: anywhere;
+}
+.failure-review-label {
+    display: block;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--lg-slate-600);
+    margin-bottom: 8px;
+}
+.failure-review-reason {
+    padding: 16px;
+    background: var(--lg-bg);
+    border-radius: var(--lg-radius-sm);
+    overflow-wrap: anywhere;
+}
+.failure-review-reason p {
+    margin: 8px 0 0;
+}
+.failure-review-reason .failure-review-reason-title {
+    font-weight: 600;
+    margin-top: 0;
+}
+.failure-review-muted {
+    font-size: 12px;
+    color: var(--lg-slate-600);
+    margin: 8px 0 0;
+}
+.failure-review-facts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 24px;
+    margin: 20px 0 12px;
+}
+.failure-review-facts dt {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--lg-slate-600);
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+.failure-review-facts dd {
+    margin: 0;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+.failure-review-retry {
+    grid-column: 1 / -1;
+}
+.failure-review-guidance {
+    color: var(--lg-slate-600);
+    font-size: 13px;
+    margin: 0 0 16px;
+}
+.failure-review > .callout-amber {
+    margin: 12px 0;
+}
+.failure-review-assignment {
+    border-top: 1px solid var(--lg-border);
+    padding-top: 18px;
+    margin-top: 18px;
+}
+.failure-review :is(button, select) {
+    font-family: inherit;
+    min-height: 44px;
+}
+.failure-review-actions {
+    padding-top: 18px;
+    border-top: 1px solid var(--lg-border);
+}
+.failure-review-return {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-right: auto;
+}
+.failure-review-error {
+    padding: 12px;
+    border-radius: var(--lg-radius-sm);
+    background: var(--lg-error-bg);
+    color: var(--lg-error);
+    margin: 16px 0 0;
+}
+@media (max-width: 560px) {
+    .failure-review {
+        padding: 20px;
+    }
+    .failure-review-actions > button {
+        flex: 1 1 auto;
+    }
+    .failure-review-return {
+        flex-basis: 100% !important;
+        margin-right: 0;
+    }
+}
+
 .count-pill {
     display: inline-flex;
     align-items: center;

@@ -2,6 +2,8 @@
 
 namespace App\Http\Resources\Logistics;
 
+use App\Models\ParcelAssignment;
+use App\Services\DeliveryAttemptService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -22,6 +24,7 @@ class ParcelAssignmentResource extends JsonResource
         return [
             'id' => $this->id,
             'status' => $this->status,
+            'delivery_attempt' => DeliveryAttemptService::summary($this->isReturn() ? null : $this->order),
             // A seller/buyer island-group mismatch — this company can't
             // deliver it, only offer it to a company that can. See
             // Api\Logistics\ParcelAssignmentController::requestTransfer.
@@ -48,7 +51,7 @@ class ParcelAssignmentResource extends JsonResource
             // Return leg done here: handed back to the seller, or passed on
             // to the origin company.
             'is_returned' => $this->isReturn()
-                && ($this->delivered_at !== null || $this->status === \App\Models\ParcelAssignment::STATUS_TRANSFERRED),
+                && ($this->delivered_at !== null || $this->status === ParcelAssignment::STATUS_TRANSFERRED),
             'delivered_at' => $this->delivered_at?->toISOString(),
             'transfer_to_company' => $this->whenLoaded('transferToCompany', fn (): ?array => $this->transferToCompany ? [
                 'id' => $this->transferToCompany->id,

@@ -11,9 +11,9 @@
         </div>
 
         <CashFlowPanel
-            endpoint="/api/logistics-admin/commissions/cash-flow"
+            endpoint="/api/admin/commissions/cash-flow"
             title="Escrow commission (5%)"
-            description="Platform commission actually collected from released escrow, net of refunds."
+            description="Platform commission collected from released escrow, net of refunds — and what platform-funded vouchers cost."
         />
 
         <div
@@ -23,7 +23,7 @@
             {{ message }}
         </div>
 
-        <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <article
                 v-for="item in summaryCards"
                 :key="item.label"
@@ -34,7 +34,7 @@
                 >
                     {{ item.label }}
                 </p>
-                <p class="mt-2 text-2xl font-bold text-slate-900">
+                <p class="mt-2 text-2xl font-bold" :class="item.tone || 'text-slate-900'">
                     {{ item.value }}
                 </p>
             </article>
@@ -91,12 +91,13 @@
                         <th>Discount</th>
                         <th>Commission basis</th>
                         <th>Platform share</th>
+                        <th>Platform voucher</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <SkeletonRows v-if="loading && !hasLoadedOnce" :columns="7" :rows="6" />
+                    <SkeletonRows v-if="loading && !hasLoadedOnce" :columns="8" :rows="6" />
                     <tr v-else-if="orders.length === 0">
-                        <td colspan="7" class="py-8 text-center text-slate-500">
+                        <td colspan="8" class="py-8 text-center text-slate-500">
                             No eligible delivered orders match these filters.
                         </td>
                     </tr>
@@ -127,6 +128,9 @@
                         <td>{{ money(order.commission_basis) }}</td>
                         <td class="font-bold text-teal-700">
                             {{ money(order.commission) }}
+                        </td>
+                        <td :class="order.platform_discount > 0 ? 'text-red-600' : 'text-slate-400'">
+                            {{ order.platform_discount > 0 ? `-${money(order.platform_discount)}` : '—' }}
                         </td>
                     </tr>
                 </tbody>
@@ -186,6 +190,8 @@ const summary = ref({
     gross_sales: 0,
     commission_basis: 0,
     platform_commission: 0,
+    platform_vouchers: 0,
+    net_after_vouchers: 0,
 });
 const pagination = ref({ current_page: 1, last_page: 1 });
 let searchTimer;
@@ -197,6 +203,13 @@ const summaryCards = computed(() => [
     {
         label: 'Platform commission',
         value: money(summary.value.platform_commission),
+    },
+    // Platform-funded vouchers are paid out of the commission.
+    { label: 'Platform vouchers', value: `-${money(summary.value.platform_vouchers)}`, tone: 'text-red-600' },
+    {
+        label: 'Net after vouchers',
+        value: money(summary.value.net_after_vouchers),
+        tone: summary.value.net_after_vouchers < 0 ? 'text-red-600' : 'text-teal-700',
     },
 ]);
 

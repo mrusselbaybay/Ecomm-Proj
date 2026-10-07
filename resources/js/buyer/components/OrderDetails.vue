@@ -1004,7 +1004,7 @@ function handleHeaderSelectCategory(category) {
                                         v-if="orderTotals.discount > 0"
                                         class="flex justify-between"
                                     >
-                                        <span class="text-sm text-slate-500 font-medium">Coupon Discount</span>
+                                        <span class="text-sm text-slate-500 font-medium">Voucher Discount</span>
                                         <span class="text-sm font-bold text-emerald-600">-{{ formatPrice(orderTotals.discount) }}</span>
                                     </div>
                                     <div class="pt-4 mt-4 border-t border-slate-100 flex justify-between items-center">

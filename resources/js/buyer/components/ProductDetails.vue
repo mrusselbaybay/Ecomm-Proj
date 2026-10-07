@@ -12,7 +12,7 @@ import { useToasts } from '../composables/useToasts';
 import Footer from './Footer.vue';
 import Header from './Header.vue';
 import ProductCard from './ProductCard.vue';
-import ProductCouponCards from './ProductCouponCards.vue';
+import ProductVoucherCards from './ProductVoucherCards.vue';
 import ProductReviewsDrawer from './ProductReviewsDrawer.vue';
 import StarRating from './StarRating.vue';
 
@@ -636,7 +636,7 @@ function selectRelatedProduct(item) {
                     </button>
                 </div>
 
-                <ProductCouponCards
+                <ProductVoucherCards
                     :product-id="String(product.id)"
                     :price="unitPrice"
                 />

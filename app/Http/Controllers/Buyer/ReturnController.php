@@ -76,14 +76,16 @@ class ReturnController extends Controller
             ]);
         }
 
-        // Refund what was actually paid: the coupon discounted one unit, and
-        // that unit is refunded first, so only the first request on this line
-        // that isn't rejected carries the discount.
-        $couponDiscount = (float) $orderItem->coupon_discount;
-        if ($couponDiscount > 0 && OrderReturnRequest::where('order_item_id', $orderItem->id)
-            ->where('status', '!=', 'rejected')->where('coupon_discount', '>', 0)->exists()) {
-            $couponDiscount = 0.0;
-        }
+        // Refund what was actually paid: the line's voucher share is spread
+        // over its units; the request that covers the last units takes the
+        // rounding remainder so the shares add up exactly.
+        $earlier = OrderReturnRequest::where('order_item_id', $orderItem->id)->where('status', '!=', 'rejected');
+        $isLast = (int) (clone $earlier)->sum('quantity') + (int) $data['quantity'] >= (int) $orderItem->quantity;
+        $share = fn (string $column) => (float) $orderItem->{$column} <= 0 ? 0.0 : ($isLast
+            ? round((float) $orderItem->{$column} - (float) (clone $earlier)->sum($column), 2)
+            : round((float) $orderItem->{$column} * (int) $data['quantity'] / (int) $orderItem->quantity, 2));
+        $voucherDiscount = $share('voucher_discount');   // seller-funded
+        $platformDiscount = $share('platform_discount'); // platform-funded
 
         $returnRequest = OrderReturnRequest::create([
             'order_id' => $orderItem->order_id,
@@ -95,8 +97,9 @@ class ReturnController extends Controller
             'other_reason' => $data['reason'] === 'other' ? trim($data['other_reason']) : null,
             'details' => $data['details'],
             'quantity' => $data['quantity'],
-            'estimated_amount' => round((float) $orderItem->unit_price * (int) $data['quantity'] - $couponDiscount, 2),
-            'coupon_discount' => $couponDiscount,
+            'estimated_amount' => round((float) $orderItem->unit_price * (int) $data['quantity'] - $voucherDiscount - $platformDiscount, 2),
+            'voucher_discount' => $voucherDiscount,
+            'platform_discount' => $platformDiscount,
             'evidence' => array_values($data['evidence']),
             'status' => 'pending',
         ]);

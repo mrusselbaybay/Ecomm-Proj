@@ -32,12 +32,13 @@ class Order extends Model
         'pickup_region_name', 'pickup_province_name', 'pickup_municipality_name', 'pickup_barangay',
         'shipping_latitude', 'shipping_longitude', 'pickup_latitude', 'pickup_longitude',
         'status', 'payment_method', 'payment_status',
-        'subtotal', 'shipping_fee', 'tax', 'discount', 'total',
+        'subtotal', 'shipping_fee', 'tax', 'discount', 'shipping_discount', 'platform_discount', 'total',
         'shipping_carrier', 'shipping_service', 'tracking_number',
         'package_weight', 'package_size',
         'confirmation_token',
         'cancellation_reason', 'cancelled_by', 'cancelled_at',
         'placed_at', 'received_at', 'received_via',
+        'delivery_attempt_count', 'delivery_attempt_limit', 'delivery_retry_at', 'delivery_return_flagged_at',
     ];
 
     /**
@@ -52,11 +53,17 @@ class Order extends Model
         'shipping_fee' => 'decimal:2',
         'tax' => 'decimal:2',
         'discount' => 'decimal:2',
+        'shipping_discount' => 'decimal:2',
+        'platform_discount' => 'decimal:2',
         'total' => 'decimal:2',
         'package_weight' => 'decimal:3',
         'placed_at' => 'datetime',
         'received_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'delivery_attempt_count' => 'integer',
+        'delivery_attempt_limit' => 'integer',
+        'delivery_retry_at' => 'immutable_datetime',
+        'delivery_return_flagged_at' => 'immutable_datetime',
         'shipping_latitude' => 'float',
         'shipping_longitude' => 'float',
         'pickup_latitude' => 'float',
@@ -82,7 +89,7 @@ class Order extends Model
     */
     public const STATUSES = [
         'New', 'Confirmed', 'Processing', 'Packed', 'Ready for Pickup',
-        'In Transit', 'Delivered', 'Cancelled', 'Rejected',
+        'In Transit', 'Failed Delivery Attempt', 'Needs Dispatcher Review', 'Delivered', 'Cancelled', 'Rejected',
     ];
 
     /** Seller-facing labels for the stored status values. */
@@ -116,7 +123,9 @@ class Order extends Model
         'Processing' => ['Packed', 'In Transit', 'Cancelled'],
         'Packed' => ['Ready for Pickup', 'In Transit', 'Cancelled'],
         'Ready for Pickup' => ['In Transit', 'Cancelled'],
-        'In Transit' => ['Delivered'],
+        'In Transit' => ['Delivered', 'Failed Delivery Attempt', 'Needs Dispatcher Review'],
+        'Failed Delivery Attempt' => [],
+        'Needs Dispatcher Review' => [],
         'Delivered' => [],
         'Cancelled' => [],
         'Rejected' => [],
@@ -219,6 +228,16 @@ class Order extends Model
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class, 'order_id');
+    }
+
+    public function deliveryAttempts(): HasMany
+    {
+        return $this->hasMany(DeliveryAttempt::class)->orderByDesc('attempt_number');
+    }
+
+    public function latestDeliveryAttempt(): HasOne
+    {
+        return $this->hasOne(DeliveryAttempt::class)->orderByDesc('attempt_number');
     }
 
     public function statusHistory(): HasMany

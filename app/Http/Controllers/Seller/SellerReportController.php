@@ -35,8 +35,9 @@ use Illuminate\Support\Facades\Validator;
  * - Eligible revenue orders = status = 'Delivered' within range.
  *   New/Processing/In Transit haven't reached an outcome yet and
  *   Cancelled never earned revenue, so neither counts.
- * - Gross revenue = SUM(total) over eligible orders.
- * - Net revenue = Gross revenue minus SUM(total) of eligible orders
+ * - Gross revenue = SUM(total + platform_discount) over eligible orders
+ *   (platform-funded vouchers don't reduce what the seller earns).
+ * - Net revenue = Gross revenue minus the same sum over eligible orders
  *   where payment_status = 'Refunded'.
  * - Average order value = Gross revenue / count(eligible orders).
  * - Fulfillment rate = Delivered / (Delivered + Cancelled). Orders
@@ -1016,8 +1017,10 @@ class SellerReportController extends Controller
             ->where('status', 'Delivered')
             ->whereBetween('placed_at', [$from, $to]);
 
-        $grossRevenue = (float) (clone $deliveredOrders)->sum('total');
-        $refundedRevenue = (float) (clone $deliveredOrders)->where('payment_status', 'Refunded')->sum('total');
+        // Platform-funded vouchers are paid to the seller by the platform.
+        $sellerRevenue = DB::raw('total + platform_discount');
+        $grossRevenue = (float) (clone $deliveredOrders)->sum($sellerRevenue);
+        $refundedRevenue = (float) (clone $deliveredOrders)->where('payment_status', 'Refunded')->sum($sellerRevenue);
         $refundedCount = (int) (clone $deliveredOrders)->where('payment_status', 'Refunded')->count();
 
         $ratingQuery = Review::where('seller_id', $sellerId)->whereBetween('created_at', [$from, $to]);
@@ -1096,7 +1099,7 @@ class SellerReportController extends Controller
             ->whereBetween('placed_at', [$from, $to])
             ->select(
                 DB::raw("{$bucketSql} as bucket"),
-                DB::raw('sum(total) as revenue'),
+                DB::raw('sum(total + platform_discount) as revenue'),
                 DB::raw('count(*) as order_count'),
             )
             ->groupBy('bucket')

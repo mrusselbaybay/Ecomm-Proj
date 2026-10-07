@@ -167,6 +167,7 @@ class OrderController extends Controller
             'shipping_fee' => (float) $order->shipping_fee,
             'tax' => (float) $order->tax,
             'discount' => (float) $order->discount,
+            'shipping_discount' => (float) $order->shipping_discount,
             'total' => (float) $order->total,
             'tracking_number' => $order->tracking_number,
             'delivery_address' => [
@@ -221,8 +222,11 @@ class OrderController extends Controller
                 'variation' => $item->variant,
                 'quantity' => $item->quantity,
                 'unit_price' => (float) $item->unit_price,
-                'coupon_code' => $item->coupon_code,
-                'coupon_discount' => (float) $item->coupon_discount,
+                'voucher_code' => $item->voucher_code,
+                'voucher_discount' => (float) $item->voucher_discount,
+                // Legacy keys (mobile app, one release cycle).
+                'coupon_code' => $item->voucher_code,
+                'coupon_discount' => (float) $item->voucher_discount,
                 'review' => $item->review ? [
                     'id' => $item->review->id,
                     'rating' => $item->review->rating,

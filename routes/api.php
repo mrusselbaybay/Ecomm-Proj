@@ -70,7 +70,9 @@ Route::prefix('auth')->group(function () {
 Route::get('/products', [ProductController::class, 'index'])->name('products.index');
 Route::get('/products/{id}', [ProductController::class, 'show'])->name('products.show');
 Route::get('/products/{id}/reviews', [ProductController::class, 'reviews'])->name('products.reviews');
-Route::get('/products/{id}/coupons', [\App\Http\Controllers\Buyer\CouponController::class, 'forProduct'])->name('products.coupons');
+Route::get('/products/{id}/vouchers', [\App\Http\Controllers\Buyer\VoucherController::class, 'forProduct'])->name('products.vouchers');
+// Legacy alias for the mobile app (one release cycle).
+Route::get('/products/{id}/coupons', [\App\Http\Controllers\Buyer\VoucherController::class, 'forProduct'])->name('products.coupons');
 
 // ============================================================
 // CUSTOMER SERVICE (all active public account roles)
@@ -345,6 +347,9 @@ Route::middleware(['auth.token', 'logistics'])
             ->name('parcel-assignments.details');
         Route::post('/parcel-assignments/receive', [ParcelAssignmentController::class, 'receive'])
             ->name('parcel-assignments.receive');
+        Route::post('/parcel-assignments/{parcelAssignment}/flag-failed-return', [ParcelAssignmentController::class, 'flagFailedReturn'])->name('parcel-assignments.flag-failed-return');
+        Route::post('/parcel-assignments/{parcelAssignment}/approve-reattempt', [ParcelAssignmentController::class, 'approveReattempt'])->name('parcel-assignments.approve-reattempt');
+        Route::post('/parcel-assignments/{parcelAssignment}/reassign-failed', [ParcelAssignmentController::class, 'reassignFailed'])->name('parcel-assignments.reassign-failed');
         Route::put('/parcel-assignments/{parcelAssignment}/assign', [ParcelAssignmentController::class, 'assign'])
             ->name('parcel-assignments.assign');
         // One parcel per call — the sorting page sweeps its queue by
@@ -459,6 +464,20 @@ Route::middleware(['auth.token', 'admin'])
         $sharedAdminRoutes();
 
         Route::get('/complaints', [ComplaintController::class, 'index'])->name('complaints.index');
+
+        // Platform commission + escrow cash flow (incl. platform voucher subsidy).
+        Route::get('/commissions', [CommissionController::class, 'index'])->name('commissions.index');
+        Route::get('/commissions/cash-flow', [CashFlowController::class, 'platform'])->name('commissions.cash-flow');
+
+        // Platform vouchers (Vouchers modal).
+        Route::get('/vouchers', [\App\Http\Controllers\Admin\VoucherController::class, 'index'])->name('vouchers.index');
+        Route::get('/vouchers/options', [\App\Http\Controllers\Admin\VoucherController::class, 'options'])->name('vouchers.options');
+        Route::post('/vouchers', [\App\Http\Controllers\Admin\VoucherController::class, 'store'])->name('vouchers.store');
+        Route::get('/vouchers/{id}', [\App\Http\Controllers\Admin\VoucherController::class, 'show'])->name('vouchers.show');
+        Route::post('/vouchers/{id}/deactivate', [\App\Http\Controllers\Admin\VoucherController::class, 'deactivate'])->name('vouchers.deactivate');
+        Route::post('/vouchers/{id}/reactivate', [\App\Http\Controllers\Admin\VoucherController::class, 'reactivate'])->name('vouchers.reactivate');
+        Route::post('/vouchers/{id}/stock', [\App\Http\Controllers\Admin\VoucherController::class, 'addStock'])->name('vouchers.stock');
+        Route::delete('/vouchers/{id}', [\App\Http\Controllers\Admin\VoucherController::class, 'destroy'])->name('vouchers.destroy');
         Route::get('/complaints/{complaint}', [ComplaintController::class, 'show'])->name('complaints.show');
         Route::put('/complaints/{complaint}', [ComplaintController::class, 'update'])->name('complaints.update');
 
@@ -476,7 +495,7 @@ Route::middleware(['auth.token', 'admin'])
     });
 
 // Logistics admin (served inside the logistics portal): couriers, drivers &
-// logistics companies. Also owns seller compliance, commissions and reports,
+// logistics companies. Also owns seller compliance and reports,
 // which moved here from the platform admin.
 Route::middleware(['auth.token', 'admin:logistics_admin'])
     ->prefix('logistics-admin')
@@ -487,8 +506,6 @@ Route::middleware(['auth.token', 'admin:logistics_admin'])
         Route::get('/compliance/products', [SellerComplianceController::class, 'index'])->name('compliance.products.index');
         Route::post('/compliance/products/{product}/actions', [SellerComplianceController::class, 'store'])->name('compliance.products.actions.store');
 
-        Route::get('/commissions', [CommissionController::class, 'index'])->name('commissions.index');
-        Route::get('/commissions/cash-flow', [CashFlowController::class, 'platform'])->name('commissions.cash-flow');
 
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');

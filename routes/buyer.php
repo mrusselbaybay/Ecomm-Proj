@@ -30,10 +30,14 @@ Route::middleware(['auth.token', 'buyer'])->prefix('api/buyer')->name('api.buyer
     Route::get('/checkout/shipping-options', [CheckoutController::class, 'shippingOptions'])->name('checkout.shipping-options');
     Route::post('/checkout', [CheckoutController::class, 'store'])->name('checkout.store');
 
-    // Coupon wallet: claim from the product page, quote/auto-apply at checkout.
-    Route::get('/coupons', [\App\Http\Controllers\Buyer\CouponController::class, 'index'])->name('coupons.index');
-    Route::post('/coupons/quote', [\App\Http\Controllers\Buyer\CouponController::class, 'quote'])->name('coupons.quote');
-    Route::post('/coupons/{couponId}/claim', [\App\Http\Controllers\Buyer\CouponController::class, 'claim'])->name('coupons.claim');
+    // Voucher wallet: claim from the product page, quote/auto-apply at checkout.
+    Route::get('/vouchers', [\App\Http\Controllers\Buyer\VoucherController::class, 'index'])->name('vouchers.index');
+    Route::post('/vouchers/quote', [\App\Http\Controllers\Buyer\VoucherController::class, 'quote'])->name('vouchers.quote');
+    Route::post('/vouchers/{voucherId}/claim', [\App\Http\Controllers\Buyer\VoucherController::class, 'claim'])->name('vouchers.claim');
+    // Legacy coupon aliases for the mobile app (one release cycle).
+    Route::get('/coupons', [\App\Http\Controllers\Buyer\VoucherController::class, 'index'])->name('coupons.index');
+    Route::post('/coupons/quote', [\App\Http\Controllers\Buyer\VoucherController::class, 'legacyQuote'])->name('coupons.quote');
+    Route::post('/coupons/{voucherId}/claim', [\App\Http\Controllers\Buyer\VoucherController::class, 'claim'])->name('coupons.claim');
 
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{id}', [OrderController::class, 'show'])->name('orders.show');

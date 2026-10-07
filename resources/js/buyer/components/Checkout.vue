@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
 import { buyerApi } from '../composables/useBuyerApi';
 import { useBuyerAccount } from '../composables/useBuyerAccount';
-import { useBuyerCoupons } from '../composables/useBuyerCoupons';
+import { useBuyerVouchers, voucherDateLabel } from '../composables/useBuyerVouchers';
 import { useBuyerAddresses } from '../composables/useBuyerAddresses';
 import { useBuyerPayments } from '../composables/useBuyerPayments';
 import { metaFor } from '../composables/useCategoryMeta';
@@ -246,83 +246,191 @@ async function saveNewAddress(payload) {
 
 /*
 |--------------------------------------------------------------------------
-| Coupons (seller-funded, one per line)
+| Vouchers: shop (seller-funded, per seller order) + BuyTheWay (platform)
 |--------------------------------------------------------------------------
 |
-| The server quotes the buyer's usable wallet coupons per line (discount
-| on ONE unit, best first) and picks the auto-apply coupon. The buyer can
-| switch or remove it; checkout re-validates and re-prices server-side.
+| The server quotes the buyer's usable vouchers per shop — at most one
+| discount + one shipping voucher, non-stackable ones alone — plus
+| BuyTheWay vouchers valued on top of those shop picks (one discount + one
+| free shipping across the whole cart). The best combination is
+| auto-applied; the buyer can switch or remove any of them, and checkout
+| re-validates and re-prices server-side.
 |
 */
 
-const { quote: quoteCoupons, markUsed: markCouponsUsed } = useBuyerCoupons();
+const { quote: quoteVouchers, invalidateWallet } = useBuyerVouchers();
 
 const lineKey = item => `${item.productId}-${item.variantId || 'simple'}`;
-const couponQuote = ref({});
-const selectedCoupons = reactive({});
-const touchedCoupons = new Set();
-const couponPickerKey = ref(null);
+const voucherQuote = ref({});            // seller id => quote
+const selectedVouchers = reactive({});   // seller id => { discount, shipping }
+const touchedSellers = reactive(new Set());
+const voucherPickerSeller = ref(null);
+const platformQuote = ref(null);
+const selectedPlatform = reactive({ discount: null, shipping: null });
+const platformTouched = ref(false);
+let quoteSeq = 0;
+let requoteTimer = null;
 
-async function loadCouponQuote() {
+async function loadVoucherQuote() {
     const lines = props.items
         .filter(item => item.productId)
-        .map(item => ({ key: lineKey(item), product_id: item.productId, variant_id: item.variantId || null }));
+        .map(item => ({
+            key: lineKey(item),
+            product_id: item.productId,
+            variant_id: item.variantId || null,
+            quantity: Number(item.quantity) || 1,
+        }));
 
     if (!lines.length) {
         return;
     }
 
+    const seq = ++quoteSeq;
+    let result = {};
+
     try {
-        couponQuote.value = await quoteCoupons(lines);
+        // The buyer's own shop picks, so BuyTheWay amounts build on them.
+        const selected = Object.fromEntries([...touchedSellers].map(id => [id, selectedVouchers[id] || {}]));
+        result = (await quoteVouchers(lines, checkoutForm.shippingMethod, {
+            addressId: selectedAddress.value?.isComplete ? selectedAddress.value.id : null,
+            selected: Object.keys(selected).length ? selected : null,
+        })) || {};
     } catch {
-        couponQuote.value = {};
+        result = {};
     }
 
-    for (const line of lines) {
-        const options = couponQuote.value[line.key]?.options || [];
+    // A newer quote (cart or shipping change) superseded this one.
+    if (seq !== quoteSeq) {
+        return;
+    }
 
-        // Keep a manual choice if it's still valid; otherwise auto-apply the best.
-        if (!touchedCoupons.has(line.key) || !options.some(o => o.id === selectedCoupons[line.key])) {
-            selectedCoupons[line.key] = couponQuote.value[line.key]?.best || null;
+    voucherQuote.value = result.sellers || {};
+    platformQuote.value = result.platform || null;
+
+    const stillValid = (options, id) => !id || options.some(o => o.id === id && o.applicable);
+
+    for (const [sellerId, q] of Object.entries(voucherQuote.value)) {
+        const current = selectedVouchers[sellerId];
+
+        // Keep a manual choice while it still applies; otherwise auto-apply the best.
+        if (!touchedSellers.has(sellerId) || !current
+            || !stillValid(q.discount, current.discount) || !stillValid(q.shipping, current.shipping)) {
+            selectedVouchers[sellerId] = { discount: q.best.discountId, shipping: q.best.shippingId };
+        }
+    }
+
+    const p = platformQuote.value;
+
+    if (p && (!platformTouched.value || !stillValid(p.discount, selectedPlatform.discount) || !stillValid(p.shipping, selectedPlatform.shipping))) {
+        selectedPlatform.discount = p.best.discountId;
+        selectedPlatform.shipping = p.best.shippingId;
+
+        // A non-stackable BuyTheWay voucher beat keeping the shop vouchers.
+        if (p.best.exclusive) {
+            clearShopVouchers();
         }
     }
 }
 
-watch(() => props.items.map(lineKey).join(','), loadCouponQuote, { immediate: true });
-
-function couponOptions(item) {
-    return couponQuote.value[lineKey(item)]?.options || [];
+function clearShopVouchers() {
+    for (const sellerId of Object.keys(voucherQuote.value)) {
+        touchedSellers.add(sellerId);
+        selectedVouchers[sellerId] = { discount: null, shipping: null };
+    }
 }
 
-function appliedCoupon(item) {
-    const id = selectedCoupons[lineKey(item)];
-
-    return id ? couponOptions(item).find(o => o.id === id) || null : null;
+// Shop picks change what BuyTheWay vouchers are worth: re-quote (debounced).
+function requote() {
+    clearTimeout(requoteTimer);
+    requoteTimer = setTimeout(loadVoucherQuote, 250);
 }
 
-function isAutoApplied(item) {
-    const key = lineKey(item);
+watch(
+    () => [props.items.map(item => `${lineKey(item)}x${item.quantity}`).join(','), checkoutForm.shippingMethod, selectedAddress.value?.id],
+    loadVoucherQuote,
+    { immediate: true },
+);
 
-    return !touchedCoupons.has(key) && selectedCoupons[key] === couponQuote.value[key]?.best;
+const voucherShops = computed(() =>
+    Object.entries(voucherQuote.value)
+        .filter(([, q]) => q.discount.length || q.shipping.length)
+        .map(([sellerId, q]) => {
+            const selected = selectedVouchers[sellerId] || {};
+            const discount = q.discount.find(o => o.id === selected.discount) || null;
+            const shipping = q.shipping.find(o => o.id === selected.shipping) || null;
+            const firstItem = props.items.find(item => q.lineKeys.includes(lineKey(item)));
+
+            return {
+                sellerId,
+                shopName: firstItem?.seller || 'Shop',
+                quote: q,
+                selected,
+                discount,
+                shipping,
+                count: q.discount.length + q.shipping.length,
+                savings: (discount?.amount || 0) + (shipping?.amount || 0),
+                auto: !touchedSellers.has(sellerId),
+            };
+        })
+);
+
+// One discount + one shipping voucher; a non-stackable one clears the other slot.
+function selectVoucher(sellerId, slot, id) {
+    const q = voucherQuote.value[sellerId];
+    const other = slot === 'discount' ? 'shipping' : 'discount';
+    const next = { discount: null, shipping: null, ...selectedVouchers[sellerId], [slot]: id };
+    const picked = q[slot].find(o => o.id === id);
+    const otherPicked = q[other].find(o => o.id === next[other]);
+
+    if ((picked && !picked.stackable) || (picked && otherPicked && !otherPicked.stackable)) {
+        next[other] = null;
+    }
+
+    touchedSellers.add(sellerId);
+    selectedVouchers[sellerId] = next;
+
+    // A non-stackable BuyTheWay voucher can't sit next to shop vouchers.
+    if ((next.discount || next.shipping) && platformPicks.value.some(o => !o.stackable)) {
+        platformTouched.value = true;
+        selectedPlatform.discount = null;
+        selectedPlatform.shipping = null;
+    }
+
+    requote();
 }
 
-// The same wallet coupon can't sit on two lines.
-function couponTakenElsewhere(item, couponId) {
-    const key = lineKey(item);
+const platformPicks = computed(() => {
+    const q = platformQuote.value;
 
-    return Object.entries(selectedCoupons).some(([k, id]) => k !== key && id === couponId);
+    return q
+        ? [q.discount.find(o => o.id === selectedPlatform.discount), q.shipping.find(o => o.id === selectedPlatform.shipping)].filter(Boolean)
+        : [];
+});
+
+const platformSavings = computed(() => platformPicks.value.reduce((sum, o) => sum + o.amount, 0));
+const platformCount = computed(() => (platformQuote.value ? platformQuote.value.discount.length + platformQuote.value.shipping.length : 0));
+
+function selectPlatform(slot, id) {
+    const q = platformQuote.value;
+    const other = slot === 'discount' ? 'shipping' : 'discount';
+    const picked = q[slot].find(o => o.id === id);
+    const otherPicked = q[other].find(o => o.id === selectedPlatform[other]);
+
+    platformTouched.value = true;
+    selectedPlatform[slot] = id;
+
+    if (picked && !picked.stackable) {
+        // Must be the only voucher in the whole checkout.
+        selectedPlatform[other] = null;
+        clearShopVouchers();
+        requote();
+    } else if (picked && otherPicked && !otherPicked.stackable) {
+        selectedPlatform[other] = null;
+    }
 }
 
-function selectCoupon(item, couponId) {
-    const key = lineKey(item);
-    touchedCoupons.add(key);
-    selectedCoupons[key] = couponId;
-    couponPickerKey.value = null;
-}
-
-function toggleCouponPicker(item) {
-    const key = lineKey(item);
-    couponPickerKey.value = couponPickerKey.value === key ? null : key;
+function toggleVoucherPicker(sellerId) {
+    voucherPickerSeller.value = voucherPickerSeller.value === sellerId ? null : sellerId;
 }
 
 /*
@@ -588,13 +696,15 @@ const shippingFee = computed(() => {
 
 /*
 |--------------------------------------------------------------------------
-| Discount — sum of per-line coupon discounts (one unit each)
+| Discount — applied seller vouchers (item + shipping), server re-prices
 |--------------------------------------------------------------------------
 */
 
-const discount = computed(() =>
-    props.items.reduce((sum, item) => sum + (appliedCoupon(item)?.discount || 0), 0)
+const shopVoucherSavings = computed(() =>
+    voucherShops.value.reduce((sum, shop) => sum + shop.savings, 0)
 );
+
+const discount = computed(() => shopVoucherSavings.value + platformSavings.value);
 
 /*
 |--------------------------------------------------------------------------
@@ -759,7 +869,6 @@ async function placeOrder() {
 
             seller: item.seller,
             variation: item.variation,
-            coupon_id: selectedCoupons[lineKey(item)] || null,
 
             quantity: Number(item.quantity),
             unit_price: Number(item.price)
@@ -773,6 +882,19 @@ async function placeOrder() {
         },
 
         shipping_method: checkoutForm.shippingMethod,
+
+        vouchers: Object.entries(selectedVouchers)
+            .filter(([, v]) => v.discount || v.shipping)
+            .map(([sellerId, v]) => ({
+                seller_id: sellerId,
+                discount_voucher_id: v.discount,
+                shipping_voucher_id: v.shipping,
+            })),
+
+        platform_vouchers: {
+            discount_voucher_id: selectedPlatform.discount,
+            shipping_voucher_id: selectedPlatform.shipping,
+        },
 
         payment_method:
             checkoutForm.paymentMethod,
@@ -792,7 +914,7 @@ async function placeOrder() {
     try {
         const createdOrders = await submitCheckout(orderPayload);
 
-        markCouponsUsed(orderPayload.items.map(item => item.coupon_id).filter(Boolean));
+        invalidateWallet();
 
         // Saving the card/wallet for next time is best-effort and makes
         // its own API call(s) — kick it off without blocking, so it never
@@ -822,8 +944,8 @@ async function placeOrder() {
                 || 'We couldn\'t place your order. Nothing was charged — please check your details and try again.',
         );
 
-        // A coupon may have expired or run out meanwhile — re-quote.
-        loadCouponQuote();
+        // A voucher may have expired or run out meanwhile — re-quote.
+        loadVoucherQuote();
     }
 }
 </script>
@@ -1099,51 +1221,139 @@ async function placeOrder() {
 
                             </div>
 
+                            </template>
+
                             <div
-                                v-if="couponOptions(item).length"
+                                v-for="shop in voucherShops"
+                                :key="shop.sellerId"
                                 class="checkout-coupon"
                             >
-                                <div v-if="appliedCoupon(item)" class="checkout-coupon-applied">
-                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
-                                    <strong>{{ appliedCoupon(item).label }}</strong>
-                                    <span>{{ isAutoApplied(item) ? 'auto-applied' : 'applied' }}</span>
-                                    <span v-if="appliedCoupon(item).runningLow" class="checkout-coupon-low">Only {{ appliedCoupon(item).remaining }} left</span>
-                                    <span class="checkout-coupon-amount">−{{ formatPrice(appliedCoupon(item).discount) }}</span>
-                                </div>
-                                <div v-else class="checkout-coupon-applied is-none">
-                                    <span>{{ couponOptions(item).length }} coupon{{ couponOptions(item).length > 1 ? 's' : '' }} available for this item</span>
+                                <div class="checkout-coupon-applied" :class="{ 'is-none': !shop.savings }">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /><path d="M13 5v2M13 17v2M13 11v2" /></svg>
+                                    <template v-if="shop.savings">
+                                        <strong>{{ shop.shopName }}</strong>
+                                        <span v-if="shop.discount" class="checkout-coupon-badge">{{ shop.discount.label }}</span>
+                                        <span v-if="shop.shipping" class="checkout-coupon-badge">{{ shop.shipping.label }}</span>
+                                        <span>{{ shop.auto ? 'auto-applied' : 'applied' }}</span>
+                                        <span class="checkout-coupon-amount">−{{ formatPrice(shop.savings) }}</span>
+                                    </template>
+                                    <span v-else>{{ shop.count }} voucher{{ shop.count > 1 ? 's' : '' }} from {{ shop.shopName }}</span>
                                 </div>
                                 <div class="checkout-coupon-actions">
-                                    <button type="button" @click="toggleCouponPicker(item)">
-                                        {{ appliedCoupon(item) ? 'Change' : 'Apply coupon' }}
+                                    <button type="button" :aria-expanded="voucherPickerSeller === shop.sellerId" @click="toggleVoucherPicker(shop.sellerId)">
+                                        View All
                                     </button>
-                                    <button v-if="appliedCoupon(item)" type="button" @click="selectCoupon(item, null)">Remove</button>
                                 </div>
 
-                                <div v-if="couponPickerKey === lineKey(item)" class="checkout-coupon-picker" role="radiogroup" :aria-label="`Coupons for ${item.name}`">
-                                    <label
-                                        v-for="option in couponOptions(item)"
-                                        :key="option.id"
-                                        class="checkout-coupon-option"
-                                        :class="{ active: selectedCoupons[lineKey(item)] === option.id, disabled: couponTakenElsewhere(item, option.id) }"
-                                    >
-                                        <input
-                                            type="radio"
-                                            :name="`coupon-${lineKey(item)}`"
-                                            :checked="selectedCoupons[lineKey(item)] === option.id"
-                                            :disabled="couponTakenElsewhere(item, option.id)"
-                                            @change="selectCoupon(item, option.id)"
+                                <div v-if="voucherPickerSeller === shop.sellerId" class="checkout-coupon-picker">
+                                    <template v-for="slot in ['discount', 'shipping']" :key="slot">
+                                        <div
+                                            v-if="shop.quote[slot].length"
+                                            class="checkout-coupon-group"
+                                            role="radiogroup"
+                                            :aria-label="`${slot === 'discount' ? 'Discount' : 'Shipping'} vouchers from ${shop.shopName}`"
                                         >
-                                        <span class="checkout-coupon-badge">{{ option.label }}</span>
-                                        <span class="checkout-coupon-meta">
-                                            −{{ formatPrice(option.discount) }} on 1 unit · expires {{ new Date(option.expiresAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) }}
-                                            <span v-if="option.runningLow" class="checkout-coupon-low">Only {{ option.remaining }} left</span>
-                                        </span>
-                                        <span v-if="option.id === couponQuote[lineKey(item)]?.best" class="checkout-coupon-best">Best</span>
-                                    </label>
+                                            <p class="checkout-coupon-group-title">{{ slot === 'discount' ? 'Discount' : 'Shipping' }}</p>
+                                            <label
+                                                v-for="option in shop.quote[slot]"
+                                                :key="option.id"
+                                                class="checkout-coupon-option"
+                                                :class="{ active: shop.selected[slot] === option.id, disabled: !option.applicable }"
+                                            >
+                                                <input
+                                                    type="radio"
+                                                    :name="`voucher-${slot}-${shop.sellerId}`"
+                                                    :checked="shop.selected[slot] === option.id"
+                                                    :disabled="!option.applicable"
+                                                    @change="selectVoucher(shop.sellerId, slot, option.id)"
+                                                >
+                                                <span class="checkout-coupon-badge">{{ option.label }}</span>
+                                                <span class="checkout-coupon-meta">
+                                                    <template v-if="option.applicable">−{{ formatPrice(option.amount) }}</template>
+                                                    <template v-else>{{ option.reason || 'Not applicable' }}</template>
+                                                    · until {{ voucherDateLabel(option.expiresAt) }}
+                                                    <span v-if="!option.stackable">· Can't be combined</span>
+                                                    <span v-if="option.runningLow" class="checkout-coupon-low">Only {{ option.remaining }} left</span>
+                                                </span>
+                                                <span v-if="option.id === shop.quote.best[`${slot}Id`]" class="checkout-coupon-best">Best</span>
+                                            </label>
+                                            <label class="checkout-coupon-option" :class="{ active: !shop.selected[slot] }">
+                                                <input
+                                                    type="radio"
+                                                    :name="`voucher-${slot}-${shop.sellerId}`"
+                                                    :checked="!shop.selected[slot]"
+                                                    @change="selectVoucher(shop.sellerId, slot, null)"
+                                                >
+                                                <span class="checkout-coupon-meta">No {{ slot }} voucher</span>
+                                            </label>
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
-                            </template>
+
+                            <!-- BuyTheWay (platform) vouchers: one discount + one free shipping across the cart -->
+                            <div v-if="platformCount" class="checkout-coupon is-platform">
+                                <div class="checkout-coupon-applied" :class="{ 'is-none': !platformSavings }">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /><path d="M13 5v2M13 17v2M13 11v2" /></svg>
+                                    <template v-if="platformSavings">
+                                        <strong>BuyTheWay</strong>
+                                        <span v-for="o in platformPicks" :key="o.id" class="checkout-coupon-badge">{{ o.label }}</span>
+                                        <span>{{ platformTouched ? 'applied' : 'auto-applied' }}</span>
+                                        <span class="checkout-coupon-amount">−{{ formatPrice(platformSavings) }}</span>
+                                    </template>
+                                    <span v-else>{{ platformCount }} BuyTheWay voucher{{ platformCount > 1 ? 's' : '' }} available</span>
+                                </div>
+                                <div class="checkout-coupon-actions">
+                                    <button type="button" :aria-expanded="voucherPickerSeller === 'platform'" @click="toggleVoucherPicker('platform')">
+                                        View All
+                                    </button>
+                                </div>
+
+                                <div v-if="voucherPickerSeller === 'platform'" class="checkout-coupon-picker">
+                                    <template v-for="slot in ['discount', 'shipping']" :key="slot">
+                                        <div
+                                            v-if="platformQuote[slot].length"
+                                            class="checkout-coupon-group"
+                                            role="radiogroup"
+                                            :aria-label="`BuyTheWay ${slot} vouchers`"
+                                        >
+                                            <p class="checkout-coupon-group-title">{{ slot === 'discount' ? 'Discount' : 'Free Shipping' }}</p>
+                                            <label
+                                                v-for="option in platformQuote[slot]"
+                                                :key="option.id"
+                                                class="checkout-coupon-option"
+                                                :class="{ active: selectedPlatform[slot] === option.id, disabled: !option.applicable }"
+                                            >
+                                                <input
+                                                    type="radio"
+                                                    :name="`platform-voucher-${slot}`"
+                                                    :checked="selectedPlatform[slot] === option.id"
+                                                    :disabled="!option.applicable"
+                                                    @change="selectPlatform(slot, option.id)"
+                                                >
+                                                <span class="checkout-coupon-badge">{{ option.label }}</span>
+                                                <span class="checkout-coupon-meta">
+                                                    <template v-if="option.applicable">−{{ formatPrice(option.amount) }}</template>
+                                                    <template v-else>{{ option.reason || 'Not applicable' }}</template>
+                                                    <template v-if="option.categories?.length"> · {{ option.categories.join(', ') }}</template>
+                                                    · until {{ voucherDateLabel(option.expiresAt) }}
+                                                    <span v-if="!option.stackable">· Replaces shop vouchers</span>
+                                                </span>
+                                                <span v-if="option.id === platformQuote.best[`${slot}Id`]" class="checkout-coupon-best">Best</span>
+                                            </label>
+                                            <label class="checkout-coupon-option" :class="{ active: !selectedPlatform[slot] }">
+                                                <input
+                                                    type="radio"
+                                                    :name="`platform-voucher-${slot}`"
+                                                    :checked="!selectedPlatform[slot]"
+                                                    @change="selectPlatform(slot, null)"
+                                                >
+                                                <span class="checkout-coupon-meta">No BuyTheWay {{ slot }} voucher</span>
+                                            </label>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
 
                         </section>
 
@@ -1479,11 +1689,19 @@ async function placeOrder() {
                                 </div>
 
                                 <div
-                                    v-if="discount > 0"
+                                    v-if="shopVoucherSavings > 0"
                                     class="cart-summary-row"
                                 >
-                                    <span>Coupon Discount</span>
-                                    <span class="value--accent">-{{ formatPrice(discount) }}</span>
+                                    <span>Shop Vouchers</span>
+                                    <span class="value--accent">-{{ formatPrice(shopVoucherSavings) }}</span>
+                                </div>
+
+                                <div
+                                    v-if="platformSavings > 0"
+                                    class="cart-summary-row"
+                                >
+                                    <span>BuyTheWay Vouchers</span>
+                                    <span class="value--accent">-{{ formatPrice(platformSavings) }}</span>
                                 </div>
 
                                 <div class="cart-summary-divider"></div>
@@ -1810,17 +2028,23 @@ async function placeOrder() {
 @keyframes checkout-shimmer { to { background-position: -200% 0; } }
 .checkout-shipping-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 10px; background: #fef2f2; color: #b91c1c; font-size: 13px; }
 .checkout-shipping-error button { border: 0; background: none; color: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
-.checkout-coupon { margin: -4px 0 12px; padding: 10px 12px; border: 1px dashed #fca5a5; border-radius: 12px; background: #fef2f2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.checkout-coupon-applied { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; min-width: 0; color: #b91c1c; font-size: 13px; }
-.checkout-coupon-applied.is-none { color: #7f1d1d; }
+.checkout-coupon { margin: 12px 0 0; padding: 10px 12px; border: 0; border-radius: 12px; background: #dc2626; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.checkout-coupon.is-platform { background: #0f766e; }
+.checkout-coupon.is-platform .checkout-coupon-applied .checkout-coupon-badge { color: #0f766e; }
+.checkout-coupon.is-platform .checkout-coupon-actions button { color: #0f766e; }
+.checkout-coupon-applied { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; min-width: 0; color: #fff; font-size: 13px; font-weight: 600; }
 .checkout-coupon-applied strong { font-weight: 800; }
-.checkout-coupon-applied > span:not(.checkout-coupon-amount):not(.checkout-coupon-low) { color: #64748b; }
+/* On the red strip the applied badges invert: white chip, red text. */
+.checkout-coupon-applied .checkout-coupon-badge { background: #fff; color: #b91c1c; }
 .checkout-coupon-amount { margin-left: auto; font-weight: 800; }
-.checkout-coupon-low { padding: 1px 8px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 11px; font-weight: 800; }
+.checkout-coupon-low { padding: 1px 8px; border-radius: 999px; background: #fef08a; color: #7f1d1d; font-size: 11px; font-weight: 800; }
 .checkout-coupon-actions { display: flex; gap: 4px; }
 .checkout-coupon-actions button { min-height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: #fff; color: #b91c1c; font-size: 12px; font-weight: 700; cursor: pointer; }
 .checkout-coupon-actions button:hover { background: #fee2e2; }
-.checkout-coupon-picker { flex-basis: 100%; display: grid; gap: 6px; }
+.checkout-coupon-actions button:focus-visible { outline: 3px solid #fde68a; outline-offset: 2px; }
+.checkout-coupon-picker { flex-basis: 100%; display: grid; gap: 12px; }
+.checkout-coupon-group { display: grid; gap: 6px; }
+.checkout-coupon-group-title { margin: 0; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #fff; }
 .checkout-coupon-option { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: #fff; border: 1px solid #fecaca; cursor: pointer; }
 .checkout-coupon-option.active { border-color: #dc2626; box-shadow: 0 0 0 2px rgba(220, 38, 38, .15); }
 .checkout-coupon-option.disabled { opacity: .5; cursor: not-allowed; }

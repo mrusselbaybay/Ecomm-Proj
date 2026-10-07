@@ -5,7 +5,7 @@ import { ref } from 'vue';
 
 export const navRequest = ref(null);
 
-/** @param {'profile'|'orders'|'wishlist'|'reviews'|'addresses'|'payments'|'coupons'} view */
+/** @param {'profile'|'orders'|'wishlist'|'reviews'|'addresses'|'payments'|'vouchers'} view */
 export function navigate(view) {
     navRequest.value = { view, at: Date.now() };
 }

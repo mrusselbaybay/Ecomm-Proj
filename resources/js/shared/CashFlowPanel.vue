@@ -31,6 +31,14 @@
                 </div>
             </div>
 
+            <!-- Platform view only: what platform-funded vouchers cost. -->
+            <div v-if="data?.voucher_subsidy" class="cf-stats">
+                <div v-for="stat in subsidyStats" :key="stat.label" class="cf-stat">
+                    <span class="cf-stat-label">{{ stat.label }}</span>
+                    <strong class="cf-stat-value" :class="stat.tone">{{ stat.value }}</strong>
+                </div>
+            </div>
+
             <div class="cf-list-head">Recent movements</div>
 
             <ul v-if="loading && !data" class="cf-list">
@@ -116,6 +124,18 @@ const stats = computed(() => {
         { label: 'Net balance', value: peso(net), tone: net < 0 ? 'cf-neg' : 'cf-pos' },
         { label: 'Orders', value: String(d?.orders_count ?? 0), tone: '' }
     ];
+});
+
+const subsidyStats = computed(() => {
+    const s = data.value?.voucher_subsidy;
+    const net = Number(data.value?.net_after_vouchers || 0);
+
+    return s ? [
+        { label: 'Voucher subsidy paid', value: peso(s.spent), tone: Number(s.spent) > 0 ? 'cf-neg' : '' },
+        { label: 'Recovered on refunds', value: peso(s.recovered), tone: '' },
+        { label: 'Net after vouchers', value: peso(net), tone: net < 0 ? 'cf-neg' : 'cf-pos' },
+        { label: 'Vouchered orders', value: String(s.orders_count), tone: '' },
+    ] : [];
 });
 
 async function load() {

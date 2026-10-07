@@ -19,8 +19,10 @@ use App\Models\OrderStatusHistory;
 use App\Models\ParcelAssignment;
 use App\Models\ParcelTransferRequest;
 use App\Models\Profile;
+use App\Services\DeliveryAttemptService;
 use App\Services\ParcelAutoAssignService;
 use App\Services\ParcelIntakeService;
+use App\Services\Payments\MockPaymentService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -67,6 +69,8 @@ class ParcelAssignmentController extends Controller
         $company = $this->companyFor($request);
         $filters = $request->validate([
             'status' => ['nullable', Rule::in([
+                ParcelAssignment::STATUS_FAILED_ATTEMPT,
+                ParcelAssignment::STATUS_NEEDS_DISPATCHER_REVIEW,
                 ParcelAssignment::STATUS_RECEIVED,
                 ParcelAssignment::STATUS_SORTED,
                 ParcelAssignment::STATUS_ASSIGNED,
@@ -81,7 +85,7 @@ class ParcelAssignmentController extends Controller
         ]);
 
         $assignments = ParcelAssignment::query()
-            ->with(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest'])
+            ->with(['order.latestDeliveryAttempt', 'order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest'])
             ->where('logistics_company_id', $company->id)
             ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('status', $status))
             ->orderByDesc('received_at')
@@ -113,6 +117,7 @@ class ParcelAssignmentController extends Controller
             'items.product:id,images',
             'seller.sellerDetail',
             'statusHistory.changedBy',
+            'deliveryAttempts.courier',
         ])->first();
 
         if (! $order) {
@@ -149,6 +154,7 @@ class ParcelAssignmentController extends Controller
                         $order->pickup_province_name,
                     ])->filter()->implode(', ') ?: null,
                 ],
+                'delivery_attempts' => $order->deliveryAttempts->map(fn ($attempt): array => DeliveryAttemptService::presentAttempt($attempt) + ['courier_name' => $attempt->courier?->full_name])->all(),
                 'status_history' => $order->statusHistory->map(fn (OrderStatusHistory $history): array => [
                     'status' => $history->status,
                     'previous_status' => $history->previous_status,
@@ -229,14 +235,14 @@ class ParcelAssignmentController extends Controller
 
         if ($alreadyScanned) {
             return response()->json([
-                'data' => new ParcelAssignmentResource($this->withAreaFallbackTier($existing->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)),
+                'data' => new ParcelAssignmentResource($this->withAreaFallbackTier($existing->load(['order.latestDeliveryAttempt', 'order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)),
                 'message' => 'This parcel is already in your sorting queue.',
             ]);
         }
 
         $assignment = DB::transaction(fn (): ParcelAssignment => $this->parcelIntake->intake($order, $company, $profile->id));
 
-        return (new ParcelAssignmentResource($this->withAreaFallbackTier($assignment->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)))
+        return (new ParcelAssignmentResource($this->withAreaFallbackTier($assignment->load(['order.latestDeliveryAttempt', 'order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)))
             ->response()
             ->setStatusCode($existing ? 200 : 201);
     }
@@ -244,6 +250,35 @@ class ParcelAssignmentController extends Controller
     /**
      * Update the specified resource in storage.
      */
+    public function flagFailedReturn(Request $request, ParcelAssignment $parcelAssignment, DeliveryAttemptService $attempts): ParcelAssignmentResource
+    {
+        $company = $this->companyFor($request);
+        $this->ensureAssignmentBelongsToCompany($parcelAssignment, $company);
+        $assignment = $attempts->flagReturn($parcelAssignment->id, $company->id, $request->user()->id);
+
+        return new ParcelAssignmentResource($assignment->load(['order.latestDeliveryAttempt', 'order.seller.sellerDetail', 'barangayAssignment', 'rider', 'returnRequest']));
+    }
+
+    public function approveReattempt(Request $request, ParcelAssignment $parcelAssignment, DeliveryAttemptService $attempts): ParcelAssignmentResource
+    {
+        $company = $this->companyFor($request);
+        $this->ensureAssignmentBelongsToCompany($parcelAssignment, $company);
+        $assignment = $attempts->review($parcelAssignment->id, $company->id, $request->user()->id);
+
+        return new ParcelAssignmentResource($assignment->load(['order.latestDeliveryAttempt', 'order.seller.sellerDetail', 'barangayAssignment', 'rider', 'returnRequest']));
+    }
+
+    public function reassignFailed(Request $request, ParcelAssignment $parcelAssignment, DeliveryAttemptService $attempts): ParcelAssignmentResource
+    {
+        $company = $this->companyFor($request);
+        $this->ensureAssignmentBelongsToCompany($parcelAssignment, $company);
+        $data = $request->validate(['rider_profile_id' => ['required', 'uuid']]);
+        $this->ensureRiderIsAccepted($company, $data['rider_profile_id']);
+        $assignment = $attempts->review($parcelAssignment->id, $company->id, $request->user()->id, $data['rider_profile_id']);
+
+        return new ParcelAssignmentResource($assignment->load(['order.latestDeliveryAttempt', 'order.seller.sellerDetail', 'barangayAssignment', 'rider', 'returnRequest']));
+    }
+
     public function assign(AssignParcelRequest $request, ParcelAssignment $parcelAssignment): ParcelAssignmentResource
     {
         $company = $this->companyFor($request);
@@ -254,6 +289,10 @@ class ParcelAssignmentController extends Controller
         // but it must not be assignable until Logistics scans it in
         // (Api\Logistics\ParcelInventoryController::scan), or this would
         // bypass the checkpoint entirely.
+        if (DeliveryAttemptService::isFailed($parcelAssignment)) {
+            throw ValidationException::withMessages(['delivery' => 'Use the failed-delivery review or reassignment action.']);
+        }
+
         if ($parcelAssignment->status === ParcelAssignment::STATUS_FOR_INVENTORY) {
             throw ValidationException::withMessages([
                 'parcel' => 'This parcel is awaiting an inventory scan and cannot be assigned yet.',
@@ -335,7 +374,7 @@ class ParcelAssignmentController extends Controller
         ]);
 
         return new ParcelAssignmentResource(
-            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
+            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.latestDeliveryAttempt', 'order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
         );
     }
 
@@ -364,7 +403,7 @@ class ParcelAssignmentController extends Controller
 
         return response()->json([
             'data' => new ParcelAssignmentResource(
-                $this->withAreaFallbackTier($result['parcel']->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
+                $this->withAreaFallbackTier($result['parcel']->refresh()->load(['order.latestDeliveryAttempt', 'order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
             ),
             'outcome' => $result['outcome'],
             'message' => $result['message'],
@@ -447,7 +486,7 @@ class ParcelAssignmentController extends Controller
         });
 
         return new ParcelAssignmentResource(
-            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
+            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.latestDeliveryAttempt', 'order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
         );
     }
 
@@ -489,7 +528,7 @@ class ParcelAssignmentController extends Controller
         ]);
 
         return new ParcelAssignmentResource(
-            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
+            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.latestDeliveryAttempt', 'order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
         );
     }
 
@@ -533,7 +572,7 @@ class ParcelAssignmentController extends Controller
         // A return goes back the way it came: the only valid target is the
         // company that originally collected it from the seller.
         if ($parcelAssignment->isReturn()) {
-            $originId = app(\App\Services\Payments\MockPaymentService::class)->logisticsChain($parcelAssignment->order_id)[0] ?? null;
+            $originId = app(MockPaymentService::class)->logisticsChain($parcelAssignment->order_id)[0] ?? null;
             $companies = LogisticsCompany::query()
                 ->whereKey($originId)
                 ->whereKeyNot($company->id)
@@ -674,7 +713,7 @@ class ParcelAssignmentController extends Controller
         });
 
         return new ParcelAssignmentResource(
-            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
+            $this->withAreaFallbackTier($parcelAssignment->refresh()->load(['order.latestDeliveryAttempt', 'order.seller.sellerDetail', 'barangayAssignment', 'rider', 'transferToCompany', 'pendingTransferRequest', 'returnRequest']), $company)
         );
     }
 

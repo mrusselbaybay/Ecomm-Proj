@@ -45,10 +45,20 @@
                 Review registrations
             </a>
         </div>
+
+        <div class="dash-home-card dash-home-actions">
+            <p class="dash-home-text"><strong>Quick actions</strong></p>
+            <button type="button" class="dash-home-cta" @click="emit('create-voucher')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /><path d="M13 5v2M13 17v2M13 11v2" /></svg>
+                Create Voucher
+            </button>
+        </div>
     </div>
 </template>
 
 <script setup>
+const emit = defineEmits(['create-voucher']);
+
 defineProps({
     adminProfile: { type: Object, default: () => ({}) },
     pendingCount: { type: Number, default: 0 },
@@ -89,4 +99,11 @@ defineProps({
 .dash-home-cta:hover {
     background: #c2410c;
 }
+.dash-home-actions { margin-top: 1rem; }
+.dash-home-actions .dash-home-cta {
+    display: inline-flex; align-items: center; gap: 0.4rem; min-height: 40px;
+    border: 0; background: #0d9488; cursor: pointer;
+}
+.dash-home-actions .dash-home-cta:hover { background: #0f766e; }
+.dash-home-actions .dash-home-cta:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
 </style>

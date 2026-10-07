@@ -320,7 +320,7 @@ class SellerOrderController extends Controller
                     // deducted, and only once per order (guarded inside
                     // InventoryService by the movement log).
                     app(InventoryService::class)->restoreForOrder($order, 'cancellation_restock', $seller->id);
-                    app(\App\Services\Coupons\CouponService::class)->releaseForOrder($order);
+                    app(\App\Services\Vouchers\VoucherService::class)->releaseForOrder($order);
                 }
 
                 $order->save();
@@ -493,6 +493,7 @@ class SellerOrderController extends Controller
             'shippingFee' => (float) $order->shipping_fee,
             'tax' => (float) $order->tax,
             'discount' => (float) $order->discount,
+            'shippingDiscount' => (float) $order->shipping_discount,
             'total' => (float) $order->total,
             // Flat fields (not nested under `shipping`, unlike
             // transformDetail below) so the Courier Handover history

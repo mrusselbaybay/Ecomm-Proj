@@ -67,4 +67,26 @@ class CashFlowReport
             'entries' => $entries,
         ];
     }
+
+    /**
+     * Platform-funded voucher cost from the ledger: topped up into escrow on
+     * release, partly recovered when vouchered orders are refunded/returned.
+     */
+    public function subsidy(): array
+    {
+        $totals = DB::table('ledger_entries')
+            ->where('account', MockPaymentService::ACCOUNT_SUBSIDY)
+            ->selectRaw('COALESCE(SUM(debit_cents), 0) AS spent, COALESCE(SUM(credit_cents), 0) AS recovered')
+            ->selectRaw('COUNT(DISTINCT order_id) AS orders_count')
+            ->first();
+
+        $net = (int) $totals->spent - (int) $totals->recovered;
+
+        return [
+            'spent' => Money::format((int) $totals->spent),
+            'recovered' => Money::format((int) $totals->recovered),
+            'net' => Money::format(max($net, 0)),
+            'orders_count' => (int) $totals->orders_count,
+        ];
+    }
 }

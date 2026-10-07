@@ -1172,9 +1172,9 @@ onBeforeUnmount(() => {
                 <button
                     type="button"
                     class="account-back-button"
-                    @click="navigate('coupons')"
+                    @click="navigate('vouchers')"
                 >
-                    My Coupons
+                    My Vouchers
                 </button>
 
                 <button

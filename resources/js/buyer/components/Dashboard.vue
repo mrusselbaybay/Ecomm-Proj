@@ -14,7 +14,7 @@ import Wishlist from './Wishlist.vue';
 import Reviews from './Reviews.vue';
 import SavedAddresses from './SavedAddresses.vue';
 import PaymentMethods from './PaymentMethods.vue';
-import MyCoupons from './MyCoupons.vue';
+import MyVouchers from './MyVouchers.vue';
 import Chat from './Chat.vue';
 import ToastHost from './ToastHost.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
@@ -75,7 +75,7 @@ const showWishlist = ref(false);
 const showReviews = ref(false);
 const showAddresses = ref(false);
 const showPayments = ref(false);
-const showCoupons = ref(false);
+const showVouchers = ref(false);
 const showCustomerService = ref(false);
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
@@ -366,7 +366,7 @@ function closeAllSubViews() {
     showReviews.value = false;
     showAddresses.value = false;
     showPayments.value = false;
-    showCoupons.value = false;
+    showVouchers.value = false;
     checkoutItems.value = [];
     checkoutSource.value = null;
 }
@@ -684,20 +684,20 @@ const NAV_HANDLERS = {
     reviews: () => openReviews(),
     addresses: () => openAddresses(),
     payments: () => openPayments(),
-    coupons: () => openCoupons(),
+    vouchers: () => openVouchers(),
 };
 
 watch(navRequest, (request) => {
     NAV_HANDLERS[request?.view]?.();
 });
 
-function openCoupons() {
+function openVouchers() {
     closeAllSubViews();
-    showCoupons.value = true;
+    showVouchers.value = true;
 }
 
 // Wallet entries only carry the product id; fetch the product to open it.
-async function openCouponProduct(productId) {
+async function openVoucherProduct(productId) {
     const product = await getProductById(productId);
 
     if (product) {
@@ -826,16 +826,16 @@ function closeCustomerService() {
     />
 
     <!-- ================================================================ -->
-    <!-- MY COUPONS -->
+    <!-- MY VOUCHERS -->
     <!-- ================================================================ -->
 
-    <MyCoupons
-        v-else-if="showCoupons"
+    <MyVouchers
+        v-else-if="showVouchers"
         @back="openPayments"
         @go-home="handleBrowseAll"
         @view-profile="openAccount"
         @view-payments="openPayments"
-        @open-product="openCouponProduct"
+        @open-product="openVoucherProduct"
         @search="handleSearch"
         @select-category="handleSelectCategory"
         @open-cart="openCart"

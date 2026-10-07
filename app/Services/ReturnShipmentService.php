@@ -88,7 +88,8 @@ class ReturnShipmentService
 
             $order = $request->order;
             $itemCents = Money::toCents($request->estimated_amount);
-            $shippingCents = Money::toCents($order->shipping_fee);
+            // What the buyer actually paid for shipping (after any shipping voucher).
+            $shippingCents = Money::toCents($order->shipping_fee) - Money::toCents($order->shipping_discount ?? 0);
 
             // Original shipping goes back to the buyer (seller-funded) only
             // once every unit of the order has been returned.
@@ -108,7 +109,8 @@ class ReturnShipmentService
                 $shippingRefund,
                 Money::toCents($request->return_shipping_fee ?? $order->shipping_fee),
                 $returnChain,
-                Money::toCents($request->coupon_discount ?? 0),
+                Money::toCents($request->voucher_discount ?? 0),
+                Money::toCents($request->platform_discount ?? 0),
             );
 
             $request->forceFill([

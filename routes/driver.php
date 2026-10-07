@@ -58,6 +58,8 @@ Route::middleware(['auth.token', 'driver'])->prefix('driver')->name('api.driver.
         ->name('deliveries.pickup-photo');
     Route::post('/deliveries/{parcelAssignment}/deliver', [DriverDeliveryController::class, 'deliver'])
         ->name('deliveries.deliver');
+    Route::post('/deliveries/{parcelAssignment}/failed-attempt', [DriverDeliveryController::class, 'failAttempt'])->name('deliveries.failed-attempt');
+    Route::post('/deliveries/{parcelAssignment}/reattempt', [DriverDeliveryController::class, 'reattempt'])->name('deliveries.reattempt');
     Route::get('/deliveries/{parcelAssignment}/photo', [DriverDeliveryController::class, 'photo'])
         ->name('deliveries.photo');
     // Cross-region-transfer counterpart to /deliver: confirms this rider

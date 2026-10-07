@@ -52,11 +52,14 @@ Route::middleware(['auth.token', 'seller'])->prefix('api/seller')->name('api.sel
     // / product_variants.stock only ever change via InventoryService, which
     // records an inventory_movements row for every change.
     Route::post('/products/{id}/stock-adjustments', [SellerInventoryController::class, 'adjust'])->name('products.stock.adjust');
-    // Product-level, seller-funded coupons (created in batches from the edit page).
-    Route::get('/products/{id}/coupons', [\App\Http\Controllers\Seller\ProductCouponController::class, 'index'])->name('products.coupons.index');
-    Route::post('/products/{id}/coupons', [\App\Http\Controllers\Seller\ProductCouponController::class, 'store'])->name('products.coupons.store');
-    Route::put('/coupons/{id}', [\App\Http\Controllers\Seller\ProductCouponController::class, 'update'])->name('coupons.update');
-    Route::delete('/coupons/{id}', [\App\Http\Controllers\Seller\ProductCouponController::class, 'destroy'])->name('coupons.destroy');
+    // Seller vouchers (Vouchers modal on the Inventory page).
+    Route::get('/vouchers', [\App\Http\Controllers\Seller\VoucherController::class, 'index'])->name('vouchers.index');
+    Route::post('/vouchers', [\App\Http\Controllers\Seller\VoucherController::class, 'store'])->name('vouchers.store');
+    Route::get('/vouchers/{id}', [\App\Http\Controllers\Seller\VoucherController::class, 'show'])->name('vouchers.show');
+    Route::post('/vouchers/{id}/deactivate', [\App\Http\Controllers\Seller\VoucherController::class, 'deactivate'])->name('vouchers.deactivate');
+    Route::post('/vouchers/{id}/reactivate', [\App\Http\Controllers\Seller\VoucherController::class, 'reactivate'])->name('vouchers.reactivate');
+    Route::post('/vouchers/{id}/stock', [\App\Http\Controllers\Seller\VoucherController::class, 'addStock'])->name('vouchers.stock');
+    Route::delete('/vouchers/{id}', [\App\Http\Controllers\Seller\VoucherController::class, 'destroy'])->name('vouchers.destroy');
     Route::get('/products/{id}/stock-movements', [SellerInventoryController::class, 'movements'])->name('products.stock.movements');
 
     Route::get('/category-config', [CategoryConfigController::class, 'show'])->name('category-config');

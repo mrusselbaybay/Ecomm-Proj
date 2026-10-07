@@ -38,7 +38,7 @@ class CommissionController extends Controller
         // One aggregate query (count + both sums) replaces three separate
         // round trips over the same eligible-orders set.
         $summaryRow = (clone $query)
-            ->selectRaw('count(*) as orders_count, coalesce(sum(subtotal), 0) as gross_sales, coalesce(sum(discount), 0) as discounts')
+            ->selectRaw('count(*) as orders_count, coalesce(sum(subtotal), 0) as gross_sales, coalesce(sum(discount), 0) as discounts, coalesce(sum(platform_discount), 0) as platform_vouchers')
             ->first();
         $grossSales = (float) $summaryRow->gross_sales;
         $discounts = (float) $summaryRow->discounts;
@@ -58,6 +58,7 @@ class CommissionController extends Controller
                 'discount' => (float) $order->discount,
                 'commission_basis' => CommissionCalculator::basis((float) $order->subtotal, (float) $order->discount),
                 'commission' => CommissionCalculator::commission((float) $order->subtotal, (float) $order->discount),
+                'platform_discount' => (float) $order->platform_discount,
                 'seller' => $this->sellerData($order->seller),
             ]);
 
@@ -69,6 +70,9 @@ class CommissionController extends Controller
                 'gross_sales' => round($grossSales, 2),
                 'commission_basis' => $commissionBasis,
                 'platform_commission' => CommissionCalculator::commission($grossSales, $discounts),
+                // Platform-funded vouchers on these orders (seller payouts unaffected).
+                'platform_vouchers' => round((float) $summaryRow->platform_vouchers, 2),
+                'net_after_vouchers' => round(CommissionCalculator::commission($grossSales, $discounts) - (float) $summaryRow->platform_vouchers, 2),
             ],
         ]);
     }

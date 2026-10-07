@@ -31,6 +31,15 @@ class CashFlowController extends Controller
 
     public function platform(): JsonResponse
     {
-        return response()->json($this->report->for([PaymentSplitter::ACCOUNT_PLATFORM], null));
+        $commission = $this->report->for([PaymentSplitter::ACCOUNT_PLATFORM], null);
+        $subsidy = $this->report->subsidy();
+        $net = (float) $commission['net'] - (float) $subsidy['net'];
+
+        return response()->json([
+            ...$commission,
+            // Platform-funded vouchers come out of the commission.
+            'voucher_subsidy' => $subsidy,
+            'net_after_vouchers' => ($net < 0 ? '-' : '').number_format(abs($net), 2, '.', ''),
+        ]);
     }
 }

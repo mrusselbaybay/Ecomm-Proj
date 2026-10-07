@@ -329,6 +329,8 @@ class ParcelAutoAssignService
     public function awaitsAutoAssignment(ParcelAssignment $parcel): bool
     {
         if (in_array($parcel->status, [
+            ParcelAssignment::STATUS_FAILED_ATTEMPT,
+            ParcelAssignment::STATUS_NEEDS_DISPATCHER_REVIEW,
             ParcelAssignment::STATUS_TRANSFERRED,
             ParcelAssignment::STATUS_TRANSFER_PENDING,
             ParcelAssignment::STATUS_TRANSFER_ONGOING,

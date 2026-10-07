@@ -81,6 +81,17 @@
     gap: 0.15rem;
 }
 
+/* Group heading inside the nav (e.g. "Promotions"). */
+.sidebar-group {
+    margin: 0.75rem 0 0.2rem;
+    padding: 0 0.75rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
 .sidebar-link {
     display: flex;
     align-items: center;
@@ -479,6 +490,7 @@
     .logo-sub,
     .nav-label,
     .profile-info,
+    .sidebar-group,
     .sidebar-divider {
         display: none;
     }
