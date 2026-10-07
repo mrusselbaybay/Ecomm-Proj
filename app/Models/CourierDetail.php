@@ -7,8 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 class CourierDetail extends Model
 {
     protected $table = 'courier_details';
+
     protected $primaryKey = 'profile_id';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $fillable = [
@@ -22,5 +25,10 @@ class CourierDetail extends Model
     public function logisticsCompany()
     {
         return $this->belongsTo(LogisticsCompany::class, 'logistics_company_id');
+    }
+
+    public function profile()
+    {
+        return $this->belongsTo(Profile::class, 'profile_id', 'id');
     }
 }

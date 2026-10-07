@@ -1290,9 +1290,9 @@
     "semantic_hash": ""
   },
   "app/Models/CourierDetail.php": {
-    "mtime": 1789742467.1779015,
-    "seen": 1789911226.795928,
-    "ast_hash": "669c3d57223b179cf6730bcd06ccf72c",
+    "mtime": 1791386810.921734,
+    "seen": 1791387152.6253707,
+    "ast_hash": "dadb4ebb51b885be3bdf8707ea0f318a",
     "semantic_hash": ""
   },
   "app/Models/Document.php": {
@@ -1326,9 +1326,9 @@
     "semantic_hash": ""
   },
   "app/Models/LogisticsCompany.php": {
-    "mtime": 1790334852.0441697,
-    "seen": 1790335366.6020563,
-    "ast_hash": "a3dd7a1c5add7ba8679c1b79fec770ba",
+    "mtime": 1791385817.4903095,
+    "seen": 1791387152.6253934,
+    "ast_hash": "1002ad62283756e5f93efbb239c4ea37",
     "semantic_hash": ""
   },
   "app/Models/LogisticsProvincialAssignment.php": {
@@ -2478,9 +2478,9 @@
     "semantic_hash": ""
   },
   "resources/js/admin/components/AdminLayout.vue": {
-    "mtime": 1791285205.802673,
-    "seen": 1791285438.5134127,
-    "ast_hash": "2e0eb848c2e1f76a87bd6728a6171954",
+    "mtime": 1791387011.606483,
+    "seen": 1791387152.6259615,
+    "ast_hash": "b9b3368a23ff6c4f34813c702e089895",
     "semantic_hash": ""
   },
   "resources/js/admin/components/AvatarCropper.vue": {
@@ -2868,9 +2868,9 @@
     "semantic_hash": ""
   },
   "resources/js/logistics/components/LogisticsLayout.vue": {
-    "mtime": 1790856367.953076,
-    "seen": 1790856548.1379154,
-    "ast_hash": "1c8d88f3e02017b61cb4ede9e45f5b70",
+    "mtime": 1791387010.5345397,
+    "seen": 1791387152.6261792,
+    "ast_hash": "511ad12333b4dcac675af4ec67d23431",
     "semantic_hash": ""
   },
   "resources/js/logistics/components/Messages.vue": {
@@ -2886,9 +2886,9 @@
     "semantic_hash": ""
   },
   "resources/js/logistics/components/ParcelOperations.vue": {
-    "mtime": 1791369403.3158746,
-    "seen": 1791369496.2572634,
-    "ast_hash": "6d1861016db6bf151069664096dc68d1",
+    "mtime": 1791371518.820855,
+    "seen": 1791371553.7637243,
+    "ast_hash": "944a3bf5aa2ddaa065acb036cec1b845",
     "semantic_hash": ""
   },
   "resources/js/logistics/components/PortalPlaceholder.vue": {
@@ -3390,9 +3390,9 @@
     "semantic_hash": ""
   },
   "routes/api.php": {
-    "mtime": 1791369320.459556,
-    "seen": 1791369496.25756,
-    "ast_hash": "dcc479c735bb85809328982f6f91ed83",
+    "mtime": 1791386812.1393797,
+    "seen": 1791387152.629787,
+    "ast_hash": "c973dd870573551281175fcbf65e1a9b",
     "semantic_hash": ""
   },
   "routes/buyer.php": {
@@ -5097,6 +5097,102 @@
     "mtime": 1791369395.288088,
     "seen": 1791369496.2576613,
     "ast_hash": "4566354cee31bdbc17f14141fe8ccf37",
+    "semantic_hash": ""
+  },
+  "database/migrations/2026_10_07_000001_add_salary_override_to_courier_details.php": {
+    "mtime": 1791383957.9112318,
+    "seen": 1791384027.8575225,
+    "ast_hash": "5e44a23da99ac084c0997c63c573061d",
+    "semantic_hash": ""
+  },
+  "database/migrations/2026_10_07_000002_create_payrolls_table.php": {
+    "mtime": 1791383959.0226035,
+    "seen": 1791384027.8575273,
+    "ast_hash": "c108fb29fef8e17503e81a61a0ac5eaa",
+    "semantic_hash": ""
+  },
+  "database/migrations/2026_10_07_000003_create_payroll_fundings_table.php": {
+    "mtime": 1791386902.5391188,
+    "seen": 1791387152.6258855,
+    "ast_hash": "c336f33951456a35464af75d793f4f35",
+    "semantic_hash": ""
+  },
+  "app/Http/Controllers/Api/Courier/CourierPayslipController.php": {
+    "mtime": 1791386702.646818,
+    "seen": 1791387152.6249816,
+    "ast_hash": "4dc9b22e84d57ab6fed8a2c2913dc8c4",
+    "semantic_hash": ""
+  },
+  "app/Http/Controllers/Api/PayrollController.php": {
+    "mtime": 1791386539.4639585,
+    "seen": 1791387152.6250231,
+    "ast_hash": "737e5ec95c557177dfb7251c8af5b623",
+    "semantic_hash": ""
+  },
+  "app/Http/Controllers/Api/PayrollFundingController.php": {
+    "mtime": 1791385927.7198033,
+    "seen": 1791387152.625026,
+    "ast_hash": "3d4f4f530f4d264b1977bc0567b8c412",
+    "semantic_hash": ""
+  },
+  "app/Models/Payroll.php": {
+    "mtime": 1791386811.0182595,
+    "seen": 1791387152.6254282,
+    "ast_hash": "95d0f1571e3f22b3b4acbeb25854620e",
+    "semantic_hash": ""
+  },
+  "app/Models/PayrollFunding.php": {
+    "mtime": 1791385819.7358594,
+    "seen": 1791387152.62543,
+    "ast_hash": "9731b8012dd34298a547eac7dca93a51",
+    "semantic_hash": ""
+  },
+  "app/Services/AttendanceDeductionService.php": {
+    "mtime": 1791385820.8516426,
+    "seen": 1791387152.6254854,
+    "ast_hash": "9e68b80c28f3dd89e1c9aa1dda82b1b6",
+    "semantic_hash": ""
+  },
+  "app/Services/PayrollService.php": {
+    "mtime": 1791386811.1063523,
+    "seen": 1791387152.6255362,
+    "ast_hash": "e76366b2cfc9171a214b28940c23b338",
+    "semantic_hash": ""
+  },
+  "database/seeders/DemoPayrollSeeder.php": {
+    "mtime": 1791386582.6630394,
+    "seen": 1791387152.625895,
+    "ast_hash": "72ebd3de6fa3a4c5c12c0b7c290b5775",
+    "semantic_hash": ""
+  },
+  "resources/js/shared/Payroll/PayrollWorkspace.vue": {
+    "mtime": 1791387059.2165108,
+    "seen": 1791387152.6294582,
+    "ast_hash": "98c02bb9b075be8c309b81c31b139a63",
+    "semantic_hash": ""
+  },
+  "resources/js/shared/Payroll/Payslip.vue": {
+    "mtime": 1791386969.267107,
+    "seen": 1791387152.6294606,
+    "ast_hash": "2f85b747d777b2075cf6934bb39f22eb",
+    "semantic_hash": ""
+  },
+  "resources/js/shared/Payroll/SimulationDisclaimer.vue": {
+    "mtime": 1791386969.3240685,
+    "seen": 1791387152.6294622,
+    "ast_hash": "acd53c99605c594adae691bcf1798c1a",
+    "semantic_hash": ""
+  },
+  "tests/Feature/Payroll/PayrollFlowTest.php": {
+    "mtime": 1791386705.030188,
+    "seen": 1791387152.629964,
+    "ast_hash": "3eda9d0fe2df368c8470a790e8f12ae4",
+    "semantic_hash": ""
+  },
+  "tests/Unit/PayrollServiceTest.php": {
+    "mtime": 1791386425.294631,
+    "seen": 1791387152.6300106,
+    "ast_hash": "0cc6ddd215ea4d264949d28549e41fcd",
     "semantic_hash": ""
   }
 }

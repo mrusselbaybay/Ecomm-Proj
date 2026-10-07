@@ -28,6 +28,7 @@ beforeEach(function () {
             $table->string('status')->default('active');
         });
     }
+    $this->mock(\App\Services\FileStorage::class, fn ($mock) => $mock->shouldReceive('upload')->andReturn('proof.png'));
     config(['delivery.attempt_limit' => 3]);
     if (! Schema::hasTable('logistics_companies')) {
         Schema::create('logistics_companies', function (Blueprint $table) {
@@ -75,7 +76,7 @@ afterEach(function () {
 
 it('uses the next Manila calendar midnight for early morning and late night failures', function (string $failedAt, string $eligibleAt) {
     $this->travelTo(CarbonImmutable::parse($failedAt));
-    $response = $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'recipient_unavailable'])
+    $response = $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'recipient_unavailable'])
         ->assertOk()->assertJsonPath('data.status', 'failed_attempt')
         ->assertJsonPath('data.delivery_attempt.can_reattempt', false);
     expect(CarbonImmutable::parse($response->json('data.delivery_attempt.retry_at'))->equalTo(CarbonImmutable::parse($eligibleAt)))->toBeTrue();
@@ -96,18 +97,21 @@ it('uses the next Manila calendar midnight for early morning and late night fail
 ]);
 
 it('requires a predefined reason and a nonempty description for Others', function () {
-    $this->postJson($this->driverUrl.'/failed-attempt', [])->assertUnprocessable()->assertJsonValidationErrors('reason_code');
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'invalid'])->assertUnprocessable();
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'others', 'description' => '   '])->assertUnprocessable()->assertJsonValidationErrors('description');
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'others', 'description' => str_repeat('a', 1001)])->assertUnprocessable();
+    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'recipient_unavailable'])
+        ->assertUnprocessable()->assertJsonValidationErrors('photo');
+    expect(\App\Models\CourierEarning::count())->toBe(0);
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), ])->assertUnprocessable()->assertJsonValidationErrors('reason_code');
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'invalid'])->assertUnprocessable();
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'others', 'description' => '   '])->assertUnprocessable()->assertJsonValidationErrors('description');
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'others', 'description' => str_repeat('a', 1001)])->assertUnprocessable();
     expect(DeliveryAttempt::count())->toBe(0);
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'others', 'description' => '  Recipient moved away  '])->assertOk();
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'others', 'description' => '  Recipient moved away  '])->assertOk();
     expect(DeliveryAttempt::first()->description)->toBe('Recipient moved away');
 });
 
 it('keeps failures visible and rejects duplicate submissions and direct completion', function () {
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'business_closed'])->assertOk();
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'business_closed'])->assertUnprocessable();
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'business_closed'])->assertOk();
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'business_closed'])->assertUnprocessable();
     expect(DeliveryAttempt::count())->toBe(1);
     $this->getJson('/api/driver/deliveries')->assertOk()->assertJsonPath('data.0.status', 'failed_attempt')
         ->assertJsonPath('data.0.delivery_attempt.latest_attempt.reason_label', 'Business closed');
@@ -117,19 +121,19 @@ it('keeps failures visible and rejects duplicate submissions and direct completi
 
 it('requires the assigned courier and an active delivery leg', function () {
     failedDeliveryActAs(makeCourier());
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'package_damaged'])->assertNotFound();
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'package_damaged'])->assertNotFound();
     $this->postJson($this->driverUrl.'/reattempt')->assertNotFound();
     failedDeliveryActAs($this->courier);
     $this->assignment->update(['status' => ParcelAssignment::STATUS_ASSIGNED]);
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'package_damaged'])->assertUnprocessable();
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'package_damaged'])->assertUnprocessable();
     $this->assignment->update(['status' => ParcelAssignment::STATUS_HANDED_OFF, 'transfer_to_company_id' => $this->company->id]);
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'package_damaged'])->assertUnprocessable();
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'package_damaged'])->assertUnprocessable();
 });
 
 it('escalates the third failure, preserves all history and grants exactly one additional attempt', function () {
     foreach ([1, 2, 3] as $number) {
         $this->travelTo(CarbonImmutable::parse('2026-10-05T01:00:00Z')->addDays($number - 1));
-        $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'access_denied'])->assertOk();
+        $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'access_denied'])->assertOk();
         if ($number < 3) {
             $this->travelTo(CarbonImmutable::parse('2026-10-05T16:00:00Z')->addDays($number - 1));
             $this->postJson($this->driverUrl.'/reattempt')->assertOk();
@@ -145,14 +149,14 @@ it('escalates the third failure, preserves all history and grants exactly one ad
     $this->postJson($this->dispatchUrl.'/approve-reattempt')->assertUnprocessable();
     failedDeliveryActAs($this->courier);
     $this->postJson($this->driverUrl.'/reattempt')->assertOk();
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'access_denied'])->assertOk()->assertJsonPath('data.status', 'needs_dispatcher_review');
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'access_denied'])->assertOk()->assertJsonPath('data.status', 'needs_dispatcher_review');
     expect(DeliveryAttempt::count())->toBe(4);
 });
 
 it('honors the configurable limit and keeps same-day retries blocked after approval or reassignment', function () {
     config(['delivery.attempt_limit' => 1]);
     $this->travelTo(CarbonImmutable::parse('2026-10-05T04:00:00Z'));
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'incorrect_address'])->assertOk()->assertJsonPath('data.status', 'needs_dispatcher_review');
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'incorrect_address'])->assertOk()->assertJsonPath('data.status', 'needs_dispatcher_review');
     $retryAt = $this->order->fresh()->delivery_retry_at;
     $other = makeCourier();
     DB::table('courier_applications')->insert([
@@ -176,14 +180,14 @@ it('honors the configurable limit and keeps same-day retries blocked after appro
 
 it('scopes dispatcher actions to the owning company', function () {
     config(['delivery.attempt_limit' => 1]);
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'weather_or_roads'])->assertOk();
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'weather_or_roads'])->assertOk();
     failedDeliveryActAs(makeLogistics());
     $this->postJson($this->dispatchUrl.'/approve-reattempt')->assertNotFound();
     expect($this->order->fresh()->status)->toBe('Needs Dispatcher Review');
 });
 
 it('blocks ordinary dispatcher actions from bypassing the retry workflow', function () {
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'recipient_unavailable'])->assertOk();
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'recipient_unavailable'])->assertOk();
     DB::table('courier_applications')->insert([
         'id' => (string) Str::uuid(), 'courier_profile_id' => $this->courier->id,
         'logistics_company_id' => $this->company->id, 'status' => 'accepted',
@@ -201,7 +205,7 @@ it('blocks ordinary dispatcher actions from bypassing the retry workflow', funct
 
 it('records a return-process flag without starting a return shipment or permitting courier retries', function () {
     config(['delivery.attempt_limit' => 1]);
-    $this->postJson($this->driverUrl.'/failed-attempt', ['reason_code' => 'refused_delivery'])->assertOk();
+    $this->postJson($this->driverUrl.'/failed-attempt', ['photo' => UploadedFile::fake()->createWithContent('proof.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=')), 'reason_code' => 'refused_delivery'])->assertOk();
     failedDeliveryActAs($this->owner);
     $response = $this->postJson($this->dispatchUrl.'/flag-failed-return')->assertOk()
         ->assertJsonPath('data.status', 'needs_dispatcher_review');

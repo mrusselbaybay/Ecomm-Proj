@@ -13,11 +13,12 @@
     <div v-else-if="isAuthenticated" class="container mx-auto px-4 py-8">
       <!-- Header -->
       <div class="flex items-center justify-between mb-6 gap-3 flex-wrap">
-        <div>
+        <div v-if="!showEarnings">
           <h1 class="text-2xl font-bold">Find Work</h1>
           <p class="text-sm text-gray-500">Browse and apply to logistics companies</p>
         </div>
         <div class="flex items-center gap-3">
+          <button class="inline-flex items-center gap-2 rounded-xl border border-teal-200 px-3 py-2 text-sm font-medium text-teal-700" @click="showEarnings = !showEarnings">{{ showEarnings ? 'Find work' : 'Earnings & tasks' }}</button>
           <button
             type="button"
             class="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-teal-700"
@@ -40,6 +41,8 @@
         </div>
       </div>
 
+      <EarningsWorkspace v-if="showEarnings" mode="courier" />
+      <template v-else>
       <!-- Available companies -->
       <h2 class="text-lg font-semibold mb-4">Available logistics companies</h2>
       
@@ -110,6 +113,7 @@
           </svg>
         </div>
       </div>
+      </template>
     </div>
 
     <!-- APPLY MODAL -->
@@ -378,8 +382,11 @@
 <script setup>
 import { createClient } from '../../shared/backendClient';
 import { fetchOwnProfile } from '../../shared/accountApi';
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue';
 import CustomerServicePage from '../../shared/CustomerServicePage.vue';
+const EarningsWorkspace = defineAsyncComponent(() => import('../../shared/Earnings/EarningsWorkspace.vue'));
+
+const showEarnings = ref(false);
 
 const supabase = createClient();
 

@@ -166,11 +166,39 @@ class MockPaymentService
         });
     }
 
+    /** Seller-funded refund-only settlement. Forward logistics shares stay intact. */
+    public function settleRefundOnly(string $orderId, string $requestId, int $itemCents, int $voucherDiscountCents = 0, int $platformDiscountCents = 0, int $shippingRefundCents = 0): EscrowTransaction
+    {
+        return DB::transaction(function () use ($orderId, $requestId, $itemCents, $voucherDiscountCents, $platformDiscountCents, $shippingRefundCents) {
+            $order = Order::whereKey($orderId)->lockForUpdate()->firstOrFail();
+            if ($existing = EscrowTransaction::where('idempotency_key', 'refund-only:'.$requestId)->first()) { return $existing; }
+            if ($order->escrow_status === self::ESCROW_FUNDED) { $this->releaseEscrow($orderId); }
+            $buyerCents = $itemCents + $shippingRefundCents;
+            return $this->run('refund-only:'.$requestId, $orderId, EscrowTransaction::TYPE_REFUND, $buyerCents,
+                function (Order $order) use ($itemCents, $voucherDiscountCents, $platformDiscountCents, $shippingRefundCents, $buyerCents) {
+                    if ($order->escrow_status !== self::ESCROW_RELEASED || $itemCents <= 0) {
+                        throw new LogicException('Refund-only requires a released order and positive item amount.');
+                    }
+                    $after = $this->refundedCents($order->id, true) + $buyerCents;
+                    $total = Money::toCents($order->total);
+                    if ($after > $total) { throw new InvalidArgumentException('Refund exceeds the amount still refundable.'); }
+                    $commission = Money::percent($itemCents + $voucherDiscountCents + $platformDiscountCents, PaymentSplitter::PLATFORM_BPS);
+                    $lines = [
+                        ['account' => 'buyer', 'party_id' => $order->buyer_profile_id, 'credit' => $buyerCents],
+                        ['account' => PaymentSplitter::ACCOUNT_SELLER, 'party_id' => $order->seller_id, 'debit' => $itemCents + $platformDiscountCents - $commission + $shippingRefundCents],
+                        ['account' => PaymentSplitter::ACCOUNT_PLATFORM, 'party_id' => null, 'debit' => $commission],
+                    ];
+                    if ($platformDiscountCents > 0) { $lines[] = ['account' => self::ACCOUNT_SUBSIDY, 'party_id' => null, 'credit' => $platformDiscountCents]; }
+                    if ($after === $total) { $order->forceFill(['escrow_status' => self::ESCROW_REFUNDED, 'payment_status' => 'Refunded'])->save(); }
+                    return [$lines, ['seller_funded' => true, 'refunded_total_cents' => $after]];
+                });
+        });
+    }
+
     /**
      * Settles a completed Return + Refund once the item is back with the
-     * seller. Unlike a refund-only (refundBuyer, proportional clawback from
-     * all four shares), the logistics companies and the platform keep what
-     * they earned on the forward delivery:
+     * seller. As with refund-only settlement, logistics keeps its forward
+     * share and the platform reverses the goods commission:
      *
      *   buyer     + item amount (+ original shipping when the whole order came back)
      *   seller    − item goods share (95%) − refunded shipping − return shipping
@@ -332,6 +360,14 @@ class MockPaymentService
                 'credit_cents' => $l['credit'] ?? 0,
                 'created_at' => $now,
             ], $lines));
+
+            if (in_array($type, [EscrowTransaction::TYPE_RELEASE, EscrowTransaction::TYPE_REFUND, EscrowTransaction::TYPE_RETURN], true)) {
+                $earnings = app(\App\Services\CourierEarningService::class);
+                $earnings->settle($orderId);
+                if ($type === EscrowTransaction::TYPE_RETURN) {
+                    $earnings->settle($orderId, substr($key, strlen('return:')));
+                }
+            }
 
             return $tx;
         });

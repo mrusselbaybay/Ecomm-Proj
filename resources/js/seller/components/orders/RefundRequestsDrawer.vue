@@ -1,7 +1,7 @@
 <!--
     Seller review of buyer refund requests. Approving refunds the buyer via
-    mock escrow (all four splits reversed proportionally; clawed back if
-    already paid out). Opened from the Orders header "Refund requests" button.
+    seller-funded settlement. Logistics keeps its forward share and the
+    platform reverses the goods commission. Opened from the Orders header.
 -->
 <template>
     <Teleport to="body">
@@ -11,7 +11,7 @@
                     <header class="rr-head">
                         <div>
                             <h2 id="rr-title">Refund requests</h2>
-                            <p>Approving refunds the buyer from escrow and reverses your, the couriers' and the platform's shares.</p>
+                            <p>You fund the refund, including any refunded shipping. Logistics and couriers keep their earnings; the platform reverses its goods commission. Approved returns also charge return shipping to you.</p>
                         </div>
                         <button type="button" class="rr-icon-btn" aria-label="Close" @click="close">
                             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>

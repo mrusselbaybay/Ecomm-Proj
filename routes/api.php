@@ -1,12 +1,9 @@
 <?php
 
 use App\Http\Controllers\Admin\AccountRegistrationController;
-use App\Http\Controllers\Api\AccountController;
-use App\Http\Controllers\Api\RoleSwitchController;
 use App\Http\Controllers\Admin\AdminNotificationController;
 use App\Http\Controllers\Admin\AdminProfileController;
 use App\Http\Controllers\Admin\CommissionController;
-use App\Http\Controllers\CashFlowController;
 use App\Http\Controllers\Admin\ComplaintController;
 use App\Http\Controllers\Admin\CustomerServiceController as AdminCustomerServiceController;
 use App\Http\Controllers\Admin\DashboardController;
@@ -14,29 +11,34 @@ use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\SellerComplianceController;
 use App\Http\Controllers\Admin\StaffAccountController;
 use App\Http\Controllers\Admin\UserAccountController;
+use App\Http\Controllers\Api\AccountController;
+use App\Http\Controllers\Api\CourierEarningController;
 use App\Http\Controllers\Api\Courier\CourierApplicationController;
 use App\Http\Controllers\Api\Courier\CourierProfileController;
 use App\Http\Controllers\Api\Courier\LogisticsCompanyController;
 use App\Http\Controllers\Api\Courier\ResignationRequestController as CourierResignationRequestController;
+use App\Http\Controllers\Api\Logistics\InvitationController as LogisticsInvitationController;
+use App\Http\Controllers\Api\Logistics\LogisticsAccountController;
+use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
 use App\Http\Controllers\Api\Logistics\LogisticsBarangayAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsProvincialAssignmentController;
 use App\Http\Controllers\Api\Logistics\LogisticsRegionalAssignmentController;
-use App\Http\Controllers\Api\Logistics\LogisticsAccountController;
-use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
-use App\Http\Controllers\Api\Logistics\InvitationController as LogisticsInvitationController;
-use App\Http\Controllers\Api\Logistics\TeamController as LogisticsTeamController;
 use App\Http\Controllers\Api\Logistics\ParcelAssignmentController;
 use App\Http\Controllers\Api\Logistics\ParcelInventoryController;
 use App\Http\Controllers\Api\Logistics\ResignationRequestController as LogisticsResignationRequestController;
+use App\Http\Controllers\Api\Logistics\TeamController as LogisticsTeamController;
+use App\Http\Controllers\Api\RoleSwitchController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Buyer\VoucherController;
+use App\Http\Controllers\CashFlowController;
 use App\Http\Controllers\CustomerService\SupportTicketController;
 use App\Http\Controllers\FileController;
+use App\Http\Controllers\GeoLocateController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
 use App\Http\Controllers\Logistics\MessageController as LogisticsMessageController;
 use App\Http\Controllers\Messaging\MessageAttachmentController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProductController;
-use App\Http\Controllers\GeoLocateController;
 use App\Http\Controllers\PsgcProxyController;
 use App\Mail\RegistrationApproved;
 use Illuminate\Support\Facades\Mail;
@@ -70,9 +72,9 @@ Route::prefix('auth')->group(function () {
 Route::get('/products', [ProductController::class, 'index'])->name('products.index');
 Route::get('/products/{id}', [ProductController::class, 'show'])->name('products.show');
 Route::get('/products/{id}/reviews', [ProductController::class, 'reviews'])->name('products.reviews');
-Route::get('/products/{id}/vouchers', [\App\Http\Controllers\Buyer\VoucherController::class, 'forProduct'])->name('products.vouchers');
+Route::get('/products/{id}/vouchers', [VoucherController::class, 'forProduct'])->name('products.vouchers');
 // Legacy alias for the mobile app (one release cycle).
-Route::get('/products/{id}/coupons', [\App\Http\Controllers\Buyer\VoucherController::class, 'forProduct'])->name('products.coupons');
+Route::get('/products/{id}/coupons', [VoucherController::class, 'forProduct'])->name('products.coupons');
 
 // ============================================================
 // CUSTOMER SERVICE (all active public account roles)
@@ -203,6 +205,13 @@ Route::get('/geo/locate', GeoLocateController::class)
 // COURIER WORK ROUTES
 // ============================================================
 Route::prefix('courier')->name('courier.')->group(function () {
+    Route::middleware(['auth.token', 'driver'])->group(function () {
+        Route::get('/earnings/summary', [CourierEarningController::class, 'summary'])->name('earnings.summary');
+        Route::get('/earnings', [CourierEarningController::class, 'ledger'])->name('earnings.index');
+        Route::get('/payouts', [CourierEarningController::class, 'payouts'])->name('payouts.index');
+        Route::get('/payouts/{id}', [CourierEarningController::class, 'showPayout'])->name('payouts.show');
+        Route::post('/earnings/early-cashout', [CourierEarningController::class, 'earlyCashout'])->name('earnings.early-cashout');
+    });
     Route::get('/logistics-companies', [LogisticsCompanyController::class, 'index'])
         ->name('logistics-companies.index');
     Route::get('/applications', [CourierApplicationController::class, 'index'])
@@ -287,6 +296,16 @@ Route::middleware(['auth.token', 'logistics'])
     ->prefix('logistics')
     ->name('logistics.')
     ->group(function () {
+        Route::get('/earnings/settings', [CourierEarningController::class, 'settings'])->name('earnings.settings');
+        Route::put('/earnings/settings', [CourierEarningController::class, 'updateSettings'])->name('earnings.settings.update');
+        Route::get('/earnings/couriers', [CourierEarningController::class, 'couriers'])->name('earnings.couriers');
+        Route::get('/earnings', [CourierEarningController::class, 'ledger'])->name('earnings.index');
+        Route::post('/earnings/adjustments', [CourierEarningController::class, 'adjustment'])->name('earnings.adjustments');
+        Route::post('/earnings/cod-remittances', [CourierEarningController::class, 'remittance'])->name('earnings.cod-remittances');
+        Route::get('/earnings/payouts', [CourierEarningController::class, 'payouts'])->name('earnings.payouts.index');
+        Route::post('/earnings/payouts', [CourierEarningController::class, 'createPayout'])->name('earnings.payouts.create');
+        Route::get('/earnings/payouts/{id}', [CourierEarningController::class, 'showPayout'])->name('earnings.payouts.show');
+        Route::post('/earnings/payouts/{id}/{action}', [CourierEarningController::class, 'payoutAction'])->name('earnings.payouts.action');
         Route::get('/account', [LogisticsAccountController::class, 'account'])->name('account');
         Route::put('/account', [LogisticsAccountController::class, 'updateAccount'])->name('account.update');
         Route::get('/company-address', [LogisticsAccountController::class, 'companyAddress'])->name('company-address');
@@ -463,6 +482,7 @@ Route::middleware(['auth.token', 'admin'])
     ->group(function () use ($sharedAdminRoutes): void {
         $sharedAdminRoutes();
 
+
         Route::get('/complaints', [ComplaintController::class, 'index'])->name('complaints.index');
 
         // Platform commission + escrow cash flow (incl. platform voucher subsidy).
@@ -470,14 +490,14 @@ Route::middleware(['auth.token', 'admin'])
         Route::get('/commissions/cash-flow', [CashFlowController::class, 'platform'])->name('commissions.cash-flow');
 
         // Platform vouchers (Vouchers modal).
-        Route::get('/vouchers', [\App\Http\Controllers\Admin\VoucherController::class, 'index'])->name('vouchers.index');
-        Route::get('/vouchers/options', [\App\Http\Controllers\Admin\VoucherController::class, 'options'])->name('vouchers.options');
-        Route::post('/vouchers', [\App\Http\Controllers\Admin\VoucherController::class, 'store'])->name('vouchers.store');
-        Route::get('/vouchers/{id}', [\App\Http\Controllers\Admin\VoucherController::class, 'show'])->name('vouchers.show');
-        Route::post('/vouchers/{id}/deactivate', [\App\Http\Controllers\Admin\VoucherController::class, 'deactivate'])->name('vouchers.deactivate');
-        Route::post('/vouchers/{id}/reactivate', [\App\Http\Controllers\Admin\VoucherController::class, 'reactivate'])->name('vouchers.reactivate');
-        Route::post('/vouchers/{id}/stock', [\App\Http\Controllers\Admin\VoucherController::class, 'addStock'])->name('vouchers.stock');
-        Route::delete('/vouchers/{id}', [\App\Http\Controllers\Admin\VoucherController::class, 'destroy'])->name('vouchers.destroy');
+        Route::get('/vouchers', [App\Http\Controllers\Admin\VoucherController::class, 'index'])->name('vouchers.index');
+        Route::get('/vouchers/options', [App\Http\Controllers\Admin\VoucherController::class, 'options'])->name('vouchers.options');
+        Route::post('/vouchers', [App\Http\Controllers\Admin\VoucherController::class, 'store'])->name('vouchers.store');
+        Route::get('/vouchers/{id}', [App\Http\Controllers\Admin\VoucherController::class, 'show'])->name('vouchers.show');
+        Route::post('/vouchers/{id}/deactivate', [App\Http\Controllers\Admin\VoucherController::class, 'deactivate'])->name('vouchers.deactivate');
+        Route::post('/vouchers/{id}/reactivate', [App\Http\Controllers\Admin\VoucherController::class, 'reactivate'])->name('vouchers.reactivate');
+        Route::post('/vouchers/{id}/stock', [App\Http\Controllers\Admin\VoucherController::class, 'addStock'])->name('vouchers.stock');
+        Route::delete('/vouchers/{id}', [App\Http\Controllers\Admin\VoucherController::class, 'destroy'])->name('vouchers.destroy');
         Route::get('/complaints/{complaint}', [ComplaintController::class, 'show'])->name('complaints.show');
         Route::put('/complaints/{complaint}', [ComplaintController::class, 'update'])->name('complaints.update');
 
@@ -503,9 +523,9 @@ Route::middleware(['auth.token', 'admin:logistics_admin'])
     ->group(function () use ($sharedAdminRoutes): void {
         $sharedAdminRoutes();
 
+
         Route::get('/compliance/products', [SellerComplianceController::class, 'index'])->name('compliance.products.index');
         Route::post('/compliance/products/{product}/actions', [SellerComplianceController::class, 'store'])->name('compliance.products.actions.store');
-
 
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');

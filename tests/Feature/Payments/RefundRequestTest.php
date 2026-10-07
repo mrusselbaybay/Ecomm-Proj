@@ -40,7 +40,7 @@ function refundScenario($buyer, $seller, array $request = []): OrderReturnReques
     ], $request));
 }
 
-it('approving claws back all four splits proportionally', function () {
+it('approving charges the seller and reverses goods commission while preserving logistics', function () {
     $buyer = makeBuyer();
     $seller = makeSeller();
     $request = refundScenario($buyer, $seller);
@@ -51,12 +51,13 @@ it('approving claws back all four splits proportionally', function () {
         ->assertJsonPath('data.status', 'approved')
         ->assertJsonPath('data.refundedAmount', 150);
 
-    // ₱150 of ₱166 refunded → each party keeps 16/166 of its share.
+    // Goods commission reverses; forward shipping and logistics remain paid.
     expect(LedgerEntry::balance('buyer', $buyer->id))->toBe(-1600)
         ->and(LedgerEntry::balance('seller', $seller->id)
             + LedgerEntry::balance('origin_logistics', RR_ORIGIN)
             + LedgerEntry::balance('platform'))->toBe(1600)
-        ->and(LedgerEntry::balance('seller', $seller->id))->toBe(1373)
+        ->and(LedgerEntry::balance('seller', $seller->id))->toBe(0)
+        ->and(LedgerEntry::balance('origin_logistics', RR_ORIGIN))->toBe(1520)
         ->and(LedgerEntry::balance('platform'))->toBe(80)
         ->and((int) LedgerEntry::sum('debit_cents'))->toBe((int) LedgerEntry::sum('credit_cents'));
 });

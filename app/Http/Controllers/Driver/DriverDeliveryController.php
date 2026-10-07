@@ -76,6 +76,7 @@ class DriverDeliveryController extends Controller
         private readonly ParcelIntakeService $parcelIntake,
         private readonly ParcelAutoAssignService $autoAssign,
         private readonly ReturnShipmentService $returns,
+        private readonly \App\Services\CourierEarningService $earnings,
     ) {}
 
     /**
@@ -169,6 +170,8 @@ class DriverDeliveryController extends Controller
             ->reject(fn (ParcelAssignment $assignment): bool => $assignment->rider_profile_id === $profile->id
                 && $this->awaitingDispatchDecision($assignment))
             ->values();
+
+        $this->earnings->preparePreviews($assignments);
 
         return response()->json([
             'data' => $assignments->map(fn (ParcelAssignment $assignment): array => $this->present($assignment, $profile))->values(),
@@ -390,6 +393,7 @@ class DriverDeliveryController extends Controller
                 'rider_profile_id' => null,
                 'picked_up_by' => $profile->id,
             ], $this->autoAssign->returnPickupBypass($lockedAssignment)));
+            $this->earnings->record($lockedAssignment, $profile->id, 'pickup', $photoPath);
         });
 
         $assignment->refresh()->load(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
@@ -412,13 +416,26 @@ class DriverDeliveryController extends Controller
         $data = $request->validate([
             'reason_code' => ['required', Rule::in(array_keys(DeliveryAttemptService::REASONS))],
             'description' => ['nullable', 'required_if:reason_code,others', 'string', 'max:1000'],
+            'photo' => ['required', 'file', 'mimes:jpg,jpeg,png', 'max:10240'],
         ]);
         $assignment = ParcelAssignment::with(['order', 'logisticsCompany'])->whereKey($parcelAssignment)
             ->where('rider_profile_id', $request->user()->id)->firstOrFail();
         if ($this->awaitingDispatchDecision($assignment)) {
             throw ValidationException::withMessages(['delivery' => 'This parcel is awaiting a dispatch decision.']);
         }
-        $assignment = $attempts->fail($parcelAssignment, $request->user()->id, $data['reason_code'], $data['description'] ?? null);
+        $file = $request->file('photo');
+        $proof = 'profile/'.$request->user()->id.'/failed-attempts/'.$assignment->id.'/'.Str::uuid().'.'.$file->extension();
+        try {
+            $this->files->upload(self::PHOTOS_BUCKET, $proof, file_get_contents($file->getRealPath()), $file->getMimeType());
+        } catch (\Throwable $e) {
+            Log::error('Failed-attempt proof upload failed: '.$e->getMessage());
+            return response()->json(['message' => 'Could not upload proof. Please try again.'], 500);
+        }
+        $assignment = DB::transaction(function () use ($attempts, $parcelAssignment, $request, $data, $proof) {
+            $assignment = $attempts->fail($parcelAssignment, $request->user()->id, $data['reason_code'], $data['description'] ?? null);
+            $this->earnings->record($assignment, $request->user()->id, 'failed_attempt', $proof, $data['reason_code'].(isset($data['description']) ? ': '.$data['description'] : ''));
+            return $assignment;
+        });
 
         return response()->json(['data' => $this->present($assignment->load(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']), $request->user())]);
     }
@@ -529,6 +546,9 @@ class DriverDeliveryController extends Controller
                 'delivered_at' => now(),
                 'delivery_photo_path' => $photoPath,
             ]);
+            $earnings = $this->earnings;
+            $earnings->record($assignment, $profile->id, 'delivery', $photoPath);
+            $earnings->collectCod($assignment, $profile->id);
         });
 
         $assignment->refresh()->load(['order.latestDeliveryAttempt', 'order.items.product', 'order.seller.sellerDetail', 'barangayAssignment', 'logisticsCompany', 'transferToCompany', 'returnRequest']);
@@ -576,6 +596,7 @@ class DriverDeliveryController extends Controller
             }
 
             $locked->update(['delivered_at' => now(), 'delivery_photo_path' => $photoPath]);
+            $this->earnings->record($locked, $profile->id, 'delivery', $photoPath);
 
             OrderStatusHistory::create([
                 'order_id' => $locked->order_id,
@@ -683,6 +704,7 @@ class DriverDeliveryController extends Controller
             ]);
 
             $receipt = $this->parcelIntake->createTransferReceipt($lockedAssignment, $targetCompany);
+            $this->earnings->record($lockedAssignment, $lockedAssignment->rider_profile_id, 'transfer', $photoPath);
 
             ParcelTransferRequest::query()
                 ->where('parcel_assignment_id', $lockedAssignment->id)
@@ -766,6 +788,9 @@ class DriverDeliveryController extends Controller
         ])->filter()->implode(', ') ?: null;
 
         return [
+            'earning_preview_cents' => $this->earnings->preview($assignment,
+                $assignment->status === ParcelAssignment::STATUS_ASSIGNED ? 'pickup' : ($assignment->transfer_to_company_id ? 'transfer' : 'delivery')),
+            'earning_is_estimate' => true,
             'id' => $assignment->id,
             'order_id' => $order?->id,
             'order_number' => $order?->order_number,

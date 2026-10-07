@@ -384,6 +384,7 @@ const sectionToPath = Object.fromEntries(
 const pathToSection = Object.fromEntries(
     Object.entries(sectionToPath).map(([section, path]) => [path, section]),
 );
+
 if (allowedSections.has('chat')) {
     pathToSection[`${pathBase}/chat`] = 'chat';
 }

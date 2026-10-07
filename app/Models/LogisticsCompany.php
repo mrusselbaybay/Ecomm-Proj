@@ -27,6 +27,8 @@ class LogisticsCompany extends Model
         'account_status',
         'description',
         'monthly_salary',
+        'courier_share_bps', 'pickup_weight', 'transfer_weight', 'delivery_weight',
+        'cod_overdue_days', 'early_cashout_minimum_cents',
         'is_hiring',
         // Company-wide "Auto assign" rotation cursor — see
         // App\Services\ParcelAutoAssignService's fallback pool.
@@ -38,6 +40,8 @@ class LogisticsCompany extends Model
         'updated_at' => 'datetime',
         'monthly_salary' => 'decimal:2',
         'is_hiring' => 'boolean',
+        'courier_share_bps' => 'integer', 'pickup_weight' => 'integer', 'transfer_weight' => 'integer',
+        'delivery_weight' => 'integer', 'cod_overdue_days' => 'integer', 'early_cashout_minimum_cents' => 'integer',
     ];
 
     public function owner()

@@ -13,7 +13,7 @@ use Illuminate\Validation\ValidationException;
  * Seller decision on a buyer's return/refund request.
  *
  * Refund only: approval refunds the item amount through the mock escrow
- * right away, reversing all four splits proportionally.
+ * right away, with the seller funding the refund and logistics keeping its share.
  *
  * Return + Refund: approval only starts the reverse delivery
  * (ReturnShipmentService); the refund is paid once the item is back with
@@ -67,7 +67,8 @@ class RefundRequestService
                 return $locked;
             }
 
-            $this->payments->refundBuyer($order->id, Money::format($amount), "return:{$locked->id}");
+            $this->payments->settleRefundOnly($order->id, $locked->id, $amount,
+                Money::toCents($locked->voucher_discount ?? 0), Money::toCents($locked->platform_discount ?? 0));
 
             $locked->forceFill([
                 'status' => 'approved',

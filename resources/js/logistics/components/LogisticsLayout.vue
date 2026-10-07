@@ -259,6 +259,9 @@ const AccountSettings = defineAsyncComponent(
 );
 const Messages = defineAsyncComponent(() => import('./Messages.vue'));
 const Reports = defineAsyncComponent(() => import('./Reports.vue'));
+const EarningsWorkspace = defineAsyncComponent(
+    () => import('../../shared/Earnings/EarningsWorkspace.vue'),
+);
 const Team = defineAsyncComponent(() => import('./Team.vue'));
 const CustomerServicePage = defineAsyncComponent(
     () => import('../../shared/CustomerServicePage.vue'),
@@ -306,6 +309,7 @@ const navGroups = [
                 icon: 'support',
             },
             { key: 'reports', label: 'Reports', icon: 'reports' },
+            { key: 'earnings', label: 'Earnings & Payouts', icon: 'reports' },
             { key: 'team', label: 'Team', icon: 'team' },
             { key: 'account', label: 'Account Settings', icon: 'account' },
         ],
@@ -331,6 +335,7 @@ const TAB_COMPONENTS = {
     applications: Applications,
     messages: Messages,
     reports: Reports,
+    earnings: EarningsWorkspace,
     team: Team,
     'customer-service': CustomerServicePage,
     account: AccountSettings,
@@ -348,9 +353,13 @@ const activeComponent = computed(
 
 // Only the placeholder takes a prop; binding `section` on the real pages
 // would leak a stray attribute onto their root element.
-const activeProps = computed(() =>
-    TAB_COMPONENTS[activeTab.value] ? {} : { section: activeTab.value },
-);
+const activeProps = computed(() => {
+    if (activeTab.value === 'earnings') {
+        return { mode: 'logistics' };
+    }
+
+    return TAB_COMPONENTS[activeTab.value] ? {} : { section: activeTab.value };
+});
 
 /**
  * Rider Applications carries both open applications and resignations;
