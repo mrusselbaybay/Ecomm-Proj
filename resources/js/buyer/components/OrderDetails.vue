@@ -27,10 +27,9 @@
 |     there's no stored card/payment-method vault to draw that from.
 |
 */
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerChat } from '../composables/useBuyerChat';
-import { metaFor } from '../composables/useCategoryMeta';
 import { useConfirm } from '../composables/useConfirm';
 import {
     trackingSteps,
@@ -41,6 +40,7 @@ import {
     timelineTimestamp
 } from '../composables/useOrderTimeline';
 import { useToasts } from '../composables/useToasts';
+import OrderItemThumb from './OrderItemThumb.vue';
 import ReturnRequestModal from './ReturnRequestModal.vue';
 import ReviewModal from './ReviewModal.vue';
 
@@ -69,6 +69,7 @@ const {
     ORDER_STATUSES,
     cancelOrder,
     submitReview,
+    updateReview,
     submitReturnRequest
 } = useBuyer();
 
@@ -117,10 +118,55 @@ const orderTotals = computed(() => ({
 const isReviewModalOpen = ref(false);
 const selectedReviewItem = ref(null);
 const selectedReviewItemIndex = ref(-1);
+// The review being edited (null: writing a new one).
+const editingReview = ref(null);
+const reviewSaving = ref(false);
+const reviewError = ref('');
+// Order item ids whose review is expanded ("View review").
+const openReviews = ref(new Set());
+// The button that opened the review modal, refocused when it closes
+// (Safari doesn't focus buttons on click, so document.activeElement
+// can't be relied on).
+let reviewTrigger = null;
+
+function restoreReviewFocus() {
+    const trigger = reviewTrigger;
+
+    reviewTrigger = null;
+    nextTick(() => {
+        if (trigger?.isConnected) {
+            trigger.focus();
+        } else {
+            // The button changed (Review product -> Edit review): the
+            // item's Edit button takes focus instead.
+            document.querySelector(`[data-review-edit="${CSS.escape(String(lastReviewedItemId))}"]`)?.focus();
+        }
+    });
+}
+
+let lastReviewedItemId = null;
+
+function toggleReview(item) {
+    const next = new Set(openReviews.value);
+
+    if (next.has(item.id)) {
+        next.delete(item.id);
+    } else {
+        next.add(item.id);
+    }
+
+    openReviews.value = next;
+}
+
+function formatShortDate(date) {
+    return date ? new Date(date).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+}
 
 const isReturnModalOpen = ref(false);
 const selectedReturnItem = ref(null);
 const selectedReturnItemIndex = ref(-1);
+const returnSaving = ref(false);
+const returnError = ref('');
 
 function formatPrice(price) {
     return `₱${Number(price || 0).toFixed(2)}`;
@@ -264,29 +310,66 @@ async function handleCancelOrder() {
     success(`Order ${props.order.orderId} was cancelled.`);
 }
 
-function openReviewModal(item, index) {
+// Eligibility is the server's (Buyer\ReviewController: own order,
+// Delivered, one review per item); this only decides which button shows.
+function openReviewModal(item, index, event) {
     if (!canReviewOrder.value || item.review) {
         return;
     }
 
+    reviewTrigger = event?.currentTarget || null;
+    lastReviewedItemId = item.id;
+
     selectedReviewItem.value = item;
     selectedReviewItemIndex.value = index;
+    editingReview.value = null;
+    reviewError.value = '';
+    isReviewModalOpen.value = true;
+}
+
+function openEditReview(item, index, event) {
+    if (!item.review) {
+        return;
+    }
+
+    reviewTrigger = event?.currentTarget || null;
+    lastReviewedItemId = item.id;
+
+    selectedReviewItem.value = item;
+    selectedReviewItemIndex.value = index;
+    editingReview.value = item.review;
+    reviewError.value = '';
     isReviewModalOpen.value = true;
 }
 
 function closeReviewModal() {
-    isReviewModalOpen.value = false;
-    selectedReviewItem.value = null;
-    selectedReviewItemIndex.value = -1;
-}
-
-async function handleReviewSubmit(reviewData) {
-    if (!props.order || selectedReviewItemIndex.value < 0 || !selectedReviewItem.value) {
+    if (reviewSaving.value) {
         return;
     }
 
+    isReviewModalOpen.value = false;
+    selectedReviewItem.value = null;
+    selectedReviewItemIndex.value = -1;
+    editingReview.value = null;
+    reviewError.value = '';
+    restoreReviewFocus();
+}
+
+async function handleReviewSubmit(reviewData) {
+    if (!props.order || selectedReviewItemIndex.value < 0 || !selectedReviewItem.value || reviewSaving.value) {
+        return;
+    }
+
+    reviewSaving.value = true;
+    reviewError.value = '';
+
+    const editing = editingReview.value;
+    const item = selectedReviewItem.value;
+
     try {
-        const review = await submitReview(selectedReviewItem.value.id, reviewData);
+        const review = editing
+            ? await updateReview(editing.id, reviewData)
+            : await submitReview(item.id, reviewData);
 
         // props.order is the same reactive object Orders.vue holds in its
         // `orders` list (passed down by reference, not copied), so this
@@ -295,10 +378,19 @@ async function handleReviewSubmit(reviewData) {
         // worth the round trip for what's otherwise already known here.
         props.order.items[selectedReviewItemIndex.value].review = review;
 
+        // Show what was just saved.
+        openReviews.value = new Set([...openReviews.value, item.id]);
+
+        reviewSaving.value = false;
         closeReviewModal();
-        success('Review submitted. Thanks for the feedback!');
+        success(editing ? 'Your review was updated.' : 'Review submitted. Thanks for the feedback!');
     } catch (err) {
-        toastError(err?.message || 'We couldn\'t submit this review right now. Please try again.');
+        // The modal stays open with everything the buyer entered.
+        reviewError.value = err?.body?.errors
+            ? Object.values(err.body.errors).flat()[0]
+            : (err?.message || 'We couldn’t save this review right now. Please try again.');
+    } finally {
+        reviewSaving.value = false;
     }
 }
 
@@ -309,19 +401,28 @@ function openReturnModal(item, index) {
 
     selectedReturnItem.value = item;
     selectedReturnItemIndex.value = index;
+    returnError.value = '';
     isReturnModalOpen.value = true;
 }
 
 function closeReturnModal() {
+    if (returnSaving.value) {
+        return;
+    }
+
     isReturnModalOpen.value = false;
+    returnError.value = '';
     selectedReturnItem.value = null;
     selectedReturnItemIndex.value = -1;
 }
 
 async function handleReturnSubmit(requestData) {
-    if (!props.order || selectedReturnItemIndex.value < 0 || !selectedReturnItem.value) {
+    if (!props.order || selectedReturnItemIndex.value < 0 || !selectedReturnItem.value || returnSaving.value) {
         return;
     }
+
+    returnSaving.value = true;
+    returnError.value = '';
 
     try {
         const returnRequest = await submitReturnRequest(selectedReturnItem.value.id, requestData);
@@ -331,10 +432,16 @@ async function handleReturnSubmit(requestData) {
         // submitted request without a full re-fetch.
         props.order.items[selectedReturnItemIndex.value].returnRequest = returnRequest;
 
+        returnSaving.value = false;
         closeReturnModal();
         success('Return request submitted. The seller will review it shortly.');
     } catch (err) {
-        toastError(err?.message || 'We couldn\'t submit this request. The item may already have an open request, or the order isn\'t eligible.');
+        // The modal stays open with everything the buyer entered.
+        returnError.value = err?.body?.errors
+            ? Object.values(err.body.errors).flat()[0]
+            : (err?.message || 'We couldn’t submit this request. The item may already have an open request, or the order isn’t eligible.');
+    } finally {
+        returnSaving.value = false;
     }
 }
 
@@ -522,13 +629,11 @@ async function copyTrackingNumber() {
                                 class="p-8"
                             >
                                 <div class="flex flex-col sm:flex-row sm:items-center gap-6">
-                                    <div
-                                        class="w-24 h-24 rounded-2xl flex items-center justify-center shrink-0"
-                                        :class="'accent-' + metaFor(item.category).accent"
-                                        style="background: var(--accent-bg, #f1f5f9); color: var(--accent-fg, #64748b);"
-                                    >
-                                        <span class="w-9 h-9" v-html="metaFor(item.category).icon"></span>
-                                    </div>
+                                    <OrderItemThumb
+                                        :src="item.image || ''"
+                                        :category="item.category || ''"
+                                        size="lg"
+                                    />
                                     <div class="flex-1">
                                         <h3 class="font-bold text-slate-900">{{ item.name || `Product #${item.product_id}` }}</h3>
                                         <p class="text-sm text-slate-500 mt-1">
@@ -546,39 +651,94 @@ async function copyTrackingNumber() {
                                     </div>
                                 </div>
 
-                                <!-- Review -->
+                                <!-- Review actions, per purchased item -->
                                 <div
                                     v-if="canReviewOrder"
-                                    class="mt-6 pt-6 border-t border-slate-50"
+                                    class="od-review-actions"
                                 >
-                                    <div
-                                        v-if="item.review"
-                                        class="bg-slate-50 rounded-2xl p-5"
-                                    >
-                                        <div class="flex items-center justify-between mb-2">
-                                            <strong class="text-sm text-slate-900">Your review</strong>
-                                            <div
-                                                class="text-amber-400 text-sm"
-                                                :aria-label="`${item.review.rating} out of 5 stars`"
-                                            >
-                                                <span
-                                                    v-for="star in 5"
-                                                    :key="star"
-                                                    :class="star > item.review.rating ? 'text-slate-200' : ''"
-                                                >&#9733;</span>
-                                            </div>
-                                        </div>
-                                        <p class="text-sm text-slate-600">{{ item.review.comment || 'No written comment was added.' }}</p>
-                                        <small class="text-xs text-slate-400 block mt-2">Submitted {{ formatLongDate(item.review.createdAt) }}</small>
-                                    </div>
                                     <button
-                                        v-else
+                                        v-if="!item.review"
                                         type="button"
-                                        class="px-4 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
-                                        @click="openReviewModal(item, index)"
+                                        class="btn btn-secondary od-review-btn"
+                                        @click="openReviewModal(item, index, $event)"
                                     >
-                                        Rate Product
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z" /></svg>
+                                        Review product
                                     </button>
+                                    <template v-else>
+                                        <span class="od-reviewed">
+                                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z" /></svg>
+                                            You rated this {{ item.review.rating }}/5
+                                        </span>
+                                        <button
+                                            type="button"
+                                            class="btn btn-ghost od-review-btn"
+                                            :aria-expanded="openReviews.has(item.id)"
+                                            :aria-controls="`od-review-${item.id}`"
+                                            @click="toggleReview(item)"
+                                        >
+                                            {{ openReviews.has(item.id) ? 'Hide review' : 'View review' }}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="btn btn-secondary od-review-btn"
+                                            :data-review-edit="item.id"
+                                            @click="openEditReview(item, index, $event)"
+                                        >
+                                            Edit review
+                                        </button>
+                                    </template>
+                                </div>
+
+                                <!-- The buyer's review (View review) -->
+                                <div
+                                    v-if="item.review && openReviews.has(item.id)"
+                                    :id="`od-review-${item.id}`"
+                                    class="od-review"
+                                >
+                                    <div class="od-review-head">
+                                        <span
+                                            class="od-review-stars"
+                                            role="img"
+                                            :aria-label="`${item.review.rating} out of 5 stars`"
+                                        >
+                                            <svg
+                                                v-for="star in 5"
+                                                :key="star"
+                                                viewBox="0 0 24 24"
+                                                width="16"
+                                                height="16"
+                                                :class="{ 'is-on': star <= item.review.rating }"
+                                                aria-hidden="true"
+                                            ><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z" /></svg>
+                                        </span>
+                                        <span class="od-review-date">
+                                            {{ formatShortDate(item.review.createdAt) }}<template v-if="item.review.isEdited"> · Edited</template>
+                                        </span>
+                                    </div>
+                                    <p class="od-review-text">{{ item.review.comment || 'No written review.' }}</p>
+                                    <ul
+                                        v-if="item.review.images?.length"
+                                        class="od-review-photos"
+                                    >
+                                        <li
+                                            v-for="(url, photoIndex) in item.review.images"
+                                            :key="url"
+                                        >
+                                            <a
+                                                :href="url"
+                                                target="_blank"
+                                                rel="noopener"
+                                                :aria-label="`Open photo ${photoIndex + 1} in a new tab`"
+                                            >
+                                                <img
+                                                    :src="url"
+                                                    alt=""
+                                                    loading="lazy"
+                                                >
+                                            </a>
+                                        </li>
+                                    </ul>
                                 </div>
 
                                 <!-- Return / Refund -->
@@ -836,6 +996,9 @@ async function copyTrackingNumber() {
             :show="isReviewModalOpen"
             :item="selectedReviewItem"
             :order-id="order.orderId"
+            :review="editingReview"
+            :saving="reviewSaving"
+            :error="reviewError"
             @close="closeReviewModal"
             @submit="handleReviewSubmit"
         />
@@ -844,6 +1007,8 @@ async function copyTrackingNumber() {
             :show="isReturnModalOpen"
             :item="selectedReturnItem"
             :order-id="order.orderId"
+            :saving="returnSaving"
+            :error="returnError"
             @close="closeReturnModal"
             @submit="handleReturnSubmit"
         />

@@ -5,7 +5,8 @@
 |--------------------------------------------------------------------------
 |
 | The buyer's address book (useBuyerAddresses -> /api/buyer/addresses).
-| One form handles add and edit and opens in place; delete asks first;
+| One form handles add and edit, in a BaseModal (closing it with unsaved
+| changes asks first, inside the dialog); delete asks first;
 | the server keeps exactly one default. The list is shown only after this
 | session's own server load, never from a cache another account on the
 | same browser may have left behind.
@@ -14,12 +15,13 @@
 | 4-digit postal code), so saved addresses keep working there.
 |
 */
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useBuyerAddresses } from '../composables/useBuyerAddresses';
 import { registerUnsavedGuard } from '../composables/useAccountNav';
 import { isValidLocalMobile, toLocalMobile } from '../composables/usePhone';
 import { useConfirm } from '../composables/useConfirm';
 import { useToasts } from '../composables/useToasts';
+import BaseModal from './BaseModal.vue';
 
 const { addresses, loadError, ADDRESS_LABELS, loadAddresses, addAddress, updateAddress, removeAddress, setDefault } = useBuyerAddresses();
 const { confirm } = useConfirm();
@@ -53,8 +55,8 @@ const original = ref({ ...EMPTY });
 const errors = ref({});
 const formError = ref('');
 const saving = ref(false);
-const firstField = ref(null);
-const formAnchor = ref(null);
+// Set on open only, so the title doesn't flip while the dialog closes.
+const formTitle = ref('New address');
 
 const dirty = computed(() => formOpen.value && Object.keys(EMPTY).some(key => form[key] !== original.value[key]));
 
@@ -78,16 +80,20 @@ function openForm(address = null) {
     original.value = { ...values };
     errors.value = {};
     formError.value = '';
+    formTitle.value = address ? 'Edit address' : 'New address';
     formOpen.value = true;
-
-    nextTick(() => {
-        formAnchor.value?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        firstField.value?.focus({ preventScroll: true });
-    });
 }
 
 function closeForm() {
+    if (saving.value) {
+        return;
+    }
+
     formOpen.value = false;
+}
+
+// Cleared once the dialog has gone, so nothing changes while it fades.
+function resetForm() {
     editingId.value = null;
     errors.value = {};
     formError.value = '';
@@ -96,6 +102,15 @@ function closeForm() {
 const unregister = registerUnsavedGuard({ label: 'Addresses', isDirty: () => dirty.value, discard: closeForm });
 
 onBeforeUnmount(unregister);
+
+// A field's error goes as soon as that field is edited.
+watch(() => ({ ...form }), (next, previous) => {
+    const fixed = Object.keys(errors.value).filter(key => next[key] !== previous[key]);
+
+    if (fixed.length) {
+        errors.value = Object.fromEntries(Object.entries(errors.value).filter(([key]) => !fixed.includes(key)));
+    }
+});
 
 function onPhoneInput(event) {
     form.phone = toLocalMobile(event.target.value);
@@ -139,7 +154,12 @@ async function submit() {
     formError.value = '';
 
     if (!validate()) {
-        nextTick(() => document.querySelector('.acc-address-form [aria-invalid="true"]')?.focus());
+        nextTick(() => {
+            const invalid = document.querySelector('.acc-address-form [aria-invalid="true"]');
+
+            invalid?.focus();
+            invalid?.scrollIntoView({ block: 'nearest' });
+        });
 
         return;
     }
@@ -159,6 +179,7 @@ async function submit() {
             toasts.success('Address added.');
         }
 
+        saving.value = false;
         closeForm();
     } catch (err) {
         // Keep the form and its input; explain what went wrong.
@@ -214,6 +235,8 @@ async function remove(address) {
     try {
         await removeAddress(address.id);
         toasts.success('Address deleted.');
+        // The row (and the Delete button that had focus) is gone.
+        nextTick(() => document.querySelector('.acc-section .btn-primary')?.focus());
     } catch (err) {
         toasts.error(err?.message || 'Could not delete this address.');
     } finally {
@@ -243,7 +266,7 @@ function cityLine(address) {
                 <p class="acc-lede">Where your orders can be delivered. The default is picked first at checkout.</p>
             </div>
             <button
-                v-if="ready && !formOpen"
+                v-if="ready && addresses.length"
                 type="button"
                 class="btn btn-primary"
                 @click="openForm()"
@@ -252,29 +275,29 @@ function cityLine(address) {
             </button>
         </header>
 
-        <div ref="formAnchor"></div>
-
-        <Transition name="acc-expand">
+        <BaseModal
+            :open="formOpen"
+            size="md"
+            :title="formTitle"
+            description="Checkout fills this in for you when you order."
+            close-label="Close address form"
+            :busy="saving"
+            :dirty="dirty"
+            initial-focus="#acc-addr-name"
+            @close="closeForm"
+            @after-leave="resetForm"
+        >
             <form
-                v-if="formOpen"
-                class="acc-form acc-address-form acc-panel"
+                id="acc-address-form"
+                class="acc-form acc-address-form"
                 novalidate
-                :aria-labelledby="'acc-address-form-title'"
                 @submit.prevent="submit"
             >
-                <h2
-                    id="acc-address-form-title"
-                    class="acc-subtitle"
-                >
-                    {{ editingId ? 'Edit address' : 'New address' }}
-                </h2>
-
                 <div class="acc-grid">
                     <div class="acc-field">
                         <label for="acc-addr-name">Recipient name</label>
                         <input
                             id="acc-addr-name"
-                            ref="firstField"
                             v-model="form.fullName"
                             type="text"
                             autocomplete="name"
@@ -285,7 +308,7 @@ function cityLine(address) {
                         <p
                             v-if="errors.fullName"
                             id="acc-addr-name-err"
-                            class="acc-error"
+                            class="acc-error nx-field-error"
                         >
                             {{ errors.fullName }}
                         </p>
@@ -306,7 +329,7 @@ function cityLine(address) {
                         <p
                             v-if="errors.phone"
                             id="acc-addr-phone-err"
-                            class="acc-error"
+                            class="acc-error nx-field-error"
                         >
                             {{ errors.phone }}
                         </p>
@@ -327,7 +350,7 @@ function cityLine(address) {
                     <p
                         v-if="errors.line1"
                         id="acc-addr-line1-err"
-                        class="acc-error"
+                        class="acc-error nx-field-error"
                     >
                         {{ errors.line1 }}
                     </p>
@@ -347,7 +370,7 @@ function cityLine(address) {
                         <p
                             v-if="errors.city"
                             id="acc-addr-city-err"
-                            class="acc-error"
+                            class="acc-error nx-field-error"
                         >
                             {{ errors.city }}
                         </p>
@@ -365,7 +388,7 @@ function cityLine(address) {
                         <p
                             v-if="errors.province"
                             id="acc-addr-province-err"
-                            class="acc-error"
+                            class="acc-error nx-field-error"
                         >
                             {{ errors.province }}
                         </p>
@@ -385,7 +408,7 @@ function cityLine(address) {
                         <p
                             v-if="errors.postalCode"
                             id="acc-addr-zip-err"
-                            class="acc-error"
+                            class="acc-error nx-field-error"
                         >
                             {{ errors.postalCode }}
                         </p>
@@ -422,31 +445,39 @@ function cityLine(address) {
 
                 <p
                     v-if="formError"
-                    class="acc-error acc-form-error"
+                    class="nx-form-alert"
                     role="alert"
                 >
-                    {{ formError }}
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7.5v5.5M12 16.5h.01" /></svg>
+                    <span>{{ formError }}</span>
                 </p>
-
-                <div class="acc-actions">
-                    <button
-                        type="submit"
-                        class="btn btn-primary"
-                        :disabled="saving"
-                    >
-                        {{ saving ? 'Saving…' : editingId ? 'Save address' : 'Add address' }}
-                    </button>
-                    <button
-                        type="button"
-                        class="btn btn-ghost"
-                        :disabled="saving"
-                        @click="closeForm"
-                    >
-                        Cancel
-                    </button>
-                </div>
             </form>
-        </Transition>
+
+            <template #footer="{ requestClose }">
+                <button
+                    type="button"
+                    class="btn btn-ghost"
+                    :aria-disabled="saving ? 'true' : undefined"
+                    @click="requestClose"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="submit"
+                    form="acc-address-form"
+                    class="btn btn-primary"
+                    :aria-disabled="saving ? 'true' : undefined"
+                    :aria-busy="saving ? 'true' : undefined"
+                >
+                    <span
+                        v-if="saving"
+                        class="nx-spinner"
+                        aria-hidden="true"
+                    ></span>
+                    {{ saving ? 'Saving…' : 'Save Address' }}
+                </button>
+            </template>
+        </BaseModal>
 
         <!-- List -->
         <div
@@ -474,7 +505,7 @@ function cityLine(address) {
         </div>
 
         <div
-            v-else-if="!addresses.length && !formOpen"
+            v-else-if="!addresses.length"
             class="acc-empty"
         >
             <p class="acc-empty-title">No saved addresses yet</p>
