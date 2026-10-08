@@ -30,6 +30,7 @@ import { metaFor, formatPrice } from '../composables/useCategoryMeta';
 import { shippingOptions } from '../composables/useShipping';
 import { paymentMethods } from '../composables/usePayment';
 import { useToasts } from '../composables/useToasts';
+import { reviewsVersion } from '../composables/useReviewSync';
 import Footer from './Footer.vue';
 import Header from './Header.vue';
 import ProductCard from './ProductCard.vue';
@@ -252,6 +253,10 @@ const displayPrice = computed(() => {
     return Number(props.product.price);
 });
 
+// Once the price has changed (another variant chosen), each new price
+// settles in (.nx-value-in) so the change is noticed. Never on first show.
+const priceChanged = ref(false);
+
 const formattedPrice = computed(() => {
     if (displayPrice.value !== null) {
         return formatPrice(displayPrice.value);
@@ -262,6 +267,12 @@ const formattedPrice = computed(() => {
     }
 
     return props.product ? formatPrice(props.product.price) : '';
+});
+
+watch(formattedPrice, (next, previous) => {
+    if (previous && next !== previous) {
+        priceChanged.value = true;
+    }
 });
 
 const isPriceRange = computed(() => displayPrice.value === null && variantPrices.value.length > 1);
@@ -520,6 +531,16 @@ const purchaseStatus = computed(() => {
         return null;
     }
 
+    // Opened from a search card, which carries no options: Dashboard is
+    // fetching the full product, and nothing can be chosen until it lands.
+    if (hasVariants.value && product.detailsPending) {
+        return { tone: 'neutral', label: 'Loading options…', reason: 'Loading this product’s options…' };
+    }
+
+    if (hasVariants.value && product.detailsError) {
+        return { tone: 'out', label: 'Options unavailable', reason: product.detailsError };
+    }
+
     if (hasVariants.value) {
         if (!anyVariantBuyable.value) {
             return { tone: 'out', label: 'Out of stock', reason: 'Every option is sold out right now.', offerSimilar: true };
@@ -722,6 +743,19 @@ async function loadMoreReviews() {
     }
 }
 
+// Same product, new review numbers: the live product arrived (Dashboard
+// refreshes it on open) or a review was written / edited / deleted in this
+// tab (an edit can change only the text, hence reviewsVersion). Reload the
+// list so it matches the rating shown above it.
+watch(
+    () => [props.product?.id, reviewCount.value, props.product?.rating, reviewsVersion.value],
+    ([id], [previousId]) => {
+        if (id && id === previousId) {
+            loadReviews();
+        }
+    }
+);
+
 function setReviewFilter(filter) {
     reviewFilter.value = reviewFilter.value === filter ? 'all' : filter;
     loadReviews();
@@ -746,6 +780,74 @@ const reviewFilterLabel = computed(() => {
     }
 
     return typeof reviewFilter.value === 'number' ? `with ${reviewFilter.value} ${reviewFilter.value === 1 ? 'star' : 'stars'}` : '';
+});
+
+// The heading and summary count: the loaded summary once it's in (same
+// eligible reviews as the product's own count, App\Support\ReviewStats).
+const reviewTotal = computed(() => Number(reviewSummary.value?.total ?? reviewCount.value) || 0);
+
+/*
+| Long reviews start clamped to five lines with "Read more". Expanding and
+| collapsing ease the text's height between the two sizes (an accordion:
+| the one place a height transition is the right tool), instantly under
+| reduced motion.
+*/
+
+const LONG_REVIEW_CHARS = 420;
+const LONG_REVIEW_LINES = 5;
+
+const expandedReviews = ref(new Set());
+
+function isLongReview(review) {
+    const text = String(review?.comment || '');
+
+    return text.length > LONG_REVIEW_CHARS || text.split('\n').length > LONG_REVIEW_LINES;
+}
+
+function toggleReview(review) {
+    const next = new Set(expandedReviews.value);
+    const expanding = !next.has(review.id);
+
+    if (expanding) {
+        next.add(review.id);
+    } else {
+        next.delete(review.id);
+    }
+
+    const el = document.getElementById(`pd-rtext-${review.id}`);
+
+    if (!el || prefersReducedMotion) {
+        expandedReviews.value = next;
+
+        return;
+    }
+
+    el.style.maxHeight = `${el.getBoundingClientRect().height}px`;
+    expandedReviews.value = next;
+
+    nextTick(() => {
+        const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 24;
+        const target = expanding ? el.scrollHeight : lineHeight * LONG_REVIEW_LINES;
+        let finished = false;
+
+        const finish = () => {
+            if (!finished) {
+                finished = true;
+                el.style.maxHeight = '';
+                el.removeEventListener('transitionend', finish);
+            }
+        };
+
+        el.getBoundingClientRect();
+        el.style.maxHeight = `${target}px`;
+        el.addEventListener('transitionend', finish);
+        setTimeout(finish, 400);
+    });
+}
+
+// A different product starts with every review collapsed.
+watch(() => props.product?.id, () => {
+    expandedReviews.value = new Set();
 });
 
 const hasMoreReviews = computed(() => !!reviewMeta.value && reviewMeta.value.current_page < reviewMeta.value.last_page);
@@ -1640,7 +1742,11 @@ watch(
                                 v-if="isPriceRange"
                                 class="pd-price-from"
                             >Price range</span>
-                            <span class="pd-price">{{ formattedPrice }}</span>
+                            <span
+                                :key="formattedPrice"
+                                class="pd-price"
+                                :class="{ 'nx-value-in': priceChanged }"
+                            >{{ formattedPrice }}</span>
                             <s
                                 v-if="hasDiscount"
                                 class="pd-old-price"
@@ -2276,12 +2382,24 @@ watch(
                 class="pd-reviews"
                 aria-labelledby="pd-reviews-title"
             >
-                <h2
-                    id="pd-reviews-title"
-                    class="pd-h2"
-                >
-                    Customer reviews
-                </h2>
+                <header class="pd-reviews-head">
+                    <h2
+                        id="pd-reviews-title"
+                        class="pd-reviews-title"
+                    >
+                        Customer Reviews
+                        <span
+                            v-if="hasReviews"
+                            class="pd-reviews-total"
+                        >({{ reviewTotal.toLocaleString('en-PH') }})</span>
+                    </h2>
+                    <p
+                        v-if="hasReviews"
+                        class="pd-reviews-sub"
+                    >
+                        From buyers who received this product.
+                    </p>
+                </header>
 
                 <div
                     v-if="!hasReviews"
@@ -2297,17 +2415,19 @@ watch(
                 >
                     <!-- Summary column -->
                     <div class="pd-rsum">
-                        <p class="pd-rsum-score">
-                            <span class="pd-rsum-number">{{ product.rating.toFixed(1) }}</span>
-                            <span class="pd-rsum-out">out of 5</span>
-                        </p>
-                        <StarRating
-                            :rating="product.rating"
-                            :size="18"
-                        />
-                        <p class="pd-rsum-count">
-                            {{ reviewCount }} {{ reviewCount === 1 ? 'review' : 'reviews' }}
-                        </p>
+                        <div class="pd-rsum-top">
+                            <p class="pd-rsum-score">
+                                <span class="pd-rsum-number">{{ product.rating.toFixed(1) }}</span>
+                                <span class="pd-rsum-out">out of 5</span>
+                            </p>
+                            <StarRating
+                                :rating="product.rating"
+                                :size="18"
+                            />
+                            <p class="pd-rsum-count">
+                                Based on {{ reviewTotal.toLocaleString('en-PH') }} {{ reviewTotal === 1 ? 'review' : 'reviews' }}
+                            </p>
+                        </div>
 
                         <ul
                             class="pd-bars"
@@ -2334,7 +2454,7 @@ watch(
                                     >
                                         <span
                                             class="pd-bar-fill"
-                                            :style="{ width: `${row.percent}%` }"
+                                            :style="{ transform: `scaleX(${row.percent / 100})` }"
                                         ></span>
                                     </span>
                                     <span class="pd-bar-count">{{ reviewSummary ? row.count : '' }}</span>
@@ -2393,140 +2513,178 @@ watch(
                             </p>
                         </div>
 
-                        <ul
-                            v-if="reviewsLoading"
-                            class="pd-rentries"
-                            aria-hidden="true"
+                        <!-- A filter change cross-fades the list instead of
+                             swapping it abruptly. -->
+                        <Transition
+                            name="pd-rswap"
+                            mode="out-in"
                         >
-                            <li
-                                v-for="n in 3"
-                                :key="n"
-                                class="pd-rentry"
+                            <ul
+                                v-if="reviewsLoading"
+                                key="loading"
+                                class="pd-rentries"
+                                aria-hidden="true"
                             >
-                                <span class="skeleton is-line pd-sk-short"></span>
-                                <span class="skeleton is-line"></span>
-                                <span class="skeleton is-line"></span>
-                            </li>
-                        </ul>
-
-                        <div
-                            v-else-if="reviewsError"
-                            class="pd-rstate"
-                            role="alert"
-                        >
-                            <p>{{ reviewsError }}</p>
-                            <button
-                                type="button"
-                                class="btn btn-secondary"
-                                @click="loadReviews"
-                            >
-                                Try again
-                            </button>
-                        </div>
-
-                        <div
-                            v-else-if="reviewItems.length === 0"
-                            class="pd-rstate"
-                        >
-                            <p>No reviews {{ reviewFilterLabel }} yet.</p>
-                            <button
-                                type="button"
-                                class="link-btn"
-                                @click="setReviewFilter('all')"
-                            >
-                                Show all reviews
-                            </button>
-                        </div>
-
-                        <template v-else>
-                            <ul class="pd-rentries">
                                 <li
-                                    v-for="review in reviewItems"
-                                    :key="review.id"
+                                    v-for="n in 3"
+                                    :key="n"
                                     class="pd-rentry"
                                 >
-                                    <div class="pd-rentry-head">
-                                        <StarRating
-                                            :rating="review.rating"
-                                            :size="14"
-                                        />
-                                        <span
-                                            v-if="review.verifiedPurchase"
-                                            class="pd-verified"
-                                        >
-                                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
-                                            Verified purchase
-                                        </span>
-                                    </div>
-                                    <p class="pd-rentry-by">
-                                        <strong>{{ review.author }}</strong>
-                                        <span v-if="formatReviewDate(review.createdAt)"> &middot; {{ formatReviewDate(review.createdAt) }}</span>
-                                        <span v-if="review.isEdited"> (edited)</span>
-                                    </p>
-                                    <p
-                                        v-if="variantLabel(review.variant)"
-                                        class="pd-rentry-variant"
-                                    >
-                                        Bought: {{ variantLabel(review.variant) }}
-                                    </p>
-                                    <p
-                                        v-if="review.comment"
-                                        class="pd-rentry-text"
-                                    >
-                                        {{ review.comment }}
-                                    </p>
-                                    <p
-                                        v-else
-                                        class="pd-rentry-text is-empty"
-                                    >
-                                        Rated without a written review.
-                                    </p>
-
-                                    <div
-                                        v-if="review.images && review.images.length"
-                                        class="pd-rentry-photos"
-                                    >
-                                        <button
-                                            v-for="(src, index) in review.images"
-                                            :key="src"
-                                            type="button"
-                                            class="pd-rentry-photo"
-                                            :aria-label="`Open photo ${index + 1} of ${review.images.length} from ${review.author}'s review`"
-                                            @click="openViewer(review.images, index, `Photos from ${review.author}'s review`, $event.currentTarget)"
-                                        >
-                                            <img
-                                                :src="src"
-                                                alt=""
-                                                width="80"
-                                                height="80"
-                                                loading="lazy"
-                                            >
-                                        </button>
-                                    </div>
-
-                                    <div
-                                        v-if="review.sellerResponse"
-                                        class="pd-reply"
-                                    >
-                                        <p class="pd-reply-by">
-                                            Reply from {{ sellerName }}
-                                            <span v-if="formatReviewDate(review.respondedAt)"> &middot; {{ formatReviewDate(review.respondedAt) }}</span>
-                                        </p>
-                                        <p class="pd-reply-text">{{ review.sellerResponse }}</p>
-                                    </div>
+                                    <span class="skeleton is-line pd-sk-short"></span>
+                                    <span class="skeleton is-line"></span>
+                                    <span class="skeleton is-line"></span>
                                 </li>
                             </ul>
 
-                            <button
-                                v-if="hasMoreReviews"
-                                type="button"
-                                class="btn btn-secondary pd-rmore"
-                                :disabled="reviewsLoadingMore"
-                                @click="loadMoreReviews"
+                            <div
+                                v-else-if="reviewsError"
+                                key="error"
+                                class="pd-rstate"
+                                role="alert"
                             >
-                                {{ reviewsLoadingMore ? 'Loading…' : 'Show more reviews' }}
-                            </button>
-                        </template>
+                                <p>{{ reviewsError }}</p>
+                                <button
+                                    type="button"
+                                    class="btn btn-secondary"
+                                    @click="loadReviews"
+                                >
+                                    Try again
+                                </button>
+                            </div>
+
+                            <div
+                                v-else-if="reviewItems.length === 0"
+                                key="empty"
+                                class="pd-rstate"
+                            >
+                                <p>No reviews {{ reviewFilterLabel }} yet.</p>
+                                <button
+                                    type="button"
+                                    class="link-btn"
+                                    @click="setReviewFilter('all')"
+                                >
+                                    Show all reviews
+                                </button>
+                            </div>
+
+                            <div
+                                v-else
+                                :key="`list-${reviewFilter}`"
+                            >
+                                <ul class="pd-rentries">
+                                    <li
+                                        v-for="review in reviewItems"
+                                        :key="review.id"
+                                        class="pd-rentry"
+                                    >
+                                        <div class="pd-rentry-head">
+                                            <p class="pd-rentry-by">
+                                                <strong>{{ review.author }}</strong>
+                                                <span
+                                                    v-if="review.verifiedPurchase"
+                                                    class="pd-verified"
+                                                >
+                                                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                                                    Verified purchase
+                                                </span>
+                                            </p>
+                                            <p
+                                                v-if="formatReviewDate(review.createdAt)"
+                                                class="pd-rentry-date"
+                                            >
+                                                <time :datetime="review.createdAt">{{ formatReviewDate(review.createdAt) }}</time>
+                                                <span v-if="review.isEdited"> &middot; Edited</span>
+                                            </p>
+                                        </div>
+
+                                        <div class="pd-rentry-meta">
+                                            <StarRating
+                                                :rating="review.rating"
+                                                :size="14"
+                                            />
+                                            <span
+                                                v-if="variantLabel(review.variant)"
+                                                class="pd-rentry-variant"
+                                            >
+                                                Bought: {{ variantLabel(review.variant) }}
+                                            </span>
+                                        </div>
+
+                                        <template v-if="review.comment">
+                                            <p
+                                                :id="`pd-rtext-${review.id}`"
+                                                class="pd-rentry-text"
+                                                :class="{ 'is-clamped': isLongReview(review) && !expandedReviews.has(review.id) }"
+                                            >
+                                                {{ review.comment }}
+                                            </p>
+                                            <button
+                                                v-if="isLongReview(review)"
+                                                type="button"
+                                                class="link-btn pd-rentry-more"
+                                                :aria-expanded="expandedReviews.has(review.id)"
+                                                :aria-controls="`pd-rtext-${review.id}`"
+                                                @click="toggleReview(review, $event)"
+                                            >
+                                                {{ expandedReviews.has(review.id) ? 'Show less' : 'Read more' }}
+                                            </button>
+                                        </template>
+                                        <p
+                                            v-else
+                                            class="pd-rentry-text is-empty"
+                                        >
+                                            Rated without a written review.
+                                        </p>
+
+                                        <div
+                                            v-if="review.images && review.images.length"
+                                            class="pd-rentry-photos"
+                                        >
+                                            <button
+                                                v-for="(src, index) in review.images"
+                                                :key="src"
+                                                type="button"
+                                                class="pd-rentry-photo"
+                                                :aria-label="`Open photo ${index + 1} of ${review.images.length} from ${review.author}'s review`"
+                                                @click="openViewer(review.images, index, `Photos from ${review.author}'s review`, $event.currentTarget)"
+                                            >
+                                                <img
+                                                    :src="src"
+                                                    alt=""
+                                                    width="80"
+                                                    height="80"
+                                                    loading="lazy"
+                                                >
+                                            </button>
+                                        </div>
+
+                                        <div
+                                            v-if="review.sellerResponse"
+                                            class="pd-reply"
+                                        >
+                                            <p class="pd-reply-by">
+                                                Reply from {{ sellerName }}
+                                                <span
+                                                    v-if="formatReviewDate(review.respondedAt)"
+                                                    class="pd-reply-date"
+                                                > &middot; {{ formatReviewDate(review.respondedAt) }}</span>
+                                            </p>
+                                            <p class="pd-reply-text">{{ review.sellerResponse }}</p>
+                                        </div>
+                                    </li>
+                                </ul>
+
+                                <button
+                                    v-if="hasMoreReviews"
+                                    type="button"
+                                    class="btn btn-secondary pd-rmore"
+                                    :disabled="reviewsLoadingMore"
+                                    @click="loadMoreReviews"
+                                >
+                                    {{ reviewsLoadingMore ? 'Loading…' : 'Show more reviews' }}
+                                </button>
+                            </div>
+                        </Transition>
                     </div>
                 </div>
             </section>
@@ -2610,7 +2768,11 @@ watch(
                 class="pd-buybar"
             >
                 <div class="pd-buybar-info">
-                    <span class="pd-buybar-price">{{ formattedPrice }}</span>
+                    <span
+                        :key="formattedPrice"
+                        class="pd-buybar-price"
+                        :class="{ 'nx-value-in': priceChanged }"
+                    >{{ formattedPrice }}</span>
                     <span
                         v-if="selectionSummary"
                         class="pd-buybar-choice"
@@ -4010,7 +4172,6 @@ button.pd-meta-stat:hover strong {
 }
 
 .pd-about,
-.pd-reviews,
 .pd-related {
     margin-top: 72px;
     padding-top: 40px;
@@ -4082,20 +4243,71 @@ button.pd-meta-stat:hover strong {
     overflow-wrap: anywhere;
 }
 
-/* Reviews */
+/* Reviews: one contained panel, like the product and store panels above */
+
+.pd-reviews {
+    margin-top: 56px;
+    padding: clamp(20px, 2.6vw, 36px);
+
+    border: 1px solid var(--nx-line);
+    border-radius: var(--nx-radius);
+    background: var(--nx-surface);
+    box-shadow: 0 1px 2px rgba(43, 39, 34, 0.04), 0 12px 32px -24px rgba(43, 39, 34, 0.16);
+}
+
+.pd-reviews-head {
+    margin-bottom: 24px;
+}
+
+#buyer-app .pd-reviews-title {
+    margin: 0;
+
+    color: var(--nx-ink);
+
+    font-family: var(--nx-font-display);
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+}
+
+.pd-reviews-total {
+    color: var(--nx-muted);
+
+    font-weight: 500;
+}
+
+.pd-reviews-sub {
+    margin: 4px 0 0;
+
+    color: var(--nx-muted);
+
+    font-size: 14px;
+}
 
 .pd-reviews-layout {
     display: grid;
     grid-template-columns: 280px minmax(0, 1fr);
     align-items: start;
-    gap: clamp(32px, 5vw, 80px);
+    gap: clamp(28px, 4vw, 56px);
 }
 
+/* Summary: a quiet tinted column, so the score reads first. */
 .pd-rsum {
     position: sticky;
     top: calc(var(--nx-header-h) + 24px);
 
+    padding: 20px;
+
+    border-radius: var(--nx-radius-sm);
+    background: var(--nx-sunken);
     color: var(--nx-star);
+}
+
+.pd-rsum-top {
+    padding-bottom: 16px;
+    margin-bottom: 12px;
+
+    border-bottom: 1px solid var(--nx-line);
 }
 
 .pd-rsum-score {
@@ -4103,14 +4315,14 @@ button.pd-meta-stat:hover strong {
     align-items: baseline;
     gap: 8px;
 
-    margin: 0 0 6px;
+    margin: 0 0 8px;
 }
 
 .pd-rsum-number {
     color: var(--nx-ink);
 
     font-family: var(--nx-font-display);
-    font-size: 52px;
+    font-size: 44px;
     font-weight: 700;
     letter-spacing: -0.03em;
     line-height: 1;
@@ -4123,11 +4335,11 @@ button.pd-meta-stat:hover strong {
 }
 
 .pd-rsum-count {
-    margin: 6px 0 20px;
+    margin: 8px 0 0;
 
     color: var(--nx-text-2);
 
-    font-size: 14px;
+    font-size: 13.5px;
 }
 
 .pd-bars {
@@ -4135,7 +4347,7 @@ button.pd-meta-stat:hover strong {
     flex-direction: column;
     gap: 2px;
 
-    margin: 0;
+    margin: 0 -6px;
     padding: 0;
 
     list-style: none;
@@ -4143,7 +4355,7 @@ button.pd-meta-stat:hover strong {
 
 .pd-bar {
     display: grid;
-    grid-template-columns: 52px minmax(0, 1fr) 32px;
+    grid-template-columns: 46px minmax(0, 1fr) 28px;
     align-items: center;
     gap: 10px;
 
@@ -4157,16 +4369,21 @@ button.pd-meta-stat:hover strong {
     color: var(--nx-text);
 
     font: inherit;
-    font-size: 13.5px;
+    font-size: 13px;
     text-align: left;
+
+    transition: background-color var(--nx-dur-fast) var(--nx-ease), border-color var(--nx-dur-fast) var(--nx-ease);
 }
 
-.pd-bar:hover:not(:disabled) {
-    background: var(--nx-sunken);
+@media (hover: hover) and (pointer: fine) {
+    .pd-bar:hover:not(:disabled) {
+        background: var(--nx-surface);
+    }
 }
 
 .pd-bar.is-active {
     border-color: var(--nx-ink);
+    background: var(--nx-surface);
 }
 
 .pd-bar:disabled {
@@ -4181,21 +4398,23 @@ button.pd-meta-stat:hover strong {
 
     overflow: hidden;
     border-radius: 999px;
-    background: var(--nx-line-soft);
+    background: var(--nx-line);
 }
 
 .pd-bar-track.is-loading {
     animation: skeleton-shimmer 1.4s ease-in-out infinite;
 }
 
+/* Scaled, not resized: the bars grow in on the compositor. */
 .pd-bar-fill {
     position: absolute;
-    inset: 0 auto 0 0;
+    inset: 0;
 
     border-radius: inherit;
     background: var(--nx-star);
 
-    transition: width 0.5s var(--nx-ease);
+    transform-origin: left center;
+    transition: transform 0.5s var(--nx-ease-out);
 }
 
 .pd-bar-count {
@@ -4239,10 +4458,22 @@ button.pd-meta-stat:hover strong {
     font: inherit;
     font-size: 13.5px;
     font-weight: 500;
+
+    transition:
+        background-color var(--nx-dur-fast) var(--nx-ease),
+        border-color var(--nx-dur-fast) var(--nx-ease),
+        color var(--nx-dur-fast) var(--nx-ease),
+        transform var(--nx-dur-fast) var(--nx-ease);
 }
 
-.pd-rfilter:hover {
-    border-color: var(--nx-ink);
+@media (hover: hover) and (pointer: fine) {
+    .pd-rfilter:hover {
+        border-color: var(--nx-ink);
+    }
+}
+
+.pd-rfilter:active {
+    transform: scale(0.97);
 }
 
 .pd-rfilter.is-active {
@@ -4266,12 +4497,19 @@ button.pd-meta-stat:hover strong {
     list-style: none;
 }
 
+/* Reviews are rows split by hairlines, never cards inside the card. */
 .pd-rentry {
-    padding: 24px 0;
+    padding: 22px 0;
 
     border-bottom: 1px solid var(--nx-line-soft);
 
     color: var(--nx-star);
+}
+
+.pd-rentry:last-child {
+    padding-bottom: 4px;
+
+    border-bottom: none;
 }
 
 .pd-rentry .skeleton {
@@ -4285,8 +4523,28 @@ button.pd-meta-stat:hover strong {
 .pd-rentry-head {
     display: flex;
     flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 16px;
+}
+
+.pd-rentry-by {
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px 14px;
+    gap: 4px 10px;
+
+    min-width: 0;
+    margin: 0;
+
+    font-size: 14.5px;
+}
+
+.pd-rentry-by strong {
+    color: var(--nx-ink);
+
+    font-weight: 600;
+    overflow-wrap: anywhere;
 }
 
 .pd-verified {
@@ -4300,22 +4558,26 @@ button.pd-meta-stat:hover strong {
     font-weight: 600;
 }
 
-.pd-rentry-by {
-    margin: 8px 0 0;
+.pd-rentry-date {
+    flex: none;
 
-    color: var(--nx-text-2);
+    margin: 0;
 
-    font-size: 13.5px;
+    color: var(--nx-muted);
+
+    font-size: 13px;
 }
 
-.pd-rentry-by strong {
-    color: var(--nx-ink);
-    font-weight: 600;
+.pd-rentry-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+
+    margin-top: 8px;
 }
 
 .pd-rentry-variant {
-    margin: 2px 0 0;
-
     color: var(--nx-muted);
 
     font-size: 13px;
@@ -4325,16 +4587,34 @@ button.pd-meta-stat:hover strong {
     max-width: 70ch;
     margin: 12px 0 0;
 
+    overflow: hidden;
+
     color: var(--nx-text);
 
-    font-size: 15.5px;
+    font-size: 15px;
     line-height: 1.65;
+    overflow-wrap: anywhere;
     white-space: pre-line;
+
+    transition: max-height 240ms var(--nx-ease-out);
+}
+
+.pd-rentry-text.is-clamped {
+    max-height: calc(1.65em * 5);
+
+    -webkit-mask-image: linear-gradient(to bottom, #000 65%, transparent);
+    mask-image: linear-gradient(to bottom, #000 65%, transparent);
 }
 
 .pd-rentry-text.is-empty {
     color: var(--nx-muted);
     font-style: italic;
+}
+
+.pd-rentry-more {
+    margin-top: 6px;
+
+    font-size: 13.5px;
 }
 
 .pd-rentry-photos {
@@ -4369,15 +4649,21 @@ button.pd-meta-stat:hover strong {
     transition: transform var(--nx-dur) var(--nx-ease);
 }
 
-.pd-rentry-photo:hover img {
-    transform: scale(1.05);
+@media (hover: hover) and (pointer: fine) {
+    .pd-rentry-photo:hover img {
+        transform: scale(1.05);
+    }
 }
 
+/* Seller reply: indented under the review it answers. */
 .pd-reply {
+    max-width: 70ch;
     margin-top: 14px;
-    padding: 2px 0 2px 16px;
+    padding: 10px 14px;
 
     border-left: 2px solid var(--nx-accent);
+    border-radius: 0 var(--nx-radius-sm) var(--nx-radius-sm) 0;
+    background: var(--nx-sunken);
 }
 
 .pd-reply p {
@@ -4389,6 +4675,12 @@ button.pd-meta-stat:hover strong {
 
     font-size: 13px;
     font-weight: 600;
+}
+
+.pd-reply-date {
+    color: var(--nx-muted);
+
+    font-weight: 400;
 }
 
 .pd-reply-text {
@@ -4416,7 +4708,25 @@ button.pd-meta-stat:hover strong {
 }
 
 .pd-rmore {
-    margin-top: 24px;
+    margin-top: 20px;
+}
+
+/* Filter changes: the list fades out and the new one fades in. */
+.pd-rswap-enter-active {
+    transition: opacity 180ms var(--nx-ease-out), transform 180ms var(--nx-ease-out);
+}
+
+.pd-rswap-leave-active {
+    transition: opacity 120ms var(--nx-ease-out);
+}
+
+.pd-rswap-enter-from {
+    opacity: 0;
+    transform: translateY(4px);
+}
+
+.pd-rswap-leave-to {
+    opacity: 0;
 }
 
 .pd-reviews-empty {
@@ -4425,6 +4735,10 @@ button.pd-meta-stat:hover strong {
     align-items: flex-start;
     gap: 6px;
 
+    padding: 20px;
+
+    border-radius: var(--nx-radius-sm);
+    background: var(--nx-sunken);
     color: var(--nx-text-2);
 }
 
@@ -4631,8 +4945,19 @@ button.pd-meta-stat:hover strong {
     .pd-fade-enter-active,
     .pd-fade-leave-active,
     .pd-bar-enter-active,
-    .pd-bar-leave-active {
+    .pd-bar-leave-active,
+    .pd-bar-fill,
+    .pd-rentry-text {
         transition: none;
+    }
+
+    /* Filter changes still cross-fade; nothing moves. */
+    .pd-rswap-enter-from {
+        transform: none;
+    }
+
+    .pd-rfilter:active {
+        transform: none;
     }
 }
 
@@ -4738,10 +5063,50 @@ button.pd-meta-stat:hover strong {
     }
 
     .pd-about,
-    .pd-reviews,
     .pd-related {
         margin-top: 48px;
         padding-top: 32px;
+    }
+
+    /* Edge to edge on phones and tablets, like the store panel. */
+    .pd-reviews {
+        margin: 32px calc(-1 * var(--nx-gutter)) 0;
+        padding: 24px var(--nx-gutter);
+
+        border-right: none;
+        border-left: none;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    #buyer-app .pd-reviews-title {
+        font-size: 21px;
+    }
+
+    .pd-reviews-head {
+        margin-bottom: 18px;
+    }
+
+    .pd-rsum {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 16px 24px;
+
+        padding: 16px;
+    }
+
+    .pd-rsum-top {
+        margin: 0;
+        padding: 0 24px 0 0;
+
+        border-right: 1px solid var(--nx-line);
+        border-bottom: none;
+    }
+
+    .pd-rtools {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
     .pd-viewer {
@@ -4790,6 +5155,18 @@ button.pd-meta-stat:hover strong {
 
     .pd-price-block {
         padding: 14px 16px;
+    }
+
+    /* Score above the bars on narrow phones. */
+    .pd-rsum {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pd-rsum-top {
+        padding: 0 0 12px;
+
+        border-right: none;
+        border-bottom: 1px solid var(--nx-line);
     }
 
 
