@@ -231,10 +231,19 @@ function runAction(toast) {
     width: 100%;
 }
 
+/* The toasts that stay slide into the gap instead of jumping. */
+.toast-move {
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
     .toast-enter-active,
     .toast-leave-active {
         transition: opacity 0.15s linear;
+    }
+
+    .toast-move {
+        transition: none;
     }
 
     .toast-enter-from,

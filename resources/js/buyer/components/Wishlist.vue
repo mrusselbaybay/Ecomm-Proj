@@ -33,6 +33,7 @@
 */
 import { computed, ref } from 'vue';
 import ProductCard from './ProductCard.vue';
+import { freezeLeaving } from '../composables/useListMotion';
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerProducts } from '../composables/useBuyerProducts';
 import { categories, metaFor, discountPercent, formatPrice } from '../composables/useCategoryMeta';
@@ -250,10 +251,14 @@ function handleRemove(product) {
                         <div class="h-px bg-slate-200 flex-1"></div>
                     </div>
 
-                    <!-- Grid View -->
-                    <div
+                    <!-- Grid View: an un-hearted card fades out and the rest
+                         slide into its place (useListMotion.js) -->
+                    <TransitionGroup
                         v-if="viewMode === 'grid'"
-                        class="product-grid"
+                        name="lx"
+                        tag="div"
+                        class="product-grid lx-group"
+                        @before-leave="freezeLeaving"
                     >
                         <ProductCard
                             v-for="product in group.products"
@@ -261,13 +266,16 @@ function handleRemove(product) {
                             :product="product"
                             @view="handleView"
                         />
-                    </div>
+                    </TransitionGroup>
 
                     <!-- List View -->
-                    <div
+                    <TransitionGroup
                         v-else
-                        class="flex flex-col divide-y divide-slate-100 bg-white rounded-3xl border border-slate-100 overflow-hidden"
+                        name="lx"
+                        tag="div"
+                        class="lx-group flex flex-col divide-y divide-slate-100 bg-white rounded-3xl border border-slate-100 overflow-hidden"
                         style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                        @before-leave="freezeLeaving"
                     >
                         <div
                             v-for="product in group.products"
@@ -332,7 +340,7 @@ function handleRemove(product) {
                                 </button>
                             </div>
                         </div>
-                    </div>
+                    </TransitionGroup>
                 </section>
             </template>
 
