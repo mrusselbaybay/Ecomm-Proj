@@ -6311,7 +6311,9 @@ body {
 .msg-page {
     display: flex;
     flex: 1;
+    height: 100%;
     min-height: 0;
+    overflow: hidden;
     gap: 1.25rem;
     position: relative;
 }
@@ -6335,6 +6337,305 @@ body {
     justify-content: space-between;
     gap: 0.75rem;
     padding: 1.15rem 1.1rem 0.85rem;
+}
+
+.msg-list-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.msg-automation-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    width: 100vw;
+    height: 100dvh;
+    padding: 1.5rem;
+    background: rgba(3, 7, 5, 0.76);
+    backdrop-filter: blur(6px);
+}
+
+.msg-automation-dialog {
+    width: min(62rem, 100%);
+    max-height: min(90dvh, 54rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    border: 1px solid var(--msg-border, #dbe4df);
+    border-radius: 1.1rem;
+    background: var(--msg-surface, #fff);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.42);
+}
+
+.msg-automation-heading {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.4rem 1.5rem 1.15rem;
+    border-bottom: 1px solid var(--msg-border-soft, #e2e8f0);
+    background: var(--msg-surface, #fff);
+}
+
+.msg-automation-heading strong {
+    display: block;
+    color: var(--msg-ink-900, #0f172a);
+    font-size: 1.15rem;
+    line-height: 1.3;
+}
+
+.msg-automation-eyebrow {
+    display: block;
+    margin-bottom: 0.2rem;
+    color: #2dd4bf;
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.msg-automation-close {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 2.35rem;
+    height: 2.35rem;
+    border: 1px solid var(--msg-border, #e2e8f0);
+    border-radius: 0.65rem;
+    background: var(--msg-surface-2, #f8fafc);
+    color: var(--msg-ink-500, #64748b);
+    cursor: pointer;
+}
+
+.msg-automation-close:hover {
+    border-color: rgba(45, 212, 191, 0.45);
+    color: #2dd4bf;
+}
+
+.msg-automation-heading p,
+.msg-automation-help,
+.msg-automation-section-heading p {
+    margin: 0.25rem 0 0;
+    color: var(--msg-ink-500, #64748b);
+    font-size: 0.78rem;
+    line-height: 1.4;
+}
+
+.msg-automation-loading {
+    display: flex;
+    min-height: 16rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+}
+
+.msg-automation-card,
+.msg-automation-section-heading-main,
+.msg-automation-question-grid,
+.msg-automation-placeholder-help,
+.msg-automation-dialog > .msg-inline-error,
+.msg-automation-save-status {
+    margin-inline: 1.5rem;
+}
+
+.msg-automation-card {
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--msg-border, #e2e8f0);
+    border-radius: 0.85rem;
+    background: var(--msg-surface-2, #f8fafc);
+}
+
+.msg-automation-section-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.msg-automation-section-heading strong {
+    display: block;
+    color: var(--msg-ink-900, #0f172a);
+    font-size: 0.86rem;
+}
+
+.msg-automation-section-heading-main {
+    margin-top: 1.35rem;
+}
+
+.msg-automation-status {
+    flex: 0 0 auto;
+    padding: 0.3rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.14);
+    color: var(--msg-ink-500, #64748b);
+    font-size: 0.68rem;
+    font-weight: 800;
+}
+
+.msg-automation-status.is-auto {
+    background: rgba(20, 184, 166, 0.16);
+    color: #2dd4bf;
+}
+
+.msg-automation-status.is-suggest {
+    background: rgba(245, 158, 11, 0.16);
+    color: #fbbf24;
+}
+
+.msg-automation-control-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+    margin-top: 0.9rem;
+}
+
+.msg-automation-control {
+    display: grid;
+    gap: 0.4rem;
+}
+
+.msg-automation-control small {
+    color: var(--msg-ink-500, #64748b);
+    font-size: 0.7rem;
+    line-height: 1.4;
+}
+
+.msg-automation-question-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.85rem;
+    margin-top: 0.75rem;
+}
+
+.msg-automation-toggle,
+.msg-automation-enabled {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--msg-ink-700, #475569);
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.msg-automation-question {
+    display: grid;
+    align-content: start;
+    gap: 0.55rem;
+    padding: 0.9rem;
+    border: 1px solid var(--msg-border, #e2e8f0);
+    border-radius: 0.8rem;
+    background: var(--msg-surface-2, #f8fafc);
+}
+
+.msg-automation-question .field-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.msg-automation-question .field-label small {
+    flex: 0 0 auto;
+    padding: 0.18rem 0.4rem;
+    border-radius: 999px;
+    background: rgba(45, 212, 191, 0.12);
+    color: #2dd4bf;
+    font-size: 0.58rem;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.msg-automation-placeholder-help {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.75rem;
+    margin-top: 0.85rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px dashed rgba(45, 212, 191, 0.32);
+    border-radius: 0.7rem;
+    color: var(--msg-ink-500, #64748b);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.68rem;
+}
+
+.msg-automation-placeholder-help strong {
+    color: #2dd4bf;
+    font-family: inherit;
+}
+
+.msg-automation-empty {
+    margin: 0.85rem 0 0;
+    padding: 0.85rem;
+    border: 1px dashed var(--msg-border, #e2e8f0);
+    border-radius: 0.7rem;
+    color: var(--msg-ink-500, #64748b);
+    font-size: 0.75rem;
+    text-align: center;
+}
+
+.msg-automation-keyword-rule {
+    display: grid;
+    gap: 0.7rem;
+    margin-top: 0.85rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--msg-border-soft, #e2e8f0);
+}
+
+.msg-automation-keyword-rule label {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.msg-automation-rule-fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 7rem;
+    gap: 0.75rem;
+}
+
+.msg-automation-rule-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.msg-automation-remove {
+    border: 0;
+    background: transparent;
+    color: #f87171;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.msg-automation-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.65rem;
+    margin-top: 1rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--msg-border-soft, #e2e8f0);
+    background: var(--msg-surface, #fff);
+}
+
+.msg-auto-reply-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    opacity: 0.75;
 }
 .msg-list-eyebrow {
     margin: 0 0 0.15rem;
@@ -6695,7 +6996,8 @@ img.msg-convo-avatar.loaded {
 
 /* ---- chat panel ---- */
 .msg-chat-panel {
-    flex: 1;
+    flex: 1 1 0;
+    height: 100%;
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -6857,17 +7159,39 @@ img.msg-convo-avatar.loaded {
 
 /* ---- messages viewport ---- */
 .msg-viewport {
-    flex: 1;
+    flex: 1 1 0;
+    height: 0;
     min-height: 0;
-    overflow-y: auto;
+    overflow-y: scroll;
     padding: 1.25rem 1.5rem;
     display: flex;
     flex-direction: column;
-    /* Anchors a short/empty conversation to the bottom of the viewport
-       (like a real chat thread) instead of letting messages stack from
-       the top with empty space below — the default flex-start behavior. */
-    justify-content: flex-end;
+    /* Keep a normal positive scroll range when the thread grows taller
+       than the viewport. flex-end can hide the oldest flex children. */
+    justify-content: flex-start;
+    overscroll-behavior: contain;
+    scroll-behavior: smooth;
+    scrollbar-gutter: stable;
+    scrollbar-color: rgba(148, 163, 184, 0.65) transparent;
+    scrollbar-width: thin;
     background: #fbfcfe;
+}
+.msg-viewport::-webkit-scrollbar {
+    width: 0.65rem;
+}
+.msg-viewport::-webkit-scrollbar-track {
+    background: rgba(148, 163, 184, 0.08);
+}
+.msg-viewport::-webkit-scrollbar-thumb {
+    min-height: 2.5rem;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.62);
+    background-clip: padding-box;
+}
+.msg-viewport::-webkit-scrollbar-thumb:hover {
+    background: rgba(45, 212, 191, 0.78);
+    background-clip: padding-box;
 }
 .msg-loading-older {
     display: flex;
@@ -7283,6 +7607,42 @@ img.msg-convo-avatar.loaded {
     font-weight: 600;
     margin: 0 0 0.6rem;
 }
+.msg-automation-paused-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    border-radius: 0.75rem;
+    background: rgba(245, 158, 11, 0.09);
+}
+.msg-automation-paused-icon {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.6rem;
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+}
+.msg-automation-paused-copy {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+    gap: 0.15rem;
+    color: var(--msg-ink-500, #64748b);
+    font-size: 0.7rem;
+    line-height: 1.4;
+}
+.msg-automation-paused-copy strong {
+    color: var(--msg-ink-900, #0f172a);
+    font-size: 0.76rem;
+}
+.msg-automation-paused-error {
+    color: #f87171;
+}
 .msg-quick-replies {
     display: flex;
     gap: 0.4rem;
@@ -7669,6 +8029,34 @@ img.msg-convo-avatar.loaded {
     .msg-row.sent {
         max-width: 88%;
     }
+
+    .msg-automation-panel {
+        padding: 0.75rem;
+    }
+
+    .msg-automation-dialog {
+        max-height: calc(100dvh - 1.5rem);
+        border-radius: 0.9rem;
+    }
+
+    .msg-automation-control-grid,
+    .msg-automation-question-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .msg-automation-heading,
+    .msg-automation-footer {
+        padding-inline: 1rem;
+    }
+
+    .msg-automation-card,
+    .msg-automation-section-heading-main,
+    .msg-automation-question-grid,
+    .msg-automation-placeholder-help,
+    .msg-automation-dialog > .msg-inline-error,
+    .msg-automation-save-status {
+        margin-inline: 1rem;
+    }
 }
 
 @media (max-width: 420px) {
@@ -7684,6 +8072,30 @@ img.msg-convo-avatar.loaded {
     }
     .msg-chat-actions {
         gap: 0.1rem;
+    }
+    .msg-automation-paused-banner {
+        align-items: stretch;
+        flex-wrap: wrap;
+    }
+    .msg-automation-paused-copy {
+        flex-basis: calc(100% - 2.75rem);
+    }
+    .msg-automation-paused-banner .btn-primary {
+        width: 100%;
+    }
+    .msg-automation-rule-fields {
+        grid-template-columns: 1fr;
+    }
+    .msg-automation-section-heading {
+        align-items: stretch;
+        flex-direction: column;
+    }
+    .msg-automation-section-heading .btn-outline {
+        width: 100%;
+    }
+    .msg-automation-footer .btn-outline,
+    .msg-automation-footer .btn-primary {
+        flex: 1;
     }
 }
 

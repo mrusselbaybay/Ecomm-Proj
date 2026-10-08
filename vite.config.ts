@@ -15,6 +15,7 @@ const inputs = [
     'resources/js/seller/seller.js',
     'resources/js/buyer/buyer.js',
     'resources/js/home/home.js',
+      'resources/js/shared/cookie-consent.js',
     // These blade views request their CSS file directly via @vite() as
     // its own asset (not just imported from JS/Vue <style>), so each
     // needs its own declared entry — the Vite dev server will proxy any

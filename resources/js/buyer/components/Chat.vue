@@ -39,6 +39,7 @@ const {
     activeConversationId,
     activeConversation,
     messagesAppendedTick,
+    quickQuestions,
     isViewingArchived,
     conversationsMeta,
     closeChat,
@@ -49,6 +50,7 @@ const {
     showInboxConversations,
     loadMoreConversations,
     loadOlderMessages,
+    loadQuickQuestions,
     sendMessage,
     retryMessage,
     fetchConversationProducts,
@@ -344,6 +346,15 @@ function handleSend() {
     }
 }
 
+function sendQuickQuestion(question) {
+    if (sendMessage(question.question, [], [], {
+        quickQuestionKey: question.key,
+        orderId: question.orderId || activeConversation.value?.order?.id || null,
+    })) {
+        scrollThreadToBottom();
+    }
+}
+
 // ---- "Inquire about a certain product" picker ----
 function toggleProductPicker() {
     isProductPickerOpen.value = !isProductPickerOpen.value;
@@ -541,6 +552,7 @@ watch(isChatOpen, open => {
     }
 
     if (open) {
+        loadQuickQuestions().catch(() => {});
         // On mobile (where list/thread are mutually exclusive panes),
         // defaulting to 'thread' assumed a conversation was always
         // auto-selected on open — now that it isn't, that would hide the
@@ -858,7 +870,10 @@ onBeforeUnmount(() => {
                              stack from the top with empty space below. -->
                         <div
                             ref="threadBody"
-                            class="flex-1 overflow-y-auto p-5 space-y-5 bg-slate-50/30 flex flex-col justify-end"
+                            class="buyer-chat-scroll flex min-h-0 flex-1 flex-col space-y-5 overflow-y-auto overscroll-contain scroll-smooth bg-slate-50/30 p-5"
+                            role="log"
+                            aria-label="Conversation messages"
+                            tabindex="0"
                             @scroll="onThreadScroll"
                         >
                             <div v-if="activeConversation.isLoadingOlderMessages" class="flex justify-center" aria-hidden="true">
@@ -1076,6 +1091,9 @@ onBeforeUnmount(() => {
                                             ? 'bg-[#0d9488] text-white rounded-2xl rounded-br-sm font-medium'
                                             : 'bg-white border border-slate-100 text-slate-700 rounded-2xl rounded-bl-sm'"
                                     >
+                                        <span v-if="message.isAutomatic" class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#0d9488]">
+                                            Automatic reply
+                                        </span>
                                         <p class="whitespace-pre-wrap break-words">{{ message.text }}</p>
                                     </div>
                                 </div>
@@ -1226,6 +1244,21 @@ onBeforeUnmount(() => {
                                     @click="toggleProductPicker"
                                 >
                                     {{ activeConversation?.role === 'courier' ? 'Inquire about a certain parcel' : 'Inquire about a certain product' }}
+                                </button>
+                            </div>
+
+                            <div v-if="activeConversation?.role === 'seller' && quickQuestions.length" class="flex flex-wrap gap-1.5" aria-label="Quick questions">
+                                <p v-if="quickQuestions[0]?.contextType === 'order'" class="w-full text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                    Quick questions for order #{{ quickQuestions[0].orderNumber }} · {{ quickQuestions[0].orderStatus }}
+                                </p>
+                                <button
+                                    v-for="question in quickQuestions"
+                                    :key="question.key"
+                                    type="button"
+                                    class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 transition-colors hover:border-[#0d9488] hover:bg-[#0d9488]/[0.06] hover:text-[#0d9488]"
+                                    @click="sendQuickQuestion(question)"
+                                >
+                                    {{ question.question }}
                                 </button>
                             </div>
 
@@ -1546,6 +1579,18 @@ onBeforeUnmount(() => {
 }
 .fade-img.loaded {
     opacity: 1;
+}
+.buyer-chat-scroll {
+    scrollbar-gutter: stable;
+    scrollbar-color: rgba(148, 163, 184, 0.65) transparent;
+    scrollbar-width: thin;
+}
+.buyer-chat-scroll::-webkit-scrollbar {
+    width: 0.5rem;
+}
+.buyer-chat-scroll::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.55);
+    border-radius: 999px;
 }
 @media (prefers-reduced-motion: reduce) {
     .img-skeleton { animation: none; }

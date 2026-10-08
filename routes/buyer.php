@@ -92,6 +92,7 @@ Route::middleware(['auth.token', 'buyer'])->prefix('api/buyer')->name('api.buyer
 
     // Buyer <-> seller messaging (conversations / messages tables).
     Route::get('/messages/unread-count', [MessageController::class, 'unreadCount'])->name('messages.unread-count');
+    Route::get('/messages/quick-questions', [MessageController::class, 'quickQuestions'])->name('messages.quick-questions');
     Route::get('/messages/conversations', [MessageController::class, 'conversations'])->name('messages.conversations');
     Route::post('/messages/conversations', [MessageController::class, 'startConversation'])->name('messages.conversations.start');
     Route::post('/messages/courier-conversations', [MessageController::class, 'startCourierConversation'])->name('messages.courier-conversations.start');

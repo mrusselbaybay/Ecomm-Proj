@@ -8,6 +8,7 @@ use App\Http\Requests\Buyer\StartConversationRequest;
 use App\Http\Requests\Buyer\StartCourierConversationRequest;
 use App\Http\Requests\Buyer\UpdateConversationStatusRequest;
 use App\Http\Requests\Messaging\UploadMessageAttachmentRequest;
+use App\Models\ChatQuickQuestion;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageAttachment;
@@ -15,11 +16,13 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Profile;
 use App\Policies\ConversationPolicy;
+use App\Services\ChatAutomationService;
 use App\Services\DeliveryConversationService;
 use App\Services\DirectConversationService;
 use App\Services\MessageAttachmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -46,7 +49,50 @@ class MessageController extends Controller
         private DeliveryConversationService $deliveryConversationService,
         private ConversationPolicy $conversationPolicy,
         private MessageAttachmentService $messageAttachmentService,
+        private ChatAutomationService $chatAutomationService,
     ) {}
+
+    public function quickQuestions(Request $request): JsonResponse
+    {
+        $conversationId = $request->string('conversation_id')->toString();
+        $order = null;
+
+        if ($conversationId !== '') {
+            $conversation = $this->findForBuyer($request, $conversationId, ['order']);
+
+            if (! $conversation || $conversation->type !== 'direct') {
+                return response()->json(['message' => 'Conversation not found.'], 404);
+            }
+
+            $order = $conversation->order;
+        }
+
+        $query = ChatQuickQuestion::query()->where('enabled', true);
+
+        if ($order) {
+            $query->where('context_type', 'order')
+                ->whereExists(function ($statusQuery) use ($order): void {
+                    $statusQuery->selectRaw('1')
+                        ->from('chat_quick_question_statuses')
+                        ->whereColumn('chat_quick_question_statuses.question_key', 'chat_quick_questions.key')
+                        ->where('chat_quick_question_statuses.order_status', $order->status);
+                });
+        } else {
+            $query->where('context_type', 'general');
+        }
+
+        return response()->json(['data' => $query
+            ->orderBy('sort_order')
+            ->get(['key', 'question', 'context_type'])
+            ->map(fn (ChatQuickQuestion $question): array => [
+                'key' => $question->key,
+                'question' => $question->question,
+                'contextType' => $question->context_type,
+                'orderId' => $order?->id,
+                'orderNumber' => $order?->order_number,
+                'orderStatus' => $order?->status,
+            ])]);
+    }
 
     /**
      * GET /api/buyer/messages/conversations
@@ -68,7 +114,7 @@ class MessageController extends Controller
         $wantsArchived = $request->string('status')->toString() === 'archived';
 
         $query = Conversation::query()
-            ->with(['seller.sellerDetail', 'courier', 'product', 'participantRecords'])
+            ->with(['seller.sellerDetail', 'courier', 'order', 'product', 'participantRecords'])
             ->where('buyer_id', $buyer->id)
             ->where('type', '!=', 'support')
             ->whereHas('participantRecords', function ($q) use ($buyer, $wantsArchived) {
@@ -135,7 +181,7 @@ class MessageController extends Controller
             // find/create the thread (and its participant rows, so it shows
             // up in both inboxes) without appending an empty message.
             if ($body !== '') {
-                $this->appendMessage(
+                $message = $this->appendMessage(
                     $result['conversation'],
                     $buyer,
                     'buyer',
@@ -143,6 +189,8 @@ class MessageController extends Controller
                     orderId: $result['order']?->id,
                     productId: $result['product']?->id,
                 );
+
+                $this->chatAutomationService->respondIfEligible($result['conversation'], $message, null);
             }
 
             return $result['conversation'];
@@ -150,7 +198,7 @@ class MessageController extends Controller
 
         return response()->json([
             'data' => $this->transformConversation(
-                $conversation->fresh(['seller.sellerDetail', 'product', 'participantRecords', 'messages.order.items.product:id,images', 'messages.product']),
+                $conversation->fresh(['seller.sellerDetail', 'order', 'product', 'participantRecords', 'messages.order.items.product:id,images', 'messages.product']),
                 withMessages: true,
             ),
         ], 201);
@@ -205,7 +253,7 @@ class MessageController extends Controller
         // fresh() after markConversationRead()'s writes — those writes now
         // run after the response is sent (see below) rather than being on
         // the critical path at all.
-        $conversation = $this->findForBuyer($request, $id, ['seller.sellerDetail', 'courier', 'product', 'participantRecords']);
+        $conversation = $this->findForBuyer($request, $id, ['seller.sellerDetail', 'courier', 'order', 'product', 'participantRecords']);
 
         if (! $conversation) {
             return response()->json(['message' => 'Conversation not found.'], 404);
@@ -432,7 +480,7 @@ class MessageController extends Controller
      * `$item->product` both resolve from memory — transformMessage() and
      * Order::messagePreview() need no changes, they just stop lazy-loading.
      *
-     * @param  \Illuminate\Support\Collection<int, Message>  $messages
+     * @param  Collection<int, Message>  $messages
      */
     private function hydrateProductContext($messages): void
     {
@@ -482,6 +530,11 @@ class MessageController extends Controller
         $attachmentIds = $request->validated('attachment_ids', []);
         $orderId = $request->validated('order_id');
         $productId = $request->validated('product_id');
+        $quickQuestionKey = $request->validated('quick_question_key');
+
+        if ($quickQuestionKey) {
+            $body = ChatQuickQuestion::query()->findOrFail($quickQuestionKey)->question;
+        }
 
         // Never trust a client-sent order/product id at face value (same
         // rule as attachment_ids) — this backs the "Inquire about a
@@ -511,11 +564,28 @@ class MessageController extends Controller
             }
         }
 
-        $message = DB::transaction(function () use ($attachmentIds, $body, $conversation, $request, $orderId, $productId) {
-            return $this->appendMessage($conversation, $request->user(), 'buyer', $body, $attachmentIds, $orderId, $productId);
+        $autoReply = null;
+        $message = DB::transaction(function () use ($attachmentIds, $body, $conversation, $request, $orderId, $productId, $quickQuestionKey, &$autoReply) {
+            $message = $this->appendMessage(
+                $conversation,
+                $request->user(),
+                'buyer',
+                $body,
+                $attachmentIds,
+                $orderId,
+                $productId,
+                $quickQuestionKey,
+            );
+
+            $autoReply = $this->chatAutomationService->respondIfEligible($conversation, $message, $quickQuestionKey);
+
+            return $message;
         });
 
-        return response()->json(['data' => $this->transformMessage($message)], 201);
+        $payload = $this->transformMessage($message);
+        $payload['autoReply'] = $autoReply ? $this->transformMessage($autoReply) : null;
+
+        return response()->json(['data' => $payload], 201);
     }
 
     public function uploadAttachment(UploadMessageAttachmentRequest $request): JsonResponse
@@ -657,6 +727,7 @@ class MessageController extends Controller
         array $attachmentIds = [],
         ?string $orderId = null,
         ?string $productId = null,
+        ?string $quickQuestionKey = null,
     ): Message {
         $stagedAttachments = $this->messageAttachmentService->findOwnedUnlinked($sender, $attachmentIds);
 
@@ -680,6 +751,8 @@ class MessageController extends Controller
             'attachments' => $stagedAttachments->map->toStoredArray()->all(),
             'order_id' => $orderId,
             'product_id' => $productId,
+            'source' => $quickQuestionKey ? 'quick_question' : 'manual',
+            'quick_question_key' => $quickQuestionKey,
         ]);
 
         $this->messageAttachmentService->linkToMessage($stagedAttachments, $message);
@@ -695,6 +768,7 @@ class MessageController extends Controller
             'last_message_at' => $message->created_at,
             'last_message_preview' => $preview,
             'last_message_sender_role' => $role,
+            'seller_attention_status' => $conversation->type === 'direct' ? 'needs_reply' : $conversation->seller_attention_status,
         ]);
 
         // Every message through this controller is sent by the buyer
@@ -780,6 +854,12 @@ class MessageController extends Controller
             'unread' => (int) $c->buyer_unread_count,
             'updatedAt' => optional($c->last_message_at)->toIso8601String(),
             'lastMessagePreview' => $c->last_message_preview,
+            'order' => $c->order ? [
+                'id' => $c->order->id,
+                'orderNumber' => $c->order->order_number,
+                'status' => $c->order->status,
+                'trackingNumber' => $c->order->tracking_number,
+            ] : null,
             'product' => $c->product ? [
                 'id' => $c->product->id,
                 'name' => $c->product->name,
@@ -844,6 +924,9 @@ class MessageController extends Controller
             ] : null,
             'at' => optional($m->created_at)->toIso8601String(),
             'readAt' => optional($m->read_at)->toIso8601String(),
+            'source' => $m->source,
+            'quickQuestionKey' => $m->quick_question_key,
+            'isAutomatic' => in_array($m->source, ['auto_reply_specific', 'auto_reply_generic'], true),
         ];
     }
 }

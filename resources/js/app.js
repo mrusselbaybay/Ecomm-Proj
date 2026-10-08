@@ -11,6 +11,8 @@ import '../css/app.css';
 import { createApp, ref, computed, onMounted } from 'vue/dist/vue.esm-bundler.js';
 import { apiRequest, fetchOwnProfile } from './shared/accountApi';
 import { createClient } from './shared/backendClient';
+import { mountCookieConsent } from './shared/mountCookieConsent';
+import AuthLegalNotice from './shared/AuthLegalNotice.vue';
 
 // ---------- Configuration ----------
 
@@ -428,6 +430,9 @@ const App = {
         const isSendingSignupCode = ref(false);
         const isVerifyingSignupCode = ref(false);
         const signupEmailVerified = ref(false);
+        const termsAccepted = ref(false);
+        const marketingConsent = ref(false);
+        const registrationConsentsSaved = ref(null);
         // Seconds left before "Resend code" is allowed again — shared by
         // the signup email-verification step and the password-reset
         // wizard (they're never on screen at the same time). Stops a user
@@ -1387,6 +1392,45 @@ const App = {
         }
 
         // ---------- Registration Functions ----------
+        function consentGuestId() {
+            const key = 'btw.consent-guest-id';
+            let id = localStorage.getItem(key);
+            if (!id) {
+                id = crypto.randomUUID();
+                localStorage.setItem(key, id);
+            }
+            return id;
+        }
+
+        async function saveRegistrationConsents() {
+            if (!termsAccepted.value) {
+                errorMsg.value = 'You must agree to the Privacy Notice and Terms & Conditions.';
+                return false;
+            }
+            if (registrationConsentsSaved.value === marketingConsent.value) return true;
+
+            try {
+                const guestId = consentGuestId();
+                const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+                const terms = await fetch('/api/consent/terms', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ guest_id: guestId, accepted: true }),
+                });
+                if (!terms.ok) throw new Error('Could not save your consent. Please try again.');
+                const marketing = await fetch('/api/consent/marketing', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ guest_id: guestId, accepted: marketingConsent.value }),
+                });
+                if (!marketing.ok) throw new Error('Could not save your marketing preference. Please try again.');
+                registrationConsentsSaved.value = marketingConsent.value;
+                return true;
+            } catch (error) {
+                errorMsg.value = error.message || 'Could not save your consent. Please try again.';
+                return false;
+            }
+        }
         // Both functions below post to Laravel endpoints that use the Supabase
         // service role key server-side (see AuthController@registerUser /
         // registerLogistics). No admin-privileged Supabase call happens in the
@@ -1406,6 +1450,7 @@ const App = {
                 fd.append('email', (userEmail || '').trim().toLowerCase());
                 fd.append('password', userPassword || '');
                 fd.append('role', userRole);
+                fd.append('consent_guest_id', consentGuestId());
 
                 if (isDriver) {
                     fd.append('first_name', form.value.driverFirstName || '');
@@ -1945,6 +1990,7 @@ const App = {
             isSubmitting.value = true;
 
             try {
+                if (!(await saveRegistrationConsents())) return;
                 if (isLogisticsSignup.value) {
                     if (!validateLogisticsDocuments()) {
                         return;
@@ -2288,6 +2334,9 @@ const App = {
             isSubmitting.value = false;
             signupVerifyCode.value = '';
             signupEmailVerified.value = false;
+            termsAccepted.value = false;
+            marketingConsent.value = false;
+            registrationConsentsSaved.value = null;
             isSendingSignupCode.value = false;
             isVerifyingSignupCode.value = false;
             stopResendCooldown();
@@ -3328,6 +3377,8 @@ const App = {
             isSendingSignupCode,
             isVerifyingSignupCode,
             signupEmailVerified,
+            termsAccepted,
+            marketingConsent,
             resendSignupVerificationCode,
             resendCooldown,
             stepKeys,
@@ -4245,6 +4296,18 @@ const App = {
               <button @click="switchMode('login')" class="btn-gradient text-white font-semibold py-2 px-6 rounded-lg">Go to Login</button>
             </div>
           </div>
+          <div v-if="mode === 'signup' && currentStepIndex === activeStepKeys.length - 1 && signupStep !== 'complete'" class="mt-4 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+            <label class="flex items-start gap-2">
+              <input v-model="termsAccepted" type="checkbox" class="mt-1" />
+              <span>I agree to the <a href="/privacy" target="_blank" rel="noopener noreferrer" class="text-teal-700 underline">Privacy Notice</a> and <a href="/terms" target="_blank" rel="noopener noreferrer" class="text-teal-700 underline">Terms &amp; Conditions</a>. (required)</span>
+            </label>
+            <label class="flex items-start gap-2">
+              <input v-model="marketingConsent" type="checkbox" class="mt-1" />
+              <span>I agree to receive marketing emails. (optional)</span>
+            </label>
+            <p v-if="errorMsg && !termsAccepted" role="alert" class="text-xs text-red-600">{{ errorMsg }}</p>
+          </div>
+          <auth-legal-notice v-if="mode === 'login' || mode === 'signup'" :mode="mode" />
         </div>
       </div>
       </div>
@@ -4258,4 +4321,6 @@ createApp(App)
     .component('FileDropzone', FileDropzone)
     .component('CodeInput', CodeInput)
     .component('PasswordStrength', PasswordStrength)
+    .component('AuthLegalNotice', AuthLegalNotice)
     .mount('#auth-app');
+mountCookieConsent();

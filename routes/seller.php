@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Seller\CategoryConfigController;
+use App\Http\Controllers\Seller\ChatAutomationController;
 use App\Http\Controllers\Seller\MessageController;
 use App\Http\Controllers\Seller\SellerDeliveryController;
 use App\Http\Controllers\Seller\SellerFeedbackController;
@@ -136,6 +137,13 @@ Route::middleware(['auth.token', 'seller'])->prefix('api/seller')->name('api.sel
     // Buyer\MessageController on feature/buyer). Every query is scoped to
     // the authenticated seller; another seller's conversation 404s.
     Route::prefix('messages')->name('messages.')->group(function () {
+        Route::get('/automation', [ChatAutomationController::class, 'show'])->name('automation.show');
+        Route::put('/automation', [ChatAutomationController::class, 'update'])->name('automation.update');
+        Route::put('/automation/questions/{question}', [ChatAutomationController::class, 'updateResponse'])->name('automation.questions.update');
+        Route::post('/automation/keyword-rules', [ChatAutomationController::class, 'storeKeywordRule'])->name('automation.keyword-rules.store');
+        Route::put('/automation/keyword-rules/{rule}', [ChatAutomationController::class, 'updateKeywordRule'])->name('automation.keyword-rules.update');
+        Route::delete('/automation/keyword-rules/{rule}', [ChatAutomationController::class, 'destroyKeywordRule'])->name('automation.keyword-rules.destroy');
+        Route::put('/conversations/{id}/automation', [ChatAutomationController::class, 'updateConversation'])->name('conversations.automation.update');
         Route::get('/unread-count', [MessageController::class, 'unreadCount'])->name('unread-count');
         Route::get('/export', [MessageController::class, 'export'])->name('export');
         Route::get('/conversations', [MessageController::class, 'conversations'])->name('conversations.index');

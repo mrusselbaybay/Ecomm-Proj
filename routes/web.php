@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Compliance\LegalController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
 use App\Http\Controllers\Logistics\ParcelLocationController;
@@ -23,6 +24,9 @@ Route::get('/', function () {
 })->name('home');
 Route::get('/login', [AuthController::class, 'index'])->name('login');
 Route::get('/signup', [AuthController::class, 'index'])->name('signup');
+Route::get('/privacy', [LegalController::class, 'privacyPage'])->name('legal.privacy');
+Route::get('/terms', [LegalController::class, 'termsPage'])->name('legal.terms');
+Route::get('/cookies', [LegalController::class, 'cookiePage'])->name('legal.cookies');
 
 // Dedicated logistics auth page — "Ship with us" in the landing header
 // links here. Buyer/seller/courier accounts are rejected on this page

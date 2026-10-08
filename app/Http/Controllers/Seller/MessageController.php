@@ -8,6 +8,7 @@ use App\Http\Requests\Seller\ReportBuyerRequest;
 use App\Http\Requests\Seller\SendSellerMessageRequest;
 use App\Http\Requests\Seller\StartLogisticsConversationRequest;
 use App\Http\Requests\Seller\UpdateConversationStatusRequest;
+use App\Models\ChatAutomationSuggestion;
 use App\Models\Complaint;
 use App\Models\Conversation;
 use App\Models\CourierApplication;
@@ -26,6 +27,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -348,7 +350,7 @@ class MessageController extends Controller
             }
 
             $rows = Message::where('conversation_id', $id)
-                ->with(['order.items'])
+                ->with(['order.items', 'automationSuggestion'])
                 ->where(fn (Builder $q) => $this->tupleGreaterThan($q, $afterCursor))
                 ->orderBy('created_at')
                 ->orderBy('id')
@@ -378,7 +380,7 @@ class MessageController extends Controller
                 ->where('seller_id', $sellerId)
                 ->where('type', '!=', 'support')
                 ->whereHas('participantRecords', fn (Builder $p) => $p->where('user_id', $sellerId)->whereNull('left_at')))
-            ->with(['order.items']);
+            ->with(['order.items', 'automationSuggestion']);
 
         if ($beforeId !== '') {
             $beforeCursor = Message::where('conversation_id', $id)->whereKey($beforeId)->first();
@@ -421,7 +423,7 @@ class MessageController extends Controller
      * `$item->product` both resolve from memory — transformMessage() and
      * Order::messagePreview() need no changes, they just stop lazy-loading.
      *
-     * @param  \Illuminate\Support\Collection<int, Message>  $messages
+     * @param  Collection<int, Message>  $messages
      */
     private function hydrateProductContext($messages): void
     {
@@ -538,7 +540,7 @@ class MessageController extends Controller
             ->whereNull('read_at')
             ->update(['read_at' => now()]);
 
-        $conversation->forceFill([
+        $conversationUpdates = [
             'last_message_at' => $message->created_at,
             'last_message_preview' => match (true) {
                 $body !== '' => Str::limit($body, 140),
@@ -548,7 +550,19 @@ class MessageController extends Controller
             },
             'last_message_sender_role' => 'seller',
             'seller_unread_count' => 0,
-        ])->save();
+        ];
+
+        if ($conversation->type === 'direct') {
+            $conversationUpdates['automation_paused_until'] = now()->addDay();
+            $conversationUpdates['seller_attention_status'] = 'handled';
+
+            ChatAutomationSuggestion::query()
+                ->where('conversation_id', $conversation->id)
+                ->where('status', 'pending')
+                ->update(['status' => 'used', 'used_at' => now(), 'updated_at' => now()]);
+        }
+
+        $conversation->forceFill($conversationUpdates)->save();
 
         $conversation->increment(match ($conversation->type) {
             'shipment' => 'logistics_unread_count',
@@ -911,7 +925,13 @@ class MessageController extends Controller
                 'createdAt' => optional($c->last_message_at)->toIso8601String(),
             ] : null,
             'unreadCount' => (int) $c->seller_unread_count,
-            'needsResponse' => $c->status === 'open' && $c->last_message_sender_role !== 'seller',
+            'needsResponse' => $c->status === 'open' && (
+                $c->seller_attention_status === 'needs_reply'
+                || ($c->seller_attention_status === 'handled' && $c->last_message_sender_role !== 'seller')
+            ),
+            'sellerAttentionStatus' => $c->seller_attention_status,
+            'automationPaused' => $c->automation_paused_until?->isFuture() ?? false,
+            'automationPausedUntil' => $c->automation_paused_until?->toIso8601String(),
             'updatedAt' => optional($c->last_message_at ?? $c->updated_at)->toIso8601String(),
         ];
     }
@@ -996,6 +1016,14 @@ class MessageController extends Controller
             'status' => $m->sender_role === 'seller' ? ($m->read_at ? 'read' : 'sent') : null,
             'createdAt' => optional($m->created_at)->toIso8601String(),
             'readAt' => optional($m->read_at)->toIso8601String(),
+            'source' => $m->source,
+            'quickQuestionKey' => $m->quick_question_key,
+            'isAutomatic' => in_array($m->source, ['auto_reply_specific', 'auto_reply_generic'], true),
+            'suggestion' => $m->automationSuggestion?->status === 'pending' ? [
+                'id' => $m->automationSuggestion->id,
+                'response' => $m->automationSuggestion->suggested_response,
+                'status' => $m->automationSuggestion->status,
+            ] : null,
         ];
     }
 

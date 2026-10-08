@@ -31,6 +31,9 @@ use App\Http\Controllers\Api\RoleSwitchController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Buyer\VoucherController;
 use App\Http\Controllers\CashFlowController;
+use App\Http\Controllers\ChatCompatibilityController;
+use App\Http\Controllers\Compliance\ConsentController;
+use App\Http\Controllers\Compliance\LegalController;
 use App\Http\Controllers\CustomerService\SupportTicketController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\GeoLocateController;
@@ -40,6 +43,7 @@ use App\Http\Controllers\Messaging\MessageAttachmentController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\PsgcProxyController;
+use App\Http\Controllers\Seller\ChatRuleCompatibilityController;
 use App\Mail\RegistrationApproved;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
@@ -64,6 +68,32 @@ Route::prefix('auth')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::put('/user', [AuthController::class, 'updateUser'])->middleware('throttle:10,1');
     Route::post('/logout', [AuthController::class, 'logout']);
+});
+
+Route::prefix('consent')->group(function () {
+    Route::post('/cookies', [ConsentController::class, 'cookies'])->middleware('throttle:20,1');
+    Route::post('/terms', [ConsentController::class, 'terms'])->middleware('throttle:20,1');
+    Route::post('/marketing', [ConsentController::class, 'marketing'])->middleware('throttle:20,1');
+});
+
+Route::prefix('legal')->group(function () {
+    Route::get('/privacy-policy', [LegalController::class, 'privacyPolicy']);
+    Route::get('/terms', [LegalController::class, 'terms']);
+    Route::get('/cookie-policy', [LegalController::class, 'cookiePolicy']);
+});
+
+Route::middleware('auth.token')->group(function () {
+    Route::get('/chat/quick-questions', [ChatCompatibilityController::class, 'quickQuestions']);
+    Route::get('/chat/session/{session_id}', [ChatCompatibilityController::class, 'session']);
+    Route::post('/chat/message', [ChatCompatibilityController::class, 'message'])->middleware('throttle:60,1');
+});
+
+Route::middleware(['auth.token', 'seller'])->group(function () {
+    Route::get('/seller/rules', [ChatRuleCompatibilityController::class, 'index']);
+    Route::post('/seller/rules', [ChatRuleCompatibilityController::class, 'store']);
+    Route::put('/seller/rules/{rule}', [ChatRuleCompatibilityController::class, 'update']);
+    Route::delete('/seller/rules/{rule}', [ChatRuleCompatibilityController::class, 'destroy']);
+    Route::put('/seller/settings', [ChatRuleCompatibilityController::class, 'settings']);
 });
 
 // ============================================================
@@ -484,6 +514,9 @@ Route::middleware(['auth.token', 'admin'])
     ->group(function () use ($sharedAdminRoutes): void {
         $sharedAdminRoutes();
 
+        Route::get('/compliance/products', [SellerComplianceController::class, 'index'])->name('compliance.products.index');
+        Route::post('/compliance/products/{product}/actions', [SellerComplianceController::class, 'store'])->name('compliance.products.actions.store');
+
 
         Route::get('/complaints', [ComplaintController::class, 'index'])->name('complaints.index');
 
@@ -517,17 +550,13 @@ Route::middleware(['auth.token', 'admin'])
     });
 
 // Logistics admin (served inside the logistics portal): couriers, drivers &
-// logistics companies. Also owns seller compliance and reports,
-// which moved here from the platform admin.
+// logistics companies and reports.
 Route::middleware(['auth.token', 'admin:logistics_admin'])
     ->prefix('logistics-admin')
     ->name('logistics-admin.')
     ->group(function () use ($sharedAdminRoutes): void {
         $sharedAdminRoutes();
 
-
-        Route::get('/compliance/products', [SellerComplianceController::class, 'index'])->name('compliance.products.index');
-        Route::post('/compliance/products/{product}/actions', [SellerComplianceController::class, 'store'])->name('compliance.products.actions.store');
 
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');

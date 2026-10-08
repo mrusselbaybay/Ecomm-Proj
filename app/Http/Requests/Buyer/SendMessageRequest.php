@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Buyer;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class SendMessageRequest extends FormRequest
 {
@@ -26,6 +27,11 @@ class SendMessageRequest extends FormRequest
             'attachment_ids.*' => ['uuid', 'distinct'],
             'order_id' => ['nullable', 'uuid'],
             'product_id' => ['nullable', 'uuid'],
+            'quick_question_key' => [
+                'nullable',
+                'string',
+                Rule::exists('chat_quick_questions', 'key')->where('enabled', true),
+            ],
         ];
     }
 }
