@@ -299,6 +299,8 @@ Route::middleware(['auth.token', 'logistics'])
         Route::get('/earnings/settings', [CourierEarningController::class, 'settings'])->name('earnings.settings');
         Route::put('/earnings/settings', [CourierEarningController::class, 'updateSettings'])->name('earnings.settings.update');
         Route::get('/earnings/couriers', [CourierEarningController::class, 'couriers'])->name('earnings.couriers');
+        Route::get('/earnings/couriers/{id}/summary', [CourierEarningController::class, 'courierSummary'])->name('earnings.couriers.summary');
+        Route::get('/earnings/parcels', [CourierEarningController::class, 'parcels'])->name('earnings.parcels');
         Route::get('/earnings', [CourierEarningController::class, 'ledger'])->name('earnings.index');
         Route::post('/earnings/adjustments', [CourierEarningController::class, 'adjustment'])->name('earnings.adjustments');
         Route::post('/earnings/cod-remittances', [CourierEarningController::class, 'remittance'])->name('earnings.cod-remittances');

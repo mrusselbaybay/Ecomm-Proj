@@ -23,9 +23,7 @@ class CourierEarningController extends Controller
     private function company(Request $request, bool $write = false): LogisticsCompany
     {
         $company = LogisticsCompany::forMember($request->user()->id)->where('status', 'approved')->where('account_status', 'active')->firstOrFail();
-        if ($write && $company->owner_profile_id !== $request->user()->id) {
-            abort_unless($company->admins()->where('profile_id', $request->user()->id)->where('status', 'active')->where('role', 'admin')->exists(), 403);
-        }
+        abort_if($write && ! $this->canManage($company, $request), 403);
 
         return $company;
     }
@@ -41,6 +39,12 @@ class CourierEarningController extends Controller
     {
         abort_unless(CourierDetail::where('logistics_company_id', $company->id)->where('profile_id', $id)->exists()
             || CourierEarning::where('company_id', $company->id)->where('courier_id', $id)->exists(), 404);
+    }
+
+    private function canManage(LogisticsCompany $company, Request $request): bool
+    {
+        return $company->owner_profile_id === $request->user()->id
+            || $company->admins()->where('profile_id', $request->user()->id)->where('status', 'active')->where('role', 'admin')->exists();
     }
 
     public function summary(Request $request)
@@ -82,13 +86,48 @@ class CourierEarningController extends Controller
             return $profile;
         });
 
-        return response()->json(['data' => $roster->toArray() + ['can_manage' => $company->owner_profile_id === $request->user()->id
-            || $company->admins()->where('profile_id', $request->user()->id)->where('status', 'active')->where('role', 'admin')->exists()]]);
+        return response()->json(['data' => $roster->toArray() + ['can_manage' => $this->canManage($company, $request)]]);
+    }
+
+    public function courierSummary(Request $request, string $id)
+    {
+        $company = $this->company($request);
+        $this->companyCourier($company, $id);
+
+        return response()->json(['data' => $this->earnings->summary($id, $company)]);
+    }
+
+    private function courierParcels(LogisticsCompany $company, string $courierId)
+    {
+        return ParcelAssignment::query()->where('logistics_company_id', $company->id)
+            ->where(function ($query) use ($company, $courierId) {
+                $query->where('rider_profile_id', $courierId)->orWhere('picked_up_by', $courierId)
+                    ->orWhereIn('id', CourierEarning::select('leg_id')->where('company_id', $company->id)->where('courier_id', $courierId)->whereNotNull('leg_id'));
+            });
+    }
+
+    public function parcels(Request $request)
+    {
+        $data = $request->validate(['courier_id' => ['required', 'uuid'], 'search' => ['nullable', 'string', 'min:2', 'max:100']]);
+        $company = $this->company($request);
+        $this->companyCourier($company, $data['courier_id']);
+        $search = trim($data['search'] ?? '');
+
+        $parcels = $this->courierParcels($company, $data['courier_id'])
+            ->when($search !== '', fn ($query) => $query->whereHas('order', fn ($order) => $order->whereLike('order_number', '%'.$search.'%')
+                ->orWhereLike('tracking_number', '%'.$search.'%')))
+            ->with('order:id,order_number,tracking_number')->select('id', 'order_id')
+            ->latest()->orderByDesc('id')->simplePaginate(10);
+
+        return response()->json(['data' => ['items' => $parcels->items(), 'page' => $parcels->currentPage(), 'has_more' => $parcels->hasMorePages()]]);
     }
 
     public function settings(Request $request)
     {
-        return response()->json(['data' => $this->company($request)->only(['courier_share_bps', 'pickup_weight', 'transfer_weight', 'delivery_weight', 'cod_overdue_days', 'early_cashout_minimum_cents'])]);
+        $company = $this->company($request);
+
+        return response()->json(['data' => $company->only(['courier_share_bps', 'pickup_weight', 'transfer_weight', 'delivery_weight', 'cod_overdue_days', 'early_cashout_minimum_cents'])
+            + ['can_manage' => $this->canManage($company, $request)]]);
     }
 
     public function updateSettings(Request $request)
@@ -116,7 +155,7 @@ class CourierEarningController extends Controller
             'amount_cents' => ['required', 'integer', 'min:1'], 'reason' => ['required', 'string', 'max:1000'], 'parcel_id' => ['nullable', 'uuid']]);
         $this->companyCourier($company, $data['courier_id']);
         if (isset($data['parcel_id'])) {
-            abort_unless(ParcelAssignment::whereKey($data['parcel_id'])->where('logistics_company_id', $company->id)->exists(), 404);
+            abort_unless($this->courierParcels($company, $data['courier_id'])->whereKey($data['parcel_id'])->exists(), 404);
         }
 
         return response()->json(['data' => $this->earnings->adjustment($company, $data['courier_id'], $data['type'], $data['amount_cents'], trim($data['reason']), $request->user()->id, $data['parcel_id'] ?? null)], 201);
@@ -125,11 +164,12 @@ class CourierEarningController extends Controller
     public function remittance(Request $request)
     {
         $company = $this->company($request, true);
-        $data = $request->validate(['courier_id' => ['required', 'uuid'], 'amount_cents' => ['required', 'integer', 'min:1'], 'reference' => ['required', 'string', 'max:255']]);
+        $data = $request->validate(['courier_id' => ['required', 'uuid'], 'amount_cents' => ['required', 'integer', 'min:1'], 'reference' => ['nullable', 'string', 'max:255']]);
         $this->companyCourier($company, $data['courier_id']);
-        $this->earnings->remit($company, $data['courier_id'], $data['amount_cents'], $request->user()->id, $data['reference']);
+        $reference = 'COD-'.now('Asia/Manila')->format('Ymd').'-'.strtoupper((string) \Illuminate\Support\Str::ulid());
+        $this->earnings->remit($company, $data['courier_id'], $data['amount_cents'], $request->user()->id, $reference);
 
-        return response()->json(['message' => 'COD remittance recorded.']);
+        return response()->json(['message' => 'COD remittance recorded.', 'reference' => $reference]);
     }
 
     public function payouts(Request $request)

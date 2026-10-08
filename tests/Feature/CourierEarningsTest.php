@@ -221,9 +221,56 @@ it('scopes the courier ledger and statements and enforces owner and company-admi
     expect(DB::table('courier_earning_audits')->where('action', 'adjustment_created')->count())->toBe(2);
 });
 
+it('searches only parcels handled by the selected company courier and validates linked adjustments', function () {
+    [$company, $courier, $order, $leg, $owner] = earningFixture();
+    $order->update(['tracking_number' => 'TRACK-COURIER-17']);
+    $otherCourier = makeCourier();
+    $otherOrder = $order->replicate();
+    $otherOrder->order_number = 'OTHER-ORDER-17';
+    $otherOrder->tracking_number = 'TRACK-OTHER-17';
+    $otherOrder->save();
+    $otherLeg = ParcelAssignment::create(['order_id' => $otherOrder->id, 'logistics_company_id' => $company->id,
+        'rider_profile_id' => $otherCourier->id, 'received_at' => now()]);
+    $otherCompany = LogisticsCompany::create(['id' => (string) Str::uuid(), 'owner_profile_id' => makeLogistics()->id,
+        'company_name' => 'Other Logistics', 'status' => 'approved', 'account_status' => 'active']);
+    $externalOrder = $order->replicate();
+    $externalOrder->order_number = 'EXTERNAL-ORDER-17';
+    $externalOrder->tracking_number = 'TRACK-EXTERNAL-17';
+    $externalOrder->save();
+    ParcelAssignment::create(['order_id' => $externalOrder->id, 'logistics_company_id' => $otherCompany->id,
+        'rider_profile_id' => $courier->id, 'received_at' => now()]);
+    earningActAs($owner);
+
+    $this->getJson('/api/logistics/earnings/parcels?courier_id='.$courier->id)
+        ->assertOk()->assertJsonCount(1, 'data.items')->assertJsonPath('data.page', 1)->assertJsonPath('data.has_more', false);
+    $this->getJson('/api/logistics/earnings/parcels?courier_id='.$courier->id.'&search=track')
+        ->assertOk()->assertJsonCount(1, 'data.items')->assertJsonPath('data.items.0.id', $leg->id);
+    $this->postJson('/api/logistics/earnings/adjustments', ['courier_id' => $courier->id, 'parcel_id' => $otherLeg->id,
+        'type' => 'bonus', 'amount_cents' => 250, 'reason' => 'Wrong courier'])->assertNotFound();
+    $this->postJson('/api/logistics/earnings/adjustments', ['courier_id' => $courier->id, 'parcel_id' => $leg->id,
+        'type' => 'bonus', 'amount_cents' => 250, 'reason' => 'Careful handling'])->assertCreated()->assertJsonPath('data.parcel_id', $leg->id);
+    $this->postJson('/api/logistics/earnings/adjustments', ['courier_id' => $courier->id,
+        'type' => 'deduction', 'amount_cents' => 100, 'reason' => 'Company-wide'])->assertCreated()->assertJsonPath('data.parcel_id', null);
+});
+
+it('shows the same COD owed in logistics and courier views until cash handover is recorded', function () {
+    [$company, $courier, $order, $leg, $owner] = earningFixture();
+    $order->update(['payment_method' => 'COD']);
+    app(CourierEarningService::class)->collectCod($leg->fresh(), $courier->id);
+    earningActAs($owner);
+    $this->getJson('/api/logistics/earnings/couriers')->assertOk()->assertJsonPath('data.data.0.cod_owed_cents', 11001);
+    $this->getJson('/api/logistics/earnings/couriers/'.$courier->id.'/summary')->assertOk()->assertJsonPath('data.cod_owed_cents', 11001);
+    $this->postJson('/api/logistics/earnings/cod-remittances', ['courier_id' => $courier->id,
+        'amount_cents' => 1000])->assertOk()->assertJsonStructure(['reference']);
+    $this->getJson('/api/logistics/earnings/couriers/'.$courier->id.'/summary')->assertOk()->assertJsonPath('data.cod_owed_cents', 10001);
+    earningActAs($courier);
+    $this->getJson('/api/courier/earnings/summary')->assertOk()->assertJsonPath('data.cod_owed_cents', 10001);
+});
+
 it('requires valid settings and preserves original ledger amounts on later setting changes', function () {
     [$company, $courier, , , $owner] = earningFixture();
     earningActAs($owner);
+    $this->getJson('/api/logistics/earnings/settings')->assertOk()->assertJsonPath('data.can_manage', true);
     $data = ['courier_share_bps' => 8000, 'pickup_weight' => 30, 'transfer_weight' => 10, 'delivery_weight' => 60,
         'cod_overdue_days' => 2, 'early_cashout_minimum_cents' => null, 'reason' => 'Company policy'];
     $this->putJson('/api/logistics/earnings/settings', $data)->assertOk()->assertJsonPath('data.courier_share_bps', 8000);
