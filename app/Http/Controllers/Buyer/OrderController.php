@@ -3,16 +3,37 @@
 namespace App\Http\Controllers\Buyer;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\ProductImageController;
 use App\Models\Order;
 use App\Models\OrderReturnRequest;
 use App\Services\OrderCancellationService;
+use App\Support\OrderStage;
+use App\Support\ProductImage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
-    private const WITH = ['items.review', 'items.returnRequests', 'seller.sellerDetail', 'statusHistory'];
+    /**
+     * Item photos come with the order (no request per product): the
+     * product and the purchased variant, each with only the columns a
+     * photo needs and inline photos replaced by image-endpoint links
+     * (ProductImage::liteSql()).
+     *
+     * @return array<int|string, mixed>
+     */
+    private function with(): array
+    {
+        return [
+            'items.review',
+            'items.returnRequests',
+            'items.product' => fn ($q) => ProductImage::selectWithLiteImages($q, ['products.id', 'products.updated_at']),
+            'items.productVariant' => fn ($q) => ProductImage::selectVariantWithLiteImage($q, ['product_variants.id', 'product_variants.product_id']),
+            'seller.sellerDetail',
+            'statusHistory',
+        ];
+    }
 
     /**
      * GET /api/buyer/orders
@@ -21,7 +42,7 @@ class OrderController extends Controller
     {
         $buyer = $request->user();
 
-        $orders = Order::with(self::WITH)
+        $orders = Order::with($this->with())
             ->where('buyer_profile_id', $buyer->id)
             ->orderByDesc('placed_at')
             ->get();
@@ -82,7 +103,7 @@ class OrderController extends Controller
 
     private function findForBuyer(Request $request, string $id): ?Order
     {
-        return Order::with(self::WITH)
+        return Order::with($this->with())
             ->where('buyer_profile_id', $request->user()->id)
             ->where('order_number', ltrim($id, '#'))
             ->first();
@@ -106,6 +127,9 @@ class OrderController extends Controller
             'orderId' => '#'.$order->order_number,
             'createdAt' => optional($order->placed_at)->toIso8601String(),
             'status' => $order->status,
+            // My Orders tab (OrderStage): to_pay | to_ship | to_receive |
+            // completed | cancelled | return_refund. `status` is unchanged.
+            'stage' => OrderStage::for($order),
             'seller_id' => $order->seller_id,
             'seller' => $sellerName,
             'payment_method' => $order->payment_method,
@@ -136,13 +160,21 @@ class OrderController extends Controller
                 'seller' => $sellerName,
                 'category' => $item->category,
                 'variation' => $item->variant,
+                // The exact variant bought, for Buy Again (never substituted).
+                'variant_id' => $item->variant_id,
+                'image' => $this->itemImage($item),
                 'quantity' => $item->quantity,
                 'unit_price' => (float) $item->unit_price,
                 'review' => $item->review ? [
                     'id' => $item->review->id,
                     'rating' => $item->review->rating,
                     'comment' => $item->review->comment,
+                    'images' => collect(is_array($item->review->images) ? $item->review->images : [])
+                        ->filter(fn ($url) => is_string($url) && $url !== '')->values()->all(),
                     'createdAt' => optional($item->review->created_at)->toIso8601String(),
+                    'updatedAt' => optional($item->review->updated_at)->toIso8601String(),
+                    'isEdited' => (bool) ($item->review->updated_at && $item->review->created_at
+                        && ! $item->review->updated_at->equalTo($item->review->created_at)),
                 ] : null,
                 // Most recent return/refund request for this line item, if
                 // any — shape matches OrderDetails.vue's `item.returnRequest`
@@ -152,6 +184,33 @@ class OrderController extends Controller
                 ),
             ]),
         ];
+    }
+
+    /**
+     * The purchased variant's photo, else the product's first photo, else
+     * null (the page shows its placeholder). Inline photos are card-sized
+     * image-endpoint links.
+     */
+    private function itemImage($item): ?string
+    {
+        $product = $item->product;
+        $variant = $item->productVariant;
+
+        if ($variant) {
+            $url = ProductImage::normalize($variant->image, fn () => ProductImage::inlineUrl(
+                (string) $variant->product_id,
+                0,
+                $product?->updated_at,
+                ProductImageController::CARD_WIDTH,
+                (string) $variant->id,
+            ));
+
+            if ($url !== null) {
+                return $url;
+            }
+        }
+
+        return $product ? ProductImage::cardUrl($product) : null;
     }
 
     private function transformReturnRequest(?OrderReturnRequest $request): ?array

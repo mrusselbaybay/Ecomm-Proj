@@ -49,6 +49,12 @@ class OrderItem extends Model
         return $this->belongsTo(Product::class, 'product_id');
     }
 
+    // The purchased variant (for its photo on My Orders). Additive.
+    public function productVariant(): BelongsTo
+    {
+        return $this->belongsTo(ProductVariant::class, 'variant_id');
+    }
+
     // reviews.order_item_id is UNIQUE — at most one review per line item.
     public function review(): HasOne
     {

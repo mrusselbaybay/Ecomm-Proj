@@ -18,6 +18,12 @@ import { authHeaders } from './useBuyerSession';
  */
 export async function buyerApi(path, options = {}) {
     const headers = await authHeaders();
+
+    // FormData (photo uploads) sets its own multipart Content-Type.
+    if (options.body instanceof FormData) {
+        delete headers['Content-Type'];
+    }
+
     const response = await fetch(`/api${path}`, { ...options, headers });
     const body = await response.json().catch(() => ({}));
 

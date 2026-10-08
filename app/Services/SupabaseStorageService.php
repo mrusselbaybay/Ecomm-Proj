@@ -31,6 +31,15 @@ class SupabaseStorageService
         $this->serviceRoleKey = (string) config('services.supabase.service_role_key');
     }
 
+    /**
+     * Every Storage call is bounded: a stalled upload fails with a clear
+     * error instead of using up the request's time limit.
+     */
+    private function http()
+    {
+        return Http::connectTimeout(5)->timeout(20);
+    }
+
     private function headers(): array
     {
         return [
@@ -48,7 +57,7 @@ class SupabaseStorageService
      */
     public function ensureBucket(string $bucket, bool $public = true): void
     {
-        $existing = Http::withHeaders($this->headers())
+        $existing = $this->http()->withHeaders($this->headers())
             ->get("{$this->baseUrl}/storage/v1/bucket/{$bucket}");
 
         if ($existing->successful()) {
@@ -57,14 +66,14 @@ class SupabaseStorageService
             // from public to private for signed-URL access. Safe to
             // check on every call; only actually writes when it differs.
             if ((bool) $existing->json('public') !== $public) {
-                Http::withHeaders($this->headers())
+                $this->http()->withHeaders($this->headers())
                     ->put("{$this->baseUrl}/storage/v1/bucket/{$bucket}", ['public' => $public]);
             }
 
             return;
         }
 
-        $created = Http::withHeaders($this->headers())
+        $created = $this->http()->withHeaders($this->headers())
             ->post("{$this->baseUrl}/storage/v1/bucket", [
                 'id' => $bucket,
                 'name' => $bucket,
@@ -91,7 +100,7 @@ class SupabaseStorageService
      */
     public function upload(string $bucket, string $path, string $binary, string $mime): string
     {
-        $response = Http::withHeaders(array_merge($this->headers(), [
+        $response = $this->http()->withHeaders(array_merge($this->headers(), [
             'Content-Type' => $mime,
             'x-upsert' => 'true',
         ]))->withBody($binary, $mime)
@@ -130,7 +139,7 @@ class SupabaseStorageService
      */
     public function createSignedUrl(string $bucket, string $path, int $expiresInSeconds = 3600): ?string
     {
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()->withHeaders($this->headers())
             ->post("{$this->baseUrl}/storage/v1/object/sign/{$bucket}/{$path}", [
                 'expiresIn' => $expiresInSeconds,
             ]);
@@ -179,7 +188,7 @@ class SupabaseStorageService
             return [];
         }
 
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()->withHeaders($this->headers())
             ->post("{$this->baseUrl}/storage/v1/object/sign/{$bucket}", [
                 'expiresIn' => $expiresInSeconds,
                 'paths' => $paths,
@@ -223,7 +232,7 @@ class SupabaseStorageService
             return;
         }
 
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()->withHeaders($this->headers())
             ->delete("{$this->baseUrl}/storage/v1/object/{$bucket}", [
                 'prefixes' => $paths,
             ]);
