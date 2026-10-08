@@ -25,7 +25,7 @@ const props = defineProps({
     size: {
         type: String,
         default: 'md',
-        validator: value => ['sm', 'md', 'lg'].includes(value)
+        validator: value => ['xs', 'sm', 'md', 'lg'].includes(value)
     },
     // Directory rows below the fold load lazily; the store page header
     // loads its logo eagerly.
@@ -36,9 +36,11 @@ const props = defineProps({
 });
 
 const failed = ref(false);
+const loaded = ref(false);
 
 watch(() => props.src, () => {
     failed.value = false;
+    loaded.value = false;
 });
 
 const showImage = computed(() => Boolean(props.src) && !failed.value);
@@ -55,28 +57,31 @@ const monogram = computed(() => {
     return letters.toUpperCase();
 });
 
-const pixels = computed(() => ({ sm: 48, md: 56, lg: 88 })[props.size]);
+const pixels = computed(() => ({ xs: 28, sm: 48, md: 56, lg: 88 })[props.size]);
 </script>
 
 <template>
     <span
         class="store-logo"
-        :class="[`is-${size}`, showImage ? 'has-image' : `accent-${metaFor(category).accent}`]"
+        :class="[`is-${size}`, showImage && loaded ? 'has-image' : `accent-${metaFor(category).accent}`]"
     >
+        <!-- The monogram shows until the picture has actually loaded, and
+             stays if it never does (missing or broken logo). -->
+        <span
+            class="store-logo-monogram"
+            aria-hidden="true"
+        >{{ monogram }}</span>
         <img
             v-if="showImage"
+            v-show="loaded"
             :src="src"
             alt=""
             :width="pixels"
             :height="pixels"
             :loading="lazy ? 'lazy' : 'eager'"
             decoding="async"
+            @load="loaded = true"
             @error="failed = true"
         >
-        <span
-            v-else
-            class="store-logo-monogram"
-            aria-hidden="true"
-        >{{ monogram }}</span>
     </span>
 </template>

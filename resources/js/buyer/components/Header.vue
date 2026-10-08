@@ -7,6 +7,8 @@ import { useBuyerProducts } from '../composables/useBuyerProducts';
 import { useBuyerSession } from '../composables/useBuyerSession';
 import { requestBuyerView } from '../composables/useBuyerNav';
 import { categories, metaFor, formatPrice } from '../composables/useCategoryMeta';
+import { createLatestRequest, fetchJson } from '../composables/useStores';
+import StoreLogo from './StoreLogo.vue';
 
 const props = defineProps({
     /*
@@ -28,6 +30,7 @@ const props = defineProps({
         type: String,
         default: ''
     },
+
     // Highlights a non-category destination in the category bar / drawer
     // ('stores' on the store directory and store pages).
     activeView: {
@@ -120,11 +123,17 @@ function goToStores() {
 | Search + Suggestions
 |--------------------------------------------------------------------------
 |
-| Always visible (search is the primary way into a marketplace). Suggestions
-| are drawn from the catalog already in memory — matching categories,
-| brands and product names — so typing never fires extra requests. It is an
-| ARIA combobox: arrow keys move through options, Enter picks the active
-| option or submits the raw query.
+| Always visible (search is the primary way into a marketplace). One box
+| finds both products and stores — nothing to choose, nothing guessed from
+| the words typed. Enter opens the results page, which has a Stores and a
+| Products section (SearchResults.vue).
+|
+| Suggestions come in two labelled groups, Products (with a thumbnail) and
+| Stores (with the logo), both from one debounced server request over the
+| whole catalogue (GET /api/search/suggestions); the latest request wins.
+| Picking one opens that product or store. It is an ARIA combobox: arrow
+| keys move through options, Enter picks the active option or submits the
+| raw query.
 |
 */
 
@@ -137,32 +146,116 @@ watch(() => props.searchQuery, (value) => {
     localSearch.value = value;
 });
 
-const suggestions = computed(() => {
-    const term = localSearch.value.trim().toLowerCase();
+// Suggestions come from the server (GET /api/search/suggestions): products
+// and stores from the whole catalogue, matched and ranked like the results
+// page. One debounced request per pause in typing; an answer for an older
+// term is dropped (latest request wins), and only suggestions for exactly
+// what's typed now are shown.
+const SUGGEST_MIN_LENGTH = 2;
+const SUGGEST_DELAY_MS = 200;
 
-    if (term.length < 2) {
-        return [];
+const suggestTerm = ref('');
+const suggestProducts = ref([]);
+const suggestStores = ref([]);
+const suggestStatus = ref('idle');
+const suggestRequest = createLatestRequest();
+let suggestTimer = null;
+
+watch(localSearch, (value) => {
+    clearTimeout(suggestTimer);
+
+    const term = value.trim();
+
+    if (term.length < SUGGEST_MIN_LENGTH) {
+        suggestRequest.cancel();
+        suggestTerm.value = '';
+        suggestProducts.value = [];
+        suggestStores.value = [];
+        suggestStatus.value = 'idle';
+
+        return;
     }
 
-    const categoryHits = shopCategories.value
-        .filter(c => c.toLowerCase().includes(term))
-        .slice(0, 2)
-        .map(category => ({ type: 'category', key: `c-${category}`, label: category, category }));
+    suggestStatus.value = 'loading';
 
-    const brandHits = brandOptions.value
-        .filter(b => b.toLowerCase().includes(term))
-        .slice(0, 2)
-        .map(brand => ({ type: 'brand', key: `b-${brand}`, label: brand }));
+    suggestTimer = setTimeout(async () => {
+        try {
+            const result = await suggestRequest.run(`/api/search/suggestions?q=${encodeURIComponent(term)}`);
 
-    const productHits = products.value
-        .filter(p => p.name.toLowerCase().includes(term))
-        .slice(0, 5)
-        .map(product => ({ type: 'product', key: `p-${product.id}`, label: product.name, product }));
+            if (result.stale) {
+                return;
+            }
 
-    return [...categoryHits, ...brandHits, ...productHits];
+            suggestProducts.value = result.body.products || [];
+            suggestStores.value = result.body.stores || [];
+            suggestTerm.value = term;
+            suggestStatus.value = 'ready';
+        } catch {
+            suggestProducts.value = [];
+            suggestStores.value = [];
+            suggestTerm.value = term;
+            suggestStatus.value = 'error';
+        }
+    }, SUGGEST_DELAY_MS);
 });
 
+const suggestionsAreCurrent = computed(() => suggestTerm.value !== '' && suggestTerm.value === localSearch.value.trim());
+
+const productSuggestions = computed(() => (suggestionsAreCurrent.value ? suggestProducts.value : []).map(product => ({
+    type: 'product',
+    key: `p-${product.id}`,
+    label: product.name,
+    product
+})));
+
+const storeSuggestions = computed(() => (suggestionsAreCurrent.value ? suggestStores.value : []).map(store => ({
+    type: 'store',
+    key: `s-${store.id}`,
+    label: store.name,
+    store
+})));
+
+// Products then Stores, each option with its position in the flat keyboard
+// order.
+const suggestionGroups = computed(() => {
+    const groups = [
+        { id: 'products', label: 'Products', options: productSuggestions.value },
+        { id: 'stores', label: 'Stores', options: storeSuggestions.value }
+    ].filter(group => group.options.length);
+
+    let index = 0;
+
+    return groups.map(group => ({
+        ...group,
+        options: group.options.map(option => ({ ...option, index: index++ }))
+    }));
+});
+
+const suggestions = computed(() => suggestionGroups.value.flatMap(group => group.options));
+
 const showSuggestions = computed(() => searchFocused.value && suggestions.value.length > 0);
+
+// A line under (or instead of) the suggestions: still searching, nothing
+// found, or suggestions unavailable — Enter always runs the full search.
+const suggestStatusText = computed(() => {
+    if (!searchFocused.value || localSearch.value.trim().length < SUGGEST_MIN_LENGTH) {
+        return '';
+    }
+
+    if (suggestStatus.value === 'loading' && !suggestionsAreCurrent.value) {
+        return 'Searching…';
+    }
+
+    if (!suggestionsAreCurrent.value) {
+        return '';
+    }
+
+    if (suggestStatus.value === 'error') {
+        return 'Suggestions aren’t available right now. Press Enter to search.';
+    }
+
+    return suggestions.value.length ? '' : 'No quick matches. Press Enter to search everything.';
+});
 
 watch(suggestions, () => {
     activeOption.value = -1;
@@ -176,25 +269,38 @@ function handleSearchInput(event) {
 function submitSearch(query = localSearch.value) {
     localSearch.value = query;
     emit('update:searchQuery', query);
-    emit('search', query.trim());
     searchFocused.value = false;
     searchInput.value?.blur();
     closeAll();
+    emit('search', query.trim());
+}
+
+// A product suggestion only carries what its row shows, so the full
+// product is fetched before its page opens; if that fails, the buyer gets
+// the search results for its name instead.
+async function openProductSuggestion(product) {
+    try {
+        const body = await fetchJson(`/api/products/${encodeURIComponent(product.id)}`);
+
+        requestBuyerView('product', body.data);
+    } catch {
+        submitSearch(product.name);
+    }
 }
 
 function pickSuggestion(option) {
-    if (option.type === 'category') {
-        localSearch.value = '';
+    if (option.type === 'product') {
         searchFocused.value = false;
-        selectCategory(option.category);
+        closeAll();
+        openProductSuggestion(option.product);
 
         return;
     }
 
-    if (option.type === 'product') {
+    if (option.type === 'store') {
         searchFocused.value = false;
         closeAll();
-        requestBuyerView('product', option.product);
+        requestBuyerView('store', option.store);
 
         return;
     }
@@ -363,6 +469,8 @@ onUnmounted(() => {
     document.removeEventListener('keydown', handleKeydown);
     document.body.style.overflow = '';
     clearTimeout(bumpTimer);
+    clearTimeout(suggestTimer);
+    suggestRequest.cancel();
 });
 </script>
 
@@ -410,7 +518,7 @@ onUnmounted(() => {
                 <label
                     for="header-search-input"
                     class="sr-only"
-                >Search BuyTheWay</label>
+                >Search products or stores</label>
 
                 <svg class="header-search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
                     <circle cx="11" cy="11" r="7" />
@@ -429,7 +537,7 @@ onUnmounted(() => {
                     aria-controls="header-search-suggestions"
                     :aria-expanded="showSuggestions"
                     :aria-activedescendant="activeOption >= 0 ? `search-opt-${activeOption}` : undefined"
-                    placeholder="Search products, brands, categories"
+                    placeholder="Search products or stores"
                     @input="handleSearchInput"
                     @focus="searchFocused = true"
                     @blur="handleSearchBlur"
@@ -446,44 +554,93 @@ onUnmounted(() => {
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
                 </button>
 
+                <!-- Icon-only submit: one magnifier at every width; the
+                     accessible name and tooltip say "Search". Enter in the
+                     field submits the same form. -->
                 <button
                     type="submit"
                     class="header-search-submit"
+                    aria-label="Search"
+                    title="Search"
                 >
-                    Search
+                    <svg class="header-search-submit-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                        <circle cx="11" cy="11" r="7" />
+                        <path d="m20 20-3.5-3.5" />
+                    </svg>
                 </button>
 
-                <ul
-                    v-show="showSuggestions"
+                <div
+                    v-show="showSuggestions || suggestStatusText"
                     id="header-search-suggestions"
                     class="header-suggestions"
                     role="listbox"
                     aria-label="Search suggestions"
                 >
-                    <li
-                        v-for="(option, index) in suggestions"
-                        :id="`search-opt-${index}`"
-                        :key="option.key"
-                        role="option"
-                        class="header-suggestion"
-                        :class="{ 'is-active': index === activeOption }"
-                        :aria-selected="index === activeOption"
-                        @mousedown.prevent="pickSuggestion(option)"
-                        @mouseenter="activeOption = index"
+                    <div
+                        v-for="group in suggestionGroups"
+                        :key="group.id"
+                        role="group"
+                        :aria-labelledby="`search-group-${group.id}`"
+                        class="header-suggestion-group"
                     >
-                        <span
-                            class="header-suggestion-kind"
-                            aria-hidden="true"
+                        <p
+                            :id="`search-group-${group.id}`"
+                            class="header-suggestion-heading"
                         >
-                            {{ option.type === 'category' ? 'Category' : option.type === 'brand' ? 'Brand' : '' }}
-                        </span>
-                        <span class="header-suggestion-label">{{ option.label }}</span>
-                        <span
-                            v-if="option.type === 'product'"
-                            class="header-suggestion-price"
-                        >{{ formatPrice(option.product.price) }}</span>
-                    </li>
-                </ul>
+                            {{ group.label }}
+                        </p>
+                        <div
+                            v-for="option in group.options"
+                            :id="`search-opt-${option.index}`"
+                            :key="option.key"
+                            role="option"
+                            class="header-suggestion"
+                            :class="{ 'is-active': option.index === activeOption }"
+                            :aria-selected="option.index === activeOption"
+                            @mousedown.prevent="pickSuggestion(option)"
+                            @mouseenter="activeOption = option.index"
+                        >
+                            <StoreLogo
+                                v-if="option.type === 'store'"
+                                size="xs"
+                                :name="option.store.name"
+                                :src="option.store.logo || ''"
+                                :category="option.store.category || ''"
+                            />
+                            <span
+                                v-else
+                                class="header-suggestion-thumb"
+                                aria-hidden="true"
+                            >
+                                <img
+                                    v-if="option.product.image"
+                                    :src="option.product.image"
+                                    alt=""
+                                    width="28"
+                                    height="28"
+                                    loading="lazy"
+                                    @error="$event.target.remove()"
+                                >
+                            </span>
+                            <span class="header-suggestion-label">{{ option.label }}</span>
+                            <span
+                                v-if="option.type === 'product'"
+                                class="header-suggestion-price"
+                            >{{ formatPrice(option.product.price) }}</span>
+                            <span
+                                v-else-if="option.type === 'store' && option.store.category"
+                                class="header-suggestion-meta"
+                            >{{ option.store.category }}</span>
+                        </div>
+                    </div>
+                    <p
+                        v-if="suggestStatusText"
+                        class="header-suggestion-status"
+                        role="status"
+                    >
+                        {{ suggestStatusText }}
+                    </p>
+                </div>
             </form>
 
             <nav

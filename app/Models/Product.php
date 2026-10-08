@@ -62,4 +62,13 @@ class Product extends Model
     {
         return $query->where('status', 'active');
     }
+
+    /**
+     * The buyer-visible catalogue: active listings of sellers whose account
+     * is active (the rule every buyer-facing product query applies).
+     */
+    public function scopeVisibleToBuyers($query)
+    {
+        return $query->active()->whereHas('seller', fn ($q) => $q->where('account_status', 'active'));
+    }
 }

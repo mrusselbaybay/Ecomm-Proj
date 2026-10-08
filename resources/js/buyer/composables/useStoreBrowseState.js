@@ -12,6 +12,10 @@
 //
 // Unknown or malformed values are dropped. There is deliberately no Brand,
 // Life Stage, Pack Size or Flavor filter here (product decision).
+//
+// The search results page links to the directory filtered by store name
+// (searchStores()).
+import { requestBuyerView } from './useBuyerNav';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -107,6 +111,12 @@ export function rememberDirectoryState(state) {
 
 export function rememberedDirectoryState() {
     return sanitizeDirectoryState(rememberedDirectory.state || defaultDirectoryState());
+}
+
+/** Opens the store directory showing every store whose name matches. */
+export function searchStores(query) {
+    rememberDirectoryState({ ...rememberedDirectoryState(), q: cleanText(query), category: '', page: 1 });
+    requestBuyerView('stores');
 }
 
 export function directoryUrl() {

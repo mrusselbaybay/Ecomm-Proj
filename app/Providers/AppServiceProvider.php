@@ -2,9 +2,13 @@
 
 namespace App\Providers;
 
+use App\Support\ProductSearch;
+use App\Support\SchemaCache;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\MigrationsEnded;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -24,6 +28,13 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+
+        // Cached schema answers (SchemaCache, ProductSearch's pg_trgm check)
+        // describe the database before the migration; forget them.
+        Event::listen(MigrationsEnded::class, function (): void {
+            SchemaCache::flush();
+            ProductSearch::forgetTrigramSchema();
+        });
     }
 
     /**

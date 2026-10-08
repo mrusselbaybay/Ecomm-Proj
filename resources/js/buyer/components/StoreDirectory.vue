@@ -4,21 +4,25 @@
 | StoreDirectory
 |--------------------------------------------------------------------------
 |
-| Find a store: search by store name, narrow by line of business, sort,
-| page through results. Backed by GET /api/stores (StoreController).
+| Find a store: browse every store, narrow by line of business, sort, page
+| through results. A store-name filter (q) comes from the search results
+| page's "Browse in the store directory" link or a shared URL; the header
+| search itself opens the combined results page. Backed by GET /api/stores
+| (StoreController).
 |
 | - Browse state lives in the URL (useStoreBrowseState.js), so refresh,
 |   shared links and Back / Forward reproduce the same results, and the
 |   directory reopens where the buyer left it.
-| - Typing is debounced; Enter searches immediately. Requests go through a
-|   latest-request-wins channel, so a slow, older response can never
-|   replace newer results.
+| - Requests go through a latest-request-wins channel, so a slow, older
+|   response can never replace newer results.
 | - While a new result set loads, the current one stays on screen, dimmed,
 |   instead of collapsing into skeletons. Skeletons only show when there is
 |   nothing to show yet.
-| - Store search is separate from the header's product search; the hint
-|   under the field says so, and a store search with no matches offers to
-|   run the same words as a product search.
+| - The category filter lists every line of business sellers register
+|   under (useCategoryMeta's categories), with live counts for the current
+|   search: chips on wide screens, a select on phones.
+| - A store search with no matches offers to edit it in the header or run
+|   the same words as a product search.
 |
 */
 import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue';
@@ -49,7 +53,6 @@ const emit = defineEmits([
 ]);
 
 const PER_PAGE = 12;
-const SEARCH_DEBOUNCE = 300;
 const ENTRANCE_MS = 900;
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -82,34 +85,19 @@ watch(state, syncUrl, { deep: true });
 
 /*
 |--------------------------------------------------------------------------
-| Search (debounced)
+| Editing the search
 |--------------------------------------------------------------------------
+|
+| There's no search box on this page: "Edit search" puts the cursor in the
+| header search (which opens the combined products-and-stores results).
+|
 */
 
-const queryInput = ref(state.q);
-const searchInput = ref(null);
-let searchTimer = null;
+function editSearch() {
+    const input = document.getElementById('header-search-input');
 
-function commitSearch() {
-    clearTimeout(searchTimer);
-
-    const q = queryInput.value.trim();
-
-    if (q !== state.q) {
-        state.q = q;
-        state.page = 1;
-    }
-}
-
-watch(queryInput, () => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(commitSearch, SEARCH_DEBOUNCE);
-});
-
-function clearSearch() {
-    queryInput.value = '';
-    commitSearch();
-    searchInput.value?.focus();
+    input?.focus();
+    input?.select();
 }
 
 /*
@@ -192,7 +180,6 @@ watch(() => [state.q, state.category, state.sort, state.page], load, { immediate
 
 onUnmounted(() => {
     request.cancel();
-    clearTimeout(searchTimer);
     clearTimeout(entranceTimer);
 });
 
@@ -206,17 +193,7 @@ const countLabel = computed(() => {
         return 'Loading stores…';
     }
 
-    let label = `${total.value} ${total.value === 1 ? 'store' : 'stores'}`;
-
-    if (state.category) {
-        label += ` in ${state.category}`;
-    }
-
-    if (state.q) {
-        label += ` matching “${state.q}”`;
-    }
-
-    return label;
+    return `${total.value} ${total.value === 1 ? 'store' : 'stores'}`;
 });
 
 /*
@@ -224,20 +201,23 @@ const countLabel = computed(() => {
 | Category Filter
 |--------------------------------------------------------------------------
 |
-| Only lines of business that actually have stores (for the current
-| search) get a pill, in the storefront's usual category order. A selected
-| category stays visible even if the search leaves it empty.
+| Every line of business a seller can register under, in the storefront's
+| usual order, with how many stores match the current search. A category
+| with none is shown but can't be picked (unless it's the selected one, so
+| it can always be cleared).
 |
 */
 
 const categoryOptions = computed(() => {
     const counts = new Map((facets.value?.categories || []).map(entry => [entry.name, entry.count]));
     const known = categories.filter(category => category !== 'All');
-    const extra = [...counts.keys()].filter(name => !known.includes(name));
+    const extra = [...counts.keys()].filter(name => name && !known.includes(name));
 
-    return [...known, ...extra]
-        .filter(name => counts.get(name) > 0 || name === state.category)
-        .map(name => ({ name, count: counts.get(name) || 0 }));
+    return [...known, ...extra].map(name => ({
+        name,
+        count: counts.get(name) || 0,
+        disabled: Boolean(facets.value) && !counts.get(name) && name !== state.category
+    }));
 });
 
 const allCategoriesCount = computed(() =>
@@ -276,7 +256,6 @@ function goToPage(n) {
 }
 
 function resetAll() {
-    queryInput.value = '';
     Object.assign(state, { ...defaultDirectoryState(), sort: state.sort });
 }
 
@@ -293,6 +272,7 @@ const skeletons = Array.from({ length: 6 });
 
         <Header
             active-view="stores"
+            :search-query="state.q"
             @select-category="emit('select-category', $event)"
             @cart-click="emit('open-cart')"
             @account-click="emit('account-click')"
@@ -324,84 +304,10 @@ const skeletons = Array.from({ length: 6 });
                     </ol>
                 </nav>
 
-                <div class="stores-head-grid">
-                    <div>
-                        <h1 class="cat-title">Stores</h1>
-                        <p class="cat-desc">
-                            Shop straight from the independent sellers on BuyTheWay. Find a store by name, or browse by what it sells.
-                        </p>
-                    </div>
-
-                    <form
-                        class="stores-search"
-                        role="search"
-                        @submit.prevent="commitSearch"
-                    >
-                        <label
-                            for="store-search"
-                            class="stores-search-label"
-                        >Search stores</label>
-                        <div class="stores-search-field">
-                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-                            <input
-                                id="store-search"
-                                ref="searchInput"
-                                v-model="queryInput"
-                                type="search"
-                                placeholder="Store name"
-                                autocomplete="off"
-                                spellcheck="false"
-                                aria-describedby="store-search-hint"
-                                enterkeyhint="search"
-                            >
-                            <button
-                                v-if="queryInput"
-                                type="button"
-                                class="stores-search-clear"
-                                aria-label="Clear store search"
-                                @click="clearSearch"
-                            >
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                            </button>
-                        </div>
-                        <p
-                            id="store-search-hint"
-                            class="stores-search-hint"
-                        >
-                            Searches store names. To find a product, use the search bar at the top.
-                        </p>
-                    </form>
-                </div>
-
-                <div
-                    v-if="categoryOptions.length > 1 || state.category"
-                    class="stores-cats"
-                    role="group"
-                    aria-label="Filter stores by category"
-                >
-                    <button
-                        type="button"
-                        class="cat-pill"
-                        :class="{ 'is-active': !state.category }"
-                        :aria-pressed="!state.category"
-                        @click="selectCategory('')"
-                    >
-                        All categories
-                        <span class="cat-pill-count">{{ allCategoriesCount }}</span>
-                    </button>
-                    <button
-                        v-for="option in categoryOptions"
-                        :key="option.name"
-                        type="button"
-                        class="cat-pill"
-                        :class="{ 'is-active': state.category === option.name }"
-                        :aria-pressed="state.category === option.name"
-                        @click="selectCategory(state.category === option.name ? '' : option.name)"
-                    >
-                        {{ option.name }}
-                        <span class="cat-pill-count">{{ option.count }}</span>
-                    </button>
-                </div>
+                <h1 class="cat-title">Stores</h1>
+                <p class="cat-desc">
+                    Shop straight from the independent sellers on BuyTheWay. Search store names from the bar above, or browse by what they sell.
+                </p>
             </header>
 
             <section
@@ -416,13 +322,86 @@ const skeletons = Array.from({ length: 6 });
                     Store results
                 </h2>
 
+                <!-- Category: chips on wide screens, a select on phones -->
+                <div class="stores-filter">
+                    <div
+                        class="stores-cats"
+                        role="group"
+                        aria-label="Filter stores by category"
+                    >
+                        <button
+                            type="button"
+                            class="stores-cat"
+                            :class="{ 'is-active': !state.category }"
+                            :aria-pressed="!state.category"
+                            @click="selectCategory('')"
+                        >
+                            All categories
+                            <span
+                                v-if="facets"
+                                class="stores-cat-count"
+                            >{{ allCategoriesCount }}</span>
+                        </button>
+                        <button
+                            v-for="option in categoryOptions"
+                            :key="option.name"
+                            type="button"
+                            class="stores-cat"
+                            :class="{ 'is-active': state.category === option.name }"
+                            :aria-pressed="state.category === option.name"
+                            :disabled="option.disabled"
+                            @click="selectCategory(state.category === option.name ? '' : option.name)"
+                        >
+                            {{ option.name }}
+                            <span
+                                v-if="facets"
+                                class="stores-cat-count"
+                            >{{ option.count }}</span>
+                        </button>
+                    </div>
+
+                    <label class="stores-cat-select select-field">
+                        <span class="select-field-label">Category</span>
+                        <select
+                            :value="state.category"
+                            @change="selectCategory($event.target.value)"
+                        >
+                            <option value="">All categories{{ facets ? ` (${allCategoriesCount})` : '' }}</option>
+                            <option
+                                v-for="option in categoryOptions"
+                                :key="option.name"
+                                :value="option.name"
+                                :disabled="option.disabled"
+                            >
+                                {{ option.name }}{{ facets ? ` (${option.count})` : '' }}
+                            </option>
+                        </select>
+                    </label>
+                </div>
+
                 <div class="cat-toolbar">
                     <p
-                        class="cat-count"
+                        class="cat-count stores-count"
                         role="status"
                         aria-live="polite"
                     >
-                        {{ countLabel }}
+                        <span>{{ countLabel }}</span>
+                        <span
+                            v-if="hasResults && state.q"
+                            class="stores-count-q"
+                        >matching &ldquo;{{ state.q }}&rdquo;</span>
+                        <span
+                            v-if="hasResults && state.category"
+                            class="stores-count-q"
+                        >in {{ state.category }}</span>
+                        <button
+                            v-if="isFiltered"
+                            type="button"
+                            class="link-btn stores-clear"
+                            @click="resetAll"
+                        >
+                            Clear filters
+                        </button>
                     </p>
 
                     <label
@@ -505,12 +484,20 @@ const skeletons = Array.from({ length: 6 });
                     <p v-else>Try another category, or see every store.</p>
                     <div class="cat-no-results-actions">
                         <button
-                            v-if="state.q && state.category"
+                            v-if="state.category"
                             type="button"
                             class="btn btn-secondary"
                             @click="selectCategory('')"
                         >
-                            Search all categories
+                            {{ state.q ? 'Search all categories' : 'All categories' }}
+                        </button>
+                        <button
+                            v-if="state.q"
+                            type="button"
+                            class="btn btn-secondary"
+                            @click="editSearch"
+                        >
+                            Edit search
                         </button>
                         <button
                             type="button"

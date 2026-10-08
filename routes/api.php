@@ -4,7 +4,9 @@ use App\Http\Controllers\Admin\AdminNotificationController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\ProductImageController;
 use App\Http\Controllers\PsgcProxyController;
+use App\Http\Controllers\SearchSuggestionController;
 use App\Http\Controllers\StoreController;
 use App\Mail\RegistrationApproved;
 use App\Support\CategoryFieldConfig;
@@ -21,8 +23,17 @@ use Illuminate\Support\Facades\Route;
 // PUBLIC PRODUCT CATALOG (buyer storefront browsing)
 // ============================================================
 Route::get('/products', [ProductController::class, 'index'])->name('products.index');
+// Declared before /products/{id} so "related" isn't read as an id.
+Route::get('/products/related', [ProductController::class, 'related'])->name('products.related');
 Route::get('/products/{id}', [ProductController::class, 'show'])->name('products.show');
+// Inline (base64) product photos as cached image files (ProductImage::liteSql()).
+Route::get('/products/{id}/images/{index}', [ProductImageController::class, 'show'])
+    ->whereNumber('index')
+    ->name('products.images.show');
 Route::get('/products/{id}/reviews', [ProductController::class, 'reviews'])->name('products.reviews');
+
+// Header search suggestions: a few products + stores (ProductSearch).
+Route::get('/search/suggestions', SearchSuggestionController::class)->name('search.suggestions');
 
 // Store directory + individual store pages (products come from /products?seller_id=)
 Route::get('/stores', [StoreController::class, 'index'])->name('stores.index');

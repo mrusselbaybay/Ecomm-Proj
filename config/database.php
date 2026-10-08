@@ -99,6 +99,14 @@ return [
             'sslmode' => env('DB_SSLMODE', 'require'),
             'options' => extension_loaded('pdo_pgsql') ? array_filter([
                 PDO::ATTR_EMULATE_PREPARES => true,
+                // pdo_pgsql passes this to libpq as connect_timeout: an
+                // unreachable or stalled database fails fast with a clear
+                // error instead of eating the whole request time limit.
+                PDO::ATTR_TIMEOUT => (int) env('DB_CONNECT_TIMEOUT', 10),
+                // Opt-in: reuse the TLS connection to Supabase across
+                // requests of the same PHP worker instead of opening a new
+                // one (1-10 s here) per request. Off by default.
+                PDO::ATTR_PERSISTENT => (bool) env('DB_PERSISTENT', false),
             ]) : [],
         ],
 

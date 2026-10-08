@@ -6,8 +6,9 @@
 | working, while a plain click stays inside the buyer app.
 |
 | Ratings and product counts come straight from StoreController and are
-| only shown when real; the photo strip is the store's three newest
-| buyer-visible product images.
+| only shown when real; the description line only when the seller wrote
+| one; the photo strip is the store's three newest buyer-visible product
+| images. "Visit store" is a visual cue for the same link.
 */
 import { computed } from 'vue';
 import StoreLogo from './StoreLogo.vue';
@@ -61,6 +62,13 @@ function handleClick(event) {
                 <span v-if="store.location">{{ store.location }}</span>
             </p>
 
+            <p
+                v-if="store.description"
+                class="store-card-desc"
+            >
+                {{ store.description }}
+            </p>
+
             <p class="store-card-stats">
                 <span v-if="store.productCount > 0">{{ productCountLabel(store.productCount) }}</span>
                 <span
@@ -104,6 +112,7 @@ function handleClick(event) {
             class="store-card-go"
             aria-hidden="true"
         >
+            <span class="store-card-go-text">Visit store</span>
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
         </span>
     </article>
