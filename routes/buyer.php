@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\Route;
  * buyer's own data and other sellers' inventory.
  */
 Route::middleware(['supabase.auth', 'buyer'])->prefix('api/buyer')->name('api.buyer.')->group(function () {
+    Route::post('/checkout/quote', [CheckoutController::class, 'quote'])->name('checkout.quote');
     Route::post('/checkout', [CheckoutController::class, 'store'])->name('checkout.store');
 
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');

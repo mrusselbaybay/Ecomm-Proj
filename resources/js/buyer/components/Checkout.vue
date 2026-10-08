@@ -1,48 +1,56 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { useBuyer } from '../composables/useBuyer';
-import { useBuyerAddresses } from '../composables/useBuyerAddresses';
-import { useBuyerSession } from '../composables/useBuyerSession';
-import { formatPrice, metaFor } from '../composables/useCategoryMeta';
-import { availablePaymentMethods, paymentMethods } from '../composables/usePayment';
-import { isValidLocalMobile, toLocalMobile } from '../composables/usePhone';
-import { shippingOptions } from '../composables/useShipping';
-import { useToasts } from '../composables/useToasts';
-import Footer from './Footer.vue';
-import Header from './Header.vue';
-import PaymentMethodSelector from './PaymentMethodSelector.vue';
-
 /*
 |--------------------------------------------------------------------------
 | Checkout
 |--------------------------------------------------------------------------
 |
-| One page, three short steps (address, items and shipping, payment), then
-| a confirmation view built from the orders the server actually created.
+| Cart → Checkout → Confirmation. There is no separate payment step: the
+| only method checkout supports is cash on delivery (CheckoutOptions).
 |
-| Only what the backend supports is offered (see CheckoutService):
-|   - one order and one flat shipping fee per seller, so shipping is shown
-|     per parcel and the total counts every parcel
-|   - one shipping method for the whole checkout
-|   - cash on delivery only: nothing is charged online and every order is
-|     saved as Unpaid, so card / e-wallet options are not offered here
-|   - no vouchers (the server ignores voucher_code and discount is 0)
+| Every amount on this page comes from the server's quote
+| (POST /api/buyer/checkout/quote, CheckoutService::quote): today's price
+| for each line and whether it can still be bought, each store's shipping
+| options and fee, and the totals. The quote is refreshed whenever the
+| items, a store's shipping or the payment method change; while it
+| updates, the old numbers stay (dimmed) and the order can't be placed.
+|
+| Placing the order sends the total the buyer is looking at
+| (expected_total) and an idempotency key:
+|   - if anything changed in the meantime, nothing is ordered (409) and
+|     the page shows what changed with the new amounts, for the buyer to
+|     confirm again;
+|   - a double click, or a retry after a dropped connection, reuses the
+|     same key, so the server returns the orders it already created
+|     instead of creating them twice.
+| Cart lines are removed (by Dashboard) only after orders are created.
+|
+| Not offered because the platform doesn't support them: vouchers and
+| discounts (the server ignores voucher codes), notes to sellers (orders
+| have nowhere to keep one), online payment.
+|
+| Choices live in useCheckoutState, so going back to the cart and
+| returning keeps them; they're re-checked by the next quote.
 |
 */
-
-// Renamed on import: this component's own placeOrder() below is the click
-// handler; submitCheckout is the request itself.
-const { placeOrder: submitCheckout, isPlacingOrder } = useBuyer();
-const { buyerProfile, isLoadingSession } = useBuyerSession();
-const { addresses, defaultAddress, addAddress } = useBuyerAddresses();
-const { warning, error: toastError } = useToasts();
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import Footer from './Footer.vue';
+import Header from './Header.vue';
+import OrderItemThumb from './OrderItemThumb.vue';
+import { useBuyer } from '../composables/useBuyer';
+import { buyerApi } from '../composables/useBuyerApi';
+import { useBuyerAddresses } from '../composables/useBuyerAddresses';
+import { useBuyerSession } from '../composables/useBuyerSession';
+import { formatPrice } from '../composables/useCategoryMeta';
+import { attemptKeyFor, finishAttempt, useCheckoutState } from '../composables/useCheckoutState';
+import { isValidLocalMobile, toLocalMobile } from '../composables/usePhone';
+import { useToasts } from '../composables/useToasts';
 
 const props = defineProps({
     items: {
         type: Array,
         default: () => []
     },
-    // 'cart' or 'buy-now': decides whether "Edit cart" makes sense.
+    // 'cart' or 'buy-now': decides what "Edit" means for the items.
     source: {
         type: String,
         default: 'cart'
@@ -62,91 +70,189 @@ const emit = defineEmits([
     'browse-categories'
 ]);
 
-function itemKey(item) {
+const state = useCheckoutState();
+const { loadOrders } = useBuyer();
+const { buyerProfile, isLoadingSession } = useBuyerSession();
+const { addresses, defaultAddress, addAddress, updateAddress, isLoading: isLoadingAddresses } = useBuyerAddresses();
+const { success: toastSuccess } = useToasts();
+
+const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const isSignedOut = computed(() => !isLoadingSession.value && !buyerProfile.value);
+
+function lineKey(item) {
     return `${item.productId}-${item.variantId || 'simple'}`;
 }
 
-// Product photo when the item carries one; a missing, placeholder or
-// broken image falls back to the category icon tile.
-const PLACEHOLDER_IMAGE = '/images/product-placeholder.svg';
-const failedImages = ref(new Set());
+const itemsSignature = computed(() => props.items.map(item => `${lineKey(item)}x${item.quantity}`).join('|'));
 
-function hasImage(item) {
-    return Boolean(item.image)
-        && item.image !== PLACEHOLDER_IMAGE
-        && !failedImages.value.has(item.image);
+/*
+|--------------------------------------------------------------------------
+| Quote
+|--------------------------------------------------------------------------
+*/
+
+const quote = ref(null);
+const quoteStatus = ref('loading');
+const quoteError = ref('');
+let quoteSeq = 0;
+let quoteTimer = null;
+
+function requestBody() {
+    return {
+        items: props.items.map(item => ({
+            product_id: item.productId,
+            variant_id: item.variantId || null,
+            quantity: Number(item.quantity),
+            variation: item.variation || null
+        })),
+        shipping_methods: { ...state.shippingBySeller },
+        payment_method: state.paymentMethod
+    };
 }
 
-function markImageFailed(item) {
-    failedImages.value = new Set(failedImages.value).add(item.image);
+function applyQuote(data) {
+    quote.value = data;
+
+    // Show the shipping method the server actually priced for each store.
+    for (const seller of data.sellers || []) {
+        if (seller.seller_id) {
+            state.shippingBySeller[seller.seller_id] = seller.shipping.method;
+        }
+    }
+
+    const methods = (data.payment_methods || []).map(method => method.id);
+
+    if (methods.length && !methods.includes(state.paymentMethod)) {
+        state.paymentMethod = methods[0];
+    }
 }
 
-// Server order lines carry only name/qty/price/variant; match them back to
-// the checkout item for its photo and category.
-function itemForLine(line) {
-    return props.items.find(item => item.name === line.name) || {};
+async function refreshQuote() {
+    if (!props.items.length || isSignedOut.value) {
+        return;
+    }
+
+    const id = ++quoteSeq;
+
+    quoteStatus.value = 'loading';
+    quoteError.value = '';
+
+    try {
+        const data = await buyerApi('/buyer/checkout/quote', {
+            method: 'POST',
+            body: JSON.stringify(requestBody())
+        });
+
+        if (id !== quoteSeq) {
+            return;
+        }
+
+        applyQuote(data);
+        quoteStatus.value = 'ready';
+    } catch (err) {
+        if (id !== quoteSeq) {
+            return;
+        }
+
+        quoteStatus.value = 'error';
+        quoteError.value = err?.status === 401
+            ? 'Please sign in again to see your total.'
+            : 'We couldn’t work out your total. Check your connection and try again.';
+    }
 }
 
-const isSignedOut = computed(() => !isLoadingSession.value && !buyerProfile.value);
+function scheduleQuote() {
+    clearTimeout(quoteTimer);
+    quoteTimer = setTimeout(refreshQuote, 150);
+}
+
+watch(() => JSON.stringify(requestBody()), scheduleQuote);
+watch(isSignedOut, signedOut => {
+    if (!signedOut) {
+        scheduleQuote();
+    }
+});
+
+const sellers = computed(() => quote.value?.sellers || []);
+const totals = computed(() => quote.value?.totals || null);
+
+// Once the total has changed (a re-quote after a shipping choice, a removed
+// item, a changed price), each new total settles in (.nx-value-in) so the
+// change is noticed. Never on the first total.
+const totalChanged = ref(false);
+
+watch(() => totals.value?.total, (next, previous) => {
+    if (previous != null && next != null && next !== previous) {
+        totalChanged.value = true;
+    }
+});
+const isUpdating = computed(() => quoteStatus.value === 'loading' && Boolean(quote.value));
+const problemLines = computed(() => sellers.value.flatMap(seller => seller.items.filter(item => !item.available)));
+const paymentMethods = computed(() => quote.value?.payment_methods || []);
+const selectedPayment = computed(() => paymentMethods.value.find(method => method.id === state.paymentMethod) || null);
+
+function chooseShipping(sellerId, method) {
+    state.shippingBySeller[sellerId] = method;
+}
+
+function removeLine(item) {
+    emit('remove-item', item.key);
+}
 
 /*
 |--------------------------------------------------------------------------
 | Delivery address
 |--------------------------------------------------------------------------
 |
-| Returning buyers start on their default saved address (shown as a short
-| summary with "Change"); first-time buyers get the form. A new address can
-| be saved to the address book after the order goes through.
+| A saved address (the default first), or one typed here — saved to the
+| address book or used for this order only. A saved address can be edited
+| in place. Nothing typed is lost when switching between them.
 |
 */
 
-const addressMode = ref('new');
-const selectedAddressId = ref('');
 const isChoosingAddress = ref(false);
-const saveNewAddress = ref(true);
+const isAddressFormOpen = ref(false);
+const isSavingAddress = ref(false);
+const addressSaveError = ref('');
+const errors = reactive({});
+const touched = reactive({});
+const triedSubmit = ref(false);
 
-const newAddress = reactive({
-    fullName: '',
-    phone: '',
-    line1: '',
-    city: '',
-    province: '',
-    postalCode: ''
-});
+const FIELDS = ['fullName', 'phone', 'line1', 'city', 'province'];
 
-let hasPickedInitialAddress = false;
+const selectedSavedAddress = computed(() => addresses.value.find(address => address.id === state.selectedAddressId) || null);
 
-function pickInitialAddress(address) {
-    if (hasPickedInitialAddress || !address) {
+const isFormPristine = () => !['line1', 'city', 'province'].some(field => String(state.form[field] || '').trim());
+
+// Start from the default address (or what was chosen before); with an
+// empty address book, the form. Decided only once the address book has
+// loaded — an empty list while it's still loading means "not yet", not
+// "none".
+watch([addresses, defaultAddress, isLoadingAddresses], () => {
+    if (isLoadingAddresses.value) {
         return;
     }
 
-    hasPickedInitialAddress = true;
-    addressMode.value = 'saved';
-    selectedAddressId.value = address.id;
-}
-
-pickInitialAddress(defaultAddress.value);
-watch(defaultAddress, pickInitialAddress);
-
-// Prefill the new-address form with the buyer's own name and number.
-watch(buyerProfile, profile => {
-    if (!profile) {
-        return;
+    if (addresses.value.length && state.addressMode === 'new' && !isAddressFormOpen.value && isFormPristine()) {
+        state.addressMode = 'saved';
     }
 
-    if (!newAddress.fullName) {
-        newAddress.fullName = [profile.first_name, profile.last_name].filter(Boolean).join(' ');
-    }
-
-    if (!newAddress.phone) {
-        newAddress.phone = toLocalMobile(profile.contact_no || '');
+    if (state.addressMode === 'saved' && !selectedSavedAddress.value) {
+        if (defaultAddress.value) {
+            state.selectedAddressId = defaultAddress.value.id;
+        } else if (!addresses.value.length) {
+            state.addressMode = 'new';
+            isAddressFormOpen.value = true;
+        }
     }
 }, { immediate: true });
 
-const selectedSavedAddress = computed(
-    () => addresses.value.find(address => address.id === selectedAddressId.value) || null
-);
+watch(buyerProfile, profile => {
+    if (profile && !state.form.fullName && !state.form.phone && state.addressMode === 'new') {
+        state.form.fullName = [profile.first_name, profile.last_name].filter(Boolean).join(' ');
+        state.form.phone = toLocalMobile(profile.contact_no || '');
+    }
+}, { immediate: true });
 
 function formatAddressLine(address) {
     return [address.line1, address.city, address.province, address.postalCode]
@@ -155,86 +261,8 @@ function formatAddressLine(address) {
         .join(', ');
 }
 
-const deliveryAddress = computed(() => {
-    const source = addressMode.value === 'saved' ? selectedSavedAddress.value : newAddress;
-
-    if (!source) {
-        return null;
-    }
-
-    return {
-        recipient_name: String(source.fullName || '').trim(),
-        contact_number: toLocalMobile(source.phone || ''),
-        address: formatAddressLine(source)
-    };
-});
-
-function chooseSavedAddress(id) {
-    addressMode.value = 'saved';
-    selectedAddressId.value = id;
-    isChoosingAddress.value = false;
-    clearError('address');
-}
-
-function useNewAddress() {
-    addressMode.value = 'new';
-    isChoosingAddress.value = false;
-    clearError('address');
-    nextTick(() => document.getElementById('checkout-name')?.focus());
-}
-
-function onPhoneInput(event) {
-    newAddress.phone = toLocalMobile(event.target.value);
-    event.target.value = newAddress.phone;
-    revalidate('phone');
-}
-
-/*
-|--------------------------------------------------------------------------
-| Validation
-|--------------------------------------------------------------------------
-|
-| Errors sit under the field they belong to. Fields are checked on blur
-| once touched, and every field is re-checked as the buyer fixes it after a
-| failed submit. Nothing typed is ever cleared.
-|
-*/
-
-const errors = reactive({});
-const touched = reactive({});
-const hasTriedSubmit = ref(false);
-
-const fieldOrder = ['fullName', 'phone', 'line1', 'city', 'province', 'address'];
-
-const fieldLabels = {
-    fullName: 'recipient name',
-    phone: 'contact number',
-    line1: 'street address',
-    city: 'city or municipality',
-    province: 'province',
-    address: 'delivery address'
-};
-
-function validateField(field) {
-    if (addressMode.value === 'saved') {
-        if (field !== 'address') {
-            return '';
-        }
-
-        const saved = selectedSavedAddress.value;
-
-        if (!saved) {
-            return 'Choose a saved address or enter a new one.';
-        }
-
-        if (!isValidLocalMobile(toLocalMobile(saved.phone || ''))) {
-            return 'This saved address has no valid contact number. Use a new address, or update it in Saved Addresses.';
-        }
-
-        return '';
-    }
-
-    const value = String(newAddress[field] ?? '').trim();
+function fieldError(field) {
+    const value = String(state.form[field] ?? '').trim();
 
     switch (field) {
         case 'fullName':
@@ -244,7 +272,7 @@ function validateField(field) {
                 return 'Enter a mobile number so the courier can reach you.';
             }
 
-            return isValidLocalMobile(value) ? '' : 'Enter an 11-digit mobile number starting with 09, e.g. 09171234567.';
+            return isValidLocalMobile(value) ? '' : 'Enter an 11-digit mobile number starting with 09.';
         case 'line1':
             return value ? '' : 'Enter the house number, street and barangay.';
         case 'city':
@@ -256,445 +284,397 @@ function validateField(field) {
     }
 }
 
-function setError(field, message) {
-    if (message) {
-        errors[field] = message;
-    } else {
-        delete errors[field];
-    }
-}
-
-function clearError(field) {
-    delete errors[field];
-}
-
 function touch(field) {
     touched[field] = true;
-    setError(field, validateField(field));
+    errors[field] = fieldError(field);
 }
 
-function revalidate(field) {
-    if (touched[field] || hasTriedSubmit.value) {
-        setError(field, validateField(field));
+function onFieldInput(field) {
+    if (field === 'phone') {
+        state.form.phone = toLocalMobile(state.form.phone);
+    }
+
+    if (touched[field] || triedSubmit.value) {
+        errors[field] = fieldError(field);
     }
 }
 
-function validateAll() {
-    const fields = addressMode.value === 'saved'
-        ? ['address']
-        : ['fullName', 'phone', 'line1', 'city', 'province'];
-
-    fieldOrder.forEach(field => clearError(field));
-    fields.forEach(field => setError(field, validateField(field)));
-
-    return fieldOrder.filter(field => errors[field]);
-}
-
-const errorFields = computed(() => fieldOrder.filter(field => errors[field]));
-
-watch(addressMode, () => {
-    fieldOrder.forEach(field => clearError(field));
-});
-
-/*
-|--------------------------------------------------------------------------
-| Parcels and totals
-|--------------------------------------------------------------------------
-|
-| CheckoutService creates one order per seller and charges the flat
-| shipping fee once per order, so the summary does the same.
-|
-*/
-
-const shippingMethod = ref('standard');
-
-const selectedShipping = computed(
-    () => shippingOptions.find(option => option.id === shippingMethod.value) || shippingOptions[0]
-);
-
-const parcels = computed(() => {
-    const groups = new Map();
-
-    props.items.forEach(item => {
-        const seller = item.seller || 'Seller';
-
-        if (!groups.has(seller)) {
-            groups.set(seller, { seller, items: [], subtotal: 0 });
-        }
-
-        const group = groups.get(seller);
-        group.items.push(item);
-        group.subtotal += Number(item.price) * Number(item.quantity);
+function validateForm() {
+    FIELDS.forEach(field => {
+        errors[field] = fieldError(field);
     });
 
-    return [...groups.values()];
-});
+    return FIELDS.filter(field => errors[field]);
+}
 
-const itemCount = computed(
-    () => props.items.reduce((count, item) => count + Number(item.quantity), 0)
-);
+// What's wrong with the chosen saved address, if anything.
+const savedAddressProblem = computed(() => {
+    const saved = selectedSavedAddress.value;
 
-const subtotal = computed(
-    () => parcels.value.reduce((total, parcel) => total + parcel.subtotal, 0)
-);
-
-const shippingTotal = computed(() => selectedShipping.value.fee * parcels.value.length);
-
-/*
-|--------------------------------------------------------------------------
-| Payment method
-|--------------------------------------------------------------------------
-|
-| Only methods from usePayment.js (mirroring CheckoutService::
-| PAYMENT_METHODS) are offered. A single available method is selected by
-| default; with several, the buyer must choose. The choice is checked
-| again on Place order and by the server.
-|
-*/
-
-const availableMethods = computed(() => availablePaymentMethods());
-const paymentMethod = ref('');
-
-watch(availableMethods, methods => {
-    const stillAvailable = methods.some(method => method.id === paymentMethod.value);
-
-    if (!stillAvailable) {
-        paymentMethod.value = methods.length === 1 ? methods[0].id : '';
-    }
-}, { immediate: true });
-
-watch(paymentMethod, () => clearError('payment'));
-
-const selectedPayment = computed(
-    () => availableMethods.value.find(method => method.id === paymentMethod.value) || null
-);
-
-const paymentFee = computed(() => Number(selectedPayment.value?.fee || 0));
-
-function validatePayment() {
-    if (!availableMethods.value.length) {
-        return 'No payment method is available for this order.';
+    if (state.addressMode !== 'saved') {
+        return '';
     }
 
-    if (!selectedPayment.value) {
-        return 'Choose how you want to pay.';
+    if (!saved) {
+        return 'Choose where to deliver your order.';
+    }
+
+    if (!isValidLocalMobile(toLocalMobile(saved.phone || ''))) {
+        return 'This address has no valid mobile number. Edit it to add one.';
+    }
+
+    if (!saved.line1 || !saved.city || !saved.province) {
+        return 'This address is incomplete. Edit it to add the street, city and province.';
     }
 
     return '';
+});
+
+const deliveryAddress = computed(() => {
+    const source = state.addressMode === 'saved' ? selectedSavedAddress.value : state.form;
+
+    if (!source) {
+        return null;
+    }
+
+    return {
+        recipient_name: String(source.fullName || '').trim(),
+        contact_number: toLocalMobile(source.phone || ''),
+        address: formatAddressLine(source),
+        city: String(source.city || '').trim() || null,
+        province: String(source.province || '').trim() || null
+    };
+});
+
+function chooseSaved(id) {
+    state.addressMode = 'saved';
+    state.selectedAddressId = id;
+    isChoosingAddress.value = false;
+    isAddressFormOpen.value = false;
+    addressSaveError.value = '';
 }
 
-const total = computed(() => subtotal.value + shippingTotal.value + paymentFee.value);
+function startNewAddress() {
+    state.addressMode = 'new';
+    state.editingAddressId = '';
+    isChoosingAddress.value = false;
+    isAddressFormOpen.value = true;
+    addressSaveError.value = '';
 
-function pluralize(count, singular, plural = `${singular}s`) {
-    return `${count} ${count === 1 ? singular : plural}`;
+    if (!state.form.fullName && buyerProfile.value) {
+        state.form.fullName = [buyerProfile.value.first_name, buyerProfile.value.last_name].filter(Boolean).join(' ');
+        state.form.phone = toLocalMobile(buyerProfile.value.contact_no || '');
+    }
+
+    nextTick(() => document.getElementById('ck-fullName')?.focus());
+}
+
+function startEdit(address) {
+    state.addressMode = 'edit';
+    state.editingAddressId = address.id;
+    Object.assign(state.form, {
+        fullName: address.fullName || '',
+        phone: toLocalMobile(address.phone || ''),
+        line1: address.line1 || '',
+        city: address.city || '',
+        province: address.province || '',
+        postalCode: address.postalCode || ''
+    });
+    FIELDS.forEach(field => delete errors[field]);
+    isChoosingAddress.value = false;
+    isAddressFormOpen.value = true;
+    addressSaveError.value = '';
+    nextTick(() => document.getElementById('ck-fullName')?.focus());
+}
+
+function cancelAddressForm() {
+    isAddressFormOpen.value = false;
+    addressSaveError.value = '';
+
+    if (state.addressMode === 'edit' || (state.addressMode === 'new' && addresses.value.length)) {
+        state.addressMode = 'saved';
+    }
+}
+
+async function submitAddressForm() {
+    triedSubmit.value = true;
+
+    if (validateForm().length) {
+        nextTick(() => document.querySelector('.ck-field.has-error input')?.focus());
+
+        return;
+    }
+
+    // A new address used for this order only.
+    if (state.addressMode === 'new' && !state.saveNewAddress) {
+        isAddressFormOpen.value = false;
+
+        return;
+    }
+
+    isSavingAddress.value = true;
+    addressSaveError.value = '';
+
+    try {
+        if (state.addressMode === 'edit') {
+            const original = addresses.value.find(address => address.id === state.editingAddressId);
+
+            await updateAddress(state.editingAddressId, { ...state.form, label: original?.label, makeDefault: original?.isDefault });
+            chooseSaved(state.editingAddressId);
+        } else {
+            const before = new Set(addresses.value.map(address => address.id));
+
+            await addAddress({ ...state.form, label: 'Home', makeDefault: addresses.value.length === 0 });
+
+            const created = addresses.value.find(address => !before.has(address.id));
+
+            if (created) {
+                chooseSaved(created.id);
+            } else {
+                isAddressFormOpen.value = false;
+            }
+        }
+
+        toastSuccess('Address saved.');
+    } catch (err) {
+        addressSaveError.value = err?.message || 'We couldn’t save this address. Please try again.';
+    } finally {
+        isSavingAddress.value = false;
+    }
 }
 
 /*
 |--------------------------------------------------------------------------
-| Placing the order
+| Place order
 |--------------------------------------------------------------------------
-|
-| The button states the exact total, then locks and shows progress; the
-| form goes read-only until the server answers, so a second click can't
-| send a second order. Failures keep everything the buyer entered.
-|
 */
 
+const isPlacing = ref(false);
 const submitError = ref(null);
-const problemItemKey = ref('');
-const placedOrders = ref(null);
+const changes = ref([]);
 const confirmation = ref(null);
-
 const errorBanner = ref(null);
 const confirmationHeading = ref(null);
 
-function findItemInMessage(message) {
-    const quoted = /"([^"]+)"/.exec(message || '');
-
-    if (!quoted) {
-        return null;
+const placeBlocker = computed(() => {
+    if (isSignedOut.value) {
+        return 'Sign in to place your order.';
     }
 
-    return props.items.find(item => item.name === quoted[1]) || null;
+    if (quoteStatus.value === 'loading') {
+        return 'Updating your total…';
+    }
+
+    if (quoteStatus.value === 'error' || !totals.value) {
+        return 'Your total couldn’t be calculated yet.';
+    }
+
+    if (problemLines.value.length) {
+        return `${problemLines.value.length === 1 ? 'An item needs' : `${problemLines.value.length} items need`} attention before you can order.`;
+    }
+
+    return '';
+});
+
+function priceChanges(before, after) {
+    const list = [];
+    const oldLines = new Map((before?.sellers || []).flatMap(seller => seller.items).map(item => [item.key, item]));
+    const oldShipping = new Map((before?.sellers || []).map(seller => [seller.seller_id, seller]));
+
+    for (const seller of after.sellers || []) {
+        for (const item of seller.items) {
+            const old = oldLines.get(item.key);
+
+            if (item.problem && (!old || !old.problem)) {
+                list.push(`${item.name}: ${item.problem}`);
+            } else if (old && old.unit_price !== item.unit_price) {
+                list.push(`${item.name}: ${formatPrice(old.unit_price)} → ${formatPrice(item.unit_price)} each`);
+            }
+        }
+
+        const oldSeller = oldShipping.get(seller.seller_id);
+
+        if (oldSeller && oldSeller.shipping.fee !== seller.shipping.fee) {
+            list.push(`Shipping from ${seller.store_name}: ${formatPrice(oldSeller.shipping.fee)} → ${formatPrice(seller.shipping.fee)}`);
+        }
+    }
+
+    if (before?.totals && before.totals.total !== after.totals.total) {
+        list.push(`Order total: ${formatPrice(before.totals.total)} → ${formatPrice(after.totals.total)}`);
+    }
+
+    return list;
 }
 
-function describeFailure(err) {
-    if (!err?.status) {
-        return {
-            kind: 'unknown',
-            title: 'We couldn\'t reach the server.',
-            message: 'Your connection dropped before we got an answer, so the order may or may not have gone through. Check My Orders before trying again.'
-        };
-    }
-
-    if (err.status === 401 || err.status === 403) {
-        return {
-            kind: 'auth',
-            title: 'Please sign in again.',
-            message: 'Your session has ended. Sign in, then come back to place your order. Your cart is saved.'
-        };
-    }
-
-    if (err.status === 422 && err.body?.errors?.payment_method) {
-        return {
-            kind: 'payment',
-            field: err.body.errors.payment_method[0],
-            title: 'Your order wasn\'t placed.',
-            message: 'The payment method you chose can\'t be used. Choose another option under "Choose how to pay". Your other details are still here.'
-        };
-    }
-
-    if (err.status === 422) {
-        const item = findItemInMessage(err.message);
-
-        return {
-            kind: item ? 'item' : 'general',
-            itemKey: item ? itemKey(item) : '',
-            title: 'Your order wasn\'t placed.',
-            message: `${err.message || 'Something in your order needs attention.'} Your address and choices are still here.`
-        };
-    }
-
-    return {
-        kind: 'general',
-        title: 'Your order wasn\'t placed.',
-        message: 'Something went wrong on our side. Nothing was ordered, and your details are still here. Please try again.'
-    };
-}
-
-async function focusFirstError() {
+async function showSubmitError(error) {
+    submitError.value = error;
     await nextTick();
-
-    const first = errorFields.value[0];
-    const target = first === 'address'
-        ? document.getElementById('checkout-address-card')
-        : document.getElementById(`checkout-${first === 'fullName' ? 'name' : first}`);
-
-    target?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
-    target?.focus?.({ preventScroll: true });
-}
-
-async function focusPaymentSection() {
-    await nextTick();
-
-    const section = document.getElementById('checkout-payment-card');
-
-    section?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
-    section?.querySelector('input[name="payment-method"]:not(:disabled)')?.focus({ preventScroll: true });
-}
-
-function prefersReducedMotion() {
-    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    errorBanner.value?.scrollIntoView({ block: 'center', behavior: reducedMotion ? 'auto' : 'smooth' });
+    errorBanner.value?.focus({ preventScroll: true });
 }
 
 async function placeOrder() {
-    if (isPlacingOrder.value || placedOrders.value) {
+    if (isPlacing.value || confirmation.value) {
         return;
     }
 
-    if (props.items.length === 0) {
-        warning('There are no items to check out.');
-
-        return;
-    }
-
-    hasTriedSubmit.value = true;
+    triedSubmit.value = true;
     submitError.value = null;
-    problemItemKey.value = '';
 
-    const addressProblems = validateAll();
-    const paymentProblem = validatePayment();
+    if (state.addressMode !== 'saved' || isAddressFormOpen.value) {
+        if (validateForm().length) {
+            isAddressFormOpen.value = true;
+            await nextTick();
+            document.getElementById('ck-address')?.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' });
+            document.querySelector('.ck-field.has-error input')?.focus({ preventScroll: true });
 
-    setError('payment', paymentProblem);
-
-    if (addressProblems.length) {
-        focusFirstError();
-
-        return;
-    }
-
-    if (paymentProblem) {
-        warning(paymentProblem);
-        focusPaymentSection();
-
-        return;
-    }
-
-    const address = deliveryAddress.value;
-
-    const orderPayload = {
-        items: props.items.map(item => ({
-            product_id: item.productId,
-            variant_id: item.variantId || null,
-            name: item.name,
-            category: item.category,
-            seller: item.seller,
-            variation: item.variation,
-            quantity: Number(item.quantity),
-            unit_price: Number(item.price)
-        })),
-        delivery_address: address,
-        shipping_method: shippingMethod.value,
-        payment_method: selectedPayment.value.id,
-        subtotal: subtotal.value,
-        shipping_fee: shippingTotal.value,
-        discount: 0,
-        total: total.value
-    };
-
-    try {
-        const createdOrders = await submitCheckout(orderPayload);
-        const orders = Array.isArray(createdOrders) ? createdOrders : [];
-
-        confirmation.value = {
-            orders: orders.map(order => ({
-                ...order,
-                seller: sellerForOrder(order)
-            })),
-            address: { ...address },
-            shipping: { ...selectedShipping.value },
-            payment: { ...selectedPayment.value },
-            paymentStatus: orders[0]?.payment_status || 'Unpaid',
-            total: orders.reduce((sum, order) => sum + Number(order.total || 0), 0) || total.value
-        };
-        placedOrders.value = orders;
-
-        if (addressMode.value === 'new' && saveNewAddress.value) {
-            saveAddressForLater();
+            return;
         }
 
-        emit('place-order', createdOrders);
+        if (state.addressMode === 'edit') {
+            showSubmitError({ title: 'Save your address first.', message: 'Save the changes to this address (or cancel them), then place your order.' });
+
+            return;
+        }
+    } else if (savedAddressProblem.value) {
+        await nextTick();
+        document.getElementById('ck-address')?.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' });
+        document.getElementById('ck-address-card')?.focus({ preventScroll: true });
+
+        return;
+    }
+
+    if (placeBlocker.value) {
+        showSubmitError({ title: 'Your order isn’t ready yet.', message: placeBlocker.value });
+
+        return;
+    }
+
+    isPlacing.value = true;
+
+    const confirmedQuote = quote.value;
+
+    try {
+        const orders = await buyerApi('/buyer/checkout', {
+            method: 'POST',
+            body: JSON.stringify({
+                ...requestBody(),
+                delivery_address: deliveryAddress.value,
+                payment_method: state.paymentMethod,
+                expected_total: confirmedQuote.totals.total,
+                idempotency_key: attemptKeyFor(itemsSignature.value)
+            })
+        });
+
+        finishAttempt();
+        changes.value = [];
+        confirmation.value = {
+            orders: Array.isArray(orders) ? orders : [],
+            address: { ...deliveryAddress.value },
+            quote: confirmedQuote
+        };
+
+        emit('place-order', orders);
+        loadOrders();
 
         await nextTick();
         window.scrollTo({ top: 0, behavior: 'auto' });
         confirmationHeading.value?.focus();
     } catch (err) {
-        submitError.value = describeFailure(err);
-        problemItemKey.value = submitError.value.itemKey || '';
+        const code = err?.body?.code;
 
-        if (submitError.value.kind === 'payment') {
-            setError('payment', submitError.value.field);
-            toastError(submitError.value.field);
-            submitError.value = null;
-            focusPaymentSection();
-
-            return;
+        if (err?.status === 409 && code === 'quote_changed' && err.body.quote) {
+            changes.value = priceChanges(confirmedQuote, err.body.quote);
+            applyQuote(err.body.quote);
+            quoteStatus.value = 'ready';
+            showSubmitError({
+                kind: 'changed',
+                title: 'Some amounts changed since you started checking out.',
+                message: 'Nothing was ordered. Review the updated total, then place your order again.'
+            });
+        } else if (err?.status === 409 && code === 'in_progress') {
+            showSubmitError({
+                kind: 'progress',
+                title: 'Your order is already being placed.',
+                message: 'Give it a moment, then check My Orders before trying again.'
+            });
+        } else if (err?.status === 422) {
+            refreshQuote();
+            showSubmitError({ title: 'Your order wasn’t placed.', message: `${err.message} Your address and choices are still here.` });
+        } else if (err?.status === 401 || err?.status === 403) {
+            showSubmitError({ title: 'Please sign in again.', message: 'Your session has ended. Sign in, then come back — your cart and choices are saved.' });
+        } else if (!err?.status) {
+            showSubmitError({
+                kind: 'network',
+                title: 'We couldn’t confirm your order.',
+                message: 'The connection dropped before we got an answer. Try again — if it already went through, you won’t be charged or ordered twice.'
+            });
+        } else {
+            showSubmitError({ title: 'Your order wasn’t placed.', message: 'Something went wrong on our side. Nothing was ordered and your details are still here. Please try again.' });
         }
 
-        await nextTick();
-        errorBanner.value?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
-        errorBanner.value?.focus({ preventScroll: true });
+        // No toast: the banner beside Place order explains it (and a toast
+        // would linger over the confirmation once a retry succeeds).
+    } finally {
+        isPlacing.value = false;
     }
-}
-
-// The server returns seller_id, not a name; match each order back to its
-// parcel through the items it contains.
-function sellerForOrder(order) {
-    const names = (order.items || []).map(item => item.name);
-    const parcel = parcels.value.find(group => group.items.some(item => names.includes(item.name)));
-
-    return parcel?.seller || '';
-}
-
-// Best effort: a failure here never affects the order already placed.
-async function saveAddressForLater() {
-    try {
-        await addAddress({ ...newAddress, label: 'Home', makeDefault: addresses.value.length === 0 });
-    } catch (err) {
-        console.error('Could not save the delivery address:', err);
-    }
-}
-
-function removeProblemItem(item) {
-    submitError.value = null;
-    problemItemKey.value = '';
-    emit('remove-item', itemKey(item));
 }
 
 /*
 |--------------------------------------------------------------------------
-| Mobile total bar
+| Mobile action bar
 |--------------------------------------------------------------------------
 |
-| On small screens the order total sits at the end of the page, right
-| above Place order. A slim bar shows the total and scrolls to it; it never
-| places the order itself, and it hides whenever the summary is on screen
-| so it can't cover the total or the note under the button.
+| Under 1024px the total and Place order stay at the bottom of the screen.
+| The bar hides while a field is focused, so it never sits on top of the
+| on-screen keyboard or the field being typed in; the page reserves room
+| for it so it never covers content.
 |
 */
 
-const summaryCard = ref(null);
-const isCompact = ref(false);
-const isSummaryVisible = ref(true);
+const isTyping = ref(false);
 
-let compactQuery = null;
-let summaryObserver = null;
-
-function onCompactChange(event) {
-    isCompact.value = event.matches;
+function onFocusIn(event) {
+    isTyping.value = event.target.matches?.('input:not([type=radio]):not([type=checkbox]), textarea, select') || false;
 }
 
-function observeSummary() {
-    summaryObserver?.disconnect();
-    summaryObserver = null;
-
-    if (!summaryCard.value || typeof IntersectionObserver === 'undefined') {
-        isSummaryVisible.value = true;
-
-        return;
-    }
-
-    summaryObserver = new IntersectionObserver(entries => {
-        entries.forEach(entry => {
-            isSummaryVisible.value = entry.isIntersecting;
-        });
-    });
-
-    summaryObserver.observe(summaryCard.value);
+function onFocusOut() {
+    isTyping.value = false;
 }
 
-watch(summaryCard, observeSummary);
+/*
+|--------------------------------------------------------------------------
+| Lifecycle
+|--------------------------------------------------------------------------
+*/
 
 onMounted(() => {
-    compactQuery = window.matchMedia('(max-width: 960px)');
-    isCompact.value = compactQuery.matches;
-    compactQuery.addEventListener('change', onCompactChange);
-    observeSummary();
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('focusout', onFocusOut);
+    refreshQuote();
 });
 
 onBeforeUnmount(() => {
-    compactQuery?.removeEventListener('change', onCompactChange);
-    summaryObserver?.disconnect();
+    clearTimeout(quoteTimer);
+    quoteSeq++;
+    document.removeEventListener('focusin', onFocusIn);
+    document.removeEventListener('focusout', onFocusOut);
 });
-
-const showTotalBar = computed(
-    () => isCompact.value && !isSummaryVisible.value && !placedOrders.value && !isSignedOut.value && props.items.length > 0
-);
-
-function scrollToSummary() {
-    summaryCard.value?.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
-}
-
-/*
-|--------------------------------------------------------------------------
-| Header relay
-|--------------------------------------------------------------------------
-*/
-
-function handleHeaderSearch(query) {
-    emit('search', query);
-}
 
 function handleHeaderSelectCategory(category) {
     emit('select-category', category);
 }
+
+const paymentIcons = {
+    cod: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>'
+};
 </script>
 
 <template>
 
     <div
-        class="buyer-page co-page"
-        :class="{ 'has-total-bar': showTotalBar }"
+        class="buyer-page ck-page"
+        :class="{ 'has-bar': !confirmation && !isSignedOut }"
     >
 
         <Header
@@ -702,826 +682,893 @@ function handleHeaderSelectCategory(category) {
             @cart-click="emit('edit-cart')"
             @account-click="emit('view-profile')"
             @logo-click="emit('back')"
-            @search="handleHeaderSearch"
+            @search="emit('search', $event)"
         />
 
-        <main class="co-content">
+        <main
+            id="main-content"
+            class="buyer-main ck-main"
+            tabindex="-1"
+        >
 
-            <!-- ======================================================== -->
-            <!-- CONFIRMATION -->
-            <!-- ======================================================== -->
-
-            <div
-                v-if="confirmation"
-                class="co-layout"
+            <!-- Progress: Cart → Checkout → Confirmation (cash on delivery
+                 needs no separate payment step) -->
+            <nav
+                class="ck-steps"
+                aria-label="Checkout progress"
             >
+                <ol>
+                    <li class="is-done">
+                        <span class="ck-step-dot" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                        </span>
+                        Cart
+                    </li>
+                    <li
+                        :class="confirmation ? 'is-done' : 'is-current'"
+                        :aria-current="confirmation ? undefined : 'step'"
+                    >
+                        <span class="ck-step-dot" aria-hidden="true">
+                            <svg v-if="confirmation" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                            <template v-else>2</template>
+                        </span>
+                        Checkout
+                    </li>
+                    <li
+                        :class="{ 'is-current': confirmation }"
+                        :aria-current="confirmation ? 'step' : undefined"
+                    >
+                        <span class="ck-step-dot" aria-hidden="true">3</span>
+                        Confirmation
+                    </li>
+                </ol>
+            </nav>
 
-                <div class="co-stack">
+            <!-- ================================================================ -->
+            <!-- CONFIRMATION -->
+            <!-- ================================================================ -->
 
-                    <section class="co-card">
-
-                        <div class="co-done-head">
-                            <span
-                                class="co-done-mark"
-                                aria-hidden="true"
-                            >
-                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M20 6 9 17l-5-5" />
-                                </svg>
-                            </span>
-                            <div>
-                                <h1
-                                    ref="confirmationHeading"
-                                    class="co-title"
-                                    tabindex="-1"
-                                >
-                                    Order placed
-                                </h1>
-                                <p class="co-lede">
-                                    <template v-if="confirmation.orders.length > 1">
-                                        Your checkout became {{ confirmation.orders.length }} orders, one per seller. Each ships separately.
-                                    </template>
-                                    <template v-else>
-                                        Thanks, {{ confirmation.address.recipient_name }}. Your order is with the seller.
-                                    </template>
-                                </p>
-                            </div>
-                        </div>
-
-                        <div
-                            v-for="order in confirmation.orders"
-                            :key="order.id"
-                            class="co-parcel"
+            <section
+                v-if="confirmation"
+                class="ck-done"
+                aria-labelledby="ck-done-title"
+            >
+                <header class="ck-done-head">
+                    <span class="ck-done-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                    </span>
+                    <div>
+                        <h1
+                            id="ck-done-title"
+                            ref="confirmationHeading"
+                            class="ck-title"
+                            tabindex="-1"
                         >
-                            <div class="co-parcel-head">
-                                <strong>Order {{ order.id }}</strong>
-                                <span v-if="order.seller">{{ order.seller }}</span>
-                            </div>
+                            Order placed
+                        </h1>
+                        <p class="ck-lede">
+                            <template v-if="confirmation.orders.length > 1">
+                                Your items ship from {{ confirmation.orders.length }} stores, so they were placed as {{ confirmation.orders.length }} orders.
+                            </template>
+                            <template v-else>
+                                The store has your order and will start preparing it.
+                            </template>
+                            Pay in cash when each parcel arrives.
+                        </p>
+                    </div>
+                </header>
 
-                            <ul class="co-lines">
-                                <li
-                                    v-for="(line, index) in order.items"
-                                    :key="index"
-                                    class="co-line"
-                                >
-                                    <span
-                                        class="co-thumb"
-                                        :class="hasImage(itemForLine(line)) ? 'has-image' : 'accent-' + metaFor(itemForLine(line).category).accent"
-                                    >
-                                        <img
-                                            v-if="hasImage(itemForLine(line))"
-                                            :src="itemForLine(line).image"
-                                            alt=""
-                                            decoding="async"
-                                            @error="markImageFailed(itemForLine(line))"
-                                        >
-                                        <span
-                                            v-else
-                                            class="product-image-icon"
-                                            v-html="metaFor(itemForLine(line).category).icon"
-                                        ></span>
-                                    </span>
-                                    <div class="co-line-info">
-                                        <span class="co-line-name">{{ line.name }}</span>
-                                        <span
-                                            v-if="line.variant"
-                                            class="co-line-meta"
-                                        >{{ line.variant }}</span>
-                                        <span class="co-line-meta">Qty {{ line.qty }}</span>
-                                    </div>
-                                    <span class="co-money">{{ formatPrice(line.price * line.qty) }}</span>
-                                </li>
-                            </ul>
-
-                            <div class="co-row co-row--muted">
-                                <span>Shipping ({{ confirmation.shipping.shortName }})</span>
-                                <span class="co-money">{{ formatPrice(confirmation.shipping.fee) }}</span>
+                <ul class="ck-done-orders">
+                    <li
+                        v-for="order in confirmation.orders"
+                        :key="order.id"
+                        class="ck-done-order"
+                    >
+                        <div class="ck-done-order-head">
+                            <div>
+                                <p class="ck-store-name">{{ order.store_name }}</p>
+                                <p class="ck-done-number">Order {{ order.id }}</p>
                             </div>
-                            <div class="co-row co-row--strong">
-                                <span>Pay on delivery</span>
-                                <span class="co-money">{{ formatPrice(order.total) }}</span>
-                            </div>
+                            <dl class="ck-done-status">
+                                <div>
+                                    <dt>Order</dt>
+                                    <dd>{{ order.status === 'New' ? 'Placed' : order.status }}</dd>
+                                </div>
+                                <div>
+                                    <dt>Payment</dt>
+                                    <dd>{{ order.payment_method_name }} · {{ order.payment_status === 'Unpaid' ? 'Pay on delivery' : order.payment_status }}</dd>
+                                </div>
+                            </dl>
                         </div>
-
-                    </section>
-
-                    <section class="co-card">
-                        <h2 class="co-card-title">What happens next</h2>
-                        <ol class="co-next">
-                            <li>The seller prepares your {{ confirmation.orders.length > 1 ? 'parcels' : 'parcel' }}. You can follow each order's status in My Orders.</li>
-                            <li>{{ confirmation.shipping.name }} is estimated at {{ confirmation.shipping.eta }}.</li>
-                            <li>
-                                Have {{ formatPrice(confirmation.total) }} in cash ready<template v-if="confirmation.orders.length > 1">, paid separately to each courier</template>.
+                        <ul class="ck-done-items">
+                            <li
+                                v-for="(item, index) in order.items"
+                                :key="`${order.id}-${index}`"
+                            >
+                                <span class="ck-done-item-name">
+                                    {{ item.name }}<template v-if="item.variant"> · {{ item.variant }}</template>
+                                </span>
+                                <span class="ck-done-item-qty">× {{ item.qty }}</span>
+                                <span class="ck-done-item-price">{{ formatPrice(item.line_total) }}</span>
                             </li>
-                        </ol>
-                        <div class="co-actions">
-                            <button
-                                type="button"
-                                class="co-btn co-btn--primary"
-                                @click="emit('view-orders')"
-                            >
-                                View my orders
-                            </button>
-                            <button
-                                type="button"
-                                class="co-btn co-btn--secondary"
-                                @click="emit('back')"
-                            >
-                                Continue shopping
-                            </button>
-                        </div>
-                    </section>
+                        </ul>
+                        <dl class="ck-done-meta">
+                            <div>
+                                <dt>Delivery</dt>
+                                <dd>{{ order.shipping.name }}<template v-if="order.shipping.eta"> · estimated {{ order.shipping.eta }} once shipped</template></dd>
+                            </div>
+                            <div>
+                                <dt>Shipping fee</dt>
+                                <dd>{{ formatPrice(order.shipping_fee) }}</dd>
+                            </div>
+                            <div class="is-total">
+                                <dt>To pay on delivery</dt>
+                                <dd>{{ formatPrice(order.total) }}</dd>
+                            </div>
+                        </dl>
+                    </li>
+                </ul>
 
+                <div class="ck-done-foot">
+                    <div class="ck-done-address">
+                        <p class="ck-label">Delivering to</p>
+                        <p class="ck-address-name">{{ confirmation.address.recipient_name }} <span>{{ confirmation.address.contact_number }}</span></p>
+                        <p class="ck-address-line">{{ confirmation.address.address }}</p>
+                    </div>
+                    <p class="ck-done-total">
+                        <span>Total</span>
+                        <strong>{{ formatPrice(confirmation.orders.reduce((sum, order) => sum + Number(order.total || 0), 0)) }}</strong>
+                    </p>
                 </div>
 
-                <aside class="co-card co-summary">
-                    <h2 class="co-card-title">Delivering to</h2>
-                    <p class="co-address">
-                        <strong>{{ confirmation.address.recipient_name }}</strong>
-                        <span>{{ confirmation.address.contact_number }}</span>
-                        <span>{{ confirmation.address.address }}</span>
-                    </p>
-                    <div class="co-row co-row--total">
-                        <span>Total to pay</span>
-                        <span class="co-money">{{ formatPrice(confirmation.total) }}</span>
-                    </div>
-                    <div class="co-row co-row--muted co-pay-row">
-                        <span>Payment</span>
-                        <span>{{ confirmation.payment.name }}</span>
-                    </div>
-                    <div class="co-row co-row--muted">
-                        <span>Payment status</span>
-                        <span>{{ confirmation.paymentStatus }}</span>
-                    </div>
-                    <p
-                        v-if="confirmation.payment.id === 'cod'"
-                        class="co-note"
-                    >
-                        Nothing was charged online. You pay the courier when your order arrives.
-                    </p>
-                </aside>
-
-            </div>
-
-            <!-- ======================================================== -->
-            <!-- SIGNED OUT -->
-            <!-- ======================================================== -->
-
-            <div
-                v-else-if="isSignedOut"
-                class="co-gate"
-            >
-                <section class="co-card">
-                    <h1 class="co-title">Sign in to check out</h1>
-                    <p class="co-lede">
-                        You need a buyer account to place an order. Your cart is saved on this device, so it'll be here when you come back.
-                    </p>
-                    <div class="co-actions">
-                        <a
-                            href="/login"
-                            class="co-btn co-btn--primary"
-                        >
-                            Sign in
-                        </a>
-                        <button
-                            type="button"
-                            class="co-btn co-btn--secondary"
-                            @click="emit('back')"
-                        >
-                            Keep browsing
-                        </button>
-                    </div>
-                </section>
-            </div>
-
-            <!-- ======================================================== -->
-            <!-- CHECKOUT -->
-            <!-- ======================================================== -->
-
-            <template v-else>
-
-                <nav
-                    class="product-breadcrumb co-breadcrumb"
-                    aria-label="Breadcrumb"
-                >
+                <div class="ck-done-actions">
                     <button
                         type="button"
-                        class="breadcrumb-link"
+                        class="btn btn-primary"
+                        @click="emit('view-orders')"
+                    >
+                        View {{ confirmation.orders.length > 1 ? 'orders' : 'order' }}
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-secondary"
                         @click="emit('back')"
                     >
-                        Home
+                        Continue shopping
                     </button>
-                    <template v-if="source === 'cart'">
-                        <span class="breadcrumb-separator">/</span>
-                        <button
-                            type="button"
-                            class="breadcrumb-link"
-                            @click="emit('edit-cart')"
-                        >
-                            Cart
-                        </button>
-                    </template>
-                    <span class="breadcrumb-separator">/</span>
-                    <span class="breadcrumb-current breadcrumb-current--active">Checkout</span>
-                </nav>
+                </div>
+            </section>
 
-                <h1 class="co-title">Checkout</h1>
-                <p class="co-lede">Review your order. You pay the courier in cash when it arrives.</p>
+            <!-- ================================================================ -->
+            <!-- CHECKOUT -->
+            <!-- ================================================================ -->
+
+            <template v-else>
+                <header class="ck-head">
+                    <h1 class="ck-title">Checkout</h1>
+                    <button
+                        type="button"
+                        class="ck-link"
+                        @click="source === 'cart' ? emit('edit-cart') : emit('back')"
+                    >
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                        {{ source === 'cart' ? 'Back to cart' : 'Back' }}
+                    </button>
+                </header>
 
                 <div
-                    v-if="isPlacingOrder"
-                    class="co-banner co-banner--info"
-                    role="status"
+                    v-if="isSignedOut"
+                    class="ck-state"
                 >
-                    <span
-                        class="co-spinner co-spinner--dark"
-                        aria-hidden="true"
-                    ></span>
-                    Sending your order. Please don't close or refresh this page.
+                    <h2>Sign in to check out</h2>
+                    <p>Your cart is saved. Sign in, and you’ll come back to the same items.</p>
+                    <button
+                        type="button"
+                        class="btn btn-primary"
+                        @click="emit('view-profile')"
+                    >
+                        Sign in
+                    </button>
                 </div>
 
-                <div class="co-layout">
+                <div
+                    v-else
+                    class="ck-layout"
+                >
+                    <div class="ck-sections">
 
-                    <fieldset
-                        class="co-stack co-fieldset"
-                        :disabled="isPlacingOrder"
-                    >
-
-                        <!-- 1. Delivery address -->
+                        <!-- ============ Order items ============ -->
                         <section
-                            id="checkout-address-card"
-                            class="co-card"
-                            :class="{ 'has-error': errors.address }"
-                            tabindex="-1"
-                            aria-labelledby="checkout-address-title"
+                            class="ck-panel"
+                            aria-labelledby="ck-items-title"
                         >
-                            <div class="co-card-head">
+                            <header class="ck-panel-head">
                                 <h2
-                                    id="checkout-address-title"
-                                    class="co-card-title"
+                                    id="ck-items-title"
+                                    class="ck-section-title"
                                 >
-                                    <span class="co-step">1</span>
-                                    Delivery address
-                                </h2>
-                                <button
-                                    v-if="addressMode === 'saved' && !isChoosingAddress"
-                                    type="button"
-                                    class="co-link"
-                                    @click="isChoosingAddress = true"
-                                >
-                                    Change
-                                </button>
-                                <button
-                                    v-else-if="addressMode === 'new' && addresses.length"
-                                    type="button"
-                                    class="co-link"
-                                    @click="isChoosingAddress = true; addressMode = 'saved'"
-                                >
-                                    Use a saved address
-                                </button>
-                            </div>
-
-                            <!-- Saved: chooser -->
-                            <div
-                                v-if="addressMode === 'saved' && isChoosingAddress"
-                                class="co-options"
-                                role="radiogroup"
-                                aria-label="Saved addresses"
-                            >
-                                <label
-                                    v-for="address in addresses"
-                                    :key="address.id"
-                                    class="co-option"
-                                    :class="{ 'is-selected': selectedAddressId === address.id }"
-                                >
-                                    <input
-                                        type="radio"
-                                        name="saved-address"
-                                        :value="address.id"
-                                        :checked="selectedAddressId === address.id"
-                                        @change="chooseSavedAddress(address.id)"
-                                    >
-                                    <span class="co-option-body">
-                                        <strong>{{ address.fullName }}<span v-if="address.label" class="co-tag">{{ address.label }}</span></strong>
-                                        <span>{{ formatAddressLine(address) }}</span>
-                                    </span>
-                                </label>
-                                <button
-                                    type="button"
-                                    class="co-link co-link--block"
-                                    @click="useNewAddress"
-                                >
-                                    + Deliver to a new address
-                                </button>
-                            </div>
-
-                            <!-- Saved: summary -->
-                            <div
-                                v-else-if="addressMode === 'saved' && selectedSavedAddress"
-                                class="co-address"
-                            >
-                                <strong>
-                                    {{ selectedSavedAddress.fullName }}
-                                    <span class="co-address-phone">{{ selectedSavedAddress.phone }}</span>
-                                </strong>
-                                <span>{{ formatAddressLine(selectedSavedAddress) }}</span>
-                            </div>
-
-                            <p
-                                v-if="errors.address"
-                                class="co-field-error"
-                                role="alert"
-                            >
-                                {{ errors.address }}
-                            </p>
-
-                            <!-- New address form -->
-                            <div
-                                v-if="addressMode === 'new'"
-                                class="co-form"
-                            >
-                                <div
-                                    v-if="hasTriedSubmit && errorFields.length"
-                                    class="co-banner co-banner--error"
-                                    role="alert"
-                                >
-                                    <span class="co-banner-icon" aria-hidden="true">!</span>
-                                    <div>
-                                        <strong>{{ errorFields.length === 1 ? '1 detail needs attention' : `${errorFields.length} details need attention` }}</strong>
-                                        Check the {{ errorFields.map(field => fieldLabels[field]).join(', ') }}.
-                                    </div>
-                                </div>
-
-                                <div class="co-grid">
-                                    <div class="co-field">
-                                        <label for="checkout-name">Recipient name</label>
-                                        <input
-                                            id="checkout-name"
-                                            v-model="newAddress.fullName"
-                                            type="text"
-                                            autocomplete="name"
-                                            :aria-invalid="Boolean(errors.fullName)"
-                                            :aria-describedby="errors.fullName ? 'checkout-name-error' : undefined"
-                                            @blur="touch('fullName')"
-                                            @input="revalidate('fullName')"
-                                        >
-                                        <p
-                                            v-if="errors.fullName"
-                                            id="checkout-name-error"
-                                            class="co-field-error"
-                                        >
-                                            {{ errors.fullName }}
-                                        </p>
-                                    </div>
-
-                                    <div class="co-field">
-                                        <label for="checkout-phone">Contact number</label>
-                                        <input
-                                            id="checkout-phone"
-                                            :value="newAddress.phone"
-                                            type="tel"
-                                            inputmode="numeric"
-                                            autocomplete="tel-national"
-                                            placeholder="09XXXXXXXXX"
-                                            :aria-invalid="Boolean(errors.phone)"
-                                            :aria-describedby="errors.phone ? 'checkout-phone-error checkout-phone-hint' : 'checkout-phone-hint'"
-                                            @input="onPhoneInput"
-                                            @blur="touch('phone')"
-                                        >
-                                        <p
-                                            v-if="errors.phone"
-                                            id="checkout-phone-error"
-                                            class="co-field-error"
-                                        >
-                                            {{ errors.phone }}
-                                        </p>
-                                        <p
-                                            id="checkout-phone-hint"
-                                            class="co-hint"
-                                        >
-                                            The courier calls this number if they can't find you.
-                                        </p>
-                                    </div>
-
-                                    <div class="co-field co-field--wide">
-                                        <label for="checkout-line1">Street address, barangay</label>
-                                        <input
-                                            id="checkout-line1"
-                                            v-model="newAddress.line1"
-                                            type="text"
-                                            autocomplete="address-line1"
-                                            placeholder="House no., street, barangay"
-                                            :aria-invalid="Boolean(errors.line1)"
-                                            :aria-describedby="errors.line1 ? 'checkout-line1-error' : undefined"
-                                            @blur="touch('line1')"
-                                            @input="revalidate('line1')"
-                                        >
-                                        <p
-                                            v-if="errors.line1"
-                                            id="checkout-line1-error"
-                                            class="co-field-error"
-                                        >
-                                            {{ errors.line1 }}
-                                        </p>
-                                    </div>
-
-                                    <div class="co-field">
-                                        <label for="checkout-city">City or municipality</label>
-                                        <input
-                                            id="checkout-city"
-                                            v-model="newAddress.city"
-                                            type="text"
-                                            autocomplete="address-level2"
-                                            :aria-invalid="Boolean(errors.city)"
-                                            :aria-describedby="errors.city ? 'checkout-city-error' : undefined"
-                                            @blur="touch('city')"
-                                            @input="revalidate('city')"
-                                        >
-                                        <p
-                                            v-if="errors.city"
-                                            id="checkout-city-error"
-                                            class="co-field-error"
-                                        >
-                                            {{ errors.city }}
-                                        </p>
-                                    </div>
-
-                                    <div class="co-field">
-                                        <label for="checkout-province">Province</label>
-                                        <input
-                                            id="checkout-province"
-                                            v-model="newAddress.province"
-                                            type="text"
-                                            autocomplete="address-level1"
-                                            :aria-invalid="Boolean(errors.province)"
-                                            :aria-describedby="errors.province ? 'checkout-province-error' : undefined"
-                                            @blur="touch('province')"
-                                            @input="revalidate('province')"
-                                        >
-                                        <p
-                                            v-if="errors.province"
-                                            id="checkout-province-error"
-                                            class="co-field-error"
-                                        >
-                                            {{ errors.province }}
-                                        </p>
-                                    </div>
-
-                                    <div class="co-field">
-                                        <label for="checkout-postal">Postal code <span class="co-optional">(optional)</span></label>
-                                        <input
-                                            id="checkout-postal"
-                                            v-model="newAddress.postalCode"
-                                            type="text"
-                                            inputmode="numeric"
-                                            autocomplete="postal-code"
-                                        >
-                                    </div>
-
-                                    <label class="co-check co-field--wide">
-                                        <input
-                                            v-model="saveNewAddress"
-                                            type="checkbox"
-                                        >
-                                        Save this address for next time
-                                    </label>
-                                </div>
-                            </div>
-                        </section>
-
-                        <!-- 2. Items and shipping -->
-                        <section
-                            class="co-card"
-                            aria-labelledby="checkout-items-title"
-                        >
-                            <div class="co-card-head">
-                                <h2
-                                    id="checkout-items-title"
-                                    class="co-card-title"
-                                >
-                                    <span class="co-step">2</span>
-                                    Items and shipping
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5Z" /><path d="m3 8 9 5 9-5M12 13v8" /></svg>
+                                    Order items
+                                    <span
+                                        v-if="totals"
+                                        class="ck-count"
+                                    >{{ totals.item_count }}</span>
                                 </h2>
                                 <button
                                     v-if="source === 'cart'"
                                     type="button"
-                                    class="co-link"
+                                    class="ck-link"
                                     @click="emit('edit-cart')"
                                 >
                                     Edit cart
                                 </button>
+                            </header>
+
+                            <div
+                                v-if="!quote && quoteStatus === 'loading'"
+                                class="ck-group is-skeleton"
+                                aria-hidden="true"
+                            >
+                                <span class="skeleton is-line"></span>
+                                <div class="ck-line">
+                                    <span class="skeleton ord-thumb"></span>
+                                    <span class="ck-line-text">
+                                        <span class="skeleton is-line"></span>
+                                        <span class="skeleton is-line is-short"></span>
+                                    </span>
+                                </div>
                             </div>
+
+                            <div
+                                v-else-if="!quote && quoteStatus === 'error'"
+                                class="ck-state is-inline"
+                                role="alert"
+                            >
+                                <p>{{ quoteError }}</p>
+                                <button
+                                    type="button"
+                                    class="btn btn-secondary"
+                                    @click="refreshQuote"
+                                >
+                                    Try again
+                                </button>
+                            </div>
+
+                            <template v-else>
+                                <!-- Column labels: line up quantity and total across stores -->
+                                <div
+                                    class="ck-columns"
+                                    aria-hidden="true"
+                                >
+                                    <span>Item</span>
+                                    <span>Qty</span>
+                                    <span>Total</span>
+                                </div>
+
+                                <div
+                                    v-for="seller in sellers"
+                                    :key="seller.seller_id || 'unavailable'"
+                                    class="ck-group"
+                                    :class="{ 'is-updating': isUpdating }"
+                                >
+                                    <p class="ck-group-name">
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9h18l-1.5-5h-15Z" /><path d="M4 9v11h16V9" /><path d="M9 20v-6h6v6" /></svg>
+                                        {{ seller.store_name }}
+                                    </p>
+
+                                    <ul class="ck-lines">
+                                        <li
+                                            v-for="item in seller.items"
+                                            :key="item.key"
+                                            class="ck-line"
+                                            :class="{ 'is-unavailable': !item.available }"
+                                        >
+                                            <OrderItemThumb
+                                                :src="item.image || ''"
+                                                :category="''"
+                                            />
+                                            <div class="ck-line-text">
+                                                <p class="ck-line-name">{{ item.name }}</p>
+                                                <p class="ck-line-meta">
+                                                    <span
+                                                        v-if="item.variation"
+                                                        class="ck-variant"
+                                                    >{{ item.variation }}</span>
+                                                    <span>{{ formatPrice(item.unit_price) }} each</span>
+                                                </p>
+                                                <p
+                                                    v-if="!item.available"
+                                                    class="ck-line-problem"
+                                                >
+                                                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.01" /></svg>
+                                                    {{ item.problem }}
+                                                    <button
+                                                        type="button"
+                                                        class="ck-link is-danger"
+                                                        @click="removeLine(item)"
+                                                    >
+                                                        Remove from checkout
+                                                    </button>
+                                                </p>
+                                            </div>
+                                            <span class="ck-line-qty"><span class="sr-only">Quantity </span>× {{ item.quantity }}</span>
+                                            <span class="ck-line-total">{{ item.available ? formatPrice(item.line_total) : '—' }}</span>
+                                        </li>
+                                    </ul>
+
+                                    <p
+                                        v-if="seller.subtotal > 0"
+                                        class="ck-group-subtotal"
+                                    >
+                                        <span>Subtotal from {{ seller.store_name }}</span>
+                                        <strong>{{ formatPrice(seller.subtotal) }}</strong>
+                                    </p>
+                                </div>
+                            </template>
+                        </section>
+
+                        <!-- ============ Delivery ============ -->
+                        <section
+                            id="ck-delivery"
+                            class="ck-panel"
+                            aria-labelledby="ck-delivery-title"
+                        >
+                            <header class="ck-panel-head">
+                                <h2
+                                    id="ck-delivery-title"
+                                    class="ck-section-title"
+                                >
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" /><path d="M15 18H9" /><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14" /><circle cx="17" cy="18" r="2" /><circle cx="7" cy="18" r="2" /></svg>
+                                    Delivery
+                                </h2>
+                            </header>
+
+                            <!-- Address -->
+                            <div
+                                id="ck-address"
+                                class="ck-block"
+                            >
+                                <div class="ck-block-head">
+                                    <h3 class="ck-block-title">
+                                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>
+                                        Deliver to
+                                    </h3>
+                                    <button
+                                        v-if="state.addressMode === 'saved' && !isAddressFormOpen && addresses.length"
+                                        type="button"
+                                        class="ck-link"
+                                        :aria-expanded="isChoosingAddress"
+                                        aria-controls="ck-address-list"
+                                        @click="isChoosingAddress = !isChoosingAddress"
+                                    >
+                                        {{ isChoosingAddress ? 'Done' : 'Change address' }}
+                                    </button>
+                                </div>
+
+                                <div
+                                    v-if="isLoadingAddresses && !addresses.length"
+                                    class="ck-address is-skeleton"
+                                    aria-hidden="true"
+                                >
+                                    <span class="ck-address-text">
+                                        <span class="skeleton is-line"></span>
+                                        <span class="skeleton is-line is-short"></span>
+                                    </span>
+                                </div>
+
+                                <!-- Selected saved address: a quick crossfade when it changes -->
+                                <Transition
+                                    name="ck-swap"
+                                    mode="out-in"
+                                >
+                                    <div
+                                        v-if="state.addressMode === 'saved' && selectedSavedAddress && !isChoosingAddress && !isAddressFormOpen"
+                                        id="ck-address-card"
+                                        :key="selectedSavedAddress.id"
+                                        class="ck-address"
+                                        :class="{ 'has-error': savedAddressProblem }"
+                                        tabindex="-1"
+                                    >
+                                        <div class="ck-address-text">
+                                            <p class="ck-address-name">
+                                                {{ selectedSavedAddress.fullName }}
+                                                <span>{{ selectedSavedAddress.phone }}</span>
+                                                <span
+                                                    v-if="selectedSavedAddress.isDefault"
+                                                    class="ck-badge"
+                                                >Default</span>
+                                                <span
+                                                    v-if="selectedSavedAddress.label"
+                                                    class="ck-tag"
+                                                >{{ selectedSavedAddress.label }}</span>
+                                            </p>
+                                            <p class="ck-address-line">{{ formatAddressLine(selectedSavedAddress) }}</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            class="ck-link"
+                                            @click="startEdit(selectedSavedAddress)"
+                                        >
+                                            Edit
+                                        </button>
+                                    </div>
+                                </Transition>
+                                <p
+                                    v-if="savedAddressProblem && !isChoosingAddress && !isAddressFormOpen && addresses.length"
+                                    class="ck-error"
+                                    role="alert"
+                                >
+                                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.01" /></svg>
+                                    {{ savedAddressProblem }}
+                                </p>
+
+                                <!-- Choose a saved address -->
+                                <div
+                                    v-if="isChoosingAddress"
+                                    id="ck-address-list"
+                                    class="ck-choices"
+                                    role="radiogroup"
+                                    aria-label="Saved addresses"
+                                >
+                                    <label
+                                        v-for="address in addresses"
+                                        :key="address.id"
+                                        class="ck-choice"
+                                        :class="{ 'is-selected': address.id === state.selectedAddressId }"
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="ck-address"
+                                            :checked="address.id === state.selectedAddressId"
+                                            @change="chooseSaved(address.id)"
+                                        >
+                                        <span class="ck-choice-body">
+                                            <span class="ck-address-name">
+                                                {{ address.fullName }}
+                                                <span>{{ address.phone }}</span>
+                                                <span
+                                                    v-if="address.isDefault"
+                                                    class="ck-badge"
+                                                >Default</span>
+                                                <span
+                                                    v-if="address.label"
+                                                    class="ck-tag"
+                                                >{{ address.label }}</span>
+                                            </span>
+                                            <span class="ck-address-line">{{ formatAddressLine(address) }}</span>
+                                        </span>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        class="ck-choice-add"
+                                        @click="startNewAddress"
+                                    >
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                                        Add a new address
+                                    </button>
+                                </div>
+
+                                <!-- New-address summary (used for this order only) -->
+                                <div
+                                    v-if="state.addressMode === 'new' && !isAddressFormOpen"
+                                    class="ck-address"
+                                >
+                                    <div class="ck-address-text">
+                                        <p class="ck-address-name">{{ state.form.fullName }} <span>{{ state.form.phone }}</span></p>
+                                        <p class="ck-address-line">{{ formatAddressLine(state.form) }}</p>
+                                        <p class="ck-hint">For this order only</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        class="ck-link"
+                                        @click="isAddressFormOpen = true"
+                                    >
+                                        Edit
+                                    </button>
+                                </div>
+
+                                <!-- Add / edit form -->
+                                <form
+                                    v-if="isAddressFormOpen"
+                                    class="ck-form"
+                                    novalidate
+                                    @submit.prevent="submitAddressForm"
+                                >
+                                    <p class="ck-form-title">{{ state.addressMode === 'edit' ? 'Edit address' : 'New address' }}</p>
+                                    <div class="ck-grid">
+                                        <div
+                                            class="ck-field"
+                                            :class="{ 'has-error': errors.fullName }"
+                                        >
+                                            <label for="ck-fullName">Recipient name</label>
+                                            <input
+                                                id="ck-fullName"
+                                                v-model="state.form.fullName"
+                                                type="text"
+                                                autocomplete="name"
+                                                :aria-invalid="!!errors.fullName"
+                                                :aria-describedby="errors.fullName ? 'ck-fullName-error' : undefined"
+                                                @blur="touch('fullName')"
+                                                @input="onFieldInput('fullName')"
+                                            >
+                                            <p v-if="errors.fullName" id="ck-fullName-error" class="ck-field-error">{{ errors.fullName }}</p>
+                                        </div>
+                                        <div
+                                            class="ck-field"
+                                            :class="{ 'has-error': errors.phone }"
+                                        >
+                                            <label for="ck-phone">Mobile number</label>
+                                            <input
+                                                id="ck-phone"
+                                                v-model="state.form.phone"
+                                                type="tel"
+                                                inputmode="numeric"
+                                                autocomplete="tel"
+                                                placeholder="09XXXXXXXXX"
+                                                maxlength="11"
+                                                :aria-invalid="!!errors.phone"
+                                                :aria-describedby="errors.phone ? 'ck-phone-error' : undefined"
+                                                @blur="touch('phone')"
+                                                @input="onFieldInput('phone')"
+                                            >
+                                            <p v-if="errors.phone" id="ck-phone-error" class="ck-field-error">{{ errors.phone }}</p>
+                                        </div>
+                                        <div
+                                            class="ck-field is-wide"
+                                            :class="{ 'has-error': errors.line1 }"
+                                        >
+                                            <label for="ck-line1">House no., street and barangay</label>
+                                            <input
+                                                id="ck-line1"
+                                                v-model="state.form.line1"
+                                                type="text"
+                                                autocomplete="address-line1"
+                                                :aria-invalid="!!errors.line1"
+                                                :aria-describedby="errors.line1 ? 'ck-line1-error' : undefined"
+                                                @blur="touch('line1')"
+                                                @input="onFieldInput('line1')"
+                                            >
+                                            <p v-if="errors.line1" id="ck-line1-error" class="ck-field-error">{{ errors.line1 }}</p>
+                                        </div>
+                                        <div
+                                            class="ck-field"
+                                            :class="{ 'has-error': errors.city }"
+                                        >
+                                            <label for="ck-city">City / municipality</label>
+                                            <input
+                                                id="ck-city"
+                                                v-model="state.form.city"
+                                                type="text"
+                                                autocomplete="address-level2"
+                                                :aria-invalid="!!errors.city"
+                                                :aria-describedby="errors.city ? 'ck-city-error' : undefined"
+                                                @blur="touch('city')"
+                                                @input="onFieldInput('city')"
+                                            >
+                                            <p v-if="errors.city" id="ck-city-error" class="ck-field-error">{{ errors.city }}</p>
+                                        </div>
+                                        <div
+                                            class="ck-field"
+                                            :class="{ 'has-error': errors.province }"
+                                        >
+                                            <label for="ck-province">Province</label>
+                                            <input
+                                                id="ck-province"
+                                                v-model="state.form.province"
+                                                type="text"
+                                                autocomplete="address-level1"
+                                                :aria-invalid="!!errors.province"
+                                                :aria-describedby="errors.province ? 'ck-province-error' : undefined"
+                                                @blur="touch('province')"
+                                                @input="onFieldInput('province')"
+                                            >
+                                            <p v-if="errors.province" id="ck-province-error" class="ck-field-error">{{ errors.province }}</p>
+                                        </div>
+                                        <div class="ck-field">
+                                            <label for="ck-postal">Postal code <span class="ck-optional">Optional</span></label>
+                                            <input
+                                                id="ck-postal"
+                                                v-model="state.form.postalCode"
+                                                type="text"
+                                                inputmode="numeric"
+                                                autocomplete="postal-code"
+                                                maxlength="10"
+                                            >
+                                        </div>
+                                    </div>
+
+                                    <label
+                                        v-if="state.addressMode === 'new'"
+                                        class="ck-check"
+                                    >
+                                        <input
+                                            v-model="state.saveNewAddress"
+                                            type="checkbox"
+                                        >
+                                        Save to my addresses
+                                    </label>
+
+                                    <p
+                                        v-if="addressSaveError"
+                                        class="ck-error"
+                                        role="alert"
+                                    >{{ addressSaveError }}</p>
+
+                                    <div class="ck-form-actions">
+                                        <button
+                                            v-if="addresses.length"
+                                            type="button"
+                                            class="btn btn-ghost"
+                                            :disabled="isSavingAddress"
+                                            @click="cancelAddressForm"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            class="btn btn-secondary"
+                                            :disabled="isSavingAddress"
+                                        >
+                                            <span v-if="isSavingAddress" class="ord-spinner" aria-hidden="true"></span>
+                                            {{ isSavingAddress ? 'Saving…' : state.addressMode === 'edit' ? 'Save address' : state.saveNewAddress ? 'Save and use' : 'Use this address' }}
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+
+                            <!-- Shipping, per store -->
+                            <div
+                                v-if="sellers.some(seller => seller.seller_id && seller.items.some(item => item.available))"
+                                class="ck-block"
+                            >
+                                <div class="ck-block-head">
+                                    <h3 class="ck-block-title">
+                                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                                        Shipping
+                                    </h3>
+                                </div>
+
+                                <fieldset
+                                    v-for="seller in sellers.filter(seller => seller.seller_id && seller.items.some(item => item.available))"
+                                    :key="`ship-${seller.seller_id}`"
+                                    class="ck-ship"
+                                    :class="{ 'is-updating': isUpdating }"
+                                >
+                                    <legend class="ck-ship-store">
+                                        {{ seller.store_name }}
+                                        <span>{{ seller.items.filter(item => item.available).reduce((sum, item) => sum + item.quantity, 0) }} {{ seller.items.filter(item => item.available).reduce((sum, item) => sum + item.quantity, 0) === 1 ? 'item' : 'items' }}</span>
+                                    </legend>
+                                    <div class="ck-choices">
+                                        <label
+                                            v-for="option in seller.shipping.options"
+                                            :key="option.id"
+                                            class="ck-choice"
+                                            :class="{ 'is-selected': state.shippingBySeller[seller.seller_id] === option.id }"
+                                        >
+                                            <input
+                                                type="radio"
+                                                :name="`ck-ship-${seller.seller_id}`"
+                                                :value="option.id"
+                                                :checked="state.shippingBySeller[seller.seller_id] === option.id"
+                                                @change="chooseShipping(seller.seller_id, option.id)"
+                                            >
+                                            <span class="ck-choice-body">
+                                                <span class="ck-choice-title">{{ option.name }}</span>
+                                                <span class="ck-choice-meta">Estimated {{ option.eta }} after it ships</span>
+                                            </span>
+                                            <span class="ck-choice-price">{{ formatPrice(option.fee) }}</span>
+                                        </label>
+                                    </div>
+                                </fieldset>
+                                <p class="ck-hint">Each store ships its own parcel, at the same flat rate to any address.</p>
+                            </div>
+                        </section>
+
+                        <!-- ============ Payment ============ -->
+                        <section
+                            class="ck-panel"
+                            aria-labelledby="ck-payment-title"
+                        >
+                            <header class="ck-panel-head">
+                                <h2
+                                    id="ck-payment-title"
+                                    class="ck-section-title"
+                                >
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></svg>
+                                    Payment
+                                </h2>
+                            </header>
+                            <div
+                                class="ck-choices"
+                                role="radiogroup"
+                                aria-labelledby="ck-payment-title"
+                            >
+                                <label
+                                    v-for="method in paymentMethods"
+                                    :key="method.id"
+                                    class="ck-choice"
+                                    :class="{ 'is-selected': state.paymentMethod === method.id }"
+                                >
+                                    <input
+                                        type="radio"
+                                        name="ck-payment"
+                                        :value="method.id"
+                                        :checked="state.paymentMethod === method.id"
+                                        @change="state.paymentMethod = method.id"
+                                    >
+                                    <span
+                                        class="ck-option-icon"
+                                        aria-hidden="true"
+                                        v-html="paymentIcons[method.id] || paymentIcons.cod"
+                                    ></span>
+                                    <span class="ck-choice-body">
+                                        <span class="ck-choice-title">{{ method.name }}</span>
+                                        <span class="ck-choice-meta">{{ method.description }} No extra fee.</span>
+                                    </span>
+                                </label>
+                            </div>
+                            <p class="ck-hint">Online payment isn’t available yet — cash on delivery is the only way to pay for now.</p>
+                        </section>
+                    </div>
+
+                    <!-- Summary -->
+                    <aside
+                        class="ck-summary"
+                        aria-labelledby="ck-summary-title"
+                    >
+                        <div
+                            class="ck-summary-inner"
+                            :aria-busy="quoteStatus === 'loading'"
+                        >
+                            <h2
+                                id="ck-summary-title"
+                                class="ck-section-title"
+                            >
+                                Order summary
+                            </h2>
 
                             <div
                                 v-if="submitError"
                                 ref="errorBanner"
-                                class="co-banner"
-                                :class="submitError.kind === 'unknown' ? 'co-banner--warn' : 'co-banner--error'"
+                                class="ck-alert"
+                                :class="{ 'is-changed': submitError.kind === 'changed' }"
                                 role="alert"
                                 tabindex="-1"
                             >
-                                <span class="co-banner-icon" aria-hidden="true">!</span>
-                                <div>
-                                    <strong>{{ submitError.title }}</strong>
-                                    {{ submitError.message }}
-                                    <div
-                                        v-if="submitError.kind === 'unknown' || submitError.kind === 'auth'"
-                                        class="co-banner-actions"
-                                    >
-                                        <button
-                                            v-if="submitError.kind === 'unknown'"
-                                            type="button"
-                                            class="co-btn co-btn--small"
-                                            @click="emit('view-orders')"
-                                        >
-                                            Check My Orders
-                                        </button>
-                                        <a
-                                            v-else
-                                            href="/login"
-                                            class="co-btn co-btn--small"
-                                        >
-                                            Sign in
-                                        </a>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div
-                                v-for="(parcel, parcelIndex) in parcels"
-                                :key="parcel.seller"
-                                class="co-parcel"
-                            >
-                                <div class="co-parcel-head">
-                                    <span>
-                                        <template v-if="parcels.length > 1">Parcel {{ parcelIndex + 1 }} of {{ parcels.length }} from </template>
-                                        <template v-else>From </template>
-                                        <strong>{{ parcel.seller }}</strong>
-                                    </span>
-                                    <span>{{ pluralize(parcel.items.reduce((count, item) => count + Number(item.quantity), 0), 'item') }}</span>
-                                </div>
-
-                                <ul class="co-lines">
+                                <p class="ck-alert-title">{{ submitError.title }}</p>
+                                <p>{{ submitError.message }}</p>
+                                <ul
+                                    v-if="changes.length"
+                                    class="ck-alert-list"
+                                >
                                     <li
-                                        v-for="item in parcel.items"
-                                        :key="itemKey(item)"
-                                        class="co-line"
-                                        :class="{ 'is-problem': problemItemKey === itemKey(item) }"
-                                    >
-                                        <span
-                                            class="co-thumb"
-                                            :class="hasImage(item) ? 'has-image' : 'accent-' + metaFor(item.category).accent"
-                                        >
-                                            <img
-                                                v-if="hasImage(item)"
-                                                :src="item.image"
-                                                alt=""
-                                                loading="lazy"
-                                                decoding="async"
-                                                @error="markImageFailed(item)"
-                                            >
-                                            <span
-                                                v-else
-                                                class="product-image-icon"
-                                                v-html="metaFor(item.category).icon"
-                                            ></span>
-                                        </span>
-                                        <div class="co-line-info">
-                                            <span class="co-line-name">{{ item.name }}</span>
-                                            <span
-                                                v-if="item.variation"
-                                                class="co-line-meta"
-                                            >{{ item.variation }}</span>
-                                            <span class="co-line-meta">
-                                                Qty {{ item.quantity }}<template v-if="Number(item.quantity) > 1"> × {{ formatPrice(item.price) }}</template>
-                                            </span>
-                                        </div>
-                                        <span class="co-money">{{ formatPrice(item.price * item.quantity) }}</span>
-
-                                        <div
-                                            v-if="problemItemKey === itemKey(item)"
-                                            class="co-line-fix"
-                                        >
-                                            <span>Nothing was ordered.</span>
-                                            <button
-                                                v-if="items.length > 1"
-                                                type="button"
-                                                class="co-btn co-btn--small"
-                                                @click="removeProblemItem(item)"
-                                            >
-                                                Remove this item
-                                            </button>
-                                            <button
-                                                v-if="source === 'cart'"
-                                                type="button"
-                                                class="co-btn co-btn--small"
-                                                @click="emit('edit-cart')"
-                                            >
-                                                Back to cart
-                                            </button>
-                                            <button
-                                                v-else
-                                                type="button"
-                                                class="co-btn co-btn--small"
-                                                @click="emit('back')"
-                                            >
-                                                Keep browsing
-                                            </button>
-                                        </div>
-                                    </li>
+                                        v-for="change in changes"
+                                        :key="change"
+                                    >{{ change }}</li>
                                 </ul>
-
-                                <div class="co-row co-row--muted">
-                                    <span>Shipping for this {{ parcels.length > 1 ? 'parcel' : 'order' }}</span>
-                                    <span class="co-money">{{ formatPrice(selectedShipping.fee) }}</span>
-                                </div>
+                                <button
+                                    v-if="submitError.kind === 'progress'"
+                                    type="button"
+                                    class="ck-link"
+                                    @click="emit('view-orders')"
+                                >
+                                    Go to My Orders
+                                </button>
                             </div>
 
-                            <div class="co-parcel">
-                                <p
-                                    id="checkout-shipping-label"
-                                    class="co-parcel-head"
-                                >
-                                    <span>
-                                        <strong>Shipping method</strong>
-                                        <template v-if="parcels.length > 1"> (applies to every parcel)</template>
-                                    </span>
-                                </p>
-                                <div
-                                    class="co-options"
-                                    role="radiogroup"
-                                    aria-labelledby="checkout-shipping-label"
-                                >
-                                    <label
-                                        v-for="option in shippingOptions"
-                                        :key="option.id"
-                                        class="co-option"
-                                        :class="{ 'is-selected': shippingMethod === option.id }"
-                                    >
-                                        <input
-                                            v-model="shippingMethod"
-                                            type="radio"
-                                            name="shipping"
-                                            :value="option.id"
-                                        >
-                                        <span class="co-option-body">
-                                            <strong>{{ option.shortName }}</strong>
-                                            <span>{{ option.description }}</span>
-                                        </span>
-                                        <span class="co-money">
-                                            {{ formatPrice(option.fee) }}<template v-if="parcels.length > 1"> per parcel</template>
-                                        </span>
-                                    </label>
-                                </div>
-                            </div>
-                        </section>
-
-                        <!-- 3. Payment -->
-                        <section
-                            id="checkout-payment-card"
-                            class="co-card"
-                            :class="{ 'has-error': errors.payment }"
-                            aria-labelledby="checkout-payment-title"
-                        >
-                            <div class="co-card-head">
-                                <h2
-                                    id="checkout-payment-title"
-                                    class="co-card-title"
-                                >
-                                    <span class="co-step">3</span>
-                                    Choose how to pay
-                                </h2>
-                            </div>
-                            <PaymentMethodSelector
-                                v-model="paymentMethod"
-                                :methods="paymentMethods"
-                                :error="errors.payment"
-                                :disabled="isPlacingOrder"
-                            />
-                            <p
-                                v-if="selectedPayment?.id === 'cod'"
-                                class="co-note"
+                            <dl
+                                class="ck-totals"
+                                :class="{ 'is-updating': isUpdating }"
                             >
-                                <template v-if="parcels.length > 1">
-                                    Each seller ships separately, so you'll pay each courier:
-                                    <template
-                                        v-for="(parcel, index) in parcels"
-                                        :key="parcel.seller"
-                                    >{{ index > 0 ? ', ' : '' }}{{ formatPrice(parcel.subtotal + selectedShipping.fee) }} to {{ parcel.seller }}</template>.
+                                <div>
+                                    <dt>Items<template v-if="totals"> ({{ totals.item_count }})</template></dt>
+                                    <dd>
+                                        <template v-if="totals">{{ formatPrice(totals.subtotal) }}</template>
+                                        <span v-else class="skeleton is-line ck-sk-amount"></span>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>Shipping<template v-if="sellers.length > 1"> ({{ sellers.filter(s => s.shipping.fee > 0).length }} parcels)</template></dt>
+                                    <dd>
+                                        <template v-if="totals">{{ formatPrice(totals.shipping) }}</template>
+                                        <span v-else class="skeleton is-line ck-sk-amount"></span>
+                                    </dd>
+                                </div>
+                                <div v-if="totals && totals.store_discount > 0">
+                                    <dt>Store discounts</dt>
+                                    <dd>−{{ formatPrice(totals.store_discount) }}</dd>
+                                </div>
+                                <div v-if="totals && totals.platform_discount > 0">
+                                    <dt>BuyTheWay discounts</dt>
+                                    <dd>−{{ formatPrice(totals.platform_discount) }}</dd>
+                                </div>
+                                <div v-if="totals && totals.payment_fee > 0">
+                                    <dt>Payment fee</dt>
+                                    <dd>{{ formatPrice(totals.payment_fee) }}</dd>
+                                </div>
+                                <div class="is-total">
+                                    <dt>Total</dt>
+                                    <dd>
+                                        <span
+                                            v-if="totals"
+                                            :key="totals.total"
+                                            :class="{ 'nx-value-in': totalChanged }"
+                                        >{{ formatPrice(totals.total) }}</span>
+                                        <span v-else class="skeleton is-line ck-sk-amount is-lg"></span>
+                                    </dd>
+                                </div>
+                            </dl>
+
+                            <p
+                                class="ck-summary-status"
+                                aria-live="polite"
+                            >
+                                <template v-if="quoteStatus === 'loading' && quote">
+                                    <span class="ord-spinner" aria-hidden="true"></span>
+                                    Updating your total…
                                 </template>
-                                <template v-else>
-                                    You'll pay {{ formatPrice(total) }} to the courier.
+                                <template v-else-if="quoteStatus === 'error' && quote">
+                                    {{ quoteError }}
+                                    <button type="button" class="ck-link" @click="refreshQuote">Try again</button>
+                                </template>
+                                <template v-else-if="selectedPayment && totals">
+                                    Pay {{ formatPrice(totals.total) }} in cash on delivery.
                                 </template>
                             </p>
-                        </section>
 
-                    </fieldset>
-
-                    <!-- Order total -->
-                    <aside
-                        ref="summaryCard"
-                        class="co-card co-summary"
-                        aria-labelledby="checkout-total-title"
-                    >
-                        <h2
-                            id="checkout-total-title"
-                            class="co-card-title"
-                        >
-                            Order total
-                        </h2>
-
-                        <dl class="co-rows">
-                            <div class="co-row">
-                                <dt>Items ({{ itemCount }})</dt>
-                                <dd class="co-money">{{ formatPrice(subtotal) }}</dd>
-                            </div>
-                            <div class="co-row">
-                                <dt>
-                                    Shipping<template v-if="parcels.length > 1"> ({{ parcels.length }} parcels × {{ formatPrice(selectedShipping.fee) }})</template>
-                                </dt>
-                                <dd class="co-money">{{ formatPrice(shippingTotal) }}</dd>
-                            </div>
-                            <div
-                                v-if="selectedPayment?.fee"
-                                class="co-row"
+                            <button
+                                type="button"
+                                class="btn btn-primary ck-place"
+                                :disabled="isPlacing || (!!placeBlocker && quoteStatus === 'loading')"
+                                :aria-busy="isPlacing"
+                                @click="placeOrder"
                             >
-                                <dt>{{ selectedPayment.name }} fee</dt>
-                                <dd class="co-money">{{ formatPrice(paymentFee) }}</dd>
-                            </div>
-                            <div class="co-row co-row--total">
-                                <dt>Total</dt>
-                                <dd class="co-money">{{ formatPrice(total) }}</dd>
-                            </div>
-                        </dl>
-
-                        <div class="co-row co-row--muted co-pay-row">
-                            <span>Payment</span>
-                            <span>{{ selectedPayment ? selectedPayment.name : 'Not chosen yet' }}</span>
+                                <span v-if="isPlacing" class="ord-spinner" aria-hidden="true"></span>
+                                {{ isPlacing ? 'Placing your order…' : submitError?.kind === 'changed' ? 'Place order with new total' : 'Place order' }}
+                            </button>
+                            <p
+                                v-if="placeBlocker && quoteStatus !== 'loading'"
+                                class="ck-hint is-center"
+                            >{{ placeBlocker }}</p>
+                            <p class="ck-hint is-center">Stock and prices are checked again when you place your order.</p>
                         </div>
-                        <p
-                            v-if="selectedPayment?.id === 'cod'"
-                            class="co-note"
-                        >
-                            Nothing is charged now. Your order stays unpaid until you pay the courier.
-                        </p>
-                        <p
-                            v-else-if="!availableMethods.length"
-                            class="co-note"
-                        >
-                            No payment method is available for this order.
-                        </p>
-
-                        <button
-                            type="button"
-                            class="co-place"
-                            :disabled="isPlacingOrder || items.length === 0 || !availableMethods.length"
-                            @click="placeOrder"
-                        >
-                            <template v-if="isPlacingOrder">
-                                <span
-                                    class="co-spinner"
-                                    aria-hidden="true"
-                                ></span>
-                                Placing your order…
-                            </template>
-                            <template v-else>
-                                Place order · {{ formatPrice(total) }}
-                            </template>
-                        </button>
-
-                        <p
-                            class="co-after"
-                            aria-live="polite"
-                        >
-                            <template v-if="isPlacingOrder">Keep this page open. This usually takes a few seconds.</template>
-                            <template v-else-if="parcels.length > 1">This creates {{ parcels.length }} orders, one per seller, and shows your order numbers.</template>
-                            <template v-else>Next, you'll see your order number.</template>
-                        </p>
                     </aside>
-
                 </div>
-
             </template>
-
         </main>
 
-        <Transition name="co-bar">
-            <div
-                v-if="showTotalBar"
-                class="co-total-bar"
+        <!-- Mobile: total + Place order always within reach -->
+        <div
+            v-if="!confirmation && !isSignedOut"
+            class="ck-bar"
+            :class="{ 'is-hidden': isTyping }"
+        >
+            <p class="ck-bar-total">
+                <span>Total</span>
+                <strong>
+                    <span
+                        v-if="totals"
+                        :key="totals.total"
+                        :class="{ 'nx-value-in': totalChanged }"
+                    >{{ formatPrice(totals.total) }}</span>
+                    <template v-else>—</template>
+                </strong>
+                <span
+                    v-if="quoteStatus === 'loading' && quote"
+                    class="ck-bar-note"
+                >Updating…</span>
+            </p>
+            <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="isPlacing || (!!placeBlocker && quoteStatus === 'loading')"
+                :aria-busy="isPlacing"
+                @click="placeOrder"
             >
-                <div>
-                    <strong class="co-money">{{ formatPrice(total) }}</strong>
-                    <span>Total, cash on delivery</span>
-                </div>
-                <button
-                    type="button"
-                    @click="scrollToSummary"
-                >
-                    Review total
-                </button>
-            </div>
-        </Transition>
+                <span v-if="isPlacing" class="ord-spinner" aria-hidden="true"></span>
+                {{ isPlacing ? 'Placing…' : 'Place order' }}
+            </button>
+        </div>
 
         <Footer
             @browse-all="emit('browse-all')"
@@ -1532,829 +1579,3 @@ function handleHeaderSelectCategory(category) {
     </div>
 
 </template>
-
-<style scoped>
-.co-page {
-    background: var(--nx-bg);
-    color: var(--nx-ink);
-}
-
-.co-page.has-total-bar {
-    padding-bottom: 76px;
-}
-
-.co-content {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 24px 40px 64px;
-}
-
-.co-breadcrumb {
-    max-width: none;
-    margin: 0 0 12px;
-}
-
-.co-title {
-    margin: 0;
-    font-size: 26px;
-    font-weight: 800;
-    letter-spacing: -0.3px;
-    outline: none;
-}
-
-.co-lede {
-    margin: 4px 0 22px;
-    color: var(--nx-muted);
-    font-size: 14px;
-}
-
-.co-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 360px;
-    gap: 28px;
-    align-items: start;
-}
-
-.co-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    min-width: 0;
-}
-
-.co-fieldset {
-    margin: 0;
-    padding: 0;
-    border: 0;
-}
-
-.co-fieldset:disabled {
-    opacity: 0.6;
-}
-
-.co-card {
-    padding: 20px 22px;
-    border: 1px solid var(--nx-border);
-    border-radius: 14px;
-    background: #ffffff;
-    outline: none;
-}
-
-.co-card.has-error {
-    border-color: #fca5a5;
-}
-
-.co-card-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 14px;
-}
-
-.co-card-title {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    margin: 0 0 14px;
-    font-size: 16px;
-    font-weight: 800;
-}
-
-.co-card-head .co-card-title {
-    margin: 0;
-}
-
-.co-step {
-    display: inline-grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 999px;
-    background: var(--nx-ink);
-    color: #ffffff;
-    font-size: 12px;
-    font-weight: 700;
-    transform: translateY(-1px);
-}
-
-.co-link {
-    padding: 4px 0;
-    border: 0;
-    background: none;
-    color: var(--nx-accent-dark);
-    font: inherit;
-    font-size: 13.5px;
-    font-weight: 700;
-    cursor: pointer;
-}
-
-.co-link:hover {
-    text-decoration: underline;
-}
-
-.co-link--block {
-    align-self: flex-start;
-    margin-top: 2px;
-}
-
-.co-address {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    margin: 0;
-    font-size: 14.5px;
-    color: var(--nx-text-2);
-}
-
-.co-address strong {
-    color: var(--nx-ink);
-}
-
-.co-address-phone {
-    margin-left: 8px;
-    color: var(--nx-muted);
-    font-weight: 500;
-}
-
-/* Form */
-
-.co-form {
-    display: flex;
-    flex-direction: column;
-}
-
-.co-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px 14px;
-}
-
-.co-field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.co-field--wide {
-    grid-column: 1 / -1;
-}
-
-.co-field label {
-    font-size: 13px;
-    font-weight: 700;
-}
-
-.co-optional {
-    color: var(--nx-muted);
-    font-weight: 500;
-}
-
-.co-field input {
-    height: 44px;
-    padding: 0 12px;
-    border: 1.5px solid var(--nx-line);
-    border-radius: 10px;
-    background: #ffffff;
-    color: var(--nx-ink);
-    font: inherit;
-    font-size: 15px;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.co-field input:focus {
-    outline: none;
-    border-color: var(--nx-accent);
-    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
-}
-
-.co-field input[aria-invalid='true'] {
-    border-color: #dc2626;
-    background: #fffafa;
-}
-
-.co-hint {
-    margin: 0;
-    color: var(--nx-muted);
-    font-size: 12.5px;
-}
-
-.co-field-error {
-    display: flex;
-    align-items: flex-start;
-    gap: 6px;
-    margin: 0;
-    color: #b91c1c;
-    font-size: 12.5px;
-    font-weight: 600;
-}
-
-.co-field-error::before {
-    content: '!';
-    display: inline-grid;
-    place-items: center;
-    flex-shrink: 0;
-    width: 16px;
-    height: 16px;
-    margin-top: 1px;
-    border-radius: 999px;
-    background: #b91c1c;
-    color: #ffffff;
-    font-size: 11px;
-    font-weight: 800;
-}
-
-.co-card > .co-field-error {
-    margin-top: 10px;
-}
-
-.co-check {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--nx-text-2);
-    font-size: 13.5px;
-    cursor: pointer;
-}
-
-.co-check input {
-    width: 16px;
-    height: 16px;
-    accent-color: var(--nx-accent);
-}
-
-/* Banners */
-
-.co-banner {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    margin-bottom: 14px;
-    padding: 12px 14px;
-    border-radius: 10px;
-    font-size: 13.5px;
-    line-height: 1.5;
-    outline: none;
-}
-
-.co-banner strong {
-    display: block;
-}
-
-.co-banner--error {
-    background: #fef2f2;
-    color: #7f1d1d;
-}
-
-.co-banner--warn {
-    background: #fffbeb;
-    color: #78350f;
-}
-
-.co-banner--info {
-    align-items: center;
-    background: var(--nx-line-soft);
-    color: var(--nx-text-2);
-}
-
-.co-banner-icon {
-    display: inline-grid;
-    place-items: center;
-    flex-shrink: 0;
-    width: 20px;
-    height: 20px;
-    border-radius: 999px;
-    background: #b91c1c;
-    color: #ffffff;
-    font-weight: 800;
-    font-size: 12px;
-}
-
-.co-banner--warn .co-banner-icon {
-    background: #b45309;
-}
-
-.co-banner-actions {
-    margin-top: 10px;
-}
-
-/* Parcels and lines */
-
-.co-parcel {
-    margin-top: 14px;
-    padding-top: 14px;
-    border-top: 1px solid var(--nx-line-soft);
-}
-
-.co-card-head + .co-parcel,
-.co-banner + .co-parcel,
-.co-done-head + .co-parcel {
-    margin-top: 0;
-    padding-top: 0;
-    border-top: 0;
-}
-
-.co-parcel-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    margin: 0 0 8px;
-    color: var(--nx-muted);
-    font-size: 13px;
-}
-
-.co-parcel-head strong {
-    color: var(--nx-ink);
-}
-
-.co-lines {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.co-line {
-    display: grid;
-    grid-template-columns: 56px minmax(0, 1fr) auto;
-    gap: 12px;
-    align-items: center;
-    padding: 8px 0;
-}
-
-.co-line.is-problem {
-    margin: 4px -10px;
-    padding: 10px;
-    border-radius: 10px;
-    background: #fef2f2;
-}
-
-.co-thumb {
-    display: grid;
-    place-items: center;
-    width: 56px;
-    height: 56px;
-    border-radius: 10px;
-    background: var(--accent-bg);
-    overflow: hidden;
-}
-
-.co-thumb.has-image {
-    background: var(--nx-line-soft);
-}
-
-.co-thumb img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-}
-
-.co-thumb .product-image-icon {
-    width: 28px;
-    height: 28px;
-}
-
-.co-line-info {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-}
-
-.co-line-name {
-    font-weight: 650;
-    overflow-wrap: anywhere;
-}
-
-.co-line-meta {
-    color: var(--nx-muted);
-    font-size: 13px;
-}
-
-.co-line-fix {
-    grid-column: 2 / -1;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    color: #7f1d1d;
-    font-size: 13px;
-    font-weight: 600;
-}
-
-.co-money {
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-    text-align: right;
-    white-space: nowrap;
-}
-
-.co-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    font-size: 14px;
-}
-
-.co-row dt,
-.co-row dd {
-    margin: 0;
-}
-
-.co-row dd.co-money {
-    font-weight: 600;
-}
-
-.co-row--muted {
-    padding-top: 6px;
-    color: var(--nx-text-2);
-    font-size: 13.5px;
-}
-
-.co-row--muted .co-money {
-    font-weight: 600;
-}
-
-.co-row--strong {
-    padding-top: 4px;
-    font-weight: 700;
-}
-
-.co-row--total {
-    margin-top: 4px;
-    padding-top: 12px;
-    border-top: 1px solid var(--nx-line-soft);
-    font-size: 18px;
-    font-weight: 800;
-}
-
-.co-row--total dd.co-money {
-    font-weight: 800;
-}
-
-/* Options */
-
-.co-options {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.co-option {
-    display: grid;
-    grid-template-columns: 20px minmax(0, 1fr) auto;
-    gap: 12px;
-    align-items: center;
-    padding: 12px 14px;
-    border: 1.5px solid var(--nx-line);
-    border-radius: 10px;
-    cursor: pointer;
-    transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.co-option:hover {
-    border-color: var(--nx-muted-2);
-}
-
-.co-option.is-selected {
-    border-color: var(--nx-ink);
-    background: var(--nx-sunken);
-}
-
-.co-option:has(input:focus-visible) {
-    outline: 2px solid var(--nx-accent);
-    outline-offset: 2px;
-}
-
-.co-option input {
-    width: 18px;
-    height: 18px;
-    margin: 0;
-    accent-color: var(--nx-ink);
-}
-
-.co-pay-row {
-    margin-top: 12px;
-}
-
-.co-option-body {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-}
-
-.co-option-body strong {
-    font-size: 14px;
-}
-
-.co-option-body > span {
-    color: var(--nx-muted);
-    font-size: 13px;
-}
-
-.co-tag {
-    margin-left: 8px;
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: var(--nx-line-soft);
-    color: var(--nx-muted);
-    font-size: 11px;
-    font-weight: 700;
-}
-
-.co-note {
-    margin: 12px 0 0;
-    color: var(--nx-text-2);
-    font-size: 13px;
-}
-
-/* Summary */
-
-.co-summary {
-    position: sticky;
-    top: 120px;
-}
-
-.co-rows {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin: 0;
-}
-
-.co-place {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    width: 100%;
-    min-height: 52px;
-    margin-top: 14px;
-    border: 0;
-    border-radius: 10px;
-    background: var(--nx-accent);
-    color: #ffffff;
-    font: inherit;
-    font-size: 15px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background 0.15s ease, transform 0.1s ease;
-}
-
-.co-place:hover:not(:disabled) {
-    background: var(--nx-accent-dark);
-}
-
-.co-place:active:not(:disabled) {
-    transform: scale(0.98);
-}
-
-.co-place:disabled {
-    background: #5fb3aa;
-    cursor: progress;
-}
-
-.co-place:focus-visible,
-.co-btn:focus-visible,
-.co-link:focus-visible {
-    outline: 2px solid var(--nx-ink);
-    outline-offset: 2px;
-}
-
-.co-after {
-    margin: 10px 0 0;
-    color: var(--nx-muted);
-    font-size: 12.5px;
-}
-
-.co-spinner {
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-    border: 2px solid rgba(255, 255, 255, 0.45);
-    border-top-color: #ffffff;
-    border-radius: 999px;
-    animation: co-spin 0.8s linear infinite;
-}
-
-.co-spinner--dark {
-    border-color: rgba(15, 23, 42, 0.2);
-    border-top-color: var(--nx-ink);
-}
-
-@keyframes co-spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-/* Buttons */
-
-.co-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 18px;
-}
-
-.co-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 46px;
-    padding: 0 18px;
-    border-radius: 10px;
-    font: inherit;
-    font-size: 14px;
-    font-weight: 700;
-    text-decoration: none;
-    cursor: pointer;
-}
-
-.co-btn--primary {
-    border: 0;
-    background: var(--nx-accent);
-    color: #ffffff;
-}
-
-.co-btn--primary:hover {
-    background: var(--nx-accent-dark);
-}
-
-.co-btn--secondary {
-    border: 1.5px solid var(--nx-line);
-    background: #ffffff;
-    color: var(--nx-ink);
-}
-
-.co-btn--small {
-    min-height: 34px;
-    padding: 0 12px;
-    border: 1.5px solid currentColor;
-    border-radius: 8px;
-    background: #ffffff;
-    color: inherit;
-    font-size: 13px;
-}
-
-/* Confirmation */
-
-.co-done-head {
-    display: flex;
-    align-items: flex-start;
-    gap: 14px;
-    margin-bottom: 20px;
-}
-
-.co-done-head .co-lede {
-    margin-bottom: 0;
-}
-
-.co-done-mark {
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-    width: 44px;
-    height: 44px;
-    border-radius: 999px;
-    background: var(--nx-accent-soft);
-    color: var(--nx-accent-dark);
-}
-
-.co-next {
-    margin: 0;
-    padding-left: 18px;
-    color: var(--nx-text-2);
-    font-size: 14px;
-}
-
-.co-next li {
-    margin-bottom: 6px;
-}
-
-.co-summary .co-address {
-    margin-bottom: 16px;
-}
-
-/* Signed out */
-
-.co-gate {
-    max-width: 560px;
-    margin: 24px auto;
-}
-
-/* Mobile total bar */
-
-.co-total-bar {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 40;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
-    border-top: 1px solid var(--nx-border);
-    background: #ffffff;
-    box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.06);
-}
-
-.co-total-bar strong {
-    display: block;
-    font-size: 16px;
-    text-align: left;
-}
-
-.co-total-bar span {
-    color: var(--nx-muted);
-    font-size: 12px;
-}
-
-.co-total-bar button {
-    min-height: 44px;
-    padding: 0 16px;
-    border: 1.5px solid var(--nx-ink);
-    border-radius: 10px;
-    background: #ffffff;
-    color: var(--nx-ink);
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer;
-}
-
-.co-bar-enter-active,
-.co-bar-leave-active {
-    transition: transform 0.2s ease, opacity 0.2s ease;
-}
-
-.co-bar-enter-from,
-.co-bar-leave-to {
-    transform: translateY(100%);
-    opacity: 0;
-}
-
-@media (max-width: 960px) {
-    .co-content {
-        padding: 16px 16px 40px;
-    }
-
-    .co-layout {
-        grid-template-columns: 1fr;
-        gap: 14px;
-    }
-
-    .co-summary {
-        position: static;
-    }
-
-    .co-title {
-        font-size: 22px;
-    }
-}
-
-@media (max-width: 640px) {
-    .co-card {
-        padding: 16px;
-        border-radius: 12px;
-    }
-
-    .co-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .co-line {
-        grid-template-columns: 48px minmax(0, 1fr) auto;
-    }
-
-    .co-thumb {
-        width: 48px;
-        height: 48px;
-    }
-
-    .co-option {
-        grid-template-columns: 20px minmax(0, 1fr);
-    }
-
-    .co-option > .co-money {
-        grid-column: 2;
-        text-align: left;
-    }
-
-    .co-field input {
-        font-size: 16px;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .co-spinner {
-        animation-duration: 2.4s;
-    }
-
-    .co-bar-enter-active,
-    .co-bar-leave-active,
-    .co-place,
-    .co-option {
-        transition: none;
-    }
-}
-</style>
