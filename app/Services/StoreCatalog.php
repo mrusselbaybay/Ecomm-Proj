@@ -8,10 +8,10 @@ use App\Models\Review;
 use App\Models\SellerVerification;
 use App\Models\StoreFollow;
 use App\Support\ProductImage;
+use App\Support\SchemaCache;
 use App\Support\StoreProfile;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /**
@@ -117,8 +117,8 @@ class StoreCatalog
     public function productReviews(): Builder
     {
         return Review::query()
-            ->whereColumn('reviews.seller_id', 'profiles.id')
-            ->whereNotNull('reviews.product_id');
+            ->eligible()
+            ->whereColumn('reviews.seller_id', 'profiles.id');
     }
 
     /**
@@ -131,7 +131,7 @@ class StoreCatalog
 
         $previewImages = $store->relationLoaded('products')
             ? $store->products
-                ->map(fn (Product $product) => ProductImage::urls($product->images)[0] ?? null)
+                ->map(fn (Product $product) => ProductImage::cardUrl($product))
                 ->filter()
                 ->values()
                 ->all()
@@ -160,12 +160,12 @@ class StoreCatalog
 
     public function hasStoreProfileColumns(): bool
     {
-        return $this->schema['seller_details.store_profile'] ??= Schema::hasColumns('seller_details', ['banner_path', 'description', 'return_policy']);
+        return $this->schema['seller_details.store_profile'] ??= SchemaCache::hasColumns('seller_details', ['banner_path', 'description', 'return_policy']);
     }
 
     public function hasTable(string $table): bool
     {
-        return $this->schema[$table] ??= Schema::hasTable($table);
+        return $this->schema[$table] ??= SchemaCache::hasTable($table);
     }
 
     /**
@@ -194,7 +194,7 @@ class StoreCatalog
      * defensively, an absolute URL). Null when unset or when Supabase isn't
      * configured, so the frontend falls back to a monogram.
      */
-    private function logoUrl(?string $path): ?string
+    public function logoUrl(?string $path): ?string
     {
         $path = trim((string) $path);
 

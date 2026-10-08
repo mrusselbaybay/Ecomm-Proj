@@ -13,6 +13,7 @@ use App\Support\CheckoutOptions;
 use App\Support\CompletedSales;
 use App\Support\PlatformReturnPolicy;
 use App\Support\ProductImage;
+use App\Support\ProductSearch;
 use App\Support\PublicReview;
 use App\Support\StoreProfile;
 use Illuminate\Database\Eloquent\Builder;
@@ -44,7 +45,7 @@ class StoreController extends Controller
     /**
      * @var list<string>
      */
-    private const SORTS = ['products', 'rating', 'newest', 'name'];
+    private const SORTS = ['relevance', 'products', 'rating', 'newest', 'name'];
 
     /**
      * Latest product photos shown on a store's directory entry.
@@ -57,8 +58,15 @@ class StoreController extends Controller
      * GET /api/stores
      *
      * Query params (all optional): search (store name), category
-     * (line of business), sort (products|rating|newest|name), page,
-     * per_page (max 48).
+     * (line of business), sort (relevance|products|rating|newest|name),
+     * page, per_page (max 48).
+     *
+     * With a search, the default order (relevance, or products) ranks by
+     * how well the name matches (ProductSearch::orderStoresByRelevance():
+     * exact, prefix, a word starting with the query, contains, then
+     * typo-tolerant), with product count as the tie-breaker; an explicit
+     * rating / newest / name sort is respected as chosen. The final
+     * tie-breakers are always name, then id, so pages stay stable.
      *
      * `facets.categories` counts stores per line of business for the
      * current search, ignoring the category filter, so the category
@@ -76,10 +84,11 @@ class StoreController extends Controller
         $visible = $this->stores->visibleStores();
 
         if ($search !== '') {
-            $visible->whereRaw(
-                "lower(seller_details.business_name) like ? escape '\\'",
-                ['%'.$this->escapeLike(mb_strtolower($search)).'%'],
-            );
+            if (ProductSearch::isSearchable($search)) {
+                ProductSearch::applyToStores($visible, $search);
+            } else {
+                $visible->whereRaw('1 = 0');
+            }
         }
 
         $categoryCounts = (clone $visible)
@@ -97,13 +106,17 @@ class StoreController extends Controller
             $query->where('seller_details.line_of_business', $category);
         }
 
-        $this->applySort($query, $sort);
+        $this->applySort($query, $sort, $search);
 
         $stores = $query
             ->with([
                 'address',
-                'products' => fn ($q) => $q->active()
-                    ->select(['id', 'seller_id', 'images', 'created_at'])
+                // Lite images: an inline photo stays in the database and is
+                // linked to the image endpoint (ProductImage::liteSql()).
+                'products' => fn ($q) => ProductImage::selectWithLiteImages(
+                    $q->active(),
+                    ['products.id', 'products.seller_id', 'products.created_at', 'products.updated_at'],
+                )
                     ->latest()
                     ->limit(self::PREVIEW_IMAGES),
             ])
@@ -120,8 +133,8 @@ class StoreController extends Controller
             'facets' => [
                 'categories' => $categoryCounts,
                 'has_ratings' => Review::query()
+                    ->eligible()
                     ->whereIn('seller_id', $this->stores->visibleStores()->select('profiles.id'))
-                    ->whereNotNull('product_id')
                     ->exists(),
             ],
         ]);
@@ -189,11 +202,15 @@ class StoreController extends Controller
         $excludeProduct = $request->string('exclude_product')->toString();
 
         $eligible = fn () => Review::query()
-            ->where('reviews.seller_id', $id)
-            ->whereNotNull('reviews.product_id');
+            ->eligible()
+            ->where('reviews.seller_id', $id);
 
         $query = $eligible()
-            ->with(['buyer:id,first_name,last_name', 'orderItem:id,variant', 'product:id,name,images'])
+            ->with([
+                'buyer:id,first_name,last_name',
+                'orderItem:id,variant',
+                'product' => fn ($q) => ProductImage::selectWithLiteImages($q, ['products.id', 'products.name', 'products.updated_at']),
+            ])
             ->orderByDesc('reviews.created_at')
             ->orderBy('reviews.id');
 
@@ -226,7 +243,7 @@ class StoreController extends Controller
                 ['product' => $review->product ? [
                     'id' => $review->product->id,
                     'name' => $review->product->name,
-                    'image' => ProductImage::urls($review->product->images)[0] ?? null,
+                    'image' => ProductImage::cardUrl($review->product),
                 ] : null],
             ))->values(),
             'meta' => [
@@ -291,8 +308,12 @@ class StoreController extends Controller
      *
      * @param  Builder<Profile>  $query
      */
-    private function applySort(Builder $query, string $sort): void
+    private function applySort(Builder $query, string $sort, string $search = ''): void
     {
+        if ($search !== '' && in_array($sort, ['relevance', 'products'], true)) {
+            ProductSearch::orderStoresByRelevance($query, $search);
+        }
+
         switch ($sort) {
             case 'rating':
                 // Unrated stores last. Postgres can't use a select alias
@@ -338,6 +359,7 @@ class StoreController extends Controller
             ->all();
 
         $hasRatings = Review::query()
+            ->eligible()
             ->whereIn('product_id', (clone $products)->select('id'))
             ->exists();
 
@@ -358,10 +380,5 @@ class StoreController extends Controller
             'hasRatings' => $hasRatings,
             'hasSold' => $hasSold,
         ];
-    }
-
-    private function escapeLike(string $value): string
-    {
-        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $value);
     }
 }

@@ -37,6 +37,7 @@ import { useBuyer } from '../composables/useBuyer';
 import { useToasts } from '../composables/useToasts';
 import { useConfirm } from '../composables/useConfirm';
 import { metaFor } from '../composables/useCategoryMeta';
+import { freezeLeaving } from '../composables/useListMotion';
 
 const emit = defineEmits([
     'back',
@@ -403,10 +404,16 @@ function formatDate(date) {
                     </button>
                 </div>
 
-                <!-- Review List -->
-                <div
+                <!-- Review List: a deleted review fades out and the rest slide
+                     up. Keyed by page / filter / sort / search, so changing
+                     those swaps the list without animating every row. -->
+                <TransitionGroup
                     v-else
-                    class="space-y-6"
+                    :key="`${page}-${ratingFilter}-${sortBy}-${searchQuery}`"
+                    name="lx"
+                    tag="div"
+                    class="space-y-6 lx-group"
+                    @before-leave="freezeLeaving"
                 >
                     <div
                         v-for="review in pagedReviews"
@@ -464,6 +471,11 @@ function formatDate(date) {
                                         {{ formatDate(review.createdAt) }}
                                         <template v-if="review.isEdited">&middot; edited</template>
                                     </span>
+                                    <!-- Whether other buyers see it (Buyer\ReviewController::visibility). -->
+                                    <span
+                                        class="rv-visibility"
+                                        :class="review.isPublic === false ? 'is-hidden' : 'is-public'"
+                                    >{{ review.isPublic === false ? 'Not public' : 'Public' }}</span>
                                 </div>
                                 <div
                                     v-if="editingId !== review.id"
@@ -543,6 +555,13 @@ function formatDate(date) {
                                 {{ review.comment || 'No written comment was added.' }}
                             </p>
 
+                            <p
+                                v-if="review.isPublic === false && review.visibilityNote"
+                                class="rv-visibility-note"
+                            >
+                                {{ review.visibilityNote }}
+                            </p>
+
                             <div
                                 v-if="review.sellerResponse"
                                 class="mt-4 pt-4 border-t border-slate-50"
@@ -552,7 +571,7 @@ function formatDate(date) {
                             </div>
                         </div>
                     </div>
-                </div>
+                </TransitionGroup>
 
                 <!-- Pagination -->
                 <div

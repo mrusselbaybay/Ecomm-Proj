@@ -163,8 +163,13 @@ function actingAsBuyer(Profile $buyer): void
         'services.supabase.anon_key' => 'test-anon-key',
     ]);
 
+    // Fakes stack and the first match wins, so the stub reads the current
+    // buyer at request time: a later actingAsBuyer() in the same test
+    // really switches who is signed in.
+    config(['testing.buyer_id' => $buyer->id]);
+
     Http::fake([
-        'https://unit-test.supabase.co/auth/v1/user' => Http::response(['id' => $buyer->id], 200),
+        'https://unit-test.supabase.co/auth/v1/user' => fn () => Http::response(['id' => config('testing.buyer_id')], 200),
     ]);
 
     test()->withHeader('Authorization', 'Bearer '.$token);

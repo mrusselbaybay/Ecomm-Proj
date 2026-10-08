@@ -10,9 +10,27 @@
 // product page's back button) renders the cached results immediately, so
 // Dashboard.vue can restore the scroll position, while a fresh copy loads
 // in the background.
+//
+// A review written in this tab (useReviewSync.js) patches the product
+// rows cached here in place and drops cached store responses, whose
+// average only the server can recompute, so revisiting either shows the
+// new numbers.
+import { applyStats, onReviewChange } from './useReviewSync';
 
 const cache = new Map();
 const MAX_CACHED = 40;
+
+onReviewChange((stats) => {
+    for (const [url, body] of [...cache.entries()]) {
+        if (url.startsWith('/api/stores')) {
+            cache.delete(url);
+        } else if (Array.isArray(body?.data)) {
+            body.data.forEach(product => applyStats(product, stats));
+        } else if (body?.data && typeof body.data === 'object') {
+            applyStats(body.data, stats);
+        }
+    }
+});
 
 function queryString(params) {
     const search = new URLSearchParams();
@@ -38,6 +56,14 @@ export function storeEndpoint(id) {
     return `/api/stores/${encodeURIComponent(id)}`;
 }
 
+export function productsEndpoint(params) {
+    return `/api/products${queryString(params)}`;
+}
+
+export function relatedProductsEndpoint(params) {
+    return `/api/products/related${queryString(params)}`;
+}
+
 export function storeProductsEndpoint(sellerId, params) {
     return `/api/products${queryString({ seller_id: sellerId, ...params })}`;
 }
@@ -46,16 +72,55 @@ export function cachedResponse(url) {
     return cache.get(url) || null;
 }
 
+// Longest a catalogue request may take before the page gives up and offers
+// a retry (the server's own limit is 30 seconds).
+export const REQUEST_TIMEOUT_MS = 20000;
+
 /**
  * GETs a JSON endpoint, caching the parsed body. Throws Error(message) with
- * `status` on a non-2xx response; an aborted request throws AbortError.
+ * `status` on a non-2xx response, and an Error named TimeoutError when no
+ * answer arrives within `timeout` ms. Aborting through `signal` (a newer
+ * request replacing this one) throws AbortError.
  */
-export async function fetchJson(url, { signal } = {}) {
-    const response = await fetch(url, {
-        headers: { Accept: 'application/json' },
-        signal
-    });
-    const body = await response.json().catch(() => ({}));
+export async function fetchJson(url, { signal, timeout = REQUEST_TIMEOUT_MS } = {}) {
+    const controller = new AbortController();
+    let timedOut = false;
+
+    const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+    }, timeout);
+
+    const forwardAbort = () => controller.abort();
+
+    if (signal?.aborted) {
+        controller.abort();
+    }
+
+    signal?.addEventListener('abort', forwardAbort, { once: true });
+
+    let response;
+    let body;
+
+    try {
+        response = await fetch(url, {
+            headers: { Accept: 'application/json' },
+            signal: controller.signal
+        });
+        body = await response.json().catch(() => ({}));
+    } catch (err) {
+        if (timedOut) {
+            const error = new Error('This is taking longer than it should. Check your connection and try again.');
+            error.name = 'TimeoutError';
+
+            throw error;
+        }
+
+        throw err;
+    } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', forwardAbort);
+    }
 
     if (!response.ok) {
         const error = new Error(body.message || 'Something went wrong. Please try again.');

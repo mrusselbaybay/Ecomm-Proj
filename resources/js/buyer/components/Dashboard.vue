@@ -38,6 +38,8 @@ import {
     hasUnsavedChanges
 } from '../composables/useAccountNav';
 import { vReveal } from '../composables/useReveal';
+import { fetchJson } from '../composables/useStores';
+import { applyStats, onReviewChange, withLatestStats } from '../composables/useReviewSync';
 import {
     categoryFromQuery,
     categoryUrl,
@@ -58,6 +60,13 @@ import {
     storePageUrl,
     storeStateFromQuery
 } from '../composables/useStoreBrowseState';
+import {
+    defaultSearchState,
+    rememberSearchState,
+    searchStateFromQuery,
+    searchTermFromQuery,
+    searchUrl
+} from '../composables/useSearchState';
 
 /*
 |--------------------------------------------------------------------------
@@ -74,7 +83,9 @@ const {
     products,
     isLoadingProducts,
     loadError: productsLoadError,
-    loadProducts
+    productsLoadedAt,
+    loadProducts,
+    refreshProducts
 } = useBuyerProducts();
 
 const { loadSession } = useBuyerSession();
@@ -92,8 +103,20 @@ const { navRequest } = useBuyerNav();
 |
 */
 
-const searchQuery = ref('');
-const submittedQuery = ref('');
+// ?search=<words>&filters (a refreshed or shared results page) runs that
+// search with its filters, sort and page (useSearchState.js).
+const initialSearch = searchTermFromQuery(window.location.search);
+
+if (initialSearch) {
+    rememberSearchState(searchStateFromQuery(window.location.search));
+}
+
+const searchQuery = ref(initialSearch);
+const submittedQuery = ref(initialSearch);
+
+// Bumped by every header search, so re-running the same words starts a
+// fresh results page (filters cleared, page 1).
+const searchRun = ref(0);
 
 // A shared / refreshed store link (?store=<id>&...) or store directory link
 // (?view=stores&...) opens straight onto that page with its browse state.
@@ -111,7 +134,7 @@ if (initialStoresView) {
 // A shared / refreshed category link (?category=...&filters) opens straight
 // onto that category page with its filters; anything else starts home.
 const initialCategory = (() => {
-    if (initialStoreId || initialStoresView) {
+    if (initialStoreId || initialStoresView || initialSearch) {
         return null;
     }
 
@@ -530,6 +553,7 @@ function applySnapshot(state) {
     selectedProduct.value = state.product
         ? products.value.find(product => product.id === state.product.id) || state.product
         : null;
+    completeSelectedProduct();
     browsingCategory.value = state.browsingCategory;
     showStores.value = Boolean(state.showStores);
     browsingStore.value = state.browsingStore || null;
@@ -573,6 +597,10 @@ function urlForCurrentView() {
         return directoryUrl();
     }
 
+    if (currentView.value.startsWith('search-')) {
+        return searchUrl(submittedQuery.value);
+    }
+
     return browsingCategory.value && currentView.value.startsWith('category-')
         ? categoryUrl(browsingCategory.value)
         : window.location.pathname;
@@ -584,6 +612,11 @@ function handlePopState(event) {
         rememberStoreState(event.state.browsingStore.id, storeStateFromQuery(window.location.search));
     } else if (event.state?.showStores && isDirectoryQuery(window.location.search)) {
         rememberDirectoryState(directoryStateFromQuery(window.location.search));
+    }
+
+    // The entry's URL is the truth for a search's filters, sort and page.
+    if (event.state?.submittedQuery && searchTermFromQuery(window.location.search) === event.state.submittedQuery) {
+        rememberSearchState(searchStateFromQuery(window.location.search));
     }
 
     // The entry's URL is the truth for a category page's filters.
@@ -608,11 +641,7 @@ onMounted(() => {
         openChat({ conversationId: initialMessages.id });
     }
 
-    // per_page bumped to the API's max (see ProductController@index) so
-    // CategoryListing and search — which filter this same in-memory list
-    // rather than issuing their own requests — see as much of the catalog
-    // as this endpoint can give without server-side pagination.
-    loadProducts({ per_page: 100 });
+    loadCatalogFor(currentView.value);
     // Populates buyerProfile if a Supabase session already exists; browsing
     // itself stays public either way — see useBuyerSession.js.
     loadSession();
@@ -620,11 +649,58 @@ onMounted(() => {
 
 onUnmounted(() => {
     window.removeEventListener('popstate', handlePopState);
+    stopReviewSync();
 });
 
 function retryProducts() {
     loadProducts({ per_page: 100 });
 }
+
+/*
+|--------------------------------------------------------------------------
+| In-memory Catalogue (loaded when a view needs it)
+|--------------------------------------------------------------------------
+|
+| The storefront, category pages, deals and product pages work from one
+| in-memory list (per_page bumped to the API's max, see
+| ProductController@index). Search results, the store directory and store
+| pages query the server themselves, so opening one of those (a shared
+| search link, a refresh) no longer downloads the catalogue first: that
+| request used to compete with — and on a single-worker server, queue in
+| front of — the results the buyer asked for. It loads the first time a
+| view that needs it opens.
+|
+*/
+
+let catalogRequested = false;
+
+// Coming back to a catalogue view after this long reloads the list in the
+// background (ratings, prices and stock change while the tab stays open);
+// the buyer keeps seeing the current list until the new one arrives.
+const CATALOG_MAX_AGE_MS = 60 * 1000;
+
+function viewNeedsCatalog(view) {
+    return !(view.startsWith('search-') || view.startsWith('store-') || view === 'stores');
+}
+
+function loadCatalogFor(view) {
+    if (!viewNeedsCatalog(view)) {
+        return;
+    }
+
+    if (!catalogRequested) {
+        catalogRequested = true;
+        loadProducts({ per_page: 100 });
+
+        return;
+    }
+
+    if (productsLoadedAt.value && Date.now() - productsLoadedAt.value > CATALOG_MAX_AGE_MS) {
+        refreshProducts();
+    }
+}
+
+watch(currentView, view => loadCatalogFor(view));
 
 /*
 |--------------------------------------------------------------------------
@@ -686,7 +762,60 @@ function viewProduct(product) {
 
     closeAllSubViews();
     selectedProduct.value = product;
+    completeSelectedProduct();
 }
+
+// The product page shows straight away with what the buyer clicked, then
+// the live product replaces it, so the rating, review count, price and stock
+// are current even when the card came from a list loaded a while ago.
+// Search results carry card fields only (options / variants are null — see
+// ProductController fields=card): those are marked detailsPending until the
+// full product arrives. A complete copy is refreshed quietly.
+let productRequestSeq = 0;
+
+async function completeSelectedProduct() {
+    const product = selectedProduct.value;
+
+    if (!product) {
+        return;
+    }
+
+    const isComplete = product.variants != null;
+    const seq = ++productRequestSeq;
+    const startedAt = Date.now();
+
+    if (!isComplete) {
+        selectedProduct.value = { ...product, detailsPending: true, detailsError: '' };
+    }
+
+    try {
+        const body = await fetchJson(`/api/products/${encodeURIComponent(product.id)}`);
+
+        // Only the newest request for the product still on screen counts.
+        if (seq === productRequestSeq && selectedProduct.value?.id === product.id && body?.data) {
+            selectedProduct.value = withLatestStats(body.data, startedAt);
+        }
+    } catch (err) {
+        if (isComplete) {
+            // The page already shows a complete product; keep it.
+            return;
+        }
+
+        if (seq === productRequestSeq && selectedProduct.value?.id === product.id) {
+            selectedProduct.value = {
+                ...selectedProduct.value,
+                detailsPending: false,
+                detailsError: err?.status === 404
+                    ? 'This product is no longer available.'
+                    : 'We couldn’t load this product’s options. Go back and open it again.'
+            };
+        }
+    }
+}
+
+const stopReviewSync = onReviewChange((stats) => {
+    applyStats(selectedProduct.value, stats);
+});
 
 function backToProducts() {
     restoreTarget = browseViewBeforeProduct;
@@ -924,6 +1053,8 @@ const relatedProducts = computed(() => {
 function handleSearch(query) {
     searchQuery.value = query;
     submittedQuery.value = (query || '').trim();
+    rememberSearchState(defaultSearchState(submittedQuery.value));
+    searchRun.value += 1;
 
     // A search from the header is global — leave whatever sub-view the
     // buyer was on (Orders, Order Details, Order Tracking, Account, ...)
@@ -1308,14 +1439,11 @@ function guardedFromAccount(action) {
 
             <SearchResults
                 v-if="submittedQuery"
+                :key="searchRun"
                 :query="submittedQuery"
-                :products="products"
-                :is-loading="isLoadingProducts"
-                :load-error="productsLoadError"
                 @view-product="viewProduct"
+                @open-store="openStore"
                 @clear-search="clearSearch"
-                @select-category="selectCategory"
-                @retry="retryProducts"
             />
 
             <template v-else>

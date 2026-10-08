@@ -1,6 +1,7 @@
 import { ref, computed, watch } from 'vue';
 import { buyerApi } from './useBuyerApi';
 import { getSupabase } from './useBuyerSession';
+import { onReviewChange, publishReviewChange, withLatestStats } from './useReviewSync';
 import { useToasts } from './useToasts';
 
 const { success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo } = useToasts();
@@ -135,23 +136,29 @@ function snapshotFrom(item, product, variant) {
  * re-implementing it). Returns { ok, capped } so a caller can still do
  * extra UI if it wants.
  */
-function addToCart(product, variant, quantity) {
+function addToCart(product, variant, quantity, { silent = false } = {}) {
+    // silent: the caller reports the outcome itself (Buy Again adds a
+    // whole order and shows one summary).
+    const notify = silent
+        ? { error() {}, info() {}, warning() {}, success() {} }
+        : { error: toastError, info: toastInfo, warning: toastWarning, success: toastSuccess };
+
     if (!product) {
         return { ok: false };
     }
 
     if (variant && variant.status && variant.status !== 'active') {
-        toastError('This variant is currently unavailable.');
+        notify.error('This variant is currently unavailable.');
 
-        return { ok: false };
+        return { ok: false, reason: 'unavailable' };
     }
 
     const ceiling = stockCeiling(product, variant);
 
     if (ceiling === 0) {
-        toastError('This item is out of stock.');
+        notify.error('This item is out of stock.');
 
-        return { ok: false };
+        return { ok: false, reason: 'out_of_stock' };
     }
 
     const desired = Math.max(1, Math.floor(Number(quantity)) || 1);
@@ -167,9 +174,9 @@ function addToCart(product, variant, quantity) {
 
         if (ceiling != null && requested > ceiling) {
             if (existingItem.quantity >= ceiling) {
-                toastInfo(`You already have the maximum available (${ceiling}) in your cart.`);
+                notify.info(`You already have the maximum available (${ceiling}) in your cart.`);
 
-                return { ok: false, capped: true };
+                return { ok: false, capped: true, reason: 'cart_full', ceiling };
             }
 
             existingItem.quantity = ceiling;
@@ -178,9 +185,9 @@ function addToCart(product, variant, quantity) {
                 existingItem.status = 'ok';
             }
 
-            toastWarning(`Only ${ceiling} available — added the maximum to your cart.`);
+            notify.warning(`Only ${ceiling} available — added the maximum to your cart.`);
 
-            return { ok: true, capped: true };
+            return { ok: true, capped: true, ceiling };
         }
 
         existingItem.quantity = requested;
@@ -189,7 +196,7 @@ function addToCart(product, variant, quantity) {
             existingItem.status = 'ok';
         }
 
-        toastSuccess('Added to cart.');
+        notify.success('Added to cart.');
 
         return { ok: true };
     }
@@ -226,12 +233,12 @@ function addToCart(product, variant, quantity) {
     cart.value.push(item);
 
     if (capped) {
-        toastWarning(`Only ${ceiling} available — added the maximum to your cart.`);
+        notify.warning(`Only ${ceiling} available — added the maximum to your cart.`);
     } else {
-        toastSuccess('Added to cart.');
+        notify.success('Added to cart.');
     }
 
-    return { ok: true, capped };
+    return { ok: true, capped, ceiling };
 }
 
 // Silent by design: also called by Dashboard.handleOrderPlaced() to drop
@@ -374,6 +381,7 @@ const cartValidatedAt = ref(0);
 // (couldn't check). The endpoint caps ids at 100 per request.
 async function fetchCatalogProducts(ids) {
     const map = new Map();
+    const startedAt = Date.now();
 
     for (let start = 0; start < ids.length; start += 100) {
         const chunk = ids.slice(start, start + 100);
@@ -398,7 +406,7 @@ async function fetchCatalogProducts(ids) {
                 continue;
             }
 
-            const found = new Map(body.data.map((product) => [product.id, product]));
+            const found = new Map(body.data.map((product) => [product.id, withLatestStats(product, startedAt)]));
 
             chunk.forEach((id) => map.set(id, found.get(id) ?? null));
         } catch {
@@ -808,16 +816,95 @@ async function loadReviews() {
  * Returns the created review on success, or null on failure (the caller
  * is responsible for surfacing the thrown error's message).
  */
+// A review with photos goes as multipart (images[]); without, as JSON.
+// `keepImages` (edits only) lists the current photos to keep.
+function reviewBody(review, extra = {}) {
+    const files = review.files || [];
+
+    if (!files.length && !Array.isArray(review.keepImages)) {
+        return JSON.stringify({ ...extra, rating: review.rating, comment: review.comment || null });
+    }
+
+    const form = new FormData();
+
+    Object.entries(extra).forEach(([key, value]) => form.append(key, value));
+    form.append('rating', String(review.rating));
+    form.append('comment', review.comment || '');
+
+    if (Array.isArray(review.keepImages) && review.keepImages.length === 0) {
+        // Present but empty: "remove every current photo".
+        form.append('keep_images', '');
+    }
+
+    (review.keepImages || []).forEach(url => form.append('keep_images[]', url));
+    files.forEach(file => form.append('images[]', file));
+
+    return form;
+}
+
+/*
+| After a review change: the buyer's own lists follow the saved review, and
+| every copy of the product gets its new public rating (useReviewSync).
+*/
+
+// The order line's review, in the shape OrderController returns it.
+function orderReviewFrom(saved) {
+    return {
+        id: saved.id,
+        rating: saved.rating,
+        comment: saved.comment,
+        images: saved.images || [],
+        createdAt: saved.createdAt,
+        updatedAt: saved.updatedAt,
+        isEdited: Boolean(saved.isEdited),
+    };
+}
+
+function syncOrderItemReview(orderItemId, review) {
+    if (!orderItemId) {
+        return;
+    }
+
+    orders.value.forEach((order) => {
+        (order.items || []).forEach((item) => {
+            if (item.id === orderItemId) {
+                item.review = review;
+            }
+        });
+    });
+}
+
+function rememberSavedReview(saved) {
+    const { productStats, ...review } = saved;
+    const index = reviews.value.findIndex(r => r.id === review.id);
+
+    if (index === -1) {
+        reviews.value = [review, ...reviews.value];
+    } else {
+        reviews.value[index] = review;
+    }
+
+    syncOrderItemReview(review.orderItemId, orderReviewFrom(review));
+    publishReviewChange(productStats);
+}
+
+onReviewChange((stats) => {
+    cart.value.forEach((item) => {
+        if (item.productId === stats.productId) {
+            item.rating = stats.rating;
+            item.reviewCount = stats.reviewCount;
+        }
+    });
+});
+
 async function submitReview(orderItemId, review) {
     try {
         const created = await apiFetch('/buyer/reviews', {
             method: 'POST',
-            body: JSON.stringify({
-                order_item_id: orderItemId,
-                rating: review.rating,
-                comment: review.comment || null,
-            }),
+            body: reviewBody(review, { order_item_id: orderItemId }),
         });
+
+        rememberSavedReview(created);
 
         return created;
     } catch (err) {
@@ -829,19 +916,20 @@ async function submitReview(orderItemId, review) {
 
 async function updateReview(reviewId, review) {
     try {
+        const body = reviewBody(review);
+        // PHP only parses multipart bodies on POST: spoof PUT for photos.
+        const multipart = body instanceof FormData;
+
+        if (multipart) {
+            body.append('_method', 'PUT');
+        }
+
         const updated = await apiFetch(`/buyer/reviews/${encodeURIComponent(reviewId)}`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                rating: review.rating,
-                comment: review.comment || null,
-            }),
+            method: multipart ? 'POST' : 'PUT',
+            body,
         });
 
-        const index = reviews.value.findIndex(r => r.id === reviewId);
-
-        if (index !== -1) {
-            reviews.value[index] = updated;
-        }
+        rememberSavedReview(updated);
 
         return updated;
     } catch (err) {
@@ -853,11 +941,15 @@ async function updateReview(reviewId, review) {
 
 async function deleteReview(reviewId) {
     try {
-        await apiFetch(`/buyer/reviews/${encodeURIComponent(reviewId)}`, {
+        const removed = reviews.value.find(r => r.id === reviewId);
+        const result = await apiFetch(`/buyer/reviews/${encodeURIComponent(reviewId)}`, {
             method: 'DELETE',
         });
 
         reviews.value = reviews.value.filter(r => r.id !== reviewId);
+        // The order line can be reviewed again.
+        syncOrderItemReview(removed?.orderItemId, null);
+        publishReviewChange(result?.productStats);
 
         return true;
     } catch (err) {
