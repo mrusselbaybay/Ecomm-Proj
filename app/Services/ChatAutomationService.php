@@ -70,6 +70,7 @@ class ChatAutomationService
                 'auto_reply_specific',
                 $questionKey,
                 'auto_replied',
+                $match['rule']?->id,
             );
         }
 
@@ -86,6 +87,7 @@ class ChatAutomationService
             'auto_reply_generic',
             null,
             'needs_reply',
+            null,
         );
     }
 
@@ -198,6 +200,7 @@ class ChatAutomationService
         string $source,
         ?string $questionKey,
         string $attentionStatus,
+        ?string $ruleId,
     ): Message {
         $autoReply = $conversation->messages()->create([
             'sender_id' => $conversation->seller_id,
@@ -208,6 +211,7 @@ class ChatAutomationService
             'attachments' => [],
             'source' => $source,
             'quick_question_key' => $questionKey,
+            'automation_rule_id' => $ruleId,
             'order_id' => $buyerMessage->order_id,
             'product_id' => $buyerMessage->product_id,
         ]);

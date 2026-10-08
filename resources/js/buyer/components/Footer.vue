@@ -79,6 +79,10 @@ function subscribeNewsletter() {
                     My Cart
                 </a>
 
+                <a href="/privacy">Privacy Policy</a>
+                <a href="/terms">Terms &amp; Conditions</a>
+                <a href="/cookies">Cookie Policy</a>
+
             </nav>
 
             <div class="buyer-footer-newsletter">

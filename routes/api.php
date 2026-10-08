@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AccountRegistrationController;
 use App\Http\Controllers\Admin\AdminNotificationController;
 use App\Http\Controllers\Admin\AdminProfileController;
+use App\Http\Controllers\Admin\BreachIncidentController;
 use App\Http\Controllers\Admin\CommissionController;
 use App\Http\Controllers\Admin\ComplaintController;
 use App\Http\Controllers\Admin\CustomerServiceController as AdminCustomerServiceController;
@@ -27,9 +28,16 @@ use App\Http\Controllers\Api\Logistics\ParcelInventoryController;
 use App\Http\Controllers\Api\Logistics\ResignationRequestController as LogisticsResignationRequestController;
 use App\Http\Controllers\Api\Logistics\TeamController as LogisticsTeamController;
 use App\Http\Controllers\Api\RoleSwitchController;
+use App\Http\Controllers\Auth\EmailOnboardingController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Buyer\CouponController;
 use App\Http\Controllers\CashFlowController;
+use App\Http\Controllers\ChatCompatibilityController;
+use App\Http\Controllers\Compliance\ConsentController;
+use App\Http\Controllers\Compliance\DataSubjectRequestController;
+use App\Http\Controllers\Compliance\IpTakedownController;
+use App\Http\Controllers\Compliance\LegalController;
+use App\Http\Controllers\Compliance\ProfileCompletionController;
 use App\Http\Controllers\CustomerService\SupportTicketController;
 use App\Http\Controllers\FileController;
 use App\Http\Controllers\Logistics\LogisticsNotificationController;
@@ -38,6 +46,8 @@ use App\Http\Controllers\Messaging\MessageAttachmentController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\PsgcProxyController;
+use App\Http\Controllers\Seller\ChatRuleCompatibilityController;
+use App\Http\Controllers\Seller\SellerProductController;
 use App\Mail\RegistrationApproved;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
@@ -62,6 +72,49 @@ Route::prefix('auth')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::put('/user', [AuthController::class, 'updateUser'])->middleware('throttle:10,1');
     Route::post('/logout', [AuthController::class, 'logout']);
+});
+
+// Email-first onboarding aliases reuse the existing MySQL-backed signup
+// verification flow used by the browser and mobile clients.
+Route::post('/auth/email/start', [EmailOnboardingController::class, 'start'])
+    ->middleware('throttle:3,1');
+Route::post('/auth/email/verify', [EmailOnboardingController::class, 'verify'])
+    ->middleware('throttle:5,1');
+
+Route::prefix('consent')->group(function () {
+    Route::post('/cookies', [ConsentController::class, 'cookies'])->middleware('throttle:20,1');
+    Route::post('/terms', [ConsentController::class, 'terms'])->middleware('throttle:20,1');
+    Route::post('/marketing', [ConsentController::class, 'marketing'])->middleware('throttle:20,1');
+    Route::post('/id-scan', [ConsentController::class, 'idScan'])->middleware('throttle:5,1');
+});
+
+Route::prefix('legal')->group(function () {
+    Route::get('/privacy-policy', [LegalController::class, 'privacyPolicy']);
+    Route::get('/terms', [LegalController::class, 'terms']);
+    Route::get('/cookie-policy', [LegalController::class, 'cookiePolicy']);
+});
+
+Route::post('/ip/takedown', [IpTakedownController::class, 'store'])->middleware('throttle:5,1');
+
+Route::middleware('auth.token')->group(function () {
+    Route::post('/profile/complete', ProfileCompletionController::class);
+    Route::post('/dsr/request', [DataSubjectRequestController::class, 'store'])->middleware('throttle:5,1');
+    Route::get('/dsr/status/{request_id}', [DataSubjectRequestController::class, 'show']);
+
+    Route::get('/chat/quick-questions', [ChatCompatibilityController::class, 'quickQuestions']);
+    Route::get('/chat/session/{session_id}', [ChatCompatibilityController::class, 'session']);
+    Route::post('/chat/message', [ChatCompatibilityController::class, 'message'])->middleware('throttle:60,1');
+});
+
+Route::middleware(['auth.token', 'seller'])->group(function () {
+    Route::get('/seller/rules', [ChatRuleCompatibilityController::class, 'index']);
+    Route::post('/seller/rules', [ChatRuleCompatibilityController::class, 'store']);
+    Route::put('/seller/rules/{rule}', [ChatRuleCompatibilityController::class, 'update']);
+    Route::delete('/seller/rules/{rule}', [ChatRuleCompatibilityController::class, 'destroy']);
+    Route::put('/seller/settings', [ChatRuleCompatibilityController::class, 'settings']);
+
+    Route::post('/listings', [SellerProductController::class, 'store']);
+    Route::patch('/listings/{id}', [SellerProductController::class, 'update']);
 });
 
 // ============================================================
@@ -455,6 +508,9 @@ Route::middleware(['auth.token', 'admin'])
 
         Route::get('/compliance/products', [SellerComplianceController::class, 'index'])->name('compliance.products.index');
         Route::post('/compliance/products/{product}/actions', [SellerComplianceController::class, 'store'])->name('compliance.products.actions.store');
+        Route::post('/breach/report', [BreachIncidentController::class, 'store'])
+            ->middleware('throttle:10,1')
+            ->name('breach.report');
 
         Route::get('/commissions', [CommissionController::class, 'index'])->name('commissions.index');
         Route::get('/commissions/cash-flow', [CashFlowController::class, 'platform'])->name('commissions.cash-flow');

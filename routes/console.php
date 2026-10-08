@@ -20,3 +20,5 @@ Schedule::command('orders:auto-confirm-receipt')->daily();
 
 // Past-expiry / used-up coupons -> expired, and their wallet copies follow.
 Schedule::command('coupons:expire')->hourly();
+
+Schedule::command('compliance:prune-retained-data')->dailyAt('02:30');

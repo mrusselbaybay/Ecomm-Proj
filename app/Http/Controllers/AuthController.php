@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ConsentRecord;
 use App\Models\Profile;
 use App\Services\AccountRegistrar;
 use App\Services\AuthSession;
@@ -242,6 +243,7 @@ class AuthController extends Controller
             'sex' => 'nullable|string',
             'contact_no' => 'nullable|string',
             'birthday' => 'nullable|date',
+            'consent_guest_id' => ['nullable', 'uuid'],
 
             'region' => 'nullable|string|in:Luzon,Visayas,Mindanao',
             'province_code' => 'nullable|string',
@@ -455,6 +457,13 @@ class AuthController extends Controller
             ]);
 
             $userId = $authUser['id'];
+
+            if (! empty($data['consent_guest_id'])) {
+                ConsentRecord::query()
+                    ->where('guest_id', $data['consent_guest_id'])
+                    ->whereNull('user_id')
+                    ->update(['user_id' => $userId]);
+            }
 
             // The profiles row is created by createAccount() (it
             // replaces the old Postgres trigger on auth.users).

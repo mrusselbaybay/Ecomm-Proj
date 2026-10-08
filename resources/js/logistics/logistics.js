@@ -1,6 +1,7 @@
 // resources/js/logistics/logistics.js
-import { getSupabase } from './composables/useLogistics';
 import { fetchOwnProfile } from '../shared/accountApi';
+import { mountCookieConsent } from '../shared/mountCookieConsent';
+import { getSupabase } from './composables/useLogistics';
 
 // The logistics portal serves two apps: the logistics company dashboard and,
 // for `logistics_admin` accounts, the logistics admin panel (the same admin
@@ -53,3 +54,4 @@ async function mount() {
 }
 
 mount();
+mountCookieConsent();

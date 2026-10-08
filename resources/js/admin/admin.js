@@ -6,7 +6,9 @@
 import '../../css/app.css';
 import '../../css/admin/layout.css';
 import { createApp } from 'vue';
+import { mountCookieConsent } from '../shared/mountCookieConsent';
 import AdminLayout from './components/AdminLayout.vue';
 
 // Mount the admin app
 createApp(AdminLayout).mount('#app');
+mountCookieConsent();

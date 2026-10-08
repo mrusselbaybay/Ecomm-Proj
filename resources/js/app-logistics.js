@@ -11,6 +11,8 @@ import '../css/app.css';
 import { createApp, ref, computed, onMounted } from 'vue/dist/vue.esm-bundler.js';
 import { fetchOwnProfile } from './shared/accountApi';
 import { createClient } from './shared/backendClient';
+import { mountCookieConsent } from './shared/mountCookieConsent';
+import AuthLegalNotice from './shared/AuthLegalNotice.vue';
 
 // ---------- Configuration ----------
 
@@ -3259,7 +3261,7 @@ const App = {
 
     // ---------- Template ----------
     template: `
-  <div class="min-h-screen flex flex-col md:flex-row" style="height:100vh;overflow:hidden;">
+  <div class="min-h-screen flex flex-col md:flex-row">
 
     <!-- PORTAL MISMATCH MODAL -->
     <div v-if="portalMismatch" class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 px-4">
@@ -3307,15 +3309,11 @@ const App = {
           </div>
         </div>
       </div>
-      <div class="border-t border-white/10 pt-5 mt-10 text-xs text-slate-500 flex gap-4">
-        <span>Terms of Service</span>
-        <span>Privacy Policy</span>
-      </div>
     </div>
 
     <!-- RIGHT PANEL -->
-    <div class="flex-1 flex items-center justify-center px-6" style="height:100vh;overflow:hidden;">
-      <div class="w-full max-w-md" style="max-height:100vh;">
+    <div class="flex-1 flex items-center justify-center px-6 py-6">
+      <div class="w-full max-w-md">
 
         <!-- LOGGED IN -->
         <div v-if="loggedInUser" class="text-center" style="padding:2rem 0;">
@@ -4068,6 +4066,7 @@ const App = {
               <button @click="switchMode('login')" class="btn-gradient text-white font-semibold py-2 px-6 rounded-lg">Go to Login</button>
             </div>
           </div>
+          <auth-legal-notice v-if="mode === 'login' || mode === 'signup'" :mode="mode" />
         </div>
       </div>
     </div>
@@ -4080,4 +4079,6 @@ createApp(App)
     .component('FileDropzone', FileDropzone)
     .component('CodeInput', CodeInput)
     .component('PasswordStrength', PasswordStrength)
+    .component('AuthLegalNotice', AuthLegalNotice)
     .mount('#auth-app');
+mountCookieConsent();

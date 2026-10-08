@@ -2,6 +2,7 @@
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
 
 import { useHomeSession } from '../composables/useHomeSession';
+import PriceTag from '../../shared/PriceTag.vue';
 
 /*
 |--------------------------------------------------------------------------
@@ -273,10 +274,6 @@ const productsLoading = ref(true);
 const productsError = ref(false);
 const products = ref([]);
 
-function peso(amount) {
-    return `₱${Number(amount).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 async function loadProducts() {
     productsLoading.value = true;
     productsError.value = false;
@@ -534,7 +531,7 @@ onBeforeUnmount(() => {
                                 <span v-if="p.isSample" class="btw-sample-tag">Sample</span>
                             </div>
                             <p class="btw-preview-desc">{{ p.desc }}</p>
-                            <span class="btw-preview-price">{{ peso(p.price) }}</span>
+                            <span class="btw-preview-price"><PriceTag :amount="p.price" currency="PHP" /></span>
                         </div>
                     </div>
                 </div>
@@ -646,17 +643,11 @@ onBeforeUnmount(() => {
                     <img :src="logoUrl" alt="BuyTheWay" width="90" height="75" />
                 </div>
 
-                <!--
-                    Only "About Us" is linked. The brief asks for
-                    "Available About and Contact links" and "Privacy
-                    Policy and Terms links" — of those, only an About
-                    page actually exists in this project; Contact,
-                    Privacy Policy, and Terms & Conditions pages don't,
-                    so they're left out rather than pointed at pages
-                    that don't exist.
-                -->
                 <nav class="btw-footer-links" aria-label="Company" data-rev style="--d: 60ms;">
                     <a href="/about">About Us</a>
+                    <a href="/privacy">Privacy Policy</a>
+                    <a href="/terms">Terms &amp; Conditions</a>
+                    <a href="/cookies">Cookie Policy</a>
                 </nav>
 
                 <div class="btw-footer-bottom" data-rev style="--d: 120ms;">

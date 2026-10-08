@@ -100,9 +100,11 @@ function entryLabel(entry) {
     if (entry.type === 'release') {
         return 'Escrow released';
     }
+
     if (entry.type === 'return') {
         return entry.direction === 'in' ? 'Return shipping earned' : 'Return & refund charge';
     }
+
     return 'Refund clawback';
 }
 
@@ -114,7 +116,12 @@ const stats = computed(() => {
         { label: 'Released to you', value: peso(d?.released), tone: '' },
         { label: 'Refunds & returns', value: peso(d?.clawed_back), tone: Number(d?.clawed_back) > 0 ? 'cf-neg' : '' },
         { label: 'Net balance', value: peso(net), tone: net < 0 ? 'cf-neg' : 'cf-pos' },
-        { label: 'Orders', value: String(d?.orders_count ?? 0), tone: '' }
+        { label: 'Orders', value: String(d?.orders_count ?? 0), tone: '' },
+        ...(d?.payouts ? [
+            { label: `${d.payouts.year} gross`, value: peso(d.payouts.gross_amount), tone: '' },
+            { label: 'Withholding tax', value: peso(d.payouts.withholding_tax), tone: Number(d.payouts.withholding_tax) > 0 ? 'cf-neg' : '' },
+            { label: 'Net payout', value: peso(d.payouts.net_amount), tone: 'cf-pos' }
+        ] : [])
     ];
 });
 

@@ -12,6 +12,8 @@
     <script>
         window.CONFIG = {
             GOOGLE_OAUTH_BASE: '{{ $config['google_oauth_base'] }}',
+            LEGAL_TERMS_URL: @json(route('legal.terms')),
+            LEGAL_PRIVACY_URL: @json(route('legal.privacy')),
         };
     </script>
 

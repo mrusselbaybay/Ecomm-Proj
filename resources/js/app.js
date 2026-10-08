@@ -11,6 +11,8 @@ import '../css/app.css';
 import { createApp, ref, computed, onMounted } from 'vue/dist/vue.esm-bundler.js';
 import { apiRequest, fetchOwnProfile } from './shared/accountApi';
 import { createClient } from './shared/backendClient';
+import { mountCookieConsent } from './shared/mountCookieConsent';
+import AuthLegalNotice from './shared/AuthLegalNotice.vue';
 
 // ---------- Configuration ----------
 
@@ -428,6 +430,9 @@ const App = {
         const isSendingSignupCode = ref(false);
         const isVerifyingSignupCode = ref(false);
         const signupEmailVerified = ref(false);
+        const registrationConsentsSaved = ref(false);
+        const termsAccepted = ref(false);
+        const marketingConsent = ref(false);
         // Seconds left before "Resend code" is allowed again — shared by
         // the signup email-verification step and the password-reset
         // wizard (they're never on screen at the same time). Stops a user
@@ -574,8 +579,9 @@ const App = {
 
         // Step Definitions
         const steps = [
-            'Personal',
+            'Email',
             'Verify Email',
+            'Personal',
             'Address',
             'Security',
             'Documents',
@@ -598,8 +604,9 @@ const App = {
 
         // Step keys
         const stepKeys = [
-            'personal',
+            'email',
             'verifyEmail',
+            'personal',
             'address',
             'security',
             'documents',
@@ -697,11 +704,12 @@ const App = {
                     : -1;
             } else {
                 const stepMap = {
-                    personal: 0,
+                    email: 0,
                     verifyEmail: 1,
-                    address: 2,
-                    security: 3,
-                    documents: 4,
+                    personal: 2,
+                    address: 3,
+                    security: 4,
+                    documents: 5,
                 };
 
                 return stepMap[signupStep.value] !== undefined
@@ -1219,7 +1227,7 @@ const App = {
                     document
                         .querySelector('meta[name="csrf-token"]')
                         ?.getAttribute('content') || '';
-                const response = await fetch('/api/signup/send-code', {
+                const response = await fetch('/api/auth/email/start', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1248,6 +1256,7 @@ const App = {
 
                 signupVerifyCode.value = '';
                 signupEmailVerified.value = false;
+                registrationConsentsSaved.value = false;
                 successMsg.value =
                     'A verification code has been sent to your email.';
                 startResendCooldown();
@@ -1283,7 +1292,7 @@ const App = {
                         ?.getAttribute('content') || '';
                 const targetEmail = getSignupEmailForVerification();
 
-                const response = await fetch('/api/signup/verify-code', {
+                const response = await fetch('/api/auth/email/verify', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1325,6 +1334,54 @@ const App = {
             }
         }
 
+        function consentGuestId() {
+            const key = 'btw.consent-guest-id';
+            let id = localStorage.getItem(key);
+
+            if (!id) {
+                id = crypto.randomUUID();
+                localStorage.setItem(key, id);
+            }
+
+            return id;
+        }
+
+        async function saveRegistrationConsents() {
+            if (!termsAccepted.value) {
+                errorMsg.value = 'You must agree to the Privacy Notice and Terms & Conditions.';
+
+                return false;
+            }
+
+            const guestId = consentGuestId();
+            const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+            const termsResponse = await fetch('/api/consent/terms', {
+                method: 'POST', headers,
+                body: JSON.stringify({ guest_id: guestId, accepted: true }),
+            });
+
+            if (!termsResponse.ok) {
+                errorMsg.value = 'Could not save your consent. Please try again.';
+
+                return false;
+            }
+
+            const marketingResponse = await fetch('/api/consent/marketing', {
+                method: 'POST', headers,
+                body: JSON.stringify({ guest_id: guestId, accepted: marketingConsent.value }),
+            });
+
+            if (!marketingResponse.ok) {
+                errorMsg.value = 'Could not save your marketing preference. Please try again.';
+
+                return false;
+            }
+
+            registrationConsentsSaved.value = true;
+
+            return true;
+        }
+
         async function resendSignupVerificationCode() {
             // Still counting down from the last send — ignore the click.
             if (resendCooldown.value > 0 || isSendingSignupCode.value) {
@@ -1346,7 +1403,7 @@ const App = {
                     document
                         .querySelector('meta[name="csrf-token"]')
                         ?.getAttribute('content') || '';
-                const response = await fetch('/api/signup/resend-code', {
+                const response = await fetch('/api/auth/email/start', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1375,6 +1432,7 @@ const App = {
 
                 signupVerifyCode.value = '';
                 signupEmailVerified.value = false;
+                registrationConsentsSaved.value = false;
                 successMsg.value = 'New verification code sent to your email.';
                 startResendCooldown();
             } catch (err) {
@@ -1406,6 +1464,7 @@ const App = {
                 fd.append('email', (userEmail || '').trim().toLowerCase());
                 fd.append('password', userPassword || '');
                 fd.append('role', userRole);
+                fd.append('consent_guest_id', consentGuestId());
 
                 if (isDriver) {
                     fd.append('first_name', form.value.driverFirstName || '');
@@ -2288,6 +2347,9 @@ const App = {
             isSubmitting.value = false;
             signupVerifyCode.value = '';
             signupEmailVerified.value = false;
+            registrationConsentsSaved.value = false;
+            termsAccepted.value = false;
+            marketingConsent.value = false;
             isSendingSignupCode.value = false;
             isVerifyingSignupCode.value = false;
             stopResendCooldown();
@@ -2411,7 +2473,7 @@ const App = {
                 validationErrors.value[key] = '';
             });
 
-            signupStep.value = 'personal';
+            signupStep.value = isGoogleSignup.value ? 'personal' : 'email';
 
             // Kick off the province list now, in the background, so it's
             // ready by the time the wizard reaches the address step —
@@ -2440,9 +2502,14 @@ const App = {
                     step === 'driverAddress' &&
                     signupStep.value === 'driverVerifyEmail'
                 ) {
-                    const verified = await verifySignupCode();
+                    const wasVerified = signupEmailVerified.value;
+                    const verified = wasVerified || await verifySignupCode();
 
                     if (!verified) {
+                        return;
+                    }
+
+                    if (!registrationConsentsSaved.value && !(await saveRegistrationConsents())) {
                         return;
                     }
 
@@ -2496,8 +2563,10 @@ const App = {
                     return;
                 }
 
-                if (step === 'verifyEmail' && signupStep.value === 'personal') {
-                    if (!validatePersonalFields()) {
+                if (step === 'verifyEmail' && signupStep.value === 'email') {
+                    if (!email.value || !validateEmail(email.value)) {
+                        validationErrors.value.email = 'Enter a valid email address';
+
                         return;
                     }
 
@@ -2508,10 +2577,15 @@ const App = {
                     return;
                 }
 
-                if (step === 'address' && signupStep.value === 'verifyEmail') {
-                    const verified = await verifySignupCode();
+                if (step === 'personal' && signupStep.value === 'verifyEmail') {
+                    const wasVerified = signupEmailVerified.value;
+                    const verified = wasVerified || await verifySignupCode();
 
                     if (!verified) {
+                        return;
+                    }
+
+                    if (!registrationConsentsSaved.value && !(await saveRegistrationConsents())) {
                         return;
                     }
 
@@ -2519,6 +2593,12 @@ const App = {
                     resetMessages();
 
                     return;
+                }
+
+                if (step === 'address' && signupStep.value === 'personal') {
+                    if (!validatePersonalFields()) {
+                        return;
+                    }
                 }
 
                 if (step === 'security' && signupStep.value === 'address') {
@@ -3328,6 +3408,8 @@ const App = {
             isSendingSignupCode,
             isVerifyingSignupCode,
             signupEmailVerified,
+            termsAccepted,
+            marketingConsent,
             resendSignupVerificationCode,
             resendCooldown,
             stepKeys,
@@ -3746,6 +3828,16 @@ const App = {
                   <div class="flex items-center justify-between mt-3">
                     <button type="button" @click="resendSignupVerificationCode" :disabled="resendCooldown > 0 || isSendingSignupCode" class="text-teal-600 font-semibold text-sm hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{{ resendCooldown > 0 ? 'Resend code in ' + resendCooldown + 's' : 'Resend code' }}</button>
                   </div>
+                  <div class="mt-4 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <label class="flex items-start gap-2 text-sm text-slate-700">
+                      <input v-model="termsAccepted" type="checkbox" class="mt-1" />
+                      <span>I agree to the <a href="/privacy" target="_blank" class="text-teal-700 underline">Privacy Notice</a> and <a href="/terms" target="_blank" class="text-teal-700 underline">Terms &amp; Conditions</a>. <strong>(required)</strong></span>
+                    </label>
+                    <label class="flex items-start gap-2 text-sm text-slate-700">
+                      <input v-model="marketingConsent" type="checkbox" class="mt-1" />
+                      <span>I agree to receive marketing emails. (optional)</span>
+                    </label>
+                  </div>
                   <span v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
 
@@ -4032,6 +4124,15 @@ const App = {
               <h3 class="display-font text-xl font-bold text-slate-900 mb-3">{{ activeSteps[currentStepIndex] }} Info</h3>
 
               <div class="fields-container">
+                <!-- EMAIL FIRST -->
+                <div v-if="signupStep === 'email'">
+                  <p class="text-sm text-slate-600 mb-4">Enter your email first. We will verify it before collecting your profile and delivery details.</p>
+                  <label class="field-label">Email <span class="text-teal-500">*</span></label>
+                  <input v-model="email" type="email" autocomplete="email" placeholder="juan@email.com" class="field-input" :class="{ 'border-red-500': validationErrors.email }" />
+                  <span v-if="validationErrors.email" class="text-xs text-red-500">{{ validationErrors.email }}</span>
+                  <p class="mt-3 text-xs text-slate-500">We use this address to verify your account and send order updates.</p>
+                </div>
+
                 <!-- PERSONAL INFO -->
                 <div v-if="signupStep === 'personal'">
                   <div class="form-grid">
@@ -4075,9 +4176,9 @@ const App = {
                     </div>
                     <div class="full-width">
                       <label class="field-label">Email <span class="text-teal-500">*</span></label>
-                      <input v-model="email" type="email" placeholder="juan@email.com" class="field-input" :class="{ 'border-red-500': validationErrors.email }" :disabled="isGoogleSignup" />
+                      <input v-model="email" type="email" placeholder="juan@email.com" class="field-input" disabled />
                       <span v-if="isGoogleSignup" class="text-xs text-slate-400">Linked to your Google account</span>
-                      <span v-else-if="validationErrors.email" class="text-xs text-red-500">{{ validationErrors.email }}</span>
+                      <span v-else class="text-xs text-slate-400">Verified email address</span>
                     </div>
                   </div>
                 </div>
@@ -4091,6 +4192,16 @@ const App = {
                   <p class="text-xs text-slate-400 mt-1">Code expires in 15 minutes.</p>
                   <div class="flex items-center justify-between mt-3">
                     <button type="button" @click="resendSignupVerificationCode" :disabled="resendCooldown > 0 || isSendingSignupCode" class="text-teal-600 font-semibold text-sm hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{{ resendCooldown > 0 ? 'Resend code in ' + resendCooldown + 's' : 'Resend code' }}</button>
+                  </div>
+                  <div class="mt-4 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <label class="flex items-start gap-2 text-sm text-slate-700">
+                      <input v-model="termsAccepted" type="checkbox" class="mt-1" />
+                      <span>I agree to the <a href="/privacy" target="_blank" class="text-teal-700 underline">Privacy Notice</a> and <a href="/terms" target="_blank" class="text-teal-700 underline">Terms &amp; Conditions</a>. <strong>(required)</strong></span>
+                    </label>
+                    <label class="flex items-start gap-2 text-sm text-slate-700">
+                      <input v-model="marketingConsent" type="checkbox" class="mt-1" />
+                      <span>I agree to receive marketing emails. (optional)</span>
+                    </label>
                   </div>
                   <span v-if="errorMsg" role="alert" class="auth-msg auth-msg--error text-xs text-red-500 block mt-2">{{ errorMsg }}</span>
                 </div>
@@ -4245,6 +4356,7 @@ const App = {
               <button @click="switchMode('login')" class="btn-gradient text-white font-semibold py-2 px-6 rounded-lg">Go to Login</button>
             </div>
           </div>
+          <auth-legal-notice v-if="mode === 'login' || mode === 'signup'" :mode="mode" />
         </div>
       </div>
       </div>
@@ -4258,4 +4370,6 @@ createApp(App)
     .component('FileDropzone', FileDropzone)
     .component('CodeInput', CodeInput)
     .component('PasswordStrength', PasswordStrength)
+    .component('AuthLegalNotice', AuthLegalNotice)
     .mount('#auth-app');
+mountCookieConsent();

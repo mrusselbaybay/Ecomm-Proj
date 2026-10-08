@@ -6,6 +6,7 @@ use App\Models\EscrowTransaction;
 use App\Models\LedgerEntry;
 use App\Models\Order;
 use App\Models\ParcelAssignment;
+use App\Models\Profile;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use LogicException;
@@ -23,8 +24,11 @@ use LogicException;
 class MockPaymentService
 {
     public const ESCROW_UNFUNDED = 'unfunded';
+
     public const ESCROW_FUNDED = 'funded';
+
     public const ESCROW_RELEASED = 'released';
+
     public const ESCROW_REFUNDED = 'refunded';
 
     public function chargeBuyer(string $orderId, string|int|float $amount): EscrowTransaction
@@ -293,6 +297,24 @@ class MockPaymentService
                 'credit_cents' => $l['credit'] ?? 0,
                 'created_at' => $now,
             ], $lines));
+
+            if ($type === EscrowTransaction::TYPE_RELEASE) {
+                $sellerCredit = collect($lines)->first(
+                    fn (array $line): bool => $line['account'] === PaymentSplitter::ACCOUNT_SELLER,
+                );
+
+                if (
+                    $sellerCredit
+                    && ($sellerCredit['credit'] ?? 0) > 0
+                    && Profile::query()->whereKey($order->seller_id)->exists()
+                ) {
+                    app(SellerPayoutService::class)->record(
+                        $order->seller_id,
+                        (int) $sellerCredit['credit'],
+                        $now,
+                    );
+                }
+            }
 
             return $tx;
         });

@@ -1052,10 +1052,12 @@ function buildReceiptHtml(o) {
             </div>`;
     }).join('');
 
+    const vatIncluded = Number(o.total || 0) * (0.12 / 1.12);
     const totals = [
         receiptRow('Subtotal', formatCurrency(o.subtotal)),
         receiptRow('Shipping', formatCurrency(o.shippingFee)),
         Number(o.tax) > 0 ? receiptRow('Tax', formatCurrency(o.tax)) : '',
+        receiptRow('VAT (12%, included)', formatCurrency(vatIncluded)),
         Number(o.discount) > 0 ? receiptRow('Discount', `- ${formatCurrency(o.discount)}`) : '',
         receiptRow('Total', formatCurrency(o.total), { strong: true }),
     ].join('');

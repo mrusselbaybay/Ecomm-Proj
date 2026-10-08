@@ -7,6 +7,7 @@
     <meta name="description" content="About BuyTheWay, a multi-seller online marketplace.">
 
     <title>About Us — BuyTheWay</title>
+    @vite(['resources/js/shared/cookie-consent.js'])
 
 
     <style>

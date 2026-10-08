@@ -1,11 +1,11 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
+import PriceTag from '../../shared/PriceTag.vue';
 import {
     metaFor,
     discountPercent,
     ratingStars,
-    formatPrice
 } from '../composables/useCategoryMeta';
 
 const props = defineProps({
@@ -167,13 +167,13 @@ function handleView() {
 
                 <div class="product-price-block">
                     <span class="product-price">
-                        {{ formatPrice(product.price) }}
+                        <PriceTag :amount="product.price" currency="PHP" />
                     </span>
                     <span
                         v-if="hasDiscount"
                         class="product-old-price"
                     >
-                        {{ formatPrice(product.oldPrice) }}
+                        <PriceTag :amount="product.oldPrice" currency="PHP" />
                     </span>
                 </div>
 

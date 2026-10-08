@@ -7,6 +7,7 @@ import Checkout from './Checkout.vue';
 import CategoryListing from './CategoryListing.vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
+import PriceTag from '../../shared/PriceTag.vue';
 import ProductCard from './ProductCard.vue';
 import Orders from './Orders.vue';
 import Account from './Account.vue';
@@ -27,8 +28,7 @@ import { useBuyerSession } from '../composables/useBuyerSession';
 import {
     categories,
     metaFor,
-    discountPercent,
-    formatPrice
+    discountPercent
 } from '../composables/useCategoryMeta';
 
 /*
@@ -1077,10 +1077,10 @@ function closeCustomerService() {
 
                                 <div class="flash-deal-price-row">
                                     <span class="flash-deal-price">
-                                        {{ formatPrice(deal.price) }}
+                                        <PriceTag :amount="deal.price" currency="PHP" />
                                     </span>
                                     <span class="flash-deal-old-price">
-                                        {{ formatPrice(deal.oldPrice) }}
+                                        <PriceTag :amount="deal.oldPrice" currency="PHP" />
                                     </span>
                                 </div>
 

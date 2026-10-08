@@ -37,6 +37,7 @@
 import { ref, computed } from 'vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
+import PriceTag from '../../shared/PriceTag.vue';
 import ProductCard from './ProductCard.vue';
 import { useBuyer } from '../composables/useBuyer';
 import { metaFor, formatPrice } from '../composables/useCategoryMeta';
@@ -662,12 +663,12 @@ function handleHeaderSelectCategory(category) {
 
                             <div class="flex items-center justify-between sm:justify-end gap-6 shrink-0">
                                 <div class="flex flex-col sm:items-end">
-                                    <span class="text-lg font-bold text-slate-900">{{ formatPrice(product.price) }}</span>
+                                    <span class="text-lg font-bold text-slate-900"><PriceTag :amount="product.price" currency="PHP" /></span>
                                     <span
                                         v-if="product.oldPrice"
                                         class="text-[11px] text-slate-400 line-through"
                                     >
-                                        {{ formatPrice(product.oldPrice) }}
+                                        <PriceTag :amount="product.oldPrice" currency="PHP" />
                                     </span>
                                 </div>
                                 <button
