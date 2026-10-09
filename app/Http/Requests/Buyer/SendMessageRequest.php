@@ -27,11 +27,13 @@ class SendMessageRequest extends FormRequest
             'attachment_ids.*' => ['uuid', 'distinct'],
             'order_id' => ['nullable', 'uuid'],
             'product_id' => ['nullable', 'uuid'],
+            'variant_id' => ['nullable', 'uuid'],
             'quick_question_key' => [
                 'nullable',
                 'string',
                 Rule::exists('chat_quick_questions', 'key')->where('enabled', true),
             ],
+            'contact_seller' => ['sometimes', 'boolean'],
         ];
     }
 }

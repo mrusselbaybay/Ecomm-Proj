@@ -25,6 +25,7 @@ class SellerChatSetting extends Model
         'presence_mode',
         'seller_status',
         'generic_away_response',
+        'generic_online_response',
         'generic_reply_cooldown_minutes',
     ];
 

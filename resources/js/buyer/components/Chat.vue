@@ -29,6 +29,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 
 import AttachmentVideoPlayer from '../../shared/AttachmentVideoPlayer.vue';
+import ChatFaqMenu from './ChatFaqMenu.vue';
 import { useBuyerChat } from '../composables/useBuyerChat';
 
 const {
@@ -40,6 +41,7 @@ const {
     activeConversation,
     messagesAppendedTick,
     quickQuestions,
+    faqMenuQuestions,
     isViewingArchived,
     conversationsMeta,
     closeChat,
@@ -51,9 +53,11 @@ const {
     loadMoreConversations,
     loadOlderMessages,
     loadQuickQuestions,
+    loadFaqMenuQuestions,
     sendMessage,
     retryMessage,
     fetchConversationProducts,
+    fetchCatalogProducts,
     validateAttachment,
     uploadAttachment,
 } = useBuyerChat();
@@ -77,12 +81,25 @@ const isUpdatingStatus = ref(false);
 // a time. Only ever relevant here since every buyer conversation is with
 // a seller (there's no buyer<->logistics chat).
 const isProductPickerOpen = ref(false);
+const productPickerMode = ref('inquiry');
 const isLoadingProducts = ref(false);
 const productPickerItems = ref([]);
 const productPickerMeta = ref({ currentPage: 1, lastPage: 1, total: 0 });
 const productPickerError = ref('');
+const catalogSearch = ref('');
+const catalogProducts = ref([]);
+const catalogMeta = ref({ currentPage: 1, lastPage: 1, total: 0 });
+const isLoadingCatalog = ref(false);
+const catalogError = ref('');
+const selectedCatalogProduct = ref(null);
 const pendingProductInquiry = ref(null);
 const productInquiryError = ref('');
+const selectedQuickQuestionItem = ref(null);
+const pendingFaqQuestion = ref(null);
+const openFaqMenuForMessageId = ref(null);
+const isLoadingQuickQuestions = ref(false);
+const quickQuestionsError = ref('');
+let quickQuestionSelectionRequest = 0;
 
 // 'list' | 'thread' — only matters below the md breakpoint, where the two
 // panes don't fit side by side.
@@ -347,21 +364,122 @@ function handleSend() {
 }
 
 function sendQuickQuestion(question) {
+    const item = selectedQuickQuestionItem.value;
     if (sendMessage(question.question, [], [], {
         quickQuestionKey: question.key,
-        orderId: question.orderId || activeConversation.value?.order?.id || null,
+        orderId: item?.orderId || question.orderId || activeConversation.value?.order?.id || null,
+        productId: item?.productId || null,
+        preview: item ? {
+            name: item.previewName,
+            image: item.previewImage,
+            quantity: item.quantity,
+            price: item.total,
+            trackingNumber: item.trackingNumber,
+        } : null,
     })) {
         scrollThreadToBottom();
     }
 }
 
-// ---- "Inquire about a certain product" picker ----
-function toggleProductPicker() {
-    isProductPickerOpen.value = !isProductPickerOpen.value;
-
-    if (isProductPickerOpen.value) {
-        loadProductPickerPage(1);
+function sendFaqQuestion(question, item = null) {
+    const sent = sendMessage(question.question, [], [], {
+        quickQuestionKey: question.key,
+        orderId: item?.orderId || null,
+        productId: item?.productId || null,
+        variantId: item?.variantId || null,
+        preview: item ? {
+            name: item.previewName,
+            image: item.previewImage,
+            quantity: item.quantity,
+            price: item.total,
+            trackingNumber: item.trackingNumber,
+            variantName: item.variantName,
+        } : null,
+    });
+    if (sent) {
+        openFaqMenuForMessageId.value = null;
+        scrollThreadToBottom();
     }
+}
+
+function chooseFaqQuestion(question) {
+    if (question.key === 'stock_availability') {
+        pendingFaqQuestion.value = question;
+        selectedCatalogProduct.value = null;
+        toggleProductPicker('faq-stock');
+        return;
+    }
+    if (question.contextType === 'order') {
+        pendingFaqQuestion.value = question;
+        toggleProductPicker('faq-order');
+        return;
+    }
+    sendFaqQuestion(question);
+}
+
+function sendChatSellerRequest() {
+    if (sendMessage("I'd like to chat with the seller.", [], [], { contactSeller: true })) {
+        openFaqMenuForMessageId.value = null;
+        scrollThreadToBottom();
+    }
+}
+
+function toggleFaqMenu(messageId) {
+    openFaqMenuForMessageId.value = openFaqMenuForMessageId.value === messageId ? null : messageId;
+}
+
+// ---- "Inquire about a certain product" picker ----
+function toggleProductPicker(mode = 'inquiry') {
+    if (isProductPickerOpen.value && productPickerMode.value === mode) {
+        isProductPickerOpen.value = false;
+        return;
+    }
+
+    productPickerMode.value = mode;
+    isProductPickerOpen.value = true;
+    if (mode === 'faq-stock') loadCatalogPage(1);
+    else loadProductPickerPage(1);
+}
+
+function closeProductPicker() {
+    isProductPickerOpen.value = false;
+    selectedCatalogProduct.value = null;
+    pendingFaqQuestion.value = null;
+}
+
+async function loadCatalogPage(page = 1) {
+    if (!activeConversationId.value || isLoadingCatalog.value) return;
+    isLoadingCatalog.value = true;
+    catalogError.value = '';
+    try {
+        const { data, meta } = await fetchCatalogProducts(activeConversationId.value, page, catalogSearch.value);
+        catalogProducts.value = data || [];
+        catalogMeta.value = meta || { currentPage: 1, lastPage: 1, total: 0 };
+    } catch (error) {
+        catalogError.value = error?.message || 'Could not load products.';
+        catalogProducts.value = [];
+    } finally { isLoadingCatalog.value = false; }
+}
+
+function selectCatalogProduct(product) {
+    const variants = (product.variants || []).filter(v => v.status === 'active' && Number(v.stock) > 0);
+    if (product.hasVariants && variants.length) {
+        selectedCatalogProduct.value = { ...product, variants };
+        return;
+    }
+    sendFaqQuestion(pendingFaqQuestion.value, { productId: product.id, previewName: product.name, previewImage: product.image, total: product.price });
+    pendingFaqQuestion.value = null;
+    isProductPickerOpen.value = false;
+}
+
+function selectCatalogVariant(variant) {
+    const product = selectedCatalogProduct.value;
+    if (!product || !pendingFaqQuestion.value) return;
+    const label = Object.values(variant.optionValues || {}).join(' / ');
+    sendFaqQuestion(pendingFaqQuestion.value, { productId: product.id, variantId: variant.id, variantName: label, previewName: product.name, previewImage: product.image, total: variant.price });
+    pendingFaqQuestion.value = null;
+    selectedCatalogProduct.value = null;
+    isProductPickerOpen.value = false;
 }
 
 async function loadProductPickerPage(page) {
@@ -387,6 +505,47 @@ async function loadProductPickerPage(page) {
 function selectProduct(item) {
     productInquiryError.value = '';
     pendingProductInquiry.value = item;
+}
+
+async function selectQuickQuestionItem(item) {
+    const requestId = ++quickQuestionSelectionRequest;
+    selectedQuickQuestionItem.value = item;
+    isProductPickerOpen.value = false;
+    isLoadingQuickQuestions.value = true;
+    quickQuestionsError.value = '';
+
+    try {
+        await loadQuickQuestions(item.orderId);
+    } catch (error) {
+        if (requestId === quickQuestionSelectionRequest) {
+            quickQuestions.value = [];
+            quickQuestionsError.value = error?.message || 'Could not load questions for this item.';
+        }
+    } finally {
+        if (requestId === quickQuestionSelectionRequest) {
+            isLoadingQuickQuestions.value = false;
+        }
+    }
+}
+
+function selectFaqOrder(item) {
+    if (pendingFaqQuestion.value) {
+        sendFaqQuestion(pendingFaqQuestion.value, item);
+    }
+    pendingFaqQuestion.value = null;
+    isProductPickerOpen.value = false;
+}
+
+function handleProductPickerSelection(item) {
+    if (productPickerMode.value === 'faq-stock') {
+        selectCatalogProduct(item);
+    } else if (productPickerMode.value === 'faq-order') {
+        selectFaqOrder(item);
+    } else if (productPickerMode.value === 'quick-question') {
+        selectQuickQuestionItem(item);
+    } else {
+        selectProduct(item);
+    }
 }
 
 function confirmProductInquiry() {
@@ -552,7 +711,8 @@ watch(isChatOpen, open => {
     }
 
     if (open) {
-        loadQuickQuestions().catch(() => {});
+        loadQuickQuestions(selectedQuickQuestionItem.value?.orderId).catch(() => {});
+        loadFaqMenuQuestions().catch(() => {});
         // On mobile (where list/thread are mutually exclusive panes),
         // defaulting to 'thread' assumed a conversation was always
         // auto-selected on open — now that it isn't, that would hide the
@@ -574,6 +734,16 @@ watch(isChatOpen, open => {
             document.querySelector('[data-chat-trigger]')?.focus();
         });
     }
+});
+
+watch(activeConversationId, () => {
+    quickQuestionSelectionRequest += 1;
+    selectedQuickQuestionItem.value = null;
+    pendingFaqQuestion.value = null;
+    openFaqMenuForMessageId.value = null;
+    quickQuestionsError.value = '';
+    isLoadingQuickQuestions.value = false;
+    isProductPickerOpen.value = false;
 });
 
 // Covers the chat-popup-open auto-select-first-conversation path (no
@@ -971,6 +1141,110 @@ onBeforeUnmount(() => {
                             </div>
                             </template>
 
+                            <template v-else-if="message.source === 'auto_reply_welcome'">
+                                <div class="flex justify-start">
+                                    <div class="w-full max-w-[390px] overflow-hidden rounded-[22px] border border-slate-200/90 bg-white shadow-[0_8px_26px_-18px_rgba(15,23,42,0.28)]">
+                                        <div class="px-4 pb-3 pt-4 sm:px-5">
+                                            <p class="mb-1 text-[9px] font-bold uppercase tracking-[0.16em] text-[#0d9488]">Shop assistant</p>
+                                            <p class="text-[15px] font-medium leading-6 text-slate-800">{{ message.text }}</p>
+                                        </div>
+                                        <ChatFaqMenu :questions="faqMenuQuestions" @select="chooseFaqQuestion" />
+                                    </div>
+                                </div>
+                                <div class="ml-9 flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        class="inline-flex min-h-10 items-center gap-2 rounded-full bg-[#0d9488] px-4 text-[12px] font-semibold text-white shadow-sm shadow-[#0d9488]/20 transition hover:bg-[#0b8178] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0d9488]"
+                                        @click="sendChatSellerRequest"
+                                    >
+                                        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5a6.5 6.5 0 0 1 13 0c0 3.6-2.9 6.5-6.5 6.5H4l1.2-2.5A6.4 6.4 0 0 1 3 9.5Z"/><path d="M7 9.5h5"/></svg>
+                                        Chat with seller
+                                    </button>
+                                    <span class="text-[10px] text-slate-400">{{ message.at }}</span>
+                                </div>
+                            </template>
+
+                            <template v-else-if="message.from === 'seller' && message.isAutomatic && message.quickQuestionKey && message.orderContext">
+                                <div class="flex justify-start">
+                                    <article class="w-full max-w-[390px] overflow-hidden rounded-[22px] border border-slate-200/90 bg-white shadow-[0_10px_28px_-20px_rgba(15,23,42,0.32)]">
+                                        <div class="flex items-center gap-3 bg-slate-50/80 px-4 py-3.5 sm:px-5">
+                                            <span v-if="message.productContext?.image || message.orderContext.previewImage" class="h-[58px] w-[58px] shrink-0 overflow-hidden rounded-2xl bg-slate-100">
+                                                <img
+                                                    :src="message.productContext?.image || message.orderContext.previewImage"
+                                                    :alt="message.productContext?.name || message.orderContext.previewName || 'Order item'"
+                                                    loading="lazy"
+                                                    decoding="async"
+                                                    class="h-full w-full object-cover"
+                                                >
+                                            </span>
+                                            <span v-else class="flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-2xl bg-[#0d9488]/10 text-[#0d9488]">
+                                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+                                            </span>
+                                            <div class="min-w-0 flex-1">
+                                                <p class="text-[13px] font-bold leading-5 text-slate-900">Status for Order <span class="text-[#0d9488]">#{{ message.orderContext.orderNumber }}</span></p>
+                                                <p class="mt-0.5 truncate text-[12px] text-slate-600">Product: <span class="font-semibold text-slate-800">{{ message.productContext?.name || message.orderContext.previewName }}</span></p>
+                                                <p v-if="message.productContext" class="mt-0.5 text-[15px] font-bold text-emerald-700">{{ formatPrice(message.productContext.price) }}</p>
+                                            </div>
+                                        </div>
+                                        <div class="px-4 pb-3 pt-3.5 sm:px-5">
+                                            <p class="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">Regarding</p>
+                                            <p v-if="message.productContext" class="mt-0.5 truncate text-[12px] font-semibold text-slate-700">{{ message.productContext.name }}</p>
+                                            <p class="mt-2.5 text-[14px] leading-6 text-slate-800">{{ message.text }}</p>
+                                            <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 text-[11px]">
+                                                <span v-if="message.orderContext.status" class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-800">
+                                                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>{{ message.orderContext.status }}
+                                                </span>
+                                                <span v-if="message.productContext?.trackingNumber" class="truncate text-slate-500">Tracking · {{ message.productContext.trackingNumber }}</span>
+                                            </div>
+                                            <ChatFaqMenu v-if="openFaqMenuForMessageId === message.id" class="mt-3 overflow-hidden rounded-xl border border-slate-200" :questions="faqMenuQuestions" @select="chooseFaqQuestion" />
+                                            <div class="mt-3 flex justify-end gap-2">
+                                                <button type="button" class="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50" :aria-expanded="openFaqMenuForMessageId === message.id" @click="toggleFaqMenu(message.id)">
+                                                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/></svg>
+                                                    Menu
+                                                </button>
+                                                <button type="button" class="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-[#0d9488] px-3 text-[11px] font-semibold text-white transition hover:bg-[#0b8178]" @click="sendChatSellerRequest">
+                                                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5a6.5 6.5 0 0 1 13 0c0 3.6-2.9 6.5-6.5 6.5H4l1.2-2.5A6.4 6.4 0 0 1 3 9.5Z"/></svg>
+                                                    Chat with seller
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </article>
+                                </div>
+                                <div class="ml-9 text-[10px] text-slate-400">{{ message.at }}</div>
+                            </template>
+
+                            <template v-else-if="message.from === 'seller' && message.isAutomatic && message.quickQuestionKey">
+                                <div class="flex justify-start">
+                                    <article class="w-full max-w-[390px] overflow-hidden rounded-[22px] border border-slate-200/90 bg-white shadow-[0_10px_28px_-20px_rgba(15,23,42,0.32)]">
+                                        <div v-if="message.productContext" class="flex items-center gap-3 bg-slate-50/80 px-4 py-3.5 sm:px-5">
+                                            <img v-if="message.productContext.image" :src="message.productContext.image" :alt="message.productContext.name" class="h-[58px] w-[58px] shrink-0 rounded-2xl object-cover">
+                                            <span v-else class="flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-2xl bg-[#0d9488]/10 text-[#0d9488]">Stock</span>
+                                            <div class="min-w-0">
+                                                <p class="text-[10px] font-bold uppercase tracking-[0.15em] text-[#0d9488]">Product availability</p>
+                                                <p class="truncate text-[14px] font-bold text-slate-900">{{ message.productContext.name }}</p>
+                                                <p v-if="message.productContext.variantName" class="truncate text-[12px] text-slate-600">{{ message.productContext.variantName }}</p>
+                                            </div>
+                                        </div>
+                                        <div class="px-4 pb-3 pt-3.5 sm:px-5">
+                                            <p class="text-[9px] font-bold uppercase tracking-[0.15em] text-[#0d9488]">Automatic reply</p>
+                                            <p class="mt-2 text-[14px] leading-6 text-slate-800">{{ message.text }}</p>
+                                            <ChatFaqMenu v-if="openFaqMenuForMessageId === message.id" class="mt-3 overflow-hidden rounded-xl border border-slate-200" :questions="faqMenuQuestions" @select="chooseFaqQuestion" />
+                                            <div class="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                                                <span class="text-[10px] text-slate-400">{{ message.at }}</span>
+                                                <div class="flex gap-2">
+                                                    <button type="button" class="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50" :aria-expanded="openFaqMenuForMessageId === message.id" @click="toggleFaqMenu(message.id)">
+                                                        <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/></svg> Menu
+                                                    </button>
+                                                    <button type="button" class="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-[#0d9488] px-3 text-[11px] font-semibold text-white transition hover:bg-[#0b8178]" @click="sendChatSellerRequest">
+                                                        <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5a6.5 6.5 0 0 1 13 0c0 3.6-2.9 6.5-6.5 6.5H4l1.2-2.5A6.4 6.4 0 0 1 3 9.5Z"/></svg> Chat with seller
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </article>
+                                </div>
+                            </template>
+
                             <template v-else>
                             <!-- Inline inquiry card: which purchase this particular message was
                                  about. A thread now covers every purchase from one seller, so
@@ -1123,6 +1397,22 @@ onBeforeUnmount(() => {
                                     <path d="M18 6 7 17l-5-5" /><path d="m22 10-7.5 7.5L13 16" />
                                 </svg>
                             </div>
+                            <div
+                                v-if="message.from === 'seller' && message.isAutomatic && message.quickQuestionKey && !message.orderContext"
+                                class="ml-9 mt-2 w-full max-w-[390px] space-y-2"
+                            >
+                                <ChatFaqMenu v-if="openFaqMenuForMessageId === message.id" class="overflow-hidden rounded-2xl border border-slate-200 shadow-sm" :questions="faqMenuQuestions" @select="chooseFaqQuestion" />
+                                <div class="flex justify-end gap-2">
+                                    <button type="button" class="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50" :aria-expanded="openFaqMenuForMessageId === message.id" @click="toggleFaqMenu(message.id)">
+                                        <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/></svg>
+                                        Menu
+                                    </button>
+                                    <button type="button" class="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-[#0d9488] px-3 text-[11px] font-semibold text-white transition hover:bg-[#0b8178]" @click="sendChatSellerRequest">
+                                        <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5a6.5 6.5 0 0 1 13 0c0 3.6-2.9 6.5-6.5 6.5H4l1.2-2.5A6.4 6.4 0 0 1 3 9.5Z"/></svg>
+                                        Chat with seller
+                                    </button>
+                                </div>
+                            </div>
                             </template>
                             </template>
 
@@ -1171,7 +1461,43 @@ onBeforeUnmount(() => {
                             <!-- "Inquire about a certain product" picker — this buyer's own
                                  orders with this seller, 4 at a time, spanning the composer
                                  width evenly. -->
-                            <div v-if="isProductPickerOpen" class="flex items-center gap-2">
+                            <div v-if="isProductPickerOpen" class="flex flex-wrap items-center gap-2">
+                                <button type="button" class="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Close product selection" @click="closeProductPicker">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+                                </button>
+                                <template v-if="productPickerMode === 'faq-stock'">
+                                    <div v-if="!selectedCatalogProduct" class="flex w-full items-center gap-2">
+                                        <input v-model="catalogSearch" type="search" placeholder="Search products" class="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-[#0d9488]">
+                                        <button type="button" class="rounded-lg bg-[#0d9488] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50" :disabled="isLoadingCatalog" @click="loadCatalogPage(1)">Search</button>
+                                    </div>
+                                    <p v-if="selectedCatalogProduct" class="w-full text-[11px] font-semibold text-slate-600">Choose a variant for {{ selectedCatalogProduct.name }}</p>
+                                    <div v-if="selectedCatalogProduct" class="grid w-full grid-cols-2 gap-2">
+                                        <button v-for="variant in selectedCatalogProduct.variants" :key="variant.id" type="button" class="rounded-xl border border-slate-200 bg-white p-2 text-left text-[11px] hover:border-[#0d9488]" @click="selectCatalogVariant(variant)">
+                                            <span class="block truncate font-semibold text-slate-700">{{ Object.values(variant.optionValues || {}).join(' / ') || variant.sku || 'Variant' }}</span>
+                                            <span class="text-slate-500">₱{{ Number(variant.price || 0).toFixed(2) }} · {{ variant.stock }} available</span>
+                                        </button>
+                                    </div>
+                                    <template v-else>
+                                        <p class="w-full text-[11px] font-medium text-slate-500">Choose a product to check its stock.</p>
+                                        <div class="grid w-full grid-cols-4 gap-2">
+                                            <div v-if="isLoadingCatalog" v-for="n in 4" :key="n" class="aspect-square animate-pulse rounded-xl bg-slate-200"></div>
+                                            <button v-else v-for="product in catalogProducts" :key="product.id" type="button" class="group relative aspect-square overflow-hidden rounded-xl border border-slate-200" @click="selectCatalogProduct(product)">
+                                                <img v-if="product.image" :src="product.image" :alt="product.name" loading="lazy" class="absolute inset-0 h-full w-full object-cover">
+                                                <span v-else class="flex h-full w-full items-center justify-center text-[#0d9488]">Product</span>
+                                                <span class="absolute inset-x-0 bottom-0 bg-slate-900/70 px-1.5 py-1 text-left text-[9px] font-semibold text-white"><span class="block truncate">{{ product.name }}</span><span class="text-white/75">{{ product.stock }} in stock</span></span>
+                                            </button>
+                                            <p v-if="!isLoadingCatalog && !catalogProducts.length" class="col-span-4 py-2 text-center text-[11px] text-slate-400">{{ catalogError || 'No products found.' }}</p>
+                                        </div>
+                                        <div class="flex w-full items-center justify-between">
+                                            <button type="button" class="text-[11px] text-slate-500 disabled:opacity-30" :disabled="catalogMeta.currentPage <= 1 || isLoadingCatalog" @click="loadCatalogPage(catalogMeta.currentPage - 1)">Previous</button>
+                                            <button type="button" class="text-[11px] text-slate-500 disabled:opacity-30" :disabled="catalogMeta.currentPage >= catalogMeta.lastPage || isLoadingCatalog" @click="loadCatalogPage(catalogMeta.currentPage + 1)">Next</button>
+                                        </div>
+                                    </template>
+                                </template>
+                                <template v-else>
+                                <p class="w-full text-[11px] font-medium text-slate-500">
+                                    {{ productPickerMode === 'faq-order' ? 'Choose an order item' : (productPickerMode === 'quick-question' ? 'Choose an item for quick questions' : 'Choose a product to inquire about') }}
+                                </p>
                                 <button
                                     type="button"
                                     class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 disabled:opacity-30"
@@ -1189,12 +1515,12 @@ onBeforeUnmount(() => {
                                     <template v-else-if="productPickerItems.length">
                                         <button
                                             v-for="item in productPickerItems"
-                                            :key="item.orderId"
+                                            :key="item.orderItemId || item.orderId"
                                             type="button"
                                             class="group relative aspect-square overflow-hidden rounded-xl border border-slate-200"
                                             :class="item.previewImage ? 'img-skeleton' : 'bg-slate-50'"
                                             :title="item.trackingNumber ? `${item.previewName} · ${item.trackingNumber}` : item.previewName"
-                                            @click="selectProduct(item)"
+                                            @click="handleProductPickerSelection(item)"
                                         >
                                             <!-- Name + tracking number render immediately; the image loads
                                                  lazily behind it and fades in once decoded, so it never blocks
@@ -1232,27 +1558,45 @@ onBeforeUnmount(() => {
                                 >
                                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6" /></svg>
                                 </button>
+                                </template>
                             </div>
 
-                            <div class="flex flex-wrap gap-1.5">
+                            <div class="flex flex-wrap items-center gap-1.5">
                                 <button
                                     type="button"
                                     class="rounded-lg border px-2 py-1 text-[11px] font-semibold transition-colors"
-                                    :class="isProductPickerOpen
+                                    :class="isProductPickerOpen && productPickerMode === 'inquiry'
                                         ? 'border-[#0d9488] bg-[#0d9488] text-white'
                                         : 'border-[#0d9488]/25 bg-[#0d9488]/[0.06] text-[#0d9488] hover:bg-[#0d9488]/[0.12]'"
-                                    @click="toggleProductPicker"
+                                    @click="toggleProductPicker('inquiry')"
                                 >
-                                    {{ activeConversation?.role === 'courier' ? 'Inquire about a certain parcel' : 'Inquire about a certain product' }}
+                                    {{ activeConversation?.role === 'courier' ? 'Inquire about a certain parcel' : 'Inquire about this product' }}
                                 </button>
-                            </div>
 
-                            <div v-if="activeConversation?.role === 'seller' && quickQuestions.length" class="flex flex-wrap gap-1.5" aria-label="Quick questions">
-                                <p v-if="quickQuestions[0]?.contextType === 'order'" class="w-full text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                                    Quick questions for order #{{ quickQuestions[0].orderNumber }} · {{ quickQuestions[0].orderStatus }}
-                                </p>
+                            <div v-if="activeConversation?.role === 'seller' && (quickQuestions.length || selectedQuickQuestionItem || isLoadingQuickQuestions || quickQuestionsError)" class="contents" aria-label="Quick questions">
+                                <div v-if="selectedQuickQuestionItem || quickQuestions[0]?.contextType === 'order'" class="flex w-full items-center justify-between gap-2">
+                                    <div class="min-w-0">
+                                        <p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                            Quick questions for order #{{ selectedQuickQuestionItem?.orderNumber || quickQuestions[0]?.orderNumber }} · {{ selectedQuickQuestionItem?.status || quickQuestions[0]?.orderStatus }}
+                                        </p>
+                                        <p v-if="selectedQuickQuestionItem" class="truncate text-[11px] font-medium text-slate-600">
+                                            Regarding {{ selectedQuickQuestionItem.previewName }}<span v-if="selectedQuickQuestionItem.trackingNumber"> · TN: {{ selectedQuickQuestionItem.trackingNumber }}</span>
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        class="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold text-[#0d9488] hover:bg-[#0d9488]/[0.08] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0d9488]"
+                                        :aria-expanded="isProductPickerOpen && productPickerMode === 'quick-question'"
+                                        @click="toggleProductPicker('quick-question')"
+                                    >
+                                        Change item
+                                    </button>
+                                </div>
+                                <p v-if="isLoadingQuickQuestions" class="w-full text-[11px] text-slate-500">Loading questions…</p>
+                                <p v-else-if="quickQuestionsError" class="w-full text-[11px] text-red-600">{{ quickQuestionsError }}</p>
+                                <p v-else-if="selectedQuickQuestionItem && !quickQuestions.length" class="w-full text-[11px] text-slate-500">No quick questions are available for this order status.</p>
                                 <button
-                                    v-for="question in quickQuestions"
+                                    v-for="question in isLoadingQuickQuestions ? [] : quickQuestions"
                                     :key="question.key"
                                     type="button"
                                     class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 transition-colors hover:border-[#0d9488] hover:bg-[#0d9488]/[0.06] hover:text-[#0d9488]"
@@ -1260,6 +1604,7 @@ onBeforeUnmount(() => {
                                 >
                                     {{ question.question }}
                                 </button>
+                            </div>
                             </div>
 
                             <div v-if="stagedAttachments.length" class="flex flex-wrap gap-2">

@@ -14,6 +14,7 @@ use App\Models\SellerChatRule;
 use App\Models\SellerChatSetting;
 use App\Models\SellerQuickReplyResponse;
 use App\Services\ChatTemplateRenderer;
+use App\Services\ChatAutomationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -197,6 +198,8 @@ class ChatAutomationController extends Controller
             'sellerStatus' => $setting?->seller_status ?? 'automatic',
             'genericAwayResponse' => $setting?->generic_away_response
                 ?? 'Thanks for your message. I am currently away and will reply as soon as possible.',
+            'genericOnlineResponse' => $setting?->generic_online_response
+                ?? ChatAutomationService::DEFAULT_ONLINE_RESPONSE,
             'genericReplyCooldownMinutes' => $setting?->generic_reply_cooldown_minutes ?? 240,
         ];
     }

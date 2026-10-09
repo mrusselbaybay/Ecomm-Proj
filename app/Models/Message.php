@@ -41,6 +41,7 @@ class Message extends Model
         // since one buyer<->seller thread can now span several purchases.
         'order_id',
         'product_id',
+        'variant_id',
     ];
 
     protected $casts = [
@@ -77,6 +78,11 @@ class Message extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id');
+    }
+
+    public function variant(): BelongsTo
+    {
+        return $this->belongsTo(ProductVariant::class, 'variant_id');
     }
 
     public function automationSuggestion(): HasOne

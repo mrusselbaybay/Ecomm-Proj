@@ -10,7 +10,7 @@
                 </div>
                 <div class="msg-list-header-actions">
                     <span v-if="tabCount('unread')" class="msg-list-unread">{{ tabCount('unread') }} unread</span>
-                    <button type="button" class="btn-outline btn-sm" @click="toggleAutomationSettings">
+                    <button type="button" class="btn-outline btn-sm border-[#0d9488] bg-[#0d9488] text-white hover:border-[#0b8178] hover:bg-[#0b8178]" @click="toggleAutomationSettings">
                         Auto-reply
                     </button>
                 </div>
@@ -70,17 +70,21 @@
                     <div class="msg-automation-card">
                         <div class="msg-automation-section-heading">
                             <div>
-                                <strong>Free-text away response</strong>
-                                <p>Sent when an away buyer message does not match a quick question or keyword.</p>
+                                <strong>{{ editingOnlineResponse ? 'Free-text Online response' : 'Free-text away response' }}</strong>
+                                <p>{{ editingOnlineResponse ? 'Shown when a buyer chooses Chat with seller and you are online.' : 'Shown when a buyer chooses Chat with seller and you are away.' }}</p>
                             </div>
+                            <button type="button" class="btn-outline btn-sm" :aria-label="editingOnlineResponse ? 'Show away response' : 'Show online response'" @click="editingOnlineResponse = !editingOnlineResponse">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3 21 7 17 11"/><path d="M3 7h18"/><path d="m7 21-4-4 4-4"/><path d="M21 17H3"/></svg>
+                            </button>
                         </div>
-                        <textarea id="generic-away-response" v-model="automationSettings.genericAwayResponse" class="field-input" rows="3" maxlength="1000" aria-label="Free-text away response"></textarea>
+                        <textarea v-if="editingOnlineResponse" id="generic-online-response" v-model="automationSettings.genericOnlineResponse" class="field-input" rows="3" maxlength="1000" aria-label="Free-text Online response"></textarea>
+                        <textarea v-else id="generic-away-response" v-model="automationSettings.genericAwayResponse" class="field-input" rows="3" maxlength="1000" aria-label="Free-text away response"></textarea>
                     </div>
 
                     <div class="msg-automation-section-heading msg-automation-section-heading-main">
                         <div>
                             <strong>Quick-question answers</strong>
-                            <p>These answers are linked to the quick buttons shown in buyer chat.</p>
+                            <p>These answers power the buyer FAQ menu and matching phrase rules.</p>
                         </div>
                     </div>
 
@@ -987,8 +991,10 @@ const automationSettings = ref({
     botMode: 'off',
     sellerStatus: 'automatic',
     genericAwayResponse: '',
+    genericOnlineResponse: "Hi! 👋 Thanks for messaging [Shop Name] We'll reply shortly.",
     genericReplyCooldownMinutes: 240,
 });
+const editingOnlineResponse = ref(false);
 const automationQuestions = ref([]);
 const automationKeywordRules = ref([]);
 const automationPlaceholders = ref([]);

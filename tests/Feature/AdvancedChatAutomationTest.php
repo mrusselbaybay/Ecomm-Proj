@@ -2,8 +2,10 @@
 
 use App\Models\ChatAutomationSuggestion;
 use App\Models\Message;
+use App\Models\OrderItem;
 use App\Models\SellerChatRule;
 use App\Models\SellerChatSetting;
+use App\Models\SellerQuickReplyResponse;
 
 it('returns order quick questions that match the current order status', function () {
     $buyer = makeBuyer();
@@ -28,6 +30,80 @@ it('returns order quick questions that match the current order status', function
         ->assertOk()
         ->assertJsonFragment(['key' => 'track_order'])
         ->assertJsonMissing(['key' => 'cancel_order']);
+});
+
+it('lets a buyer choose another ordered product for status questions', function () {
+    $buyer = makeBuyer();
+    $seller = makeSeller();
+    $firstProduct = makeProduct($seller, ['name' => 'Blue jacket']);
+    $secondProduct = makeProduct($seller, ['name' => 'Red shirt']);
+    [$olderOrder, $olderItem] = makeOrder($buyer, $seller, [
+        'status' => 'New',
+        'placed_at' => now()->subDay(),
+        'tracking_number' => 'SN-OLDER',
+    ]);
+    $olderItem->forceFill(['product_id' => $firstProduct->id, 'product_name' => 'Blue jacket'])->save();
+    [$latestOrder] = makeOrder($buyer, $seller, [
+        'status' => 'Delivered',
+        'tracking_number' => 'SN-LATEST',
+    ]);
+    OrderItem::create([
+        'order_id' => $latestOrder->id,
+        'product_id' => $secondProduct->id,
+        'product_name' => 'Red shirt',
+        'category' => 'Clothing',
+        'unit_price' => 100,
+        'quantity' => 1,
+        'subtotal' => 100,
+    ]);
+    $conversation = makeBuyerSellerConversation($buyer, $seller, order: $latestOrder, overrides: ['type' => 'direct']);
+
+    SellerChatSetting::create([
+        'seller_id' => $seller->id,
+        'auto_reply_enabled' => true,
+        'presence_mode' => 'away',
+        'generic_away_response' => 'Away',
+        'generic_reply_cooldown_minutes' => 240,
+    ]);
+    SellerQuickReplyResponse::create([
+        'seller_id' => $seller->id,
+        'question_key' => 'order_status',
+        'response' => 'Order #{{order_id}} is {{status}}.',
+        'enabled' => true,
+    ]);
+
+    actingAsBuyer($buyer);
+    $this->getJson("/api/buyer/messages/quick-questions?conversation_id={$conversation->id}")
+        ->assertOk()
+        ->assertJsonFragment(['orderId' => $latestOrder->id])
+        ->assertJsonFragment(['key' => 'return_refund']);
+
+    $this->getJson("/api/buyer/messages/quick-questions?conversation_id={$conversation->id}&order_id={$olderOrder->id}")
+        ->assertOk()
+        ->assertJsonFragment(['orderId' => $olderOrder->id])
+        ->assertJsonFragment(['key' => 'cancel_order'])
+        ->assertJsonMissing(['key' => 'return_refund']);
+
+    [$otherSellerOrder] = makeOrder($buyer, makeSeller());
+    $this->getJson("/api/buyer/messages/quick-questions?conversation_id={$conversation->id}&order_id={$otherSellerOrder->id}")
+        ->assertNotFound();
+
+    $this->getJson("/api/buyer/messages/conversations/{$conversation->id}/products")
+        ->assertOk()
+        ->assertJsonFragment(['previewName' => 'Blue jacket', 'trackingNumber' => 'SN-OLDER'])
+        ->assertJsonFragment(['previewName' => 'Red shirt', 'trackingNumber' => 'SN-LATEST'])
+        ->assertJsonPath('meta.total', 3);
+
+    $this->postJson("/api/buyer/messages/conversations/{$conversation->id}/messages", [
+        'quick_question_key' => 'order_status',
+        'order_id' => $olderOrder->id,
+        'product_id' => $firstProduct->id,
+    ])->assertCreated()
+        ->assertJsonPath('data.productContext.name', 'Blue jacket')
+        ->assertJsonPath('data.productContext.trackingNumber', 'SN-OLDER')
+        ->assertJsonPath('data.autoReply.productContext.name', 'Blue jacket')
+        ->assertJsonPath('data.autoReply.productContext.trackingNumber', 'SN-OLDER')
+        ->assertJsonPath('data.autoReply.text', "Order #{$olderOrder->order_number} is Pending.");
 });
 
 it('matches a seller keyword rule and renders allowlisted order placeholders while away', function () {

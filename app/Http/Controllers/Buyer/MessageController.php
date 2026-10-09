@@ -13,7 +13,9 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageAttachment;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\Profile;
 use App\Policies\ConversationPolicy;
 use App\Services\ChatAutomationService;
@@ -54,6 +56,10 @@ class MessageController extends Controller
 
     public function quickQuestions(Request $request): JsonResponse
     {
+        $data = $request->validate([
+            'conversation_id' => ['nullable', 'uuid'],
+            'order_id' => ['nullable', 'uuid'],
+        ]);
         $conversationId = $request->string('conversation_id')->toString();
         $order = null;
 
@@ -65,11 +71,20 @@ class MessageController extends Controller
             }
 
             $order = $conversation->order;
+            if (! empty($data['order_id'])) {
+                $order = Order::query()
+                    ->whereKey($data['order_id'])
+                    ->where('buyer_profile_id', $request->user()->id)
+                    ->where('seller_id', $conversation->seller_id)
+                    ->firstOrFail();
+            }
         }
 
         $query = ChatQuickQuestion::query()->where('enabled', true);
 
-        if ($order) {
+        if ($request->boolean('menu')) {
+            $order = null;
+        } elseif ($order) {
             $query->where('context_type', 'order')
                 ->whereExists(function ($statusQuery) use ($order): void {
                     $statusQuery->selectRaw('1')
@@ -294,8 +309,8 @@ class MessageController extends Controller
      * GET /api/buyer/messages/conversations/{id}/products
      *
      * Backs the "Inquire about a certain product" picker. For an ordinary
-     * buyer<->seller conversation: this buyer's own orders with THIS
-     * seller, newest first, 4 per page (mirrors
+     * buyer<->seller conversation: individual items from this buyer's
+     * orders with THIS seller, newest first, 4 per page (mirrors
      * Seller\MessageController::parcels()). For a 'delivery' (courier)
      * conversation: this buyer's own orders assigned to THIS SAME courier
      * that are not yet delivered — a courier thread is per-order, but the
@@ -313,26 +328,98 @@ class MessageController extends Controller
             return response()->json(['message' => 'Conversation not found.'], 404);
         }
 
-        $query = Order::query()
-            ->where('buyer_profile_id', $buyer->id)
-            ->with('items.product:id,images');
-
         if ($conversation->type === 'delivery') {
-            $query->whereHas('parcelAssignment', fn ($q) => $q->where('rider_profile_id', $conversation->courier_profile_id))
+            $query = Order::query()
+                ->where('buyer_profile_id', $buyer->id)
+                ->with('items.product:id,images')
+                ->whereHas('parcelAssignment', fn ($q) => $q->where('rider_profile_id', $conversation->courier_profile_id))
                 ->where('status', '!=', 'Delivered');
-        } else {
-            $query->where('seller_id', $conversation->seller_id);
+            $paginated = $query->orderByDesc('placed_at')->paginate(4);
+
+            return response()->json([
+                'data' => $paginated->getCollection()->map(fn (Order $order) => $this->transformOrderPreview($order))->all(),
+                'meta' => [
+                    'currentPage' => $paginated->currentPage(),
+                    'lastPage' => $paginated->lastPage(),
+                    'total' => $paginated->total(),
+                ],
+            ]);
         }
 
-        $paginated = $query->orderByDesc('placed_at')->paginate(4);
+        $paginated = OrderItem::query()
+            ->whereHas('order', fn ($q) => $q
+                ->where('buyer_profile_id', $buyer->id)
+                ->where('seller_id', $conversation->seller_id)
+                ->where('status', '!=', 'Delivered'))
+            ->with(['order:id,order_number,status,tracking_number', 'product:id,images'])
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->paginate(4);
 
         return response()->json([
-            'data' => $paginated->getCollection()->map(fn (Order $order) => $this->transformOrderPreview($order))->all(),
+            'data' => $paginated->getCollection()->map(fn (OrderItem $item) => [
+                'orderItemId' => $item->id,
+                'orderId' => $item->order_id,
+                'orderNumber' => $item->order?->order_number,
+                'productId' => $item->product_id,
+                'previewName' => $item->product_name,
+                'previewImage' => ($item->product?->images ?? [])[0]['url'] ?? null,
+                'quantity' => $item->quantity,
+                'total' => (float) $item->subtotal,
+                'status' => $item->order?->status,
+                'trackingNumber' => $item->order?->tracking_number,
+            ])->all(),
             'meta' => [
                 'currentPage' => $paginated->currentPage(),
                 'lastPage' => $paginated->lastPage(),
                 'total' => $paginated->total(),
             ],
+        ]);
+    }
+
+    public function catalogProducts(Request $request, string $id): JsonResponse
+    {
+        $data = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+        $conversation = $this->findForBuyer($request, $id);
+        if (! $conversation || $conversation->type !== 'direct') {
+            return response()->json(['message' => 'Conversation not found.'], 404);
+        }
+
+        $search = trim((string) ($data['search'] ?? ''));
+        $paginated = Product::query()
+            ->where('seller_id', $conversation->seller_id)
+            ->active()
+            ->with(['options.values', 'variants.optionValues.option'])
+            ->when($search !== '', fn ($q) => $q->where('name', 'like', "%{$search}%"))
+            ->orderBy('name')
+            ->paginate(8);
+
+        return response()->json([
+            'data' => $paginated->getCollection()->map(fn (Product $product) => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'price' => (float) $product->price,
+                'stock' => (int) $product->effectiveStock(),
+                'image' => ($product->images ?? [])[0]['url'] ?? null,
+                'hasVariants' => (bool) $product->has_variants,
+                'options' => $product->options->map(fn ($option) => [
+                    'id' => $option->id,
+                    'name' => $option->name,
+                    'values' => $option->values->map(fn ($value) => ['id' => $value->id, 'value' => $value->value])->values()->all(),
+                ])->values()->all(),
+                'variants' => $product->variants->map(fn ($variant) => [
+                    'id' => $variant->id,
+                    'sku' => $variant->sku,
+                    'price' => (float) $variant->effectivePrice(),
+                    'stock' => (int) $variant->stock,
+                    'status' => $variant->status,
+                    'optionValues' => $variant->optionValues->mapWithKeys(fn ($value) => [$value->option?->name ?? 'Option' => $value->value])->all(),
+                ])->values()->all(),
+            ])->values()->all(),
+            'meta' => ['currentPage' => $paginated->currentPage(), 'lastPage' => $paginated->lastPage(), 'total' => $paginated->total()],
         ]);
     }
 
@@ -530,7 +617,9 @@ class MessageController extends Controller
         $attachmentIds = $request->validated('attachment_ids', []);
         $orderId = $request->validated('order_id');
         $productId = $request->validated('product_id');
+        $variantId = $request->validated('variant_id');
         $quickQuestionKey = $request->validated('quick_question_key');
+        $contactSeller = (bool) $request->validated('contact_seller', false);
 
         if ($quickQuestionKey) {
             $body = ChatQuickQuestion::query()->findOrFail($quickQuestionKey)->question;
@@ -564,8 +653,12 @@ class MessageController extends Controller
             }
         }
 
+        if ($variantId && (! $productId || ! ProductVariant::whereKey($variantId)->where('product_id', $productId)->where('seller_id', $conversation->seller_id)->where('status', 'active')->exists())) {
+            throw ValidationException::withMessages(['variant_id' => 'That variant is unavailable.']);
+        }
+
         $autoReply = null;
-        $message = DB::transaction(function () use ($attachmentIds, $body, $conversation, $request, $orderId, $productId, $quickQuestionKey, &$autoReply) {
+        $message = DB::transaction(function () use ($attachmentIds, $body, $conversation, $request, $orderId, $productId, $variantId, $quickQuestionKey, $contactSeller, &$autoReply) {
             $message = $this->appendMessage(
                 $conversation,
                 $request->user(),
@@ -574,10 +667,11 @@ class MessageController extends Controller
                 $attachmentIds,
                 $orderId,
                 $productId,
+                $variantId,
                 $quickQuestionKey,
             );
 
-            $autoReply = $this->chatAutomationService->respondIfEligible($conversation, $message, $quickQuestionKey);
+            $autoReply = $this->chatAutomationService->respondIfEligible($conversation, $message, $quickQuestionKey, $contactSeller);
 
             return $message;
         });
@@ -727,6 +821,7 @@ class MessageController extends Controller
         array $attachmentIds = [],
         ?string $orderId = null,
         ?string $productId = null,
+        ?string $variantId = null,
         ?string $quickQuestionKey = null,
     ): Message {
         $stagedAttachments = $this->messageAttachmentService->findOwnedUnlinked($sender, $attachmentIds);
@@ -751,6 +846,7 @@ class MessageController extends Controller
             'attachments' => $stagedAttachments->map->toStoredArray()->all(),
             'order_id' => $orderId,
             'product_id' => $productId,
+            'variant_id' => $variantId,
             'source' => $quickQuestionKey ? 'quick_question' : 'manual',
             'quick_question_key' => $quickQuestionKey,
         ]);
@@ -884,6 +980,10 @@ class MessageController extends Controller
      */
     private function transformMessage(Message $m): array
     {
+        $orderItem = ($m->order_id && $m->product_id)
+            ? $m->order?->items?->firstWhere('product_id', $m->product_id)
+            : null;
+
         return [
             'id' => $m->id,
             'from' => $m->sender_role,
@@ -903,20 +1003,21 @@ class MessageController extends Controller
             // the "order placed" system message to render as a single
             // self-contained card instead of a bare "Order #X" chip plus a
             // separate redundant text bubble repeating the same numbers.
-            'orderContext' => $m->order?->messagePreview(),
+            'orderContext' => $m->order ? [
+                ...$m->order->messagePreview(),
+                'status' => $m->order->statusLabel(),
+            ] : null,
             'productContext' => $m->product ? [
                 'id' => $m->product->id,
-                'name' => $m->product->name,
-                'price' => (float) $m->product->price,
+                'name' => $orderItem?->product_name ?? $m->product->name,
+                'price' => (float) ($orderItem?->subtotal ?? $m->product->price),
                 'image' => ($m->product->images ?? [])[0]['url'] ?? null,
                 // Only resolvable when a message carries both order_id and
                 // product_id (the "Inquire about a certain product" card).
                 // Read from the already eager-loaded order.items instead of
                 // a fresh per-message query — `order.items.product` is
                 // always loaded alongside this message (see messages()).
-                'quantity' => ($m->order_id && $m->product_id)
-                    ? $m->order?->items?->firstWhere('product_id', $m->product_id)?->quantity
-                    : null,
+                'quantity' => $orderItem?->quantity,
                 // Also from the already eager-loaded order — lets the card
                 // show which shipment this inquiry is about, same as the
                 // picker itself.
@@ -926,7 +1027,7 @@ class MessageController extends Controller
             'readAt' => optional($m->read_at)->toIso8601String(),
             'source' => $m->source,
             'quickQuestionKey' => $m->quick_question_key,
-            'isAutomatic' => in_array($m->source, ['auto_reply_specific', 'auto_reply_generic'], true),
+            'isAutomatic' => in_array($m->source, ['auto_reply_specific', 'auto_reply_generic', 'auto_reply_welcome', 'auto_reply_contact'], true),
         ];
     }
 }

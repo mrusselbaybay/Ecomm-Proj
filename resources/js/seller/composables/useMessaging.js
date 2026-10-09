@@ -268,6 +268,7 @@ async function updateChatAutomation(settings) {
             bot_mode: settings.botMode,
             seller_status: settings.sellerStatus,
             generic_away_response: settings.genericAwayResponse,
+            generic_online_response: settings.genericOnlineResponse,
             generic_reply_cooldown_minutes: settings.genericReplyCooldownMinutes,
         }),
     });

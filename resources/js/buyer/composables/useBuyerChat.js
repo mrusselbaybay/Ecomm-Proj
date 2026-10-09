@@ -74,6 +74,7 @@ const isViewingArchived = ref(false);
 
 const unreadCount = ref(0);
 const quickQuestions = ref([]);
+const faqMenuQuestions = ref([]);
 let quickQuestionsRequest = 0;
 
 let loadedOnce = false;
@@ -210,6 +211,7 @@ function mapMessage(message) {
             ? {
                 id: message.orderContext.id,
                 orderNumber: message.orderContext.orderNumber,
+                status: message.orderContext.status || null,
                 itemCount: Number(message.orderContext.itemCount || 0),
                 total: message.orderContext.total,
                 previewName: message.orderContext.previewName || null,
@@ -223,19 +225,22 @@ function mapMessage(message) {
                 price: message.productContext.price,
                 image: message.productContext.image || null,
                 quantity: message.productContext.quantity ?? null,
+                trackingNumber: message.productContext.trackingNumber || null,
             }
             : null,
         at: threadTimeLabel(message.at) || timeOfDay(new Date()),
         source: message.source || 'manual',
+        quickQuestionKey: message.quickQuestionKey || null,
         isAutomatic: Boolean(message.isAutomatic),
     };
 }
 
-async function loadQuickQuestions() {
+async function loadQuickQuestions(orderId = null) {
     const requestId = ++quickQuestionsRequest;
-    const query = activeConversationId.value
-        ? `?conversation_id=${encodeURIComponent(activeConversationId.value)}`
-        : '';
+    const params = new URLSearchParams();
+    if (activeConversationId.value) params.set('conversation_id', activeConversationId.value);
+    if (orderId) params.set('order_id', orderId);
+    const query = params.size ? `?${params.toString()}` : '';
     const questions = await buyerApi(`/buyer/messages/quick-questions${query}`);
 
     if (requestId === quickQuestionsRequest) {
@@ -243,6 +248,11 @@ async function loadQuickQuestions() {
     }
 
     return questions;
+}
+
+async function loadFaqMenuQuestions() {
+    faqMenuQuestions.value = await buyerApi('/buyer/messages/quick-questions?menu=1');
+    return faqMenuQuestions.value;
 }
 
 function mapConversation(conversation) {
@@ -927,7 +937,9 @@ function sendMessage(text, attachmentIds = [], attachmentPreviews = [], context 
             attachment_ids: attachmentIds,
             order_id: context.orderId || null,
             product_id: context.productId || null,
+            variant_id: context.variantId || null,
             quick_question_key: context.quickQuestionKey || null,
+            contact_seller: Boolean(context.contactSeller),
         }),
     })
         .then(message => {
@@ -1000,6 +1012,12 @@ function retryMessage(localId) {
 // picker — this buyer's own orders with this specific seller.
 async function fetchConversationProducts(conversationId, page = 1) {
     return buyerApiWithMeta(`/buyer/messages/conversations/${encodeURIComponent(conversationId)}/products?page=${page}`);
+}
+
+async function fetchCatalogProducts(conversationId, page = 1, search = '') {
+    const params = new URLSearchParams({ page: String(page) });
+    if (search.trim()) params.set('search', search.trim());
+    return buyerApiWithMeta(`/buyer/messages/conversations/${encodeURIComponent(conversationId)}/catalog-products?${params.toString()}`);
 }
 
 function validateAttachment(file) {
@@ -1369,6 +1387,7 @@ export function useBuyerChat() {
         activeConversation,
         totalUnread,
         quickQuestions,
+        faqMenuQuestions,
         isViewingArchived,
 
         loadConversations,
@@ -1384,9 +1403,11 @@ export function useBuyerChat() {
         showInboxConversations,
         loadOlderMessages,
         loadQuickQuestions,
+        loadFaqMenuQuestions,
         sendMessage,
         retryMessage,
         fetchConversationProducts,
+        fetchCatalogProducts,
         validateAttachment,
         uploadAttachment,
         MAX_ATTACHMENT_BYTES,
