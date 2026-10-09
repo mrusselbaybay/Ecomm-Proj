@@ -69,6 +69,8 @@ class AccountController extends Controller
             'contact_no' => $profile->contact_no,
             'birthday' => $profile->birthday?->toDateString(),
             'email' => $profile->email,
+            'avatar_path' => $profile->avatar_path,
+            'avatar_url' => $profile->avatar_url,
             'role' => $profile->role,
             'account_status' => $profile->account_status,
         ];

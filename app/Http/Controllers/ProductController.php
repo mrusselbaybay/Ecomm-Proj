@@ -6,8 +6,10 @@ use App\Models\Product;
 use App\Models\Review;
 use App\Support\CategoryFieldConfig;
 use App\Support\ProductImage;
+use App\Support\ProductSearch;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 /**
  * Public buyer-facing product catalog. Deliberately implemented as a
@@ -32,13 +34,15 @@ class ProductController extends Controller
     {
         $query = $this->catalogQuery();
 
-        if ($search = $request->string('search')->toString()) {
-            $query->where(function ($q) use ($search) {
-                $q->whereLike('name', "%{$search}%")
-                    ->orWhereLike('description', "%{$search}%")
-                    ->orWhereLike('category', "%{$search}%");
-            });
+        if ($request->filled('ids')) {
+            $ids = collect(explode(',', $request->string('ids')->toString()))->filter(fn (string $id) => Str::isUuid($id))->take(100);
+            $rows = $query->whereIn('products.id', $ids)->get();
+
+            return response()->json(['data' => $rows->map(fn (Product $product) => $this->transform($product)), 'meta' => ['current_page' => 1, 'last_page' => 1, 'total' => $rows->count()]]);
         }
+
+        $search = $request->string('search')->toString();
+        ProductSearch::apply($query, $search);
 
         if ($category = $request->string('category')->toString()) {
             if (strtolower($category) !== 'all') {
@@ -50,9 +54,60 @@ class ProductController extends Controller
             $query->where('seller_id', $sellerId);
         }
 
+        if ($request->filled('subcategory')) {
+            $query->whereIn('products.subcategory', (array) $request->input('subcategory'));
+        }
+
+        if ($request->boolean('in_stock')) {
+            $query->where(fn ($builder) => $builder->where('products.stock', '>', 0)->orWhereHas('variants', fn ($variants) => $variants->where('stock', '>', 0)->where('status', 'active')));
+        }
+
+        if ($request->boolean('on_sale')) {
+            $query->whereColumn('products.compare_price', '>', 'products.price');
+        }
+
+        if ($request->filled('condition')) {
+            $query->whereIn('products.condition', (array) $request->input('condition'));
+        }
+
+        if ($request->filled('price_min')) {
+            $query->where('products.price', '>=', max(0, (float) $request->input('price_min')));
+        }
+
+        if ($request->filled('price_max')) {
+            $query->where('products.price', '<=', max(0, (float) $request->input('price_max')));
+        }
+
+        if ($request->filled('min_rating')) {
+            $query->whereRaw('(select avg(rating) from reviews where reviews.product_id = products.id) >= ?', [(float) $request->input('min_rating')]);
+        }
+
+        $facets = null;
+        if ($request->boolean('facets')) {
+            $rows = (clone $query)->get();
+            $facets = [
+                'total' => $rows->count(),
+                'categories' => $rows->groupBy('category')->map(fn ($group, $name) => ['name' => $name, 'count' => $group->count()])->values(),
+                'subcategories' => $rows->filter(fn (Product $product) => $product->subcategory)->groupBy('subcategory')->map(fn ($group, $name) => ['name' => $name, 'count' => $group->count()])->values(),
+                'price' => $rows->isEmpty() ? null : ['min' => $rows->min('price'), 'max' => $rows->max('price')],
+                'has_ratings' => $rows->contains(fn (Product $product) => (int) $product->reviews_count > 0),
+                'has_sales' => false,
+            ];
+        }
+
+        match ($request->string('sort')->toString()) {
+            'price-asc' => $query->orderBy('products.price'),
+            'price-desc' => $query->orderByDesc('products.price'),
+            'rating' => $query->orderByDesc('reviews_avg_rating'),
+            'name-asc' => $query->orderBy('products.name'),
+            'relevance' => $search !== '' ? ProductSearch::orderByRelevance($query, $search) : $query->orderByDesc('products.created_at'),
+            default => $query->orderByDesc('products.created_at'),
+        };
+        $query->orderBy('products.id');
+
         $perPage = min((int) $request->integer('per_page', 60), 100) ?: 60;
 
-        $products = $query->orderByDesc('created_at')->paginate($perPage);
+        $products = $query->paginate($perPage);
 
         return response()->json([
             'data' => $products->getCollection()->map(fn (Product $p) => $this->transform($p)),
@@ -61,7 +116,39 @@ class ProductController extends Controller
                 'last_page' => $products->lastPage(),
                 'total' => $products->total(),
             ],
+            ...($facets !== null ? ['facets' => $facets] : []),
         ]);
+    }
+
+    public function related(Request $request): JsonResponse
+    {
+        $search = trim($request->string('search')->toString());
+        if ($search === '') {
+            return response()->json(['data' => [], 'basis' => null]);
+        }
+
+        $anchors = $this->catalogQuery();
+        ProductSearch::apply($anchors, $search);
+        $categories = $anchors->limit(100)
+            ->get(['products.category', 'products.subcategory'])
+            ->filter()
+            ->unique(fn (Product $product) => $product->category.'|'.$product->subcategory)
+            ->take(3)
+            ->values();
+
+        if ($categories->isEmpty()) {
+            return response()->json(['data' => [], 'basis' => null]);
+        }
+
+        $rowsQuery = $this->catalogQuery()
+            ->whereIn('products.category', $categories->pluck('category'));
+        ProductSearch::exclude($rowsQuery, $search);
+        $rows = $rowsQuery
+            ->latest('products.created_at')
+            ->limit(min(max($request->integer('limit', 8), 1), 12))
+            ->get();
+
+        return response()->json(['data' => $rows->map(fn (Product $product) => $this->transform($product)), 'basis' => ['type' => 'category', 'categories' => $categories->map(fn (Product $product) => ['category' => $product->category, 'subcategory' => $product->subcategory])]]);
     }
 
     /**

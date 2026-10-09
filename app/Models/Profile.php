@@ -123,6 +123,21 @@ class Profile extends Authenticatable
         return $this->hasOne(SellerDetail::class, 'profile_id');
     }
 
+    public function products(): HasMany
+    {
+        return $this->hasMany(Product::class, 'seller_id');
+    }
+
+    public function storeFollows(): HasMany
+    {
+        return $this->hasMany(StoreFollow::class, 'buyer_profile_id');
+    }
+
+    public function followers(): HasMany
+    {
+        return $this->hasMany(StoreFollow::class, 'seller_id');
+    }
+
     /**
      * Buyer/seller is one account with two roles: `role` is the *active*
      * one, and the seller capability exists once a seller_details row is
@@ -313,6 +328,14 @@ class Profile extends Authenticatable
     {
         if (! $this->avatar_path) {
             return null;
+        }
+
+        if (str_starts_with($this->avatar_path, 'https://') || str_starts_with($this->avatar_path, 'http://')) {
+            return $this->avatar_path;
+        }
+
+        if (str_starts_with($this->avatar_path, '/storage/')) {
+            return url($this->avatar_path);
         }
 
         return app(FileStorage::class)->publicUrl('avatars', $this->avatar_path);

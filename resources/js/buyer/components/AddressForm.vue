@@ -18,7 +18,7 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 
 import AddressPinPicker from '../../shared/AddressPinPicker.vue';
 import { usePsgc } from '../../shared/usePsgc';
-import { useBuyerAccount } from '../composables/useBuyerAccount';
+import { useBuyerSession } from '../composables/useBuyerSession';
 import { isValidLocalMobile, toLocalMobile } from '../composables/usePhone';
 
 const props = defineProps({
@@ -40,17 +40,19 @@ const { fetchProvinces, fetchMunicipalities, fetchBarangays } = usePsgc();
 
 // Recipient name / phone aren't asked for — they come from the buyer's
 // account (an edited address keeps the ones it was saved with).
-const { profile, buyerFullName, loadBuyerAccount } = useBuyerAccount();
+const { buyerProfile, loadSession } = useBuyerSession();
 
-if (!profile.value) {
-    loadBuyerAccount();
+if (!buyerProfile.value) {
+    loadSession();
 }
 
+const buyerFullName = computed(() => [buyerProfile.value?.first_name, buyerProfile.value?.last_name].filter(Boolean).join(' '));
+
 const recipientName = computed(
-    () => props.initial?.fullName || profile.value?.full_name || buyerFullName.value || ''
+    () => props.initial?.fullName || buyerFullName.value || ''
 );
 const recipientPhone = computed(
-    () => toLocalMobile(props.initial?.phone || profile.value?.contact_no || '')
+    () => toLocalMobile(props.initial?.phone || buyerProfile.value?.contact_no || '')
 );
 
 const form = reactive({

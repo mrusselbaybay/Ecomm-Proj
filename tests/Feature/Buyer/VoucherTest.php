@@ -281,6 +281,22 @@ it('product page lists product vouchers first, then shop and shipping', function
     $this->getJson("/api/products/{$product->id}/coupons")->assertOk()->assertJsonCount(0, 'data');
 });
 
+it('store page lists only usable vouchers from that shop', function () {
+    $seller = makeSeller();
+    $shop = makeVoucher($seller);
+    $shipping = makeVoucher($seller, ['type' => 'shipping', 'discount_type' => 'fixed', 'discount_value' => 30]);
+    makeVoucher($seller, [], [makeProduct($seller)]);
+    makeVoucher($seller, ['deactivated_at' => now()]);
+    makeVoucher($seller, ['usage_limit' => 1, 'used_count' => 1]);
+    makeVoucher(makeSeller());
+
+    $this->getJson("/api/stores/{$seller->id}/vouchers")
+        ->assertOk()->assertJsonCount(2, 'data')
+        ->assertJsonPath('data.0.id', $shop->id)
+        ->assertJsonPath('data.1.id', $shipping->id);
+    $this->getJson('/api/stores/not-a-store/vouchers')->assertNotFound();
+});
+
 it('claims once only', function () {
     $buyer = makeBuyer();
     $voucher = makeVoucher(makeSeller());

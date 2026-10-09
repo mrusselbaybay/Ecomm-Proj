@@ -210,6 +210,19 @@ class VoucherService
             ->values();
     }
 
+    /** @return Collection<int, Voucher> Active shop-wide vouchers for a storefront. */
+    public function claimableForStore(string $sellerId): Collection
+    {
+        return $this->live()
+            ->with('seller.sellerDetail')
+            ->where('seller_id', $sellerId)
+            ->where('scope', Voucher::SCOPE_SHOP)
+            ->orderBy('expires_at')
+            ->get()
+            ->filter(fn (Voucher $voucher) => $voucher->isUsable())
+            ->values();
+    }
+
     public function claim(Profile $buyer, string $voucherId): BuyerVoucher
     {
         return DB::transaction(function () use ($buyer, $voucherId) {

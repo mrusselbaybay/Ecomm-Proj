@@ -9,6 +9,7 @@ use App\Models\ParcelAssignment;
 use App\Services\OrderCancellationService;
 use App\Services\OrderTrackingService;
 use App\Services\Payments\OrderReceiptService;
+use App\Support\OrderStage;
 use App\Support\ProductImage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -152,6 +153,7 @@ class OrderController extends Controller
             'orderId' => '#'.$order->order_number,
             'createdAt' => optional($order->placed_at)->toIso8601String(),
             'status' => $order->status,
+            'stage' => OrderStage::for($order),
             'seller_id' => $order->seller_id,
             'seller' => $sellerName,
             'payment_method' => $order->payment_method,

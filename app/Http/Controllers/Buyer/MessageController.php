@@ -22,6 +22,7 @@ use App\Services\ChatAutomationService;
 use App\Services\DeliveryConversationService;
 use App\Services\DirectConversationService;
 use App\Services\MessageAttachmentService;
+use App\Support\ProductImage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -349,8 +350,7 @@ class MessageController extends Controller
         $paginated = OrderItem::query()
             ->whereHas('order', fn ($q) => $q
                 ->where('buyer_profile_id', $buyer->id)
-                ->where('seller_id', $conversation->seller_id)
-                ->where('status', '!=', 'Delivered'))
+                ->where('seller_id', $conversation->seller_id))
             ->with(['order:id,order_number,status,tracking_number', 'product:id,images'])
             ->orderByDesc('created_at')
             ->orderByDesc('id')
@@ -363,7 +363,7 @@ class MessageController extends Controller
                 'orderNumber' => $item->order?->order_number,
                 'productId' => $item->product_id,
                 'previewName' => $item->product_name,
-                'previewImage' => ($item->product?->images ?? [])[0]['url'] ?? null,
+                'previewImage' => $item->product ? ProductImage::cardUrl($item->product) : null,
                 'quantity' => $item->quantity,
                 'total' => (float) $item->subtotal,
                 'status' => $item->order?->status,
@@ -403,7 +403,7 @@ class MessageController extends Controller
                 'name' => $product->name,
                 'price' => (float) $product->price,
                 'stock' => (int) $product->effectiveStock(),
-                'image' => ($product->images ?? [])[0]['url'] ?? null,
+                'image' => ProductImage::cardUrl($product),
                 'hasVariants' => (bool) $product->has_variants,
                 'options' => $product->options->map(fn ($option) => [
                     'id' => $option->id,
@@ -434,7 +434,7 @@ class MessageController extends Controller
             'orderNumber' => $order->order_number,
             'productId' => $firstItem?->product_id,
             'previewName' => $itemCount > 1 ? "{$itemCount} items" : $firstItem?->product_name,
-            'previewImage' => ($firstItem?->product?->images ?? [])[0]['url'] ?? null,
+            'previewImage' => $firstItem?->product ? ProductImage::cardUrl($firstItem->product) : null,
             'quantity' => $firstItem?->quantity,
             'itemCount' => $itemCount,
             'total' => (float) $order->total,
@@ -1011,7 +1011,7 @@ class MessageController extends Controller
                 'id' => $m->product->id,
                 'name' => $orderItem?->product_name ?? $m->product->name,
                 'price' => (float) ($orderItem?->subtotal ?? $m->product->price),
-                'image' => ($m->product->images ?? [])[0]['url'] ?? null,
+                'image' => ProductImage::cardUrl($m->product),
                 // Only resolvable when a message carries both order_id and
                 // product_id (the "Inquire about a certain product" card).
                 // Read from the already eager-loaded order.items instead of

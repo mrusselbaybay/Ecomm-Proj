@@ -1,1417 +1,784 @@
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, reactive, ref } from 'vue';
 
-import { buyerApi, buyerApiWithMeta } from './useBuyerApi';
-import { getSupabase } from './useBuyerSession';
-import { subscribeToConversationMessages, subscribeToInbox } from '../../shared/realtime';
+import { buyerApi } from './useBuyerApi';
+import { authHeaders } from './useBuyerSession';
+import { fetchJson, storeEndpoint } from './useStores';
+import { useToasts } from './useToasts';
 
 /*
 |--------------------------------------------------------------------------
-| useBuyerChat — buyer <-> seller messaging
+| useBuyerChat — buyer <-> seller messaging (the Messages modal)
 |--------------------------------------------------------------------------
 |
-| Backed by the Laravel Buyer API (/api/buyer/messages/* ->
-| App\Http\Controllers\Buyer\MessageController, conversations / messages
-| tables).
+| Backed by /api/buyer/messages/* (App\Http\Controllers\Buyer\
+| MessageController). Module-level state so the inbox, the selected
+| thread, drafts, unsent photos and sends in flight all survive closing
+| and reopening the modal (MessagesModal.vue, mounted once in Dashboard).
 |
-| The exported surface is unchanged so Chat.vue and Header.vue need no
-| edits. Conversation / message objects are mapped here to the exact
-| shape Chat.vue already renders:
+| Opening: the header's Messages button (openChat) or a page's Message
+| seller button (messageSeller), which goes straight to that seller's
+| thread. When there is none yet, a "new conversation" screen keyed
+| `new:<seller>:<order>` holds the draft; the first send creates the
+| conversation, so sellers never see empty threads.
 |
-|   conversation: { id, seller, sellerOnline, unread, updatedAt,
-|                   product: { name, price, oldPrice } | null,
-|                   messages: [{ id, from: 'buyer'|'seller', text, at }] }
+| Updates: the project has no realtime channel the buyer can safely
+| subscribe to (the messages table has no row-level security), so while
+| the modal is open this polls: the open thread every THREAD_MS for
+| messages newer than the last one it has, the inbox every INBOX_MS.
+| While it's closed only the inbox is refreshed, every CLOSED_MS, for the
+| header badge.
+| Polling pauses in a hidden tab and catches up at once when the tab is
+| shown again or the network comes back, so nothing is missed. Messages
+| are merged by id, so a poll can never show one twice.
 |
-| Times are formatted to short labels here (the server returns ISO).
-|
-| While the popup is open, Supabase Realtime (postgres_changes) drives
-| updates instead of polling: a channel on the active thread's `messages`
-| row INSERTs triggers refreshActiveConversation() (the existing
-| `?after=<cursor>` delta fetch), and a channel on `conversations`
-| INSERT/UPDATE triggers syncConversationMeta() for the inbox list — both
-| already-incremental fetches, just now event-triggered instead of timer-
-| triggered. A `visibilitychange` handler re-runs both once when the tab
-| regains focus, as a lightweight catch-up for anything missed while a
-| realtime channel was suspended in the background.
-| Optimistic "local-" bubbles are preserved across a refresh.
-| `startConversation` is the entry point used by the "Message Seller"
-| buttons on ProductDetails.vue / OrderDetails.vue.
+| Read state: a thread is marked read only when it is open on screen (the
+| inbox loading never marks anything). Buyer messages show "Sent" or
+| "Read" from the server's read_at; there is no delivery or presence data,
+| so neither is shown.
 |
 */
 
-const MESSAGES_PAGE_SIZE = 10;
-// First paint only needs the tail of the conversation — older history loads
-// in via loadOlderMessages() as the buyer scrolls up.
-const INITIAL_MESSAGES_LIMIT = 3;
-const ALLOWED_ATTACHMENT_TYPES = [
-    'image/png', 'image/jpeg', 'image/webp', 'application/pdf',
-    'video/mp4', 'video/webm', 'video/quicktime',
-];
-const VIDEO_ATTACHMENT_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
-const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
-const MAX_VIDEO_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+const THREAD_MS = 8000;
+const INBOX_MS = 20000;
+const CLOSED_MS = 60000;
 
-const isChatOpen = ref(false);
-
-// Bumped whenever a message is APPENDED to the active thread's end (a real
-// new message via realtime/poll delta) — never for messages PREPENDED via
-// loadOlderMessages() (scroll-up history). Chat.vue watches this to decide
-// whether to auto-scroll, without needing this composable to know anything
-// about DOM/scroll state itself.
-const messagesAppendedTick = ref(0);
+export const IMAGE_RULES = {
+    mimes: ['image/jpeg', 'image/png', 'image/webp'],
+    maxBytes: 5 * 1024 * 1024,
+    maxCount: 4
+};
 
 const conversations = ref([]);
-const isLoading = ref(false);
-const isLoadingMoreConversations = ref(false);
-const loadError = ref('');
-const conversationsMeta = ref({ currentPage: 1, lastPage: 1, perPage: 20, total: 0, archived_total: 0 });
-const activeConversationId = ref(null);
-// Whether `conversations` currently holds the archived-only view or the
-// default inbox — the two never coexist client-side (switching refetches
-// rather than keeping two parallel lists in sync), which keeps every other
-// function below (activeConversation, openConversation, polling) working
-// unchanged for whichever view is active.
-const isViewingArchived = ref(false);
+const inboxLoaded = ref(false);
+const inboxLoading = ref(false);
+const inboxError = ref('');
+const unreadFromServer = ref(0);
 
-const unreadCount = ref(0);
-const quickQuestions = ref([]);
-const faqMenuQuestions = ref([]);
-let quickQuestionsRequest = 0;
+const activeId = ref(null);
 
-let loadedOnce = false;
-let inFlight = null;
-let unreadPrimed = false;
-let conversationsPrimed = false;
-let localIdSequence = 0;
-let inboxChannel = null;
-let messageChannel = null;
-let subscribedConversationId = null;
-let visibilityListenerAttached = false;
+const chatOpen = ref(false);
 
-const activeConversation = computed(
-    () => conversations.value.find(c => c.id === activeConversationId.value) || null,
-);
+/** A seller with no thread yet: { key, sellerId, seller, sellerLogo, sellerCategory, product, order }. */
+const composeTarget = ref(null);
+
+/** Bumped to ask the open modal to show a conversation: { conversationId, seq }. */
+const chatRequest = ref(null);
+
+/** Conversation id -> the product the buyer came from (sent with the next message). */
+const askingAbout = reactive({});
+
+let returnFocusTo = null;
+let requestSeq = 0;
+
+const toasts = useToasts();
+
+/** id -> { loaded, loading, error, hasMore, loadingOlder, messages, product, order, pending } */
+const threads = reactive({});
+
+/** id -> { text, files: [{ key, file, url, error }] } */
+const drafts = reactive({});
 
 const totalUnread = computed(() => {
-    const fromList = conversations.value.reduce((sum, c) => sum + (c.unread || 0), 0);
+    if (!inboxLoaded.value) {
+        return unreadFromServer.value;
+    }
 
-    return Math.max(fromList, unreadCount.value);
+    return conversations.value.reduce((sum, c) => sum + (c.unread || 0), 0);
 });
 
-/*
-|--------------------------------------------------------------------------
-| Time formatting (server sends ISO; Chat.vue shows these labels as-is)
-|--------------------------------------------------------------------------
-*/
+function thread(id) {
+    if (!threads[id]) {
+        threads[id] = { loaded: false, loading: false, error: '', hasMore: false, loadingOlder: false, messages: [], product: null, order: null, pending: [] };
+    }
 
-function timeOfDay(date) {
-    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return threads[id];
 }
 
-function threadTimeLabel(iso) {
-    if (!iso) {
-        return '';
+export function draftFor(id) {
+    if (!drafts[id]) {
+        drafts[id] = { text: '', files: [], quickQuestionKey: null, productId: null, variantId: null, orderId: null, contactSeller: false };
     }
 
-    const date = new Date(iso);
-
-    if (Number.isNaN(date.getTime())) {
-        return '';
-    }
-
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayMs = 24 * 60 * 60 * 1000;
-
-    if (date >= startOfToday) {
-        return timeOfDay(date);
-    }
-
-    if (date >= new Date(startOfToday.getTime() - dayMs)) {
-        return 'Yesterday';
-    }
-
-    if (date >= new Date(startOfToday.getTime() - 6 * dayMs)) {
-        return date.toLocaleDateString(undefined, { weekday: 'short' });
-    }
-
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return drafts[id];
 }
 
-// The server hands back a fresh temporary-signed URL for the same
-// attachment on every fetch (list load, poll, thread refresh...). If we
-// pass that straight through, the <img>/<video> src churns on every poll
-// tick even though nothing changed — for video this aborts the in-flight
-// playback/load (the "AbortError: play() request was interrupted by a new
-// load request" console error) and forces a full re-download. Cache the
-// signed URL per attachment id and keep reusing it until it's actually
-// close to expiring (Laravel embeds `expires` as a unix timestamp in the
-// query string), so the media element's src stays stable across polls.
-const attachmentUrlCache = new Map();
-const SIGNED_URL_EXPIRY_BUFFER_MS = 60000;
+function upsertConversation(row) {
+    const index = conversations.value.findIndex(c => c.id === row.id);
 
-function signedUrlExpiryMs(url) {
-    try {
-        const expires = Number(new URL(url, window.location.origin).searchParams.get('expires'));
-
-        return Number.isFinite(expires) && expires > 0 ? expires * 1000 : null;
-    } catch {
-        return null;
-    }
-}
-
-function stabilizeAttachmentUrl(id, freshUrl) {
-    if (!id || !freshUrl) {
-        return freshUrl || null;
+    if (index === -1) {
+        conversations.value = [row, ...conversations.value];
+    } else {
+        conversations.value[index] = { ...conversations.value[index], ...row };
     }
 
-    const cached = attachmentUrlCache.get(id);
+    sortInbox();
+}
 
-    if (cached) {
-        const expiresAt = signedUrlExpiryMs(cached);
+function sortInbox() {
+    conversations.value = [...conversations.value].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+}
 
-        if (!expiresAt || expiresAt - Date.now() > SIGNED_URL_EXPIRY_BUFFER_MS) {
-            return cached;
-        }
+/** Adds server messages, never twice, keeping (at, id) order. */
+function mergeMessages(t, incoming, { prepend = false } = {}) {
+    const known = new Set(t.messages.map(m => m.id));
+    const fresh = incoming.filter(m => !known.has(m.id));
+
+    if (!fresh.length) {
+        return [];
     }
 
-    attachmentUrlCache.set(id, freshUrl);
+    t.messages = prepend ? [...fresh, ...t.messages] : [...t.messages, ...fresh];
 
-    return freshUrl;
-}
+    // A pending bubble whose message has now arrived some other way.
+    const ids = new Set(fresh.map(m => m.id));
+    t.pending = t.pending.filter(p => !p.serverId || !ids.has(p.serverId));
 
-function mapMessage(message) {
-    return {
-        id: message.id,
-        // Collapsing anything that wasn't literally 'seller' down to
-        // 'buyer' used to also swallow the 'system' role (the auto
-        // "order placed" message — see DirectConversationService::
-        // startForOrder()) and, once 'delivery' threads existed, the
-        // courier's own 'driver'/'courier' sender_role too — both would
-        // otherwise render as a right-aligned teal buyer bubble with
-        // read-receipt checkmarks instead of showing as an incoming message.
-        from: ['seller', 'system', 'driver', 'courier'].includes(message.from) ? message.from : 'buyer',
-        text: message.text,
-        attachments: Array.isArray(message.attachments)
-            ? message.attachments.map(attachment => ({
-                id: attachment.id,
-                name: attachment.name || 'attachment',
-                url: stabilizeAttachmentUrl(attachment.id, attachment.url || null),
-                mime: attachment.mime || null,
-                size: Number(attachment.size || 0),
-            }))
-            : [],
-        // Which purchase (if any) this specific message was about — a
-        // thread now spans every purchase from one seller, so context lives
-        // per-message rather than once for the whole conversation. Carries
-        // enough (item count/total/a preview name+image) for the
-        // auto-generated "order placed" system message to render as one
-        // self-contained card in Chat.vue instead of a bare "Order #X" chip
-        // plus a separate text bubble repeating the same numbers.
-        orderContext: message.orderContext
-            ? {
-                id: message.orderContext.id,
-                orderNumber: message.orderContext.orderNumber,
-                status: message.orderContext.status || null,
-                itemCount: Number(message.orderContext.itemCount || 0),
-                total: message.orderContext.total,
-                previewName: message.orderContext.previewName || null,
-                previewImage: message.orderContext.previewImage || null,
-            }
-            : null,
-        productContext: message.productContext
-            ? {
-                id: message.productContext.id,
-                name: message.productContext.name,
-                price: message.productContext.price,
-                image: message.productContext.image || null,
-                quantity: message.productContext.quantity ?? null,
-                trackingNumber: message.productContext.trackingNumber || null,
-            }
-            : null,
-        at: threadTimeLabel(message.at) || timeOfDay(new Date()),
-        source: message.source || 'manual',
-        quickQuestionKey: message.quickQuestionKey || null,
-        isAutomatic: Boolean(message.isAutomatic),
-    };
-}
-
-async function loadQuickQuestions(orderId = null) {
-    const requestId = ++quickQuestionsRequest;
-    const params = new URLSearchParams();
-    if (activeConversationId.value) params.set('conversation_id', activeConversationId.value);
-    if (orderId) params.set('order_id', orderId);
-    const query = params.size ? `?${params.toString()}` : '';
-    const questions = await buyerApi(`/buyer/messages/quick-questions${query}`);
-
-    if (requestId === quickQuestionsRequest) {
-        quickQuestions.value = questions;
-    }
-
-    return questions;
-}
-
-async function loadFaqMenuQuestions() {
-    faqMenuQuestions.value = await buyerApi('/buyer/messages/quick-questions?menu=1');
-    return faqMenuQuestions.value;
-}
-
-function mapConversation(conversation) {
-    return {
-        id: conversation.id,
-        seller: conversation.seller || 'BuyTheWay Seller',
-        sellerId: conversation.sellerId || null,
-        avatarUrl: conversation.sellerAvatarUrl || null,
-        // 'courier' on a 'delivery' thread (the driver app's "Message"
-        // button on a delivery's contact row), 'seller' on every ordinary
-        // thread — badges the sidebar row so it doesn't look like just
-        // another seller conversation.
-        role: conversation.sellerRole || 'seller',
-        status: conversation.status || 'open',
-        // Per-participant (see Conversation::archiveFor()/isArchivedFor()
-        // on the backend) — archiving never touches `status`, so this is a
-        // separate field, not status === 'archived'.
-        archived: Boolean(conversation.archived),
-        // Activity-based presence — kept fresh by syncConversationMeta()'s
-        // existing poll below, so showing it costs no extra request.
-        sellerOnline: Boolean(conversation.sellerOnline),
-        unread: Number(conversation.unread || 0),
-        updatedAt: threadTimeLabel(conversation.updatedAt),
-        // The list endpoint deliberately never embeds messages (see its own
-        // docblock) — this denormalised preview is the only way the sidebar
-        // can show a snippet for a conversation that hasn't actually been
-        // opened yet in this session, e.g. one a checkout just auto-started.
-        lastMessagePreview: conversation.lastMessagePreview || null,
-        order: conversation.order
-            ? {
-                id: conversation.order.id,
-                orderNumber: conversation.order.orderNumber,
-                status: conversation.order.status,
-                trackingNumber: conversation.order.trackingNumber || null,
-            }
-            : null,
-        product: conversation.product
-            ? {
-                name: conversation.product.name,
-                price: conversation.product.price,
-                oldPrice: conversation.product.oldPrice,
-            }
-            : null,
-        messages: Array.isArray(conversation.messages)
-            ? conversation.messages.map(mapMessage)
-            : [],
-        // Older-messages pagination state for this thread — populated by
-        // openConversation()/loadOlderMessages(); a bare list-load has
-        // neither, so default to "nothing more known yet" rather than
-        // implying the full history is already loaded.
-        messagesMeta: conversation.messagesMeta || { hasMore: false, nextCursor: null },
-        isLoadingOlderMessages: false,
-        // True once this thread's first message page has actually loaded —
-        // lets Chat.vue tell "no messages yet" apart from "still loading",
-        // and tells the scroll-to-bottom watcher when a fresh load lands.
-        messagesLoaded: Boolean(conversation.messagesLoaded),
-        isLoadingMessages: false,
-    };
+    return fresh;
 }
 
 /*
 |--------------------------------------------------------------------------
-| Load
+| Inbox
 |--------------------------------------------------------------------------
 */
 
-function conversationsQuery() {
-    return isViewingArchived.value ? '?status=archived' : '';
-}
+async function loadInbox({ quiet = false } = {}) {
+    if (inboxLoading.value) {
+        return;
+    }
 
-async function fetchConversations() {
-    isLoading.value = true;
-    loadError.value = '';
+    inboxLoading.value = !quiet || !inboxLoaded.value;
+
+    if (!quiet) {
+        inboxError.value = '';
+    }
 
     try {
-        const { data, meta } = await buyerApiWithMeta(`/buyer/messages/conversations${conversationsQuery()}`);
-        conversations.value = (data || []).map(mapConversation);
-        conversationsMeta.value = meta || conversationsMeta.value;
+        const response = await fetch('/api/buyer/messages/conversations', { headers: await authHeaders() });
+        const body = await response.json().catch(() => ({}));
 
-        // Deliberately doesn't auto-select conversations[0] here — matches
-        // seller/logistics, which both leave the thread pane on "Select a
-        // conversation" until the buyer actually picks one, instead of
-        // spending 2 extra requests (and silently marking a thread read)
-        // for a conversation nobody asked to open.
-        loadedOnce = true;
-    } catch (err) {
-        if (err?.status && err.status !== 401) {
-            loadError.value = err?.message || 'Could not load your messages.';
+        if (!response.ok) {
+            const error = new Error(body.message || 'Could not load your messages.');
+            error.status = response.status;
+
+            throw error;
         }
 
-        conversations.value = [];
-    } finally {
-        isLoading.value = false;
-    }
-}
-
-function loadConversations({ force = false } = {}) {
-    if (inFlight) {
-        return inFlight;
-    }
-
-    if (loadedOnce && !force) {
-        return Promise.resolve();
-    }
-
-    inFlight = fetchConversations().finally(() => {
-        inFlight = null;
-    });
-
-    return inFlight;
-}
-
-// Switches the popup's list pane between the default inbox and the
-// archived-only view (see the "view archived" shortcut next to the search
-// bar in Chat.vue). A fresh fetch every time rather than keeping two lists
-// synced — switching is an infrequent, deliberate navigation action, not a
-// hot path, so simplicity wins over caching here.
-async function showArchivedConversations() {
-    isViewingArchived.value = true;
-    activeConversationId.value = null;
-    await fetchConversations();
-}
-
-async function showInboxConversations() {
-    isViewingArchived.value = false;
-    activeConversationId.value = null;
-    await fetchConversations();
-}
-
-// Infinite-scroll continuation for the inbox's list of sellers — Chat.vue
-// calls this when the list is scrolled near its bottom. Appends rather
-// than replacing, so conversations already rendered (and any thread
-// already opened into one of them) aren't disturbed.
-async function loadMoreConversations() {
-    if (isLoadingMoreConversations.value || isLoading.value || inFlight) {
-        return;
-    }
-
-    if (conversationsMeta.value.currentPage >= conversationsMeta.value.lastPage) {
-        return;
-    }
-
-    isLoadingMoreConversations.value = true;
-
-    try {
-        const nextPage = conversationsMeta.value.currentPage + 1;
-        const query = conversationsQuery();
-        const { data, meta } = await buyerApiWithMeta(
-            `/buyer/messages/conversations${query}${query ? '&' : '?'}page=${nextPage}`,
-        );
-
-        conversations.value = [...conversations.value, ...(data || []).map(mapConversation)];
-        conversationsMeta.value = meta || conversationsMeta.value;
+        // Keep the open thread's locally-known read state: if it's on
+        // screen it has been read, whatever an in-flight poll says.
+        conversations.value = (body.data || []).map(row => (row.id === activeId.value && threads[row.id]?.loaded ? { ...row, unread: 0 } : row));
+        sortInbox();
+        unreadFromServer.value = body.meta?.unread_total ?? 0;
+        inboxLoaded.value = true;
+        inboxError.value = '';
     } catch (err) {
-        // Silent — a failed "load more" just lets the user retry by scrolling again.
+        if (!quiet || !inboxLoaded.value) {
+            inboxError.value = err?.status === 401
+                ? 'Your session has ended. Please sign in again.'
+                : err?.message || 'Could not load your messages.';
+        }
     } finally {
-        isLoadingMoreConversations.value = false;
+        inboxLoading.value = false;
     }
 }
 
 async function refreshUnreadCount() {
     try {
         const data = await buyerApi('/buyer/messages/unread-count');
-        unreadCount.value = Number(data?.count || 0);
-    } catch (err) {
-        // Silent — powers a header badge; keep the last known value.
+        unreadFromServer.value = Number(data?.count || 0);
+    } catch {
+        // Signed out or offline: the badge just stays as it was.
     }
 }
 
 /*
 |--------------------------------------------------------------------------
-| Polling (while the popup is open)
+| Threads
 |--------------------------------------------------------------------------
 */
 
-// Refresh the badges / previews / new threads without disturbing the
-// messages already loaded into the open thread.
-async function syncConversationMeta() {
+async function openThread(id) {
+    activeId.value = id;
+
+    const t = thread(id);
+
+    if (t.loaded) {
+        await pollThread(id);
+
+        return;
+    }
+
+    t.loading = true;
+    t.error = '';
+
     try {
-        const data = await buyerApi('/buyer/messages/conversations');
-        const newlyDiscovered = [];
+        // Opening a thread is what marks it read on the server.
+        const [data, history] = await Promise.all([
+            buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}`),
+            fetch(`/api/buyer/messages/conversations/${encodeURIComponent(id)}/messages`, { headers: await authHeaders() }).then(response => response.json())
+        ]);
 
-        for (const incoming of data || []) {
-            const local = conversations.value.find(c => c.id === incoming.id);
+        t.messages = history.data || [];
+        t.hasMore = Boolean(history.meta?.hasMore);
+        t.product = data.product || null;
+        t.order = data.order || null;
+        t.loaded = true;
 
-            if (local) {
-                local.unread = Number(incoming.unread || 0);
-                local.updatedAt = threadTimeLabel(incoming.updatedAt);
-                local.status = incoming.status || local.status;
-                local.lastMessagePreview = incoming.lastMessagePreview || local.lastMessagePreview;
-                local.sellerOnline = Boolean(incoming.sellerOnline);
-            } else {
-                newlyDiscovered.push(mapConversation(incoming));
-            }
-        }
+        const row = { ...data, unread: 0 };
 
-        // The server already returns conversations newest-first, so a
-        // thread that didn't exist locally yet (e.g. one a just-placed
-        // order auto-started — see DirectConversationService::startForOrder())
-        // is by definition more recent than everything already shown.
-        // Prepending (in that same order) instead of appending is what
-        // puts it at the top of the inbox instead of the bottom.
-        if (newlyDiscovered.length) {
-            conversations.value = [...newlyDiscovered, ...conversations.value];
-        }
+        delete row.messages;
+        delete row.hasMore;
+        upsertConversation(row);
     } catch (err) {
-        // Background refresh — a transient miss just retries next tick.
+        t.error = err?.status === 404
+            ? 'This conversation isn’t available.'
+            : err?.message || 'Could not load this conversation.';
+    } finally {
+        t.loading = false;
     }
 }
 
-// Fetches only messages newer than the last real (non-optimistic) one
-// already shown, instead of re-fetching the whole conversation + its full
-// message history on every realtime INSERT event.
-async function refreshActiveConversation() {
-    const convo = activeConversation.value;
+function closeThread() {
+    activeId.value = null;
+}
 
-    if (!convo) {
-        return;
+async function loadOlder(id) {
+    const t = thread(id);
+    const first = t.messages[0];
+
+    if (!t.hasMore || t.loadingOlder || !first) {
+        return [];
     }
 
-    const newestKnown = [...convo.messages].reverse().find(m => !String(m.id).startsWith('local-'));
+    t.loadingOlder = true;
 
-    if (!newestKnown) {
-        return;
+    try {
+        const response = await fetch(`/api/buyer/messages/conversations/${encodeURIComponent(id)}/messages?before=${encodeURIComponent(first.id)}`, { headers: await authHeaders() });
+        const body = await response.json();
+
+        if (!response.ok) {
+            throw new Error(body.message || 'Could not load earlier messages.');
+        }
+
+        t.hasMore = Boolean(body.meta?.hasMore);
+
+        return mergeMessages(t, body.data || [], { prepend: true });
+    } finally {
+        t.loadingOlder = false;
+    }
+}
+
+/**
+ * Fetches messages newer than the last one this thread has. Returns the
+ * new ones (so the page can decide whether to scroll or show a pill).
+ */
+async function pollThread(id) {
+    const t = threads[id];
+    const last = t?.messages[t.messages.length - 1];
+
+    if (!t?.loaded || !last) {
+        return [];
     }
 
     try {
-        const { data } = await buyerApiWithMeta(
-            `/buyer/messages/conversations/${encodeURIComponent(convo.id)}/messages?after=${encodeURIComponent(newestKnown.id)}&limit=${MESSAGES_PAGE_SIZE}`,
-        );
+        const response = await fetch(`/api/buyer/messages/conversations/${encodeURIComponent(id)}/messages?after=${encodeURIComponent(last.id)}`, { headers: await authHeaders() });
 
-        if (!data || !data.length) {
-            return;
+        if (!response.ok) {
+            return [];
         }
 
-        const target = conversations.value.find(c => c.id === convo.id);
-
-        if (!target) {
-            return;
-        }
-
-        // Defensive de-dupe: if the buyer's own just-sent message hadn't
-        // finished its optimistic-replace yet when this poll fired, the
-        // same message could otherwise be appended twice.
-        const knownIds = new Set(target.messages.map(m => m.id));
-        const fresh = data.map(mapMessage).filter(m => !knownIds.has(m.id));
+        const body = await response.json();
+        const fresh = mergeMessages(t, body.data || []);
 
         if (fresh.length) {
-            target.messages = [...target.messages, ...fresh];
-            messagesAppendedTick.value++;
+            const latest = fresh[fresh.length - 1];
+
+            upsertConversation({
+                id,
+                updatedAt: latest.at,
+                lastMessagePreview: latest.text || (latest.attachments?.length ? 'Photo' : ''),
+                lastMessageFromMe: latest.from === 'buyer'
+            });
         }
-    } catch (err) {
-        // Leave the thread as-is on a transient miss.
+
+        return fresh;
+    } catch {
+        return [];
     }
 }
 
-// Shared guard for realtime-triggered refreshes: nothing can be sent into
-// an archived thread (the server rejects it — Conversation::isWritable())
-// and syncConversationMeta() always queries the *default* (non-archived)
-// endpoint, so a refresh while the archived view is open would do nothing
-// useful for the open thread and would wrongly pull unarchived
-// conversations into view.
-function canPoll() {
-    return isChatOpen.value && !isViewingArchived.value;
+/** Marks the open thread read (only call while it's visible). */
+async function markRead(id) {
+    const row = conversations.value.find(c => c.id === id);
+
+    if (row && row.unread > 0) {
+        row.unread = 0;
+    }
+
+    try {
+        await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}/read`, { method: 'PUT' });
+    } catch {
+        // Next poll / open will retry.
+    }
 }
 
-// Subscribes the message channel to whichever conversation is currently
-// open, tearing down the previous one first — a thread switch shouldn't
-// leave a stale channel listening on the conversation the buyer just left.
-function subscribeActiveConversation() {
-    const id = activeConversationId.value;
+/** Refreshes buyer read receipts ("Sent" -> "Read") for the open thread. */
+async function refreshReceipts(id) {
+    const t = threads[id];
 
-    if (subscribedConversationId === id) {
+    if (!t?.loaded || !t.messages.some(m => m.from === 'buyer' && m.status !== 'read')) {
         return;
     }
 
-    messageChannel?.unsubscribe();
-    messageChannel = null;
-    subscribedConversationId = id;
+    try {
+        const response = await fetch(`/api/buyer/messages/conversations/${encodeURIComponent(id)}/messages`, { headers: await authHeaders() });
 
-    if (!id) {
-        return;
-    }
+        if (!response.ok) {
+            return;
+        }
 
-    messageChannel = subscribeToConversationMessages(getSupabase(), id, {
-        onInsert: () => { if (canPoll()) refreshActiveConversation(); },
-        // The channel dropped and came back (network blip, tab resume) —
-        // catch up on anything missed in between via the same delta fetch.
-        onReconnect: () => { if (canPoll()) refreshActiveConversation(); },
-    });
-}
+        const body = await response.json();
+        const status = new Map((body.data || []).map(m => [m.id, m]));
 
-function startRealtime() {
-    if (!inboxChannel) {
-        inboxChannel = subscribeToInbox(getSupabase(), {
-            onChange: () => { if (canPoll()) syncConversationMeta(); },
-            onReconnect: () => { if (canPoll()) syncConversationMeta(); },
-        });
-    }
-
-    subscribeActiveConversation();
-
-    if (!visibilityListenerAttached) {
-        visibilityListenerAttached = true;
-        document.addEventListener('visibilitychange', () => {
-            if (!document.hidden && canPoll()) {
-                refreshActiveConversation();
-                syncConversationMeta();
-            }
-        });
+        t.messages = t.messages.map(m => (status.has(m.id) ? { ...m, status: status.get(m.id).status, readAt: status.get(m.id).readAt } : m));
+    } catch {
+        // Receipts catch up on the next tick.
     }
 }
-
-function stopRealtime() {
-    inboxChannel?.unsubscribe();
-    inboxChannel = null;
-    messageChannel?.unsubscribe();
-    messageChannel = null;
-    subscribedConversationId = null;
-}
-
-watch(isChatOpen, open => {
-    if (open) {
-        startRealtime();
-    } else {
-        stopRealtime();
-    }
-});
-
-watch(activeConversationId, () => {
-    if (isChatOpen.value) {
-        subscribeActiveConversation();
-        loadQuickQuestions().catch(() => {
-            quickQuestions.value = [];
-        });
-    }
-});
 
 /*
 |--------------------------------------------------------------------------
-| Open / close
+| Sending
 |--------------------------------------------------------------------------
 */
 
-async function openChat() {
-    isChatOpen.value = true;
+let localSeq = 0;
 
-    // The very first open of the session does the full load (and shows the
-    // list skeleton while it's in flight). Every open after that used to
-    // skip straight to the cached `conversations` array and never refetch
-    // — so a conversation the buyer's own checkout just auto-started (see
-    // DirectConversationService::startForOrder()) stayed invisible until
-    // the 15s background poll happened to catch it, or the page reloaded.
-    // syncConversationMeta() is the same cheap merge the poll already uses:
-    // it updates/adds conversations in place without disturbing whatever
-    // thread is already loaded, so reopening the popup is never a blank
-    // reload, just an instant refresh of what's already on screen.
-    if (loadedOnce) {
-        await syncConversationMeta();
-    } else {
-        await loadConversations();
+function isNewKey(id) {
+    return String(id).startsWith('new:');
+}
+
+async function upload(id, pending) {
+    const attachmentIds = await Promise.all(pending.files.map(async item => {
+        const form = new FormData();
+        form.append('file', item.file);
+        const attachment = await buyerApi('/buyer/messages/attachments', { method: 'POST', body: form });
+        return attachment.id;
+    }));
+    const target = pending.target;
+    const asking = target ? target.product : askingAbout[id];
+    let conversationId = id;
+    let started = null;
+
+    if (target) {
+        started = await buyerApi('/buyer/messages/conversations', {
+            method: 'POST',
+            body: JSON.stringify({ seller_id: target.sellerId, order_number: target.order?.number || null, product_id: asking?.id || null, body: attachmentIds.length || pending.quickQuestionKey || pending.productId || pending.contactSeller ? null : pending.text })
+        });
+        conversationId = started.id;
+        if (!attachmentIds.length && !pending.quickQuestionKey && !pending.productId && !pending.contactSeller) return started;
     }
 
-    // No longer auto-selects conversations.value[0] on a first-ever open —
-    // that forced 2 extra requests (~4-5 DB round-trips) for a thread the
-    // buyer never asked to see, and silently marked it read the instant the
-    // popup opened. Matches seller/logistics, which both already show the
-    // "Select a conversation" empty state (below in Chat.vue) instead of
-    // picking one automatically. A conversation already selected from an
-    // earlier open in this session still refreshes silently on reopen.
-    if (activeConversationId.value) {
-        openConversation(activeConversationId.value);
+    const message = await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(conversationId)}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ body: pending.text || null, attachment_ids: attachmentIds, product_id: pending.productId || asking?.id || null, variant_id: pending.variantId || null, order_id: pending.orderId || null, quick_question_key: pending.quickQuestionKey || null, contact_seller: pending.contactSeller || false })
+    });
+
+    if (started) return { ...started, messages: [...(started.messages || []), message, ...(message.autoReply ? [message.autoReply] : [])] };
+    return message;
+}
+
+async function deliver(id, pending) {
+    const t = thread(id);
+
+    pending.status = 'sending';
+    pending.error = '';
+    pending.progress = pending.files.length ? 0 : null;
+
+    try {
+        const result = await upload(id, pending);
+
+        pending.files.forEach(item => URL.revokeObjectURL(item.url));
+
+        if (pending.target) {
+            adoptStarted(id, result, pending);
+
+            return;
+        }
+
+        pending.serverId = result.id;
+        mergeMessages(t, [result]);
+        if (result.autoReply) mergeMessages(t, [result.autoReply]);
+        t.pending = t.pending.filter(p => p.localId !== pending.localId);
+
+        upsertConversation({ id, updatedAt: result.at, lastMessagePreview: result.text || 'Photo', lastMessageFromMe: true });
+
+        if (askingAbout[id]) {
+            delete askingAbout[id];
+            refreshReferences(id);
+        }
+    } catch (err) {
+        pending.status = 'failed';
+        pending.error = err?.status === 401 ? 'Your session has ended. Sign in again to send.' : err?.message || 'Your message wasn’t sent.';
+
+        // Never fail silently behind a closed modal.
+        if (!chatOpen.value) {
+            const name = pending.target?.seller || conversations.value.find(c => c.id === id)?.seller || 'the seller';
+
+            toasts.error(`Your message to ${name} wasn’t sent. Open Messages to retry.`);
+        }
     }
+}
+
+/**
+ * The first message created the conversation: swap the new-conversation
+ * screen for the real thread, keeping anything typed meanwhile.
+ */
+function adoptStarted(key, data, pending) {
+    const row = { ...data, unread: 0 };
+    const t = thread(data.id);
+
+    delete row.messages;
+    delete row.hasMore;
+
+    t.messages = data.messages || [];
+    t.hasMore = Boolean(data.hasMore);
+    t.product = data.product || null;
+    t.order = data.order || null;
+    t.loaded = true;
+    t.pending = [...t.pending, ...thread(key).pending.filter(p => p.localId !== pending.localId)];
+    upsertConversation(row);
+
+    const leftover = drafts[key];
+
+    if (leftover && (leftover.text || leftover.files.length)) {
+        drafts[data.id] = leftover;
+    }
+
+    delete drafts[key];
+    delete threads[key];
+
+    if (composeTarget.value?.key === key) {
+        composeTarget.value = null;
+        activeId.value = data.id;
+        chatRequest.value = { conversationId: data.id, seq: ++requestSeq };
+    }
+}
+
+/** Product / order cards after the reference changed on the server. */
+async function refreshReferences(id) {
+    try {
+        const data = await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}`);
+        const t = thread(id);
+
+        t.product = data.product || null;
+        t.order = data.order || null;
+        upsertConversation({ id, product: data.product ? { id: data.product.id, name: data.product.name } : null });
+    } catch {
+        // The card catches up next time the thread opens.
+    }
+}
+
+/**
+ * Sends the draft for a thread. The draft is cleared straight away (the
+ * bubble shows as "Sending…"); if sending fails the bubble keeps the
+ * text and photos for Retry, or can be put back into the composer.
+ */
+function send(id) {
+    const draft = draftFor(id);
+    const text = draft.text.trim();
+    const files = draft.files.filter(item => !item.error);
+
+    if (!text && !files.length) {
+        return null;
+    }
+
+    // A new conversation is created once: wait for the first send.
+    if (isNewKey(id) && thread(id).pending.some(p => p.status === 'sending')) {
+        return null;
+    }
+
+    const pending = reactive({
+        localId: `local-${Date.now()}-${++localSeq}`,
+        text,
+        quickQuestionKey: draft.quickQuestionKey,
+        productId: draft.productId,
+        variantId: draft.variantId,
+        orderId: draft.orderId,
+        contactSeller: draft.contactSeller,
+        files,
+        at: new Date().toISOString(),
+        status: 'sending',
+        progress: files.length ? 0 : null,
+        error: '',
+        serverId: null,
+        target: isNewKey(id) && composeTarget.value?.key === id ? { ...composeTarget.value } : null
+    });
+
+    thread(id).pending.push(pending);
+    draft.text = '';
+    draft.quickQuestionKey = null;
+    draft.productId = null;
+    draft.variantId = null;
+    draft.orderId = null;
+    draft.contactSeller = false;
+    draft.files = [];
+
+    deliver(id, pending);
+
+    return pending;
+}
+
+function sendPreset(id, { text, quickQuestionKey = null, productId = null, variantId = null, orderId = null, contactSeller = false }) {
+    const body = String(text || '').trim();
+
+    if (!body || (isNewKey(id) && thread(id).pending.some(p => p.status === 'sending'))) {
+        return null;
+    }
+
+    const pending = reactive({
+        localId: `local-${Date.now()}-${++localSeq}`,
+        text: body,
+        quickQuestionKey,
+        productId,
+        variantId,
+        orderId,
+        contactSeller,
+        files: [],
+        at: new Date().toISOString(),
+        status: 'sending',
+        progress: null,
+        error: '',
+        serverId: null,
+        target: isNewKey(id) && composeTarget.value?.key === id ? { ...composeTarget.value } : null
+    });
+
+    thread(id).pending.push(pending);
+    deliver(id, pending);
+
+    return pending;
+}
+
+function retry(id, localId) {
+    const pending = thread(id).pending.find(p => p.localId === localId);
+
+    if (pending && pending.status === 'failed') {
+        deliver(id, pending);
+    }
+}
+
+/** Puts a failed message back into the composer instead of retrying. */
+function restoreToDraft(id, localId) {
+    const t = thread(id);
+    const pending = t.pending.find(p => p.localId === localId);
+
+    if (!pending) {
+        return;
+    }
+
+    const draft = draftFor(id);
+
+    draft.text = [pending.text, draft.text].filter(Boolean).join('\n');
+    draft.quickQuestionKey = pending.quickQuestionKey;
+    draft.productId = pending.productId;
+    draft.variantId = pending.variantId;
+    draft.orderId = pending.orderId;
+    draft.contactSeller = pending.contactSeller;
+    draft.files = [...pending.files, ...draft.files].slice(0, IMAGE_RULES.maxCount);
+    t.pending = t.pending.filter(p => p.localId !== localId);
+}
+
+async function setStatus(id, status) {
+    const row = await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status })
+    });
+
+    upsertConversation(row);
+
+    return row;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Opening and closing the modal
+|--------------------------------------------------------------------------
+*/
+
+/** Opens the modal (on a conversation when given one). */
+function openChat({ conversationId = null } = {}) {
+    if (!chatOpen.value) {
+        returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+
+    chatOpen.value = true;
+
+    if (conversationId) {
+        composeTarget.value = null;
+        chatRequest.value = { conversationId, seq: ++requestSeq };
+    }
+}
+
+/**
+ * Message seller (product, store and order pages): straight to that
+ * seller's thread — the order's own thread when there is an order — or a
+ * new-conversation screen when there isn't one yet. A product travels
+ * with the next message so the thread's reference follows it.
+ *
+ * @param {{ sellerId: string, seller?: string, sellerLogo?: string, sellerCategory?: string,
+ *           product?: { id, name, price, image }, order?: { number, status, items } }} target
+ */
+async function messageSeller(target) {
+    openChat();
+
+    // Nothing else is shown (or typed into) while the thread is found.
+    activeId.value = null;
+    composeTarget.value = null;
+    chatRequest.value = { pending: true, seq: ++requestSeq };
+
+    if (!inboxLoaded.value) {
+        await loadInbox();
+    }
+
+    if (!inboxLoaded.value) {
+        // Signed out or offline: the modal shows why.
+        chatRequest.value = null;
+
+        return;
+    }
+
+    const orderNumber = target.order?.number ? String(target.order.number).replace(/^#/, '') : null;
+    const match = conversations.value.find(c => c.sellerId === target.sellerId && (orderNumber ? c.order?.number === orderNumber : !c.order));
+
+    if (match) {
+        if (target.product) {
+            askingAbout[match.id] = target.product;
+        }
+
+        openChat({ conversationId: match.id });
+
+        return;
+    }
+
+    const key = `new:${target.sellerId}:${orderNumber || ''}`;
+    const t = thread(key);
+
+    t.loaded = true;
+    t.product = target.product ? { ...target.product, oldPrice: null, available: true } : null;
+    t.order = target.order ? { ...target.order, number: orderNumber } : null;
+
+    composeTarget.value = { ...target, key, order: t.order };
+    chatRequest.value = { compose: key, seq: ++requestSeq };
+
+    // Pages don't always know the store's logo (or, for an order, its
+    // name): fill them in when the store answers.
+    if (!target.seller || !target.sellerLogo) {
+        fetchJson(storeEndpoint(target.sellerId)).then((body) => {
+            const store = body.data || {};
+            const current = composeTarget.value;
+
+            if (current?.key === key) {
+                composeTarget.value = {
+                    ...current,
+                    seller: current.seller || store.name,
+                    sellerLogo: current.sellerLogo || store.logo || null,
+                    sellerCategory: current.sellerCategory || store.category || null
+                };
+            }
+        }).catch(() => {
+            // The header falls back to "Seller".
+        });
+    }
+}
+
+/** Drops the product chip for a thread ("not about this product"). */
+function clearAskingAbout(id) {
+    delete askingAbout[id];
 }
 
 function closeChat() {
-    isChatOpen.value = false;
+    chatOpen.value = false;
+
+    const target = returnFocusTo;
+
+    returnFocusTo = null;
+
+    if (target?.isConnected) {
+        requestAnimationFrame(() => target.focus({ preventScroll: true }));
+    }
 }
 
+/** The header's Messages button. */
 function toggleChat() {
-    if (isChatOpen.value) {
+    if (chatOpen.value) {
         closeChat();
     } else {
         openChat();
     }
 }
 
-// Fetches conversation metadata and its most recent page of messages in
-// parallel (the detail endpoint no longer inlines every message — see the
-// backend's showConversation()), rather than pulling the thread's entire
-// history into the popup up front.
-async function openConversation(id) {
-    activeConversationId.value = id;
+export function useBuyerChat() {
+    return {
+        conversations,
+        inboxLoaded,
+        inboxLoading,
+        inboxError,
+        activeId,
+        threads,
+        drafts,
+        totalUnread,
+        chatOpen,
+        chatRequest,
+        composeTarget,
+        askingAbout,
 
-    const existingIndex = conversations.value.findIndex(c => c.id === id);
-    const alreadyLoaded = existingIndex !== -1 && conversations.value[existingIndex].messagesLoaded;
+        THREAD_MS,
+        INBOX_MS,
 
-    // Reopening an already-cached thread (Chat A -> Chat B -> Chat A, or
-    // closing and reopening the same one): the cached messages are already
-    // showing — activeConversationId flipping above is enough for Vue to
-    // render them instantly. Don't re-fetch "latest N" and overwrite the
-    // array (that would silently truncate away any older history the
-    // buyer already scrolled into via loadOlderMessages()). Instead reuse
-    // the same delta fetch realtime already uses, merging in only
-    // messages newer than what's cached, plus a light metadata refresh
-    // (online status, archived/status flags).
-    if (alreadyLoaded) {
-        try {
-            const detail = await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}`);
+        loadInbox,
+        refreshUnreadCount,
+        openThread,
+        closeThread,
+        loadOlder,
+        pollThread,
+        markRead,
+        refreshReceipts,
+        send,
+        sendPreset,
+        retry,
+        restoreToDraft,
+        setStatus,
+        openChat,
+        closeChat,
+        messageSeller,
+        clearAskingAbout,
+        toggleChat
+    };
+}
 
-            if (activeConversationId.value === id) {
-                const target = conversations.value.find(c => c.id === id);
+// Prime the header badge once per page load (silently no-ops when
+// signed out: the request 401s and is swallowed).
+let unreadPrimed = false;
 
-                if (target) {
-                    target.sellerOnline = Boolean(detail.sellerOnline);
-                    target.status = detail.status || target.status;
-                    target.archived = Boolean(detail.archived);
-                    target.unread = Number(detail.unread || 0);
-                }
-            }
-        } catch (err) {
-            // Background metadata refresh — a transient miss leaves the
-            // cached metadata as-is.
-        }
-
-        await refreshActiveConversation();
-        refreshUnreadCount();
-
+export function primeUnread() {
+    if (unreadPrimed) {
         return;
     }
 
-    // Skip the loading flag (and the skeleton it drives) on a revisit —
-    // whatever was last loaded for this thread is shown instantly while
-    // this fetch silently refreshes it in the background.
-    if (existingIndex !== -1 && !alreadyLoaded) {
-        conversations.value[existingIndex].isLoadingMessages = true;
-    }
+    unreadPrimed = true;
+    refreshUnreadCount();
 
-    // Fetch messages and conversation detail independently rather than
-    // Promise.all-then-merge-both: showConversation() (~350-530ms, 3 DB
-    // round trips) is structurally slower than messages() (~110-150ms, 1
-    // round trip), and combining them into a single mapConversation() call
-    // meant text that had already arrived sat unrendered waiting on
-    // metadata (seller name/avatar/product) the buyer's own inbox list
-    // had almost always already supplied — both endpoints share the exact
-    // same transformConversation() shape. Now each response updates the
-    // UI the moment IT resolves: text/messages render as soon as
-    // messages() lands, and showConversation() patches in fresher
-    // metadata (online status, archived flag, product context)
-    // independently whenever it lands, without blocking the former.
-    performance?.mark?.('conv:msg-request-start');
-
-    const messagesDone = buyerApiWithMeta(`/buyer/messages/conversations/${encodeURIComponent(id)}/messages?limit=${INITIAL_MESSAGES_LIMIT}`)
-        .then(messagesResult => {
-            performance?.mark?.('conv:msg-response-received');
-            if (activeConversationId.value !== id) return;
-
-            const loadedMessages = (messagesResult.data || []).map(mapMessage);
-            const idx = conversations.value.findIndex(c => c.id === id);
-
-            if (idx !== -1) {
-                const existing = conversations.value[idx];
-                const pendingLocal = existing.messages.filter(m => String(m.id).startsWith('local-'));
-                existing.messages = [...loadedMessages, ...pendingLocal];
-                existing.messagesMeta = messagesResult.meta || { hasMore: false, nextCursor: null };
-                existing.messagesLoaded = true;
-                existing.isLoadingMessages = false;
-                performance?.mark?.('conv:msg-state-applied');
-                // TEMPORARY DIAGNOSTIC — nextTick (Vue DOM patch complete) +
-                // double rAF (browser has painted the patched frame).
-                nextTick(() => {
-                    performance?.mark?.('conv:vue-dom-updated');
-                    requestAnimationFrame(() => requestAnimationFrame(() => {
-                        performance?.mark?.('conv:browser-painted');
-                        window.__logConvTiming?.();
-                    }));
-                });
-            } else {
-                // Not in the inbox list yet (deep link / not-yet-listed
-                // conversation) — a minimal shell so the thread is
-                // readable immediately; the detail fetch below fills in
-                // seller/product metadata moments later.
-                conversations.value.unshift({
-                    id, seller: 'BuyTheWay Seller', sellerId: null, avatarUrl: null, role: 'seller',
-                    status: 'open', archived: false, sellerOnline: false, unread: 0, updatedAt: '',
-                    lastMessagePreview: null, product: null, messages: loadedMessages,
-                    messagesMeta: messagesResult.meta || { hasMore: false, nextCursor: null },
-                    isLoadingOlderMessages: false, messagesLoaded: true, isLoadingMessages: false,
-                });
-            }
-        })
-        .catch(() => {
-            if (activeConversationId.value !== id) return;
-            const idx = conversations.value.findIndex(c => c.id === id);
-            if (idx !== -1) conversations.value[idx].isLoadingMessages = false;
-        });
-
-    performance?.mark?.('conv:detail-request-start');
-
-    const detailDone = buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}`)
-        .then(detail => {
-            performance?.mark?.('conv:detail-response-received');
-            if (activeConversationId.value !== id) return;
-
-            const mappedDetail = mapConversation(detail);
-            const idx = conversations.value.findIndex(c => c.id === id);
-
-            if (idx !== -1) {
-                const existing = conversations.value[idx];
-                existing.seller = mappedDetail.seller;
-                existing.sellerId = mappedDetail.sellerId;
-                existing.avatarUrl = mappedDetail.avatarUrl;
-                existing.role = mappedDetail.role;
-                existing.status = mappedDetail.status;
-                existing.archived = mappedDetail.archived;
-                existing.sellerOnline = mappedDetail.sellerOnline;
-                existing.unread = mappedDetail.unread;
-                existing.updatedAt = mappedDetail.updatedAt;
-                existing.lastMessagePreview = mappedDetail.lastMessagePreview;
-                existing.product = mappedDetail.product;
-            } else {
-                conversations.value.unshift({
-                    ...mappedDetail, messages: [], messagesMeta: { hasMore: false, nextCursor: null },
-                    isLoadingOlderMessages: false, messagesLoaded: false, isLoadingMessages: false,
-                });
-            }
-
-            refreshUnreadCount();
-        })
-        .catch(() => {});
-
-    // Both promises above already handle their own failure (clearing the
-    // loading flag / leaving cached data in place), so this just waits for
-    // both to settle before returning — nothing left to catch here.
-    await Promise.all([messagesDone, detailDone]);
-}
-
-// Archive/unarchive (and, in principle, resolve/reopen — only the two
-// archive-related transitions have UI so far). Unlike deleteConversation()
-// this is a shared conversation-wide state, not a per-user hide: archiving
-// blocks EITHER side from sending until someone reopens it (server-side via
-// Conversation::isWritable()), matching how seller's archive already
-// behaves — this just brings the same action to the buyer.
-async function setConversationStatus(id, status) {
-    const data = await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ status }),
-    });
-
-    const mapped = mapConversation(data);
-
-    if (status === 'archived') {
-        // Drops out of whichever view is showing it (there's only ever the
-        // inbox visible when archiving, since the archived view's own
-        // conversations are already archived).
-        conversations.value = conversations.value.filter(c => c.id !== id);
-
-        if (activeConversationId.value === id) {
-            activeConversationId.value = conversations.value[0]?.id || null;
-        }
-    } else if (isViewingArchived.value) {
-        // Unarchiving while looking at the archived view: it no longer
-        // belongs here, so drop it rather than leave a stale archived
-        // status showing next to an unarchive button that's already fired.
-        conversations.value = conversations.value.filter(c => c.id !== id);
-
-        if (activeConversationId.value === id) {
-            activeConversationId.value = conversations.value[0]?.id || null;
-        }
-    } else {
-        // Unarchiving from the inbox view (e.g. via a stale reference) —
-        // patch/insert it in place rather than a full refetch.
-        const index = conversations.value.findIndex(c => c.id === id);
-
-        if (index !== -1) {
-            conversations.value[index] = mapped;
-        } else {
-            conversations.value.unshift(mapped);
-        }
-    }
-
-    return mapped;
-}
-
-// Removes the conversation from the buyer's own inbox only — the seller
-// still sees their copy, and it reappears automatically if either side
-// messages the other again (see Conversation::leaveFor()/reviveLeftParticipants()).
-async function deleteConversation(id) {
-    await buyerApi(`/buyer/messages/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' });
-
-    conversations.value = conversations.value.filter(c => c.id !== id);
-
-    if (activeConversationId.value === id) {
-        activeConversationId.value = conversations.value[0]?.id || null;
-    }
-}
-
-// Scroll-to-top-of-thread continuation — Chat.vue calls this when the
-// active thread's body is scrolled near its top, so older history only
-// loads in as the buyer actually scrolls up to it.
-async function loadOlderMessages() {
-    const convo = activeConversation.value;
-
-    if (!convo || !convo.messagesMeta?.hasMore || convo.isLoadingOlderMessages) {
-        return;
-    }
-
-    convo.isLoadingOlderMessages = true;
-    const conversationId = convo.id;
-    const nextCursor = convo.messagesMeta.nextCursor;
-
-    try {
-        const { data, meta } = await buyerApiWithMeta(
-            `/buyer/messages/conversations/${encodeURIComponent(conversationId)}/messages?limit=${MESSAGES_PAGE_SIZE}&before=${encodeURIComponent(nextCursor)}`,
-        );
-        const target = conversations.value.find(c => c.id === conversationId);
-
-        if (!target || activeConversationId.value !== conversationId) {
+    // One page-wide timer: keeps the header badge right while the modal
+    // is closed (the open modal polls on its own).
+    setInterval(() => {
+        if (chatOpen.value || document.hidden) {
             return;
         }
 
-        target.messages = [...(data || []).map(mapMessage), ...target.messages];
-        target.messagesMeta = meta || target.messagesMeta;
-    } catch (err) {
-        // Silent — a failed "load older" just lets the user retry by scrolling again.
-    } finally {
-        const target = conversations.value.find(c => c.id === conversationId);
-
-        if (target) {
-            target.isLoadingOlderMessages = false;
-        }
-    }
-}
-
-/*
-|--------------------------------------------------------------------------
-| Send
-|--------------------------------------------------------------------------
-|
-| Kept synchronous-returning (a boolean) so Chat.vue's handleSend() works
-| unchanged: the message is appended optimistically, then the POST runs in
-| the background and swaps in the server's copy (or drops the optimistic
-| bubble on failure).
-|
-*/
-
-// `context` optionally carries { orderId, productId, preview } — the
-// purchase this specific message is about (see the "Inquire about a
-// certain product" picker in Chat.vue). `preview` (the picked item's
-// already-known name/image/quantity/price) is used only for the
-// optimistic bubble, so the card renders immediately instead of sitting
-// blank until the server's own orderContext/productContext comes back.
-function sendMessage(text, attachmentIds = [], attachmentPreviews = [], context = {}) {
-    const convo = activeConversation.value;
-    const body = (text || '').trim();
-    const hasCardContext = !!(context.orderId || context.productId);
-
-    if (!convo || (!body && attachmentIds.length === 0 && !hasCardContext)) {
-        return false;
-    }
-
-    // Date.now() alone could collide if two sends land in the same
-    // millisecond (fast double-click/programmatic double-submit) — the
-    // counter suffix keeps every optimistic id unique within a session.
-    const localId = `local-${Date.now()}-${++localIdSequence}`;
-
-    convo.messages.push({
-        id: localId,
-        from: 'buyer',
-        text: body,
-        attachments: attachmentPreviews,
-        productContext: context.preview || null,
-        at: timeOfDay(new Date()),
-        status: null,
-    });
-    convo.updatedAt = timeOfDay(new Date());
-
-    buyerApi(`/buyer/messages/conversations/${encodeURIComponent(convo.id)}/messages`, {
-        method: 'POST',
-        body: JSON.stringify({
-            body: body || null,
-            attachment_ids: attachmentIds,
-            order_id: context.orderId || null,
-            product_id: context.productId || null,
-            variant_id: context.variantId || null,
-            quick_question_key: context.quickQuestionKey || null,
-            contact_seller: Boolean(context.contactSeller),
-        }),
-    })
-        .then(message => {
-            const idx = convo.messages.findIndex(m => m.id === localId);
-
-            if (idx !== -1 && message) {
-                convo.messages[idx] = mapMessage(message);
-            }
-
-            if (message?.autoReply && !convo.messages.some(item => item.id === message.autoReply.id)) {
-                convo.messages.push(mapMessage(message.autoReply));
-                messagesAppendedTick.value += 1;
-            }
-        })
-        .catch(err => {
-            console.error('Error sending message:', err);
-
-            // Mark it failed instead of silently dropping it — matches the
-            // seller/logistics chat, which already show "Failed · Retry"
-            // rather than making a buyer's typed message vanish.
-            const idx = convo.messages.findIndex(m => m.id === localId);
-
-            if (idx !== -1) {
-                convo.messages[idx] = { ...convo.messages[idx], status: 'failed' };
-            }
-        });
-
-    return true;
-}
-
-// Removes a failed optimistic bubble and re-sends its text — mirrors
-// Seller\useMessaging.js's retryMessage() (attachments/order/product
-// context aren't reattached on retry there either, so this stays
-// consistent rather than being a one-off richer retry).
-//
-// A failed message on a still-`pending-` conversation (the "Message
-// Seller" thread was never actually created on the server) can't be
-// retried via the normal per-message send endpoint — there's no real
-// conversation id yet — so this re-runs startConversation() instead,
-// reusing the stashed payload and the same pending id.
-function retryMessage(localId) {
-    const convo = activeConversation.value;
-
-    if (!convo) {
-        return;
-    }
-
-    if (String(convo.id).startsWith('pending-')) {
-        const payload = pendingStartPayloads.get(convo.id);
-
-        if (payload) {
-            const retry = payload.kind === 'courier' ? startCourierConversation : startConversation;
-            retry(payload, convo.id).catch(() => {});
-        }
-
-        return;
-    }
-
-    const failed = convo.messages.find(m => m.id === localId);
-
-    if (!failed) {
-        return;
-    }
-
-    convo.messages = convo.messages.filter(m => m.id !== localId);
-    sendMessage(failed.text);
-}
-
-// Paginated (4 per page), for the "Inquire about a certain product"
-// picker — this buyer's own orders with this specific seller.
-async function fetchConversationProducts(conversationId, page = 1) {
-    return buyerApiWithMeta(`/buyer/messages/conversations/${encodeURIComponent(conversationId)}/products?page=${page}`);
-}
-
-async function fetchCatalogProducts(conversationId, page = 1, search = '') {
-    const params = new URLSearchParams({ page: String(page) });
-    if (search.trim()) params.set('search', search.trim());
-    return buyerApiWithMeta(`/buyer/messages/conversations/${encodeURIComponent(conversationId)}/catalog-products?${params.toString()}`);
-}
-
-function validateAttachment(file) {
-    if (!ALLOWED_ATTACHMENT_TYPES.includes(file.type)) {
-        return 'Only PNG, JPG, WEBP, PDF, MP4, WEBM, or MOV files are allowed.';
-    }
-
-    const isVideo = VIDEO_ATTACHMENT_TYPES.includes(file.type);
-    const maxBytes = isVideo ? MAX_VIDEO_ATTACHMENT_BYTES : MAX_ATTACHMENT_BYTES;
-
-    if (file.size > maxBytes) {
-        return isVideo ? 'Videos must be 50MB or smaller.' : 'Files must be 10MB or smaller.';
-    }
-
-    return null;
-}
-
-async function uploadAttachment(file) {
-    const validationError = validateAttachment(file);
-
-    if (validationError) {
-        throw new Error(validationError);
-    }
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    return buyerApi('/buyer/messages/attachments', {
-        method: 'POST',
-        body: formData,
-    });
-}
-
-// Payload stashed per pending-conversation id so a failed "Message Seller"
-// send can be retried (see retryMessage() below) without the caller
-// (ProductDetails.vue/OrderDetails.vue) needing to remember it itself.
-const pendingStartPayloads = new Map();
-
-/**
- * Start (or reuse) a thread with a seller and send the first message.
- * `payload` = { sellerId, orderNumber?, productId?, subject?, body?,
- * sellerName?, preview?: { name, price, image } } (orderNumber is the
- * display id, e.g. "#SN-40412" — the leading "#" is stripped here;
- * sellerName/preview are only used for the optimistic placeholder below,
- * the server response is always authoritative). `body` is optional — the
- * "Message Seller" button calls this with no body at all, to open (or
- * create) the thread straight into the conversation screen instead of a
- * separate compose form; the buyer then types into the thread itself.
- *
- * Opens the popup on this thread IMMEDIATELY — either an already-known
- * conversation with this seller (existing.id, via the normal optimistic
- * sendMessage() path) or a brand-new placeholder conversation showing the
- * seller name/product context already known client-side — instead of
- * waiting for the POST /buyer/messages/conversations round trip to finish
- * first. The network call then runs in the background and reconciles the
- * placeholder with the server's real conversation once it resolves.
- *
- * `reuseId` is internal — retryMessage() passes the previous pending id
- * back in so a retry updates the same row instead of creating another one.
- */
-async function startConversation(payload, reuseId = null) {
-    const body = (payload.body || '').trim();
-    const existing = !reuseId && conversations.value.find(c => c.sellerId === payload.sellerId);
-
-    // Already chatting with this seller — just open that thread (and send
-    // into it, normal optimistic path, if a body was actually given)
-    // instead of going through findOrCreate + a fresh conversation fetch.
-    // `existing` may only have come from the conversations LIST endpoint
-    // though (it deliberately never embeds messages — see conversations()'s
-    // own docblock), so its history might not actually be loaded yet:
-    // route through openConversation() in that case instead of leaving the
-    // thread showing an empty "No messages yet" over real history.
-    if (existing) {
-        activeConversationId.value = existing.id;
-        isChatOpen.value = true;
-
-        const sendIfNeeded = () => {
-            if (body) {
-                sendMessage(body, [], [], payload.productId ? { productId: payload.productId, preview: payload.preview || null } : {});
-            }
-        };
-
-        if (existing.messagesLoaded) {
-            sendIfNeeded();
+        if (inboxLoaded.value) {
+            loadInbox({ quiet: true });
         } else {
-            openConversation(existing.id).then(sendIfNeeded);
+            refreshUnreadCount();
         }
-
-        return existing;
-    }
-
-    const pendingId = reuseId || `pending-${Date.now()}-${++localIdSequence}`;
-    const localId = `local-${Date.now()}-${++localIdSequence}`;
-    pendingStartPayloads.set(pendingId, { ...payload, kind: 'seller' });
-
-    const optimisticMessage = body ? {
-        id: localId,
-        from: 'buyer',
-        text: body,
-        attachments: [],
-        productContext: payload.productId ? {
-            id: payload.productId,
-            name: payload.preview?.name || null,
-            price: payload.preview?.price ?? null,
-            image: payload.preview?.image || null,
-            quantity: null,
-        } : null,
-        at: timeOfDay(new Date()),
-        status: null,
-    } : null;
-
-    const existingPendingIndex = conversations.value.findIndex(c => c.id === pendingId);
-
-    if (existingPendingIndex !== -1) {
-        // Retry: same placeholder row, fresh optimistic message (if any).
-        conversations.value[existingPendingIndex].messages = optimisticMessage ? [optimisticMessage] : [];
-    } else {
-        conversations.value.unshift({
-            id: pendingId,
-            seller: payload.sellerName || 'BuyTheWay Seller',
-            sellerId: payload.sellerId,
-            avatarUrl: null,
-            role: 'seller',
-            status: 'open',
-            archived: false,
-            sellerOnline: false,
-            unread: 0,
-            updatedAt: timeOfDay(new Date()),
-            lastMessagePreview: body || null,
-            product: payload.preview ? { name: payload.preview.name, price: payload.preview.price, oldPrice: null } : null,
-            messages: optimisticMessage ? [optimisticMessage] : [],
-            messagesMeta: { hasMore: false, nextCursor: null },
-            isLoadingOlderMessages: false,
-            messagesLoaded: true,
-            isLoadingMessages: false,
-        });
-    }
-
-    loadedOnce = true;
-    activeConversationId.value = pendingId;
-    isChatOpen.value = true;
-
-    try {
-        const data = await buyerApi('/buyer/messages/conversations', {
-            method: 'POST',
-            body: JSON.stringify({
-                seller_id: payload.sellerId,
-                order_number: payload.orderNumber ? String(payload.orderNumber).replace(/^#/, '') : null,
-                product_id: payload.productId || null,
-                subject: payload.subject || null,
-                body: body || null,
-            }),
-        });
-
-        const mapped = mapConversation(data);
-        pendingStartPayloads.delete(pendingId);
-
-        // The server response already carries the just-sent message as the
-        // thread's own authoritative history — replaces the placeholder
-        // wholesale rather than merging (there's nothing else to merge for
-        // a brand-new thread).
-        const pendingIndex = conversations.value.findIndex(c => c.id === pendingId);
-        const existingRealIndex = conversations.value.findIndex(c => c.id === mapped.id);
-
-        if (existingRealIndex !== -1 && existingRealIndex !== pendingIndex) {
-            // A realtime/meta sync already discovered this conversation
-            // under its real id while the POST was in flight — drop the
-            // now-redundant placeholder instead of showing it twice.
-            conversations.value.splice(pendingIndex, 1);
-            conversations.value[conversations.value.findIndex(c => c.id === mapped.id)] = mapped;
-        } else if (pendingIndex !== -1) {
-            conversations.value[pendingIndex] = mapped;
-        } else {
-            conversations.value.unshift(mapped);
-        }
-
-        if (activeConversationId.value === pendingId) {
-            activeConversationId.value = mapped.id;
-        }
-
-        return mapped;
-    } catch (err) {
-        console.error('Error starting conversation:', err);
-
-        const pending = conversations.value.find(c => c.id === pendingId);
-
-        if (pending) {
-            const msgIdx = pending.messages.findIndex(m => m.id === localId);
-
-            if (msgIdx !== -1) {
-                pending.messages[msgIdx] = { ...pending.messages[msgIdx], status: 'failed' };
-            }
-        }
-
-        throw err;
-    }
-}
-
-/**
- * Start (or reuse) a thread with the courier assigned to an order and send
- * the first message — the "Message Courier" button on Order Details.
- * `payload` = { orderNumber, courierId, body?, courierName?, courierAvatarUrl? }
- * (orderNumber is the display id, e.g. "#SN-40412" — the leading "#" is
- * stripped server-side, same convention as startConversation() above).
- * (courierName/courierAvatarUrl are only used for the optimistic
- * placeholder below; the server response is always authoritative). `body`
- * is optional — the "Message Courier" button calls this with no body, to
- * open (or create) the thread straight into the conversation screen.
- *
- * Mirrors startConversation() above exactly (same immediate-open,
- * optimistic-placeholder, pending-retry shape) — kept as its own function
- * rather than folding a seller/courier branch into startConversation()
- * since the two hit different endpoints with different payloads and
- * matching keys; both share the same `pendingStartPayloads` map and
- * `retryMessage()` dispatch (tagged by `kind`) so a failed send retries
- * correctly regardless of which one created the pending row.
- */
-async function startCourierConversation(payload, reuseId = null) {
-    const body = (payload.body || '').trim();
-    const existing = !reuseId && conversations.value.find(c => c.role === 'courier' && c.sellerId === payload.courierId);
-
-    // Same caveat as startConversation() above: `existing` may only have
-    // come from the conversations LIST endpoint (no messages embedded), so
-    // load its history via openConversation() before relying on it being
-    // there — otherwise a thread with real history can show blank.
-    if (existing) {
-        activeConversationId.value = existing.id;
-        isChatOpen.value = true;
-
-        const sendIfNeeded = () => {
-            if (body) {
-                sendMessage(body);
-            }
-        };
-
-        if (existing.messagesLoaded) {
-            sendIfNeeded();
-        } else {
-            openConversation(existing.id).then(sendIfNeeded);
-        }
-
-        return existing;
-    }
-
-    const pendingId = reuseId || `pending-${Date.now()}-${++localIdSequence}`;
-    const localId = `local-${Date.now()}-${++localIdSequence}`;
-    pendingStartPayloads.set(pendingId, { ...payload, kind: 'courier' });
-
-    const optimisticMessage = body ? {
-        id: localId,
-        from: 'buyer',
-        text: body,
-        attachments: [],
-        productContext: null,
-        at: timeOfDay(new Date()),
-        status: null,
-    } : null;
-
-    const existingPendingIndex = conversations.value.findIndex(c => c.id === pendingId);
-
-    if (existingPendingIndex !== -1) {
-        conversations.value[existingPendingIndex].messages = optimisticMessage ? [optimisticMessage] : [];
-    } else {
-        conversations.value.unshift({
-            id: pendingId,
-            seller: payload.courierName || 'Courier',
-            sellerId: payload.courierId,
-            avatarUrl: payload.courierAvatarUrl || null,
-            role: 'courier',
-            status: 'open',
-            archived: false,
-            sellerOnline: false,
-            unread: 0,
-            updatedAt: timeOfDay(new Date()),
-            lastMessagePreview: body || null,
-            product: null,
-            messages: optimisticMessage ? [optimisticMessage] : [],
-            messagesMeta: { hasMore: false, nextCursor: null },
-            isLoadingOlderMessages: false,
-            messagesLoaded: true,
-            isLoadingMessages: false,
-        });
-    }
-
-    loadedOnce = true;
-    activeConversationId.value = pendingId;
-    isChatOpen.value = true;
-
-    try {
-        const data = await buyerApi('/buyer/messages/courier-conversations', {
-            method: 'POST',
-            body: JSON.stringify({
-                order_number: payload.orderNumber ? String(payload.orderNumber).replace(/^#/, '') : null,
-                body: body || null,
-            }),
-        });
-
-        const mapped = mapConversation(data);
-        pendingStartPayloads.delete(pendingId);
-
-        const pendingIndex = conversations.value.findIndex(c => c.id === pendingId);
-        const existingRealIndex = conversations.value.findIndex(c => c.id === mapped.id);
-
-        if (existingRealIndex !== -1 && existingRealIndex !== pendingIndex) {
-            conversations.value.splice(pendingIndex, 1);
-            conversations.value[conversations.value.findIndex(c => c.id === mapped.id)] = mapped;
-        } else if (pendingIndex !== -1) {
-            conversations.value[pendingIndex] = mapped;
-        } else {
-            conversations.value.unshift(mapped);
-        }
-
-        if (activeConversationId.value === pendingId) {
-            activeConversationId.value = mapped.id;
-        }
-
-        return mapped;
-    } catch (err) {
-        console.error('Error starting courier conversation:', err);
-
-        const pending = conversations.value.find(c => c.id === pendingId);
-
-        if (pending) {
-            const msgIdx = pending.messages.findIndex(m => m.id === localId);
-
-            if (msgIdx !== -1) {
-                pending.messages[msgIdx] = { ...pending.messages[msgIdx], status: 'failed' };
-            }
-        }
-
-        throw err;
-    }
-}
-
-export function useBuyerChat() {
-    // Prime the header's unread badge once per page load. Silently no-ops
-    // for a signed-out visitor (the request 401s and is swallowed).
-    if (!unreadPrimed) {
-        unreadPrimed = true;
-        refreshUnreadCount();
-    }
-
-    // Prime the conversation list in the background once per page load —
-    // not just when the chat popup opens. Without this, a buyer who goes
-    // straight to a product/order page and clicks "Message Seller" has an
-    // empty `conversations` list client-side, so startConversation()'s
-    // "already have a thread with this seller" check can never find an
-    // existing thread even when one exists server-side, and always takes
-    // the create-a-new-placeholder path instead of opening the real one
-    // directly. loadConversations() is already idempotent (guards on
-    // loadedOnce/inFlight), so this is a no-op once the popup has loaded
-    // it for real.
-    if (!conversationsPrimed) {
-        conversationsPrimed = true;
-        loadConversations();
-    }
-
-    return {
-        isChatOpen,
-        conversations,
-        isLoading,
-        isLoadingMoreConversations,
-        conversationsMeta,
-        loadError,
-        activeConversationId,
-        messagesAppendedTick,
-        activeConversation,
-        totalUnread,
-        quickQuestions,
-        faqMenuQuestions,
-        isViewingArchived,
-
-        loadConversations,
-        loadMoreConversations,
-        refreshUnreadCount,
-        openChat,
-        closeChat,
-        toggleChat,
-        openConversation,
-        deleteConversation,
-        setConversationStatus,
-        showArchivedConversations,
-        showInboxConversations,
-        loadOlderMessages,
-        loadQuickQuestions,
-        loadFaqMenuQuestions,
-        sendMessage,
-        retryMessage,
-        fetchConversationProducts,
-        fetchCatalogProducts,
-        validateAttachment,
-        uploadAttachment,
-        MAX_ATTACHMENT_BYTES,
-        startConversation,
-        startCourierConversation,
-    };
+    }, CLOSED_MS);
 }

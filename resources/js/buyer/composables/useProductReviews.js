@@ -12,6 +12,7 @@
 //   drawer or flipping back to a filter is instant; a background refresh
 //   still runs to catch new reviews.
 import { computed, ref } from 'vue';
+import { onReviewChange } from './useReviewSync';
 
 const PER_PAGE = 5;
 
@@ -26,6 +27,16 @@ const error = ref('');
 
 // productId -> { summary, byFilter: { [filter]: { items, meta } } }
 const cache = new Map();
+
+// A review written in this tab: that product's cached pages are out of
+// date, and an open drawer for it reloads.
+onReviewChange(({ productId: changed }) => {
+    cache.delete(changed);
+
+    if (productId.value === changed) {
+        load({ reset: true });
+    }
+});
 
 function buildQuery(page) {
     const params = new URLSearchParams({

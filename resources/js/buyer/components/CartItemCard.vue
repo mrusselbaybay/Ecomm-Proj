@@ -8,23 +8,23 @@
 | emits intent. All mutation (quantity clamping, selection, removal,
 | revalidation) stays in useBuyer / Cart.vue.
 |
-| Shows everything the brief asks for per line: image (with graceful
-| fallback), name, seller, chosen variant, unit price + original price +
-| discount, stock, subtotal, rating + review count + "View reviews",
-| remove, and an inline status banner when the catalog revalidation found
-| a problem (never auto-removed).
+| One clean row: small image, name, seller, each chosen variant option,
+| unit price, quantity, line total and a labelled Remove button, plus an
+| inline status banner when the catalog revalidation found a problem
+| (never auto-removed). Long names and many options wrap instead of
+| stretching the row.
+|
 */
 import { computed, ref, watch } from 'vue';
-import { metaFor, formatPrice } from '../composables/useCategoryMeta';
+import { formatPrice, metaFor } from '../composables/useCategoryMeta';
 import QuantityStepper from './QuantityStepper.vue';
-import StarRating from './StarRating.vue';
 
 const props = defineProps({
     item: { type: Object, required: true },
     validating: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['update-quantity', 'remove', 'toggle-select', 'view-reviews']);
+const emit = defineEmits(['update-quantity', 'remove', 'toggle-select']);
 
 // Per-line image fallback, same idea as ProductCard.vue — a broken/404
 // image URL drops back to the category icon tile. Reset if the URL itself
@@ -50,32 +50,51 @@ const hasDiscount = computed(
     () => !!props.item.oldPrice && Number(props.item.oldPrice) > unitPrice.value,
 );
 
-const discountPct = computed(() =>
-    hasDiscount.value
-        ? Math.round((1 - unitPrice.value / Number(props.item.oldPrice)) * 100)
-        : 0,
+const showImage = computed(
+    () => !!props.item.image && props.item.image !== '/images/product-placeholder.svg' && !imageError.value,
 );
 
-const showImage = computed(() => !!props.item.image && !imageError.value);
-
-// null == unknown stock (simple product whose API row had no number); we
-// don't claim a count in that case.
-const stockState = computed(() => {
-    const max = props.item.maxStock;
-
-    if (max === 0) {
-        return { tone: 'bad', text: 'Out of stock' };
+// "Flavor: Tuna, Pack Weight: 100g" -> [{ name: 'Flavor', value: 'Tuna' }, ...]
+const variantOptions = computed(() => {
+    if (!props.item.variation) {
+        return [];
     }
 
-    if (max == null) {
-        return { tone: 'ok', text: 'In stock' };
+    return String(props.item.variation)
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => {
+            const [name, ...rest] = part.split(':');
+
+            return rest.length
+                ? { name: name.trim(), value: rest.join(':').trim() }
+                : { name: '', value: part };
+        });
+});
+
+const isBlocked = computed(() =>
+    ['unavailable', 'out_of_stock', 'variant_unavailable'].includes(props.item.status),
+);
+
+// Only mention stock when it limits the buyer. null == unknown stock
+// (simple product whose API row had no number); no claim in that case.
+const stockNote = computed(() => {
+    const max = props.item.maxStock;
+
+    if (max == null || max === 0 || isBlocked.value) {
+        return '';
+    }
+
+    if (props.item.quantity >= max) {
+        return `Max ${max} available`;
     }
 
     if (max <= 5) {
-        return { tone: 'warn', text: `Only ${max} left` };
+        return `Only ${max} left`;
     }
 
-    return { tone: 'ok', text: `${max} in stock` };
+    return '';
 });
 
 const ISSUE_BANNERS = {
@@ -97,7 +116,7 @@ const ISSUE_BANNERS = {
     },
     price_changed: {
         tone: 'warn',
-        text: 'The price changed since you added this. The new price is shown above and will be used at checkout.',
+        text: 'The price changed since you added this. The new price is shown and will be used at checkout.',
     },
 };
 
@@ -105,152 +124,119 @@ const issueBanner = computed(() => ISSUE_BANNERS[props.item.status] || null);
 </script>
 
 <template>
-    <div
-        class="flex flex-col sm:flex-row gap-4 p-5 border-b border-slate-100 last:border-b-0"
-        :class="{ 'opacity-70': item.status === 'unavailable' || item.status === 'out_of_stock' || item.status === 'variant_unavailable' }"
+    <article
+        class="grid grid-cols-[auto_72px_minmax(0,1fr)] sm:grid-cols-[auto_88px_minmax(0,1fr)_auto] gap-x-4 gap-y-3 p-4 sm:p-5"
+        :aria-label="item.name"
     >
-        <!-- Select + image -->
-        <div class="flex gap-4 sm:flex-col sm:items-center">
-            <label class="flex items-start pt-1 cursor-pointer">
-                <input
-                    type="checkbox"
-                    class="w-5 h-5 accent-teal-600 cursor-pointer"
-                    :checked="item.selected"
-                    :aria-label="`Select ${item.name} for checkout`"
-                    @change="emit('toggle-select', item.cartId)"
-                >
-            </label>
+        <label class="row-span-2 flex min-h-[44px] min-w-[28px] cursor-pointer items-start pt-1 sm:row-span-1">
+            <input
+                type="checkbox"
+                class="h-5 w-5 cursor-pointer accent-teal-600"
+                :checked="item.selected"
+                :aria-label="`Select ${item.name} for checkout`"
+                @change="emit('toggle-select', item.cartId)"
+            >
+        </label>
 
-            <div class="w-24 h-24 sm:w-28 sm:h-28 shrink-0 rounded-xl bg-slate-100 overflow-hidden flex items-center justify-center">
-                <img
-                    v-if="showImage"
-                    :src="item.image"
-                    :alt="item.name"
-                    class="w-full h-full object-cover"
-                    loading="lazy"
-                    @error="imageError = true"
-                >
-                <span
-                    v-else
-                    class="w-10 h-10 text-slate-400"
-                    aria-hidden="true"
-                    v-html="metaFor(item.category).icon"
-                />
-            </div>
+        <div
+            class="flex h-[72px] w-[72px] items-center justify-center overflow-hidden rounded-xl bg-slate-100 sm:h-[88px] sm:w-[88px]"
+            :class="{ 'opacity-60': isBlocked }"
+        >
+            <img
+                v-if="showImage"
+                :src="item.image"
+                alt=""
+                class="h-full w-full object-contain"
+                loading="lazy"
+                decoding="async"
+                @error="imageError = true"
+            >
+            <span
+                v-else
+                class="h-9 w-9 text-slate-400"
+                aria-hidden="true"
+                v-html="metaFor(item.category).icon"
+            />
         </div>
 
-        <!-- Body -->
-        <div class="flex-1 min-w-0 flex flex-col gap-3">
-            <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                    <h3 class="text-[15px] font-bold text-slate-900 leading-snug">
-                        {{ item.name }}
-                    </h3>
-                    <p class="text-xs text-slate-500 mt-0.5">
-                        {{ item.seller }}
-                    </p>
-                    <p
-                        v-if="item.variation"
-                        class="inline-flex mt-1.5 px-2 py-0.5 rounded-md bg-slate-100 text-[11px] font-semibold text-slate-600"
-                    >
-                        {{ item.variation }}
-                    </p>
-                </div>
+        <!-- Details -->
+        <div class="min-w-0">
+            <h3
+                class="text-[15px] font-bold leading-snug [overflow-wrap:anywhere]"
+                :class="isBlocked ? 'text-slate-500' : 'text-slate-900'"
+            >
+                {{ item.name }}
+            </h3>
+            <p class="mt-0.5 text-xs text-slate-500">
+                Sold by {{ item.seller }}
+            </p>
 
-                <button
-                    type="button"
-                    class="shrink-0 flex items-center justify-center w-9 h-9 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                    :aria-label="`Remove ${item.name} from cart`"
-                    @click="emit('remove', item)"
+            <ul
+                v-if="variantOptions.length"
+                class="mt-2 flex flex-wrap gap-1.5"
+                aria-label="Selected options"
+            >
+                <li
+                    v-for="option in variantOptions"
+                    :key="`${option.name}-${option.value}`"
+                    class="rounded-md bg-slate-100 px-2 py-0.5 text-[12px] text-slate-600 [overflow-wrap:anywhere]"
                 >
-                    <svg
-                        viewBox="0 0 24 24"
-                        width="18"
-                        height="18"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                    >
-                        <path d="M3 6h18" />
-                        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                    </svg>
-                </button>
-            </div>
+                    <template v-if="option.name">
+                        {{ option.name }}: <span class="font-semibold text-slate-800">{{ option.value }}</span>
+                    </template>
+                    <span
+                        v-else
+                        class="font-semibold text-slate-800"
+                    >{{ option.value }}</span>
+                </li>
+            </ul>
 
-            <!-- Rating + reviews -->
-            <div class="flex items-center gap-3 flex-wrap">
-                <StarRating
-                    :rating="typeof item.rating === 'number' ? item.rating : null"
-                    :count="item.reviewCount || 0"
-                    :size="14"
+            <p class="mt-2 flex flex-wrap items-baseline gap-x-2 text-[13px]">
+                <span class="font-semibold tabular-nums text-slate-900">{{ formatPrice(unitPrice) }}</span>
+                <span class="text-slate-500">each</span>
+                <span
+                    v-if="hasDiscount"
+                    class="text-xs tabular-nums text-slate-400 line-through"
+                >
+                    {{ formatPrice(item.oldPrice) }}
+                </span>
+            </p>
+        </div>
+
+        <!-- Quantity, line total, remove -->
+        <div class="col-span-2 col-start-2 flex flex-wrap items-center justify-between gap-3 sm:col-span-1 sm:col-start-4 sm:row-start-1 sm:flex-col sm:items-end sm:justify-start">
+            <span class="cart-line-total order-2 text-base font-bold tabular-nums text-slate-900 sm:order-1">
+                <Transition
+                    name="cart-amount"
+                    mode="out-in"
+                >
+                    <span :key="lineTotal">{{ formatPrice(lineTotal) }}</span>
+                </Transition>
+            </span>
+
+            <div class="order-1 flex flex-col items-start gap-1 sm:order-2 sm:items-end">
+                <QuantityStepper
+                    :model-value="item.quantity"
+                    :min="1"
+                    :max="item.maxStock"
+                    :busy="validating"
+                    :disabled="isBlocked"
+                    :label="`Quantity for ${item.name}`"
+                    @update:model-value="emit('update-quantity', item.cartId, $event)"
                 />
-                <button
-                    type="button"
-                    class="text-xs font-bold text-teal-700 hover:text-teal-800 underline underline-offset-2"
-                    @click="emit('view-reviews', item)"
+                <p
+                    v-if="stockNote"
+                    class="text-[11px] font-semibold text-orange-600"
                 >
-                    View reviews
-                </button>
+                    {{ stockNote }}
+                </p>
             </div>
 
-            <!-- Price + stock -->
-            <div class="flex items-end justify-between gap-3 flex-wrap">
-                <div>
-                    <div class="flex items-baseline gap-2">
-                        <span class="text-[15px] font-bold text-slate-900 tabular-nums">
-                            {{ formatPrice(unitPrice) }}
-                        </span>
-                        <span
-                            v-if="hasDiscount"
-                            class="text-xs text-slate-400 line-through tabular-nums"
-                        >
-                            {{ formatPrice(item.oldPrice) }}
-                        </span>
-                        <span
-                            v-if="hasDiscount"
-                            class="text-[11px] font-bold text-orange-600"
-                        >
-                            -{{ discountPct }}%
-                        </span>
-                    </div>
-                    <p
-                        class="text-[11px] font-semibold mt-0.5"
-                        :class="{
-                            'text-emerald-600': stockState.tone === 'ok',
-                            'text-orange-600': stockState.tone === 'warn',
-                            'text-red-600': stockState.tone === 'bad',
-                        }"
-                    >
-                        {{ stockState.text }}
-                    </p>
-                </div>
-
-                <div class="flex items-center gap-4">
-                    <QuantityStepper
-                        :model-value="item.quantity"
-                        :min="1"
-                        :max="item.maxStock"
-                        :busy="validating"
-                        :disabled="item.status === 'unavailable' || item.status === 'out_of_stock' || item.status === 'variant_unavailable'"
-                        :label="`Quantity for ${item.name}`"
-                        @update:model-value="emit('update-quantity', item.cartId, $event)"
-                    />
-                    <span class="text-[15px] font-bold text-slate-900 tabular-nums min-w-[76px] text-right">
-                        {{ formatPrice(lineTotal) }}
-                    </span>
-                </div>
-            </div>
-
-            <!-- Issue banner -->
-            <p
-                v-if="issueBanner"
-                class="flex items-start gap-2 text-xs font-medium rounded-lg px-3 py-2"
-                :class="issueBanner.tone === 'bad' ? 'bg-red-50 text-red-700' : 'bg-orange-50 text-orange-700'"
-                role="status"
+            <button
+                type="button"
+                class="order-3 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-2 text-[13px] font-semibold text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
+                :aria-label="`Remove ${item.name} from cart`"
+                @click="emit('remove', item)"
             >
                 <svg
                     viewBox="0 0 24 24"
@@ -258,16 +244,60 @@ const issueBanner = computed(() => ISSUE_BANNERS[props.item.status] || null);
                     height="15"
                     fill="none"
                     stroke="currentColor"
-                    stroke-width="2.5"
+                    stroke-width="2"
                     stroke-linecap="round"
                     stroke-linejoin="round"
-                    class="shrink-0 mt-px"
                     aria-hidden="true"
                 >
-                    <path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
                 </svg>
-                {{ issueBanner.text }}
-            </p>
+                Remove
+            </button>
         </div>
-    </div>
+
+        <!-- Issue banner -->
+        <p
+            v-if="issueBanner"
+            class="col-span-2 col-start-2 flex items-start gap-2 rounded-lg px-3 py-2 text-xs font-medium sm:col-span-2 sm:col-start-3"
+            :class="issueBanner.tone === 'bad' ? 'bg-red-50 text-red-700' : 'bg-orange-50 text-orange-700'"
+            role="status"
+        >
+            <svg
+                viewBox="0 0 24 24"
+                width="15"
+                height="15"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="mt-px shrink-0"
+                aria-hidden="true"
+            >
+                <path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            </svg>
+            {{ issueBanner.text }}
+        </p>
+    </article>
 </template>
+
+<style scoped>
+.cart-amount-enter-active,
+.cart-amount-leave-active {
+    transition: opacity 0.12s ease;
+}
+
+.cart-amount-enter-from,
+.cart-amount-leave-to {
+    opacity: 0.35;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cart-amount-enter-active,
+    .cart-amount-leave-active {
+        transition: none;
+    }
+}
+</style>

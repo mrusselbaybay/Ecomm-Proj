@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Buyer\AccountController;
+use App\Http\Controllers\Buyer\AccountSettingsController;
 use App\Http\Controllers\Buyer\AddressController;
 use App\Http\Controllers\Buyer\BuyerProfileController;
 use App\Http\Controllers\Buyer\CheckoutController;
@@ -9,6 +10,8 @@ use App\Http\Controllers\Buyer\OrderController;
 use App\Http\Controllers\Buyer\PaymentMethodController;
 use App\Http\Controllers\Buyer\ReturnController;
 use App\Http\Controllers\Buyer\ReviewController;
+use App\Http\Controllers\Buyer\StoreFollowController;
+use App\Http\Controllers\Buyer\VoucherController;
 use App\Http\Controllers\Buyer\WishlistController;
 use Illuminate\Support\Facades\Route;
 
@@ -31,13 +34,13 @@ Route::middleware(['auth.token', 'buyer'])->prefix('api/buyer')->name('api.buyer
     Route::post('/checkout', [CheckoutController::class, 'store'])->name('checkout.store');
 
     // Voucher wallet: claim from the product page, quote/auto-apply at checkout.
-    Route::get('/vouchers', [\App\Http\Controllers\Buyer\VoucherController::class, 'index'])->name('vouchers.index');
-    Route::post('/vouchers/quote', [\App\Http\Controllers\Buyer\VoucherController::class, 'quote'])->name('vouchers.quote');
-    Route::post('/vouchers/{voucherId}/claim', [\App\Http\Controllers\Buyer\VoucherController::class, 'claim'])->name('vouchers.claim');
+    Route::get('/vouchers', [VoucherController::class, 'index'])->name('vouchers.index');
+    Route::post('/vouchers/quote', [VoucherController::class, 'quote'])->name('vouchers.quote');
+    Route::post('/vouchers/{voucherId}/claim', [VoucherController::class, 'claim'])->name('vouchers.claim');
     // Legacy coupon aliases for the mobile app (one release cycle).
-    Route::get('/coupons', [\App\Http\Controllers\Buyer\VoucherController::class, 'index'])->name('coupons.index');
-    Route::post('/coupons/quote', [\App\Http\Controllers\Buyer\VoucherController::class, 'legacyQuote'])->name('coupons.quote');
-    Route::post('/coupons/{voucherId}/claim', [\App\Http\Controllers\Buyer\VoucherController::class, 'claim'])->name('coupons.claim');
+    Route::get('/coupons', [VoucherController::class, 'index'])->name('coupons.index');
+    Route::post('/coupons/quote', [VoucherController::class, 'legacyQuote'])->name('coupons.quote');
+    Route::post('/coupons/{voucherId}/claim', [VoucherController::class, 'claim'])->name('coupons.claim');
 
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{id}', [OrderController::class, 'show'])->name('orders.show');
@@ -56,6 +59,12 @@ Route::middleware(['auth.token', 'buyer'])->prefix('api/buyer')->name('api.buyer
         ->middleware('throttle:5,1')
         ->name('account.deactivate');
 
+    Route::post('/account/avatar', [AccountSettingsController::class, 'uploadAvatar'])->name('account.avatar.store');
+    Route::delete('/account/avatar', [AccountSettingsController::class, 'destroyAvatar'])->name('account.avatar.destroy');
+    Route::get('/account/preferences', [AccountSettingsController::class, 'preferences'])->name('account.preferences.show');
+    Route::put('/account/preferences', [AccountSettingsController::class, 'updatePreferences'])->name('account.preferences.update');
+    Route::get('/account/export', [AccountSettingsController::class, 'export'])->name('account.export');
+
     // Buyer's own account/profile row (public.profiles) — a lighter-weight
     // sibling of the /profile endpoints above (no address/avatar), added
     // for callers that only need the raw profile fields.
@@ -73,6 +82,11 @@ Route::middleware(['auth.token', 'buyer'])->prefix('api/buyer')->name('api.buyer
     Route::put('/addresses/{id}', [AddressController::class, 'update'])->name('addresses.update');
     Route::delete('/addresses/{id}', [AddressController::class, 'destroy'])->name('addresses.destroy');
     Route::put('/addresses/{id}/default', [AddressController::class, 'setDefault'])->name('addresses.default');
+
+    Route::get('/follows', [StoreFollowController::class, 'index'])->name('follows.index');
+    Route::get('/follows/{storeId}', [StoreFollowController::class, 'show'])->name('follows.show');
+    Route::post('/follows/{storeId}', [StoreFollowController::class, 'store'])->name('follows.store');
+    Route::delete('/follows/{storeId}', [StoreFollowController::class, 'destroy'])->name('follows.destroy');
 
     // Wishlist (buyer_wishlist_items table).
     Route::get('/wishlist', [WishlistController::class, 'index'])->name('wishlist.index');

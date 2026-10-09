@@ -1,6 +1,7 @@
 import { ref, computed, watch } from 'vue';
 import { buyerApi } from './useBuyerApi';
 import { getSupabase } from './useBuyerSession';
+import { onReviewChange, publishReviewChange, withLatestStats } from './useReviewSync';
 import { useToasts } from './useToasts';
 
 const { success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo } = useToasts();
@@ -11,7 +12,7 @@ const { success: toastSuccess, error: toastError, warning: toastWarning, info: t
 // survive a hard refresh (same pattern as favorites below). Persisted
 // name/price/image can go stale if a seller edits the product later; that's
 // cosmetic, since checkout recalculates regardless.
-const CART_STORAGE_KEY = 'buytheway_buyer_cart';
+const CART_STORAGE_KEY = 'nexmart_buyer_cart';
 
 function loadStoredCart() {
     try {
@@ -25,15 +26,23 @@ function loadStoredCart() {
 
 const cart = ref(loadStoredCart());
 
-// deep: true — quantity and `selected` toggles mutate cart items in place,
-// so a shallow watch would miss them.
-watch(cart, (value) => {
+// Returns false when the browser refused the write (storage full or
+// blocked), so a caller can roll its change back.
+function saveCart(value = cart.value) {
     try {
         localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(value));
-    } catch (err) {
-        // Storage unavailable (private browsing etc.) — the cart just
-        // won't survive a refresh this session.
+
+        return true;
+    } catch {
+        return false;
     }
+}
+
+// deep: true — quantity and `selected` toggles mutate cart items in place,
+// so a shallow watch would miss them. A failed write here just means the
+// cart won't survive a refresh this session.
+watch(cart, (value) => {
+    saveCart(value);
 }, { deep: true });
 
 // Backed by the Laravel Buyer API (/api/buyer/wishlist ->
@@ -41,7 +50,7 @@ watch(cart, (value) => {
 // table). localStorage is kept only as an offline cache and as the store
 // for a signed-out visitor's favorites, which are merged up to the server
 // by loadWishlist() once they sign in.
-const FAVORITES_STORAGE_KEY = 'buytheway_buyer_favorites';
+const FAVORITES_STORAGE_KEY = 'nexmart_buyer_favorites';
 
 function loadStoredFavorites() {
     try {
@@ -127,23 +136,29 @@ function snapshotFrom(item, product, variant) {
  * re-implementing it). Returns { ok, capped } so a caller can still do
  * extra UI if it wants.
  */
-function addToCart(product, variant, quantity) {
+function addToCart(product, variant, quantity, { silent = false } = {}) {
+    // silent: the caller reports the outcome itself (Buy Again adds a
+    // whole order and shows one summary).
+    const notify = silent
+        ? { error() {}, info() {}, warning() {}, success() {} }
+        : { error: toastError, info: toastInfo, warning: toastWarning, success: toastSuccess };
+
     if (!product) {
         return { ok: false };
     }
 
     if (variant && variant.status && variant.status !== 'active') {
-        toastError('This variant is currently unavailable.');
+        notify.error('This variant is currently unavailable.');
 
-        return { ok: false };
+        return { ok: false, reason: 'unavailable' };
     }
 
     const ceiling = stockCeiling(product, variant);
 
     if (ceiling === 0) {
-        toastError('This item is out of stock.');
+        notify.error('This item is out of stock.');
 
-        return { ok: false };
+        return { ok: false, reason: 'out_of_stock' };
     }
 
     const desired = Math.max(1, Math.floor(Number(quantity)) || 1);
@@ -159,9 +174,9 @@ function addToCart(product, variant, quantity) {
 
         if (ceiling != null && requested > ceiling) {
             if (existingItem.quantity >= ceiling) {
-                toastInfo(`You already have the maximum available (${ceiling}) in your cart.`);
+                notify.info(`You already have the maximum available (${ceiling}) in your cart.`);
 
-                return { ok: false, capped: true };
+                return { ok: false, capped: true, reason: 'cart_full', ceiling };
             }
 
             existingItem.quantity = ceiling;
@@ -170,9 +185,9 @@ function addToCart(product, variant, quantity) {
                 existingItem.status = 'ok';
             }
 
-            toastWarning(`Only ${ceiling} available — added the maximum to your cart.`);
+            notify.warning(`Only ${ceiling} available — added the maximum to your cart.`);
 
-            return { ok: true, capped: true };
+            return { ok: true, capped: true, ceiling };
         }
 
         existingItem.quantity = requested;
@@ -181,7 +196,7 @@ function addToCart(product, variant, quantity) {
             existingItem.status = 'ok';
         }
 
-        toastSuccess('Added to cart.');
+        notify.success('Added to cart.');
 
         return { ok: true };
     }
@@ -218,12 +233,12 @@ function addToCart(product, variant, quantity) {
     cart.value.push(item);
 
     if (capped) {
-        toastWarning(`Only ${ceiling} available — added the maximum to your cart.`);
+        notify.warning(`Only ${ceiling} available — added the maximum to your cart.`);
     } else {
-        toastSuccess('Added to cart.');
+        notify.success('Added to cart.');
     }
 
-    return { ok: true, capped };
+    return { ok: true, capped, ceiling };
 }
 
 // Silent by design: also called by Dashboard.handleOrderPlaced() to drop
@@ -279,7 +294,18 @@ function setCartQuantity(cartId, quantity) {
         capped = true;
     }
 
+    const previous = item.quantity;
+
     item.quantity = next;
+
+    // Save straight away so a failed write can restore the last saved
+    // quantity (and with it the line and cart totals).
+    if (!saveCart()) {
+        item.quantity = previous;
+        toastError(`We couldn't save that change, so the quantity is back to ${previous}.`);
+
+        return { quantity: previous, capped: false, failed: true };
+    }
 
     if (item.status === 'insufficient_stock' && item.maxStock != null && next <= item.maxStock) {
         item.status = 'ok';
@@ -339,15 +365,57 @@ function deselectBlockedItems() {
 |
 | The cart is a localStorage snapshot (see the top of this file), so its
 | name/price/stock/availability can all have gone stale since it was
-| built. This re-fetches each distinct product from the public catalog
-| (GET /api/products/{id}) and tags every line with a status the Cart page
-| surfaces inline — WITHOUT ever removing anything automatically. Called
+| built. This re-fetches every distinct product from the public catalog in
+| ONE request (GET /api/products?ids=a,b,c) and tags every line with a
+| status the Cart page surfaces inline — WITHOUT ever removing anything
+| automatically. A product missing from a successful response is no
+| longer visible (inactive, deleted, or its seller isn't active). Called
 | when the Cart page mounts.
 |
 */
 
 const isValidatingCart = ref(false);
 const cartValidatedAt = ref(0);
+
+// Map of productId -> product row, null (not visible) or undefined
+// (couldn't check). The endpoint caps ids at 100 per request.
+async function fetchCatalogProducts(ids) {
+    const map = new Map();
+    const startedAt = Date.now();
+
+    for (let start = 0; start < ids.length; start += 100) {
+        const chunk = ids.slice(start, start + 100);
+
+        try {
+            const params = new URLSearchParams({ ids: chunk.join(','), per_page: '100' });
+            const response = await fetch(`/api/products?${params}`, {
+                headers: { Accept: 'application/json' },
+            });
+
+            if (!response.ok) {
+                chunk.forEach((id) => map.set(id, undefined));
+
+                continue;
+            }
+
+            const body = await response.json().catch(() => null);
+
+            if (!Array.isArray(body?.data)) {
+                chunk.forEach((id) => map.set(id, undefined));
+
+                continue;
+            }
+
+            const found = new Map(body.data.map((product) => [product.id, withLatestStats(product, startedAt)]));
+
+            chunk.forEach((id) => map.set(id, found.get(id) ?? null));
+        } catch {
+            chunk.forEach((id) => map.set(id, undefined));
+        }
+    }
+
+    return map;
+}
 
 async function validateCartAgainstCatalog() {
     if (cart.value.length === 0) {
@@ -361,31 +429,7 @@ async function validateCartAgainstCatalog() {
     try {
         const ids = [...new Set(cart.value.map((item) => item.productId))];
 
-        const entries = await Promise.all(
-            ids.map(async (id) => {
-                try {
-                    const response = await fetch(`/api/products/${encodeURIComponent(id)}`, {
-                        headers: { Accept: 'application/json' },
-                    });
-
-                    if (response.status === 404) {
-                        return [id, null];
-                    }
-
-                    if (!response.ok) {
-                        return [id, undefined];
-                    }
-
-                    const body = await response.json().catch(() => ({}));
-
-                    return [id, body.data || undefined];
-                } catch {
-                    return [id, undefined];
-                }
-            }),
-        );
-
-        const map = new Map(entries);
+        const map = await fetchCatalogProducts(ids);
 
         cart.value.forEach((item) => {
             const product = map.get(item.productId);
@@ -687,11 +731,7 @@ async function placeOrder(payload) {
             body: JSON.stringify(payload),
         });
 
-        // Refresh "My Orders" in the background — the order is already
-        // created and the caller has its reference(s); making the buyer
-        // wait on a second full round-trip here just to repopulate a list
-        // they're not looking at yet only lengthens the perceived wait.
-        loadOrders().catch(() => {});
+        await loadOrders();
 
         return createdOrders;
     } catch (err) {
@@ -737,23 +777,6 @@ async function cancelOrder(orderId, reason) {
     }
 }
 
-// Buyer confirms a courier-delivered order arrived (releases escrow).
-async function receiveOrder(orderId) {
-    const number = String(orderId || '').replace(/^#/, '');
-
-    try {
-        const updated = await apiFetch(`/buyer/orders/${encodeURIComponent(number)}/receive`, { method: 'POST' });
-
-        await loadOrders();
-
-        return { order: updated, error: null };
-    } catch (err) {
-        console.error('Error confirming receipt:', err);
-
-        return { order: null, error: err?.message || 'Could not confirm receipt.' };
-    }
-}
-
 /*
 |--------------------------------------------------------------------------
 | Reviews
@@ -793,16 +816,95 @@ async function loadReviews() {
  * Returns the created review on success, or null on failure (the caller
  * is responsible for surfacing the thrown error's message).
  */
+// A review with photos goes as multipart (images[]); without, as JSON.
+// `keepImages` (edits only) lists the current photos to keep.
+function reviewBody(review, extra = {}) {
+    const files = review.files || [];
+
+    if (!files.length && !Array.isArray(review.keepImages)) {
+        return JSON.stringify({ ...extra, rating: review.rating, comment: review.comment || null });
+    }
+
+    const form = new FormData();
+
+    Object.entries(extra).forEach(([key, value]) => form.append(key, value));
+    form.append('rating', String(review.rating));
+    form.append('comment', review.comment || '');
+
+    if (Array.isArray(review.keepImages) && review.keepImages.length === 0) {
+        // Present but empty: "remove every current photo".
+        form.append('keep_images', '');
+    }
+
+    (review.keepImages || []).forEach(url => form.append('keep_images[]', url));
+    files.forEach(file => form.append('images[]', file));
+
+    return form;
+}
+
+/*
+| After a review change: the buyer's own lists follow the saved review, and
+| every copy of the product gets its new public rating (useReviewSync).
+*/
+
+// The order line's review, in the shape OrderController returns it.
+function orderReviewFrom(saved) {
+    return {
+        id: saved.id,
+        rating: saved.rating,
+        comment: saved.comment,
+        images: saved.images || [],
+        createdAt: saved.createdAt,
+        updatedAt: saved.updatedAt,
+        isEdited: Boolean(saved.isEdited),
+    };
+}
+
+function syncOrderItemReview(orderItemId, review) {
+    if (!orderItemId) {
+        return;
+    }
+
+    orders.value.forEach((order) => {
+        (order.items || []).forEach((item) => {
+            if (item.id === orderItemId) {
+                item.review = review;
+            }
+        });
+    });
+}
+
+function rememberSavedReview(saved) {
+    const { productStats, ...review } = saved;
+    const index = reviews.value.findIndex(r => r.id === review.id);
+
+    if (index === -1) {
+        reviews.value = [review, ...reviews.value];
+    } else {
+        reviews.value[index] = review;
+    }
+
+    syncOrderItemReview(review.orderItemId, orderReviewFrom(review));
+    publishReviewChange(productStats);
+}
+
+onReviewChange((stats) => {
+    cart.value.forEach((item) => {
+        if (item.productId === stats.productId) {
+            item.rating = stats.rating;
+            item.reviewCount = stats.reviewCount;
+        }
+    });
+});
+
 async function submitReview(orderItemId, review) {
     try {
         const created = await apiFetch('/buyer/reviews', {
             method: 'POST',
-            body: JSON.stringify({
-                order_item_id: orderItemId,
-                rating: review.rating,
-                comment: review.comment || null,
-            }),
+            body: reviewBody(review, { order_item_id: orderItemId }),
         });
+
+        rememberSavedReview(created);
 
         return created;
     } catch (err) {
@@ -814,19 +916,20 @@ async function submitReview(orderItemId, review) {
 
 async function updateReview(reviewId, review) {
     try {
+        const body = reviewBody(review);
+        // PHP only parses multipart bodies on POST: spoof PUT for photos.
+        const multipart = body instanceof FormData;
+
+        if (multipart) {
+            body.append('_method', 'PUT');
+        }
+
         const updated = await apiFetch(`/buyer/reviews/${encodeURIComponent(reviewId)}`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                rating: review.rating,
-                comment: review.comment || null,
-            }),
+            method: multipart ? 'POST' : 'PUT',
+            body,
         });
 
-        const index = reviews.value.findIndex(r => r.id === reviewId);
-
-        if (index !== -1) {
-            reviews.value[index] = updated;
-        }
+        rememberSavedReview(updated);
 
         return updated;
     } catch (err) {
@@ -838,11 +941,15 @@ async function updateReview(reviewId, review) {
 
 async function deleteReview(reviewId) {
     try {
-        await apiFetch(`/buyer/reviews/${encodeURIComponent(reviewId)}`, {
+        const removed = reviews.value.find(r => r.id === reviewId);
+        const result = await apiFetch(`/buyer/reviews/${encodeURIComponent(reviewId)}`, {
             method: 'DELETE',
         });
 
         reviews.value = reviews.value.filter(r => r.id !== reviewId);
+        // The order line can be reviewed again.
+        syncOrderItemReview(removed?.orderItemId, null);
+        publishReviewChange(result?.productStats);
 
         return true;
     } catch (err) {
@@ -932,7 +1039,7 @@ async function submitReturnRequest(orderItemId, request) {
                 order_item_id: orderItemId,
                 request_type: request.requestType,
                 reason: request.reason,
-                other_reason: request.otherReason || null,
+                other_reason: request.reason === 'other' ? request.otherReason : null,
                 details: request.details,
                 quantity: request.quantity,
                 evidence,
@@ -1010,7 +1117,6 @@ export function useBuyer() {
         getOrderById,
         placeOrder,
         cancelOrder,
-        receiveOrder,
 
         reviews,
         isLoadingReviews,

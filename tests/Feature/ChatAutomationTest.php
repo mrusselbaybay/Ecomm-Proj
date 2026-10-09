@@ -59,7 +59,8 @@ it('sends the generic away response for free text and keeps seller attention req
         'body' => 'Hello?',
     ])->assertCreated()
         ->assertJsonCount(2, 'data.messages')
-        ->assertJsonPath('data.messages.1.isAutomatic', true);
+        ->assertJsonPath('data.messages.1.isAutomatic', true)
+        ->assertJsonPath('data.messages.1.source', 'auto_reply_welcome');
 
     $conversation = Conversation::query()->where('buyer_id', $buyer->id)->where('seller_id', $seller->id)->firstOrFail();
 
@@ -69,7 +70,8 @@ it('sends the generic away response for free text and keeps seller attention req
         ->assertJsonPath('data.autoReply.text', 'I am away right now.')
         ->assertJsonPath('data.autoReply.source', 'auto_reply_generic');
 
-    expect(Message::query()->where('source', 'auto_reply_generic')->count())->toBe(2)
+    expect(Message::query()->where('source', 'auto_reply_welcome')->count())->toBe(1)
+        ->and(Message::query()->where('source', 'auto_reply_generic')->count())->toBe(1)
         ->and($conversation->fresh()->seller_attention_status)->toBe('needs_reply');
 });
 

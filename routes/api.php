@@ -12,11 +12,11 @@ use App\Http\Controllers\Admin\SellerComplianceController;
 use App\Http\Controllers\Admin\StaffAccountController;
 use App\Http\Controllers\Admin\UserAccountController;
 use App\Http\Controllers\Api\AccountController;
-use App\Http\Controllers\Api\CourierEarningController;
 use App\Http\Controllers\Api\Courier\CourierApplicationController;
 use App\Http\Controllers\Api\Courier\CourierProfileController;
 use App\Http\Controllers\Api\Courier\LogisticsCompanyController;
 use App\Http\Controllers\Api\Courier\ResignationRequestController as CourierResignationRequestController;
+use App\Http\Controllers\Api\CourierEarningController;
 use App\Http\Controllers\Api\Logistics\InvitationController as LogisticsInvitationController;
 use App\Http\Controllers\Api\Logistics\LogisticsAccountController;
 use App\Http\Controllers\Api\Logistics\LogisticsApplicationController;
@@ -43,7 +43,9 @@ use App\Http\Controllers\Messaging\MessageAttachmentController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\PsgcProxyController;
+use App\Http\Controllers\SearchSuggestionController;
 use App\Http\Controllers\Seller\ChatRuleCompatibilityController;
+use App\Http\Controllers\StoreController;
 use App\Mail\RegistrationApproved;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
@@ -100,11 +102,18 @@ Route::middleware(['auth.token', 'seller'])->group(function () {
 // PUBLIC PRODUCT CATALOG (buyer storefront browsing)
 // ============================================================
 Route::get('/products', [ProductController::class, 'index'])->name('products.index');
+Route::get('/products/related', [ProductController::class, 'related'])->name('products.related');
 Route::get('/products/{id}', [ProductController::class, 'show'])->name('products.show');
 Route::get('/products/{id}/reviews', [ProductController::class, 'reviews'])->name('products.reviews');
 Route::get('/products/{id}/vouchers', [VoucherController::class, 'forProduct'])->name('products.vouchers');
 // Legacy alias for the mobile app (one release cycle).
 Route::get('/products/{id}/coupons', [VoucherController::class, 'forProduct'])->name('products.coupons');
+
+Route::get('/stores', [StoreController::class, 'index'])->name('stores.index');
+Route::get('/stores/{id}/vouchers', [VoucherController::class, 'forStore'])->name('stores.vouchers');
+Route::get('/stores/{id}', [StoreController::class, 'show'])->name('stores.show');
+Route::get('/stores/{id}/reviews', [StoreController::class, 'reviews'])->name('stores.reviews');
+Route::get('/search/suggestions', SearchSuggestionController::class)->name('search.suggestions');
 
 // ============================================================
 // CUSTOMER SERVICE (all active public account roles)
@@ -517,7 +526,6 @@ Route::middleware(['auth.token', 'admin'])
         Route::get('/compliance/products', [SellerComplianceController::class, 'index'])->name('compliance.products.index');
         Route::post('/compliance/products/{product}/actions', [SellerComplianceController::class, 'store'])->name('compliance.products.actions.store');
 
-
         Route::get('/complaints', [ComplaintController::class, 'index'])->name('complaints.index');
 
         // Platform commission + escrow cash flow (incl. platform voucher subsidy).
@@ -556,7 +564,6 @@ Route::middleware(['auth.token', 'admin:logistics_admin'])
     ->name('logistics-admin.')
     ->group(function () use ($sharedAdminRoutes): void {
         $sharedAdminRoutes();
-
 
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');

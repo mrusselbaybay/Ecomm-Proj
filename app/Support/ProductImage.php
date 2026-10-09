@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Services\FileStorage;
+
 /**
  * Normalizes whatever is stored in products.images / product_variants.image
  * into safe, ready-to-render URL strings for the buyer-facing API.
@@ -22,6 +24,17 @@ namespace App\Support;
  */
 class ProductImage
 {
+    /** @param list<string> $columns */
+    public static function selectWithLiteImages($query, array $columns): mixed
+    {
+        return $query->select($columns)->addSelect('products.images');
+    }
+
+    public static function cardUrl(object $product): ?string
+    {
+        return self::urls($product->images ?? null)[0] ?? null;
+    }
+
     /**
      * Supabase Storage bucket that product image *paths* resolve against.
      * Matches the bucket name the seller Inventory upload note references
@@ -120,7 +133,7 @@ class ProductImage
         }
 
         // Otherwise it's a path inside the product image bucket.
-        return app(\App\Services\FileStorage::class)->publicUrl(self::BUCKET, $raw);
+        return app(FileStorage::class)->publicUrl(self::BUCKET, $raw);
     }
 
     private static function isUrlObject(mixed $value): bool

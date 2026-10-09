@@ -1,119 +1,73 @@
 <script setup>
-import { navigate } from '../composables/useBuyerNav';
-import {
-    computed,
-    nextTick,
-    onBeforeUnmount,
-    onMounted,
-    reactive,
-    ref
-} from 'vue';
+/*
+|--------------------------------------------------------------------------
+| Account.vue — Account Settings
+|--------------------------------------------------------------------------
+|
+| Adapted from a pasted reference design ("ShopVerse Account Settings")
+| onto BuyTheWay's real data and components, following the same approach as
+| CategoryListing.vue: Tailwind utilities (matching Cart.vue's precedent),
+| the shared Header/Footer, and #0d9488 brand teal the reference already
+| used. The old version of this page rendered against a hardcoded mock
+| profile ("Juan Dela Cruz") with zero matching CSS anywhere in the
+| project — see useBuyerAccount.js for the data-layer half of this fix.
+|
+| Sidebar nav mirrors the reference's structure, but only "My Profile",
+| "My Orders", and now "Wishlist" go anywhere real. My Reviews / Saved
+| Addresses / Payment Methods don't have a page (or, for Payment Methods,
+| any real storage) to send someone to yet, so they're shown clearly
+| disabled with a "Soon" badge rather than as dead clicks or, worse, forms
+| that imply data is being saved when nothing is. The Notifications &
+| Marketing preferences live in their own section further down this page.
+|
+| "Order Tracking" deliberately isn't listed here at all, real or
+| disabled — it only means anything once a specific order is in view
+| (OrderDetails.vue / OrderTracking.vue), and showing it as a generic
+| destination from a page with no order selected was worse than not
+| showing it: clicking it just detours to My Orders, where the exact same
+| label then appears again for real, reading as broken rather than as a
+| deliberate handoff.
+|
+*/
+import { ref, reactive, computed, onMounted } from 'vue';
+import Header from './Header.vue';
+import Footer from './Footer.vue';
 import { useBuyerAccount } from '../composables/useBuyerAccount';
-import { useBuyerAddresses } from '../composables/useBuyerAddresses';
-import AvatarCropper from './AvatarCropper.vue';
-import AddressPinPicker from '../../shared/AddressPinPicker.vue';
-import SwitchAccountCard from '../../shared/SwitchAccountCard.vue';
-import { getSupabase } from '../composables/useBuyerSession';
+import { isValidLocalMobile, toLocalMobile } from '../composables/usePhone';
 
-const emit = defineEmits(['back', 'view-orders']);
+const emit = defineEmits([
+    'back',
+    'view-orders',
+    'view-wishlist',
+    'view-reviews',
+    'view-addresses',
+    'view-payments',
+    'search',
+    'select-category',
+    'open-cart'
+]);
 
 const {
-    profile,
-    address,
-    isLoadingProfile,
-    loadError,
-    isSaving,
+    buyerProfile,
+    isLoadingSession,
     buyerFullName,
     buyerInitials,
     buyerAge,
     calculateAge,
-    loadBuyerAccount,
     updateBuyerProfile,
-    uploadBuyerAvatar,
-    deactivateBuyerAccount,
-    confirmLogout
+    changePassword
 } = useBuyerAccount();
 
-// The server mirrors the account address onto the default saved address,
-// so refresh the address book after a save.
-const { loadAddresses } = useBuyerAddresses();
+/*
+|--------------------------------------------------------------------------
+| Profile Edit Form
+|--------------------------------------------------------------------------
+*/
 
-const PSGC_BASE = '/api/psgc';
-
-// ------------------------------------------------------------
-// Icons (inline SVG)
-// ------------------------------------------------------------
-const icons = {
-    key: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>`,
-    warning: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
-    check: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg>`,
-    close: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
-    alert: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
-    lock: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
-    location: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" /><circle cx="12" cy="10" r="3" /></svg>`,
-    camera: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg>`
-};
-
-// ------------------------------------------------------------
-// Toast message
-// ------------------------------------------------------------
-const message = ref('');
-const messageType = ref('success');
-let messageTimer = null;
-
-function showMessage(text, type = 'success') {
-    message.value = text;
-    messageType.value = type;
-    clearTimeout(messageTimer);
-
-    if (type === 'success') {
-        messageTimer = setTimeout(() => {
-            message.value = '';
-        }, 4000);
-    }
-}
-
-// ------------------------------------------------------------
-// Profile picture
-// ------------------------------------------------------------
-const avatarInput = ref(null);
-const uploadingAvatar = ref(false);
-const cropFile = ref(null); // the just-picked File, shown in AvatarCropper until cropped or cancelled
-
-function triggerAvatarUpload() {
-    avatarInput.value?.click();
-}
-
-function onAvatarSelected(event) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-
-    if (file) {
-        cropFile.value = file;
-    }
-}
-
-function cancelAvatarCrop() {
-    cropFile.value = null;
-}
-
-async function onAvatarCropped(blob) {
-    cropFile.value = null;
-    uploadingAvatar.value = true;
-    const ok = await uploadBuyerAvatar(blob);
-    uploadingAvatar.value = false;
-
-    showMessage(
-        ok ? 'Profile picture updated.' : 'Failed to upload profile picture. Please try again.',
-        ok ? 'success' : 'error'
-    );
-}
-
-// ------------------------------------------------------------
-// Personal Information + Home Address (single edit toggle)
-// ------------------------------------------------------------
 const isEditing = ref(false);
+const isSaving = ref(false);
 const errors = ref({});
+const successMessage = ref('');
 
 const draft = reactive({
     firstName: '',
@@ -121,18 +75,7 @@ const draft = reactive({
     lastName: '',
     sex: '',
     contactNumber: '',
-    birthday: '',
-
-    regionCode: '',
-    regionName: '',
-    provinceCode: '',
-    provinceName: '',
-    municipalityCode: '',
-    municipalityName: '',
-    barangay: '',
-    street: '',
-    houseNo: '',
-    pin: null
+    birthday: ''
 });
 
 const maximumBirthday = computed(() => {
@@ -146,116 +89,36 @@ const maximumBirthday = computed(() => {
 
 const draftAge = computed(() => calculateAge(draft.birthday));
 
-const accountStatusLabel = computed(() => {
-    const status = profile.value?.account_status || '';
-
-    return status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown';
-});
-
-const fullAddressOnFile = computed(() => {
-    if (!address.value) {
-        return 'No address on file yet.';
+function copyProfileToDraft() {
+    if (!buyerProfile.value) {
+        return;
     }
 
-    return [
-        address.value.house_no,
-        address.value.street,
-        address.value.barangay,
-        address.value.municipality_name,
-        address.value.province_name,
-        address.value.region_name
-    ].filter(Boolean).join(', ') || 'No address on file yet.';
-});
-
-function copyStateToDraft() {
-    if (profile.value) {
-        draft.firstName = profile.value.first_name || '';
-        draft.middleInitial = profile.value.middle_initial || '';
-        draft.lastName = profile.value.last_name || '';
-        draft.sex = profile.value.sex || '';
-        draft.contactNumber = profile.value.contact_no || '';
-        draft.birthday = profile.value.birthday || '';
-    }
-
-    if (address.value) {
-        // region_code and region_name are always the same literal string
-        // here (Luzon/Visayas/Mindanao — see onRegionChange's comment),
-        // but older addresses (set at signup, before this Account page
-        // existed) only ever had region_name written. Falling back to it
-        // keeps the Region select — and everything the province/
-        // municipality/barangay cascade below depends on it for — from
-        // starting blank and forcing the whole address to be redone just
-        // because the buyer opened Edit Profile.
-        draft.regionCode = address.value.region_code || address.value.region_name || '';
-        draft.regionName = address.value.region_name || address.value.region_code || '';
-        draft.provinceCode = address.value.province_code || '';
-        draft.provinceName = address.value.province_name || '';
-        draft.municipalityCode = address.value.municipality_code || '';
-        draft.municipalityName = address.value.municipality_name || '';
-        draft.barangay = address.value.barangay || '';
-        draft.street = address.value.street || '';
-        draft.houseNo = address.value.house_no || '';
-        draft.pin = address.value.latitude != null && address.value.longitude != null
-            ? { lat: Number(address.value.latitude), lng: Number(address.value.longitude) }
-            : null;
-    } else {
-        draft.regionCode = '';
-        draft.regionName = '';
-        draft.provinceCode = '';
-        draft.provinceName = '';
-        draft.municipalityCode = '';
-        draft.municipalityName = '';
-        draft.barangay = '';
-        draft.street = '';
-        draft.houseNo = '';
-        draft.pin = null;
-    }
+    draft.firstName = buyerProfile.value.first_name || '';
+    draft.middleInitial = buyerProfile.value.middle_initial || '';
+    draft.lastName = buyerProfile.value.last_name || '';
+    draft.sex = buyerProfile.value.sex || '';
+    draft.contactNumber = toLocalMobile(buyerProfile.value.contact_no || '');
+    draft.birthday = buyerProfile.value.birthday || '';
 }
 
-function formatDate(date) {
-    if (!date) {
-        return 'Not available';
-    }
-
-    return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    });
+// Keep the contact field digits-only and capped at 11 on every keystroke
+// and paste — see usePhone.js.
+function onContactInput(event) {
+    draft.contactNumber = toLocalMobile(event.target.value);
 }
 
-function formatDateTime(date) {
-    if (!date) {
-        return 'Not available';
-    }
+copyProfileToDraft();
 
-    return new Date(date).toLocaleString();
-}
-
-async function startEditing() {
-    copyStateToDraft();
+function startEditing() {
+    copyProfileToDraft();
     errors.value = {};
+    successMessage.value = '';
     isEditing.value = true;
-
-    // Show the saved province/municipality/barangay immediately — same
-    // reasoning as onMounted()'s own call — instead of the selects
-    // sitting blank for the moment it takes fetchProvinces() etc. below
-    // to resolve, which otherwise looks like nothing was ever saved.
-    seedAddressOptionsFromDraft();
-
-    await fetchProvinces();
-
-    if (draft.provinceCode) {
-        await fetchMunicipalities(draft.provinceCode, { preserveSelection: true });
-    }
-
-    if (draft.municipalityCode) {
-        await fetchBarangays(draft.municipalityCode, { preserveSelection: true });
-    }
 }
 
 function cancelEditing() {
-    copyStateToDraft();
+    copyProfileToDraft();
     errors.value = {};
     isEditing.value = false;
 }
@@ -279,12 +142,10 @@ function validateProfile() {
         nextErrors.sex = 'Sex is required.';
     }
 
-    const normalizedContact = draft.contactNumber.replace(/[\s-]/g, '');
-
-    if (!normalizedContact) {
+    if (!draft.contactNumber) {
         nextErrors.contactNumber = 'Contact number is required.';
-    } else if (!/^09\d{9}$/.test(normalizedContact)) {
-        nextErrors.contactNumber = 'Use 09XXXXXXXXX.';
+    } else if (!isValidLocalMobile(draft.contactNumber)) {
+        nextErrors.contactNumber = 'Enter an 11-digit mobile number, e.g. 09171234567.';
     }
 
     if (!draft.birthday) {
@@ -295,1543 +156,781 @@ function validateProfile() {
         nextErrors.birthday = 'Enter a valid birthday.';
     }
 
-    if (!draft.regionCode) {
-        nextErrors.region = 'Please select a region.';
-    }
-
-    if (!draft.provinceCode) {
-        nextErrors.province = 'Please select a province.';
-    }
-
-    if (!draft.municipalityCode) {
-        nextErrors.municipality = 'Please select a municipality/city.';
-    }
-
-    if (!draft.barangay) {
-        nextErrors.barangay = 'Please select a barangay.';
-    }
-
-    if (!draft.street.trim()) {
-        nextErrors.street = 'Street is required.';
-    }
-
-    // Riders and the tracking map need the exact spot, not just the barangay.
-    if (!draft.pin) {
-        nextErrors.pin = 'Pin your exact location on the map.';
-    }
-
     errors.value = nextErrors;
 
     return Object.keys(nextErrors).length === 0;
 }
 
 async function saveProfile() {
+    successMessage.value = '';
+
     if (!validateProfile()) {
         return;
     }
 
-    const saved = await updateBuyerProfile({
-        first_name: draft.firstName.trim(),
-        last_name: draft.lastName.trim(),
-        middle_initial: draft.middleInitial.trim().toUpperCase().slice(0, 1) || null,
-        sex: draft.sex,
-        birthday: draft.birthday,
-        contact_no: draft.contactNumber.replace(/[\s-]/g, ''),
+    isSaving.value = true;
 
-        region_code: draft.regionCode,
-        region_name: draft.regionName,
-        province_code: draft.provinceCode,
-        province_name: draft.provinceName,
-        municipality_code: draft.municipalityCode,
-        municipality_name: draft.municipalityName,
-        barangay: draft.barangay,
-        street: draft.street.trim(),
-        house_no: draft.houseNo.trim() || null,
-        latitude: draft.pin?.lat ?? null,
-        longitude: draft.pin?.lng ?? null
+    const { error } = await updateBuyerProfile({
+        ...draft,
+        contactNumber: toLocalMobile(draft.contactNumber)
     });
 
-    if (!saved) {
-        showMessage('Something went wrong while saving your profile.', 'error');
+    isSaving.value = false;
+
+    if (error) {
+        errors.value = { form: error };
         return;
     }
 
-    loadAddresses({ force: true });
-    copyStateToDraft();
     errors.value = {};
     isEditing.value = false;
-    showMessage('Your profile was updated successfully.');
+    successMessage.value = 'Your profile was updated successfully.';
 }
 
-// ------------------------------------------------------------
-// PSGC address lookups (mirrors resources/js/seller/components/
-// Profile.vue's "Store Address" section — the same province /
-// municipality / barangay API dropdown used across the app).
-//
-// Two speed fixes ported from the seller side:
-//  1. One `/provinces` call instead of fanning out to every region —
-//     the upstream PSGC API already returns the full province list
-//     regardless of `region_code`, so looping over ~17 regions was
-//     ~17x more requests for the exact same data.
-//  2. Results are cached in sessionStorage (24h TTL) in addition to
-//     the in-memory cache, so a repeat visit this session skips the
-//     network entirely instead of re-fetching on every mount.
-// ------------------------------------------------------------
-// Same three-way Luzon/Visayas/Mindanao split already used by the
-// logistics company signup form (resources/js/app.js) — not the PSGC
-// API's own 17-region breakdown (NCR, CAR, Region I-XIII, BARMM), which
-// would be a different, unrelated field.
-const REGION_OPTIONS = ['Luzon', 'Visayas', 'Mindanao'];
-
-const provinceOptions = ref([]);
-const municipalityOptions = ref([]);
-const barangayOptions = ref([]);
-const loadingProvinces = ref(false);
-const loadingMunicipalities = ref(false);
-const loadingBarangays = ref(false);
-const addressApiError = ref('');
-const provinceCache = { value: [] };
-const municipalityCache = new Map();
-const barangayCache = new Map();
-const ADDRESS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-
-// Provinces scoped to the currently selected island group. Every province
-// the PSGC API returns already carries its own `islandGroupCode`
-// ('luzon' | 'visayas' | 'mindanao'), so this is a client-side filter over
-// the one full province list already fetched — no extra network call.
-const filteredProvinceOptions = computed(() => {
-    if (!draft.regionCode) {
-        return provinceOptions.value;
-    }
-
-    return provinceOptions.value.filter(
-        (p) => p.islandGroupCode === draft.regionCode.toLowerCase(),
-    );
-});
-
-function readAddressCache(key) {
-    try {
-        const cached = JSON.parse(sessionStorage.getItem(key) || 'null');
-
-        if (
-            cached &&
-            Array.isArray(cached.data) &&
-            Date.now() - cached.savedAt < ADDRESS_CACHE_TTL_MS
-        ) {
-            return cached.data;
-        }
-    } catch {
-        // Storage can be unavailable in private/restricted browser contexts.
-    }
-
-    return null;
-}
-
-function writeAddressCache(key, data) {
-    try {
-        sessionStorage.setItem(key, JSON.stringify({ data, savedAt: Date.now() }));
-    } catch {
-        // A failed cache write must never prevent the form from loading.
-    }
-}
-
-function dedupeByCodeOrName(items = []) {
-    const seen = new Map();
-
-    for (const item of items) {
-        if (!item || typeof item !== 'object') {
-            continue;
-        }
-
-        const code = String(item.code ?? '').trim();
-        const name = String(item.name ?? '').trim();
-
-        if (!code && !name) {
-            continue;
-        }
-
-        const key = code || name.toLowerCase().replace(/\s+/g, ' ');
-
-        if (!seen.has(key)) {
-            seen.set(key, item);
-        }
-    }
-
-    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
-}
-
-/**
- * Seeds provinceOptions/municipalityOptions/barangayOptions with just the
- * current draft codes so the read-only <select> shows the saved address
- * immediately, instead of appearing blank while the full lists load in
- * the background.
- */
-function seedAddressOptionsFromDraft() {
-    if (draft.provinceCode && !provinceOptions.value.some((p) => p.code === draft.provinceCode)) {
-        provinceOptions.value = [
-            { code: draft.provinceCode, name: draft.provinceName || draft.provinceCode },
-            ...provinceOptions.value
-        ];
-    }
-
-    if (
-        draft.municipalityCode &&
-        !municipalityOptions.value.some((m) => m.code === draft.municipalityCode)
-    ) {
-        municipalityOptions.value = [
-            {
-                code: draft.municipalityCode,
-                name: draft.municipalityName || draft.municipalityCode
-            },
-            ...municipalityOptions.value
-        ];
-    }
-
-    if (draft.barangay && !barangayOptions.value.some((b) => b.name === draft.barangay)) {
-        barangayOptions.value = [{ code: 'current', name: draft.barangay }, ...barangayOptions.value];
-    }
-}
-
-function onRegionChange(event) {
-    // Read the newly picked region straight off the DOM event rather
-    // than trusting draft.regionCode to already reflect it — v-model's
-    // own update and this @change handler both fire off the same native
-    // 'change' event, and relying on draft.regionCode here would be
-    // reading a stale value if v-model's write hasn't landed yet.
-    const newRegionCode = event.target.value;
-
-    draft.regionCode = newRegionCode;
-    // Region and its "name" are the same static string here (Luzon/
-    // Visayas/Mindanao) — no separate code/name pair to look up, unlike
-    // province/municipality which come from the PSGC API.
-    draft.regionName = newRegionCode;
-
-    // A province genuinely belongs to only one island-group region, so
-    // *correcting* the region really does invalidate a province from a
-    // different one. But a lot of addresses (anything set before this
-    // page collected region at all) have no region on file yet while
-    // their province/municipality/barangay are perfectly valid — picking
-    // a region here for the first time is filling in a gap, not fixing a
-    // mismatch, and Laguna doesn't stop being in Luzon just because the
-    // buyer only now told us their region is Luzon.
-    //
-    // Only clear the downstream fields when the current province is
-    // confirmed to belong to a *different* region. If that can't be
-    // confirmed yet (full province list still loading, or this is a
-    // seeded placeholder entry with no island-group data of its own),
-    // leave everything as-is rather than destroying data that's most
-    // likely still correct.
-    const currentProvince = provinceOptions.value.find((p) => p.code === draft.provinceCode);
-    const stillValid = !currentProvince?.islandGroupCode
-        || currentProvince.islandGroupCode === newRegionCode.toLowerCase();
-
-    if (stillValid) {
-        return;
-    }
-
-    draft.provinceCode = '';
-    draft.provinceName = '';
-    draft.municipalityCode = '';
-    draft.municipalityName = '';
-    barangayOptions.value = [];
-    draft.barangay = '';
-}
-
-// Preserves the buyer's already-saved province in `provinceOptions` even
-// when it's missing from `list` (a PSGC dataset change, a stale cache
-// entry written before this check existed, etc.) — otherwise the
-// <select> has no matching <option> for draft.provinceCode, renders
-// blank, and the buyer looks like they need to pick a province they'd
-// already set. Applied on every path fetchProvinces() can return
-// through (cache hit or network), not just the network one.
-function applyProvinceList(list) {
-    if (draft.provinceCode && !list.some((p) => p.code === draft.provinceCode)) {
-        provinceOptions.value = [
-            { code: draft.provinceCode, name: draft.provinceName || draft.provinceCode },
-            ...list
-        ];
-
-        return;
-    }
-
-    provinceOptions.value = list;
-}
-
-async function fetchProvinces() {
-    if (provinceCache.value.length > 0) {
-        applyProvinceList(provinceCache.value);
-
-        return;
-    }
-
-    const cachedProvinces = readAddressCache('buyer-address:provinces');
-
-    if (cachedProvinces?.length) {
-        provinceCache.value = cachedProvinces;
-        applyProvinceList(cachedProvinces);
-
-        return;
-    }
-
-    loadingProvinces.value = true;
-    addressApiError.value = '';
-
-    try {
-        // Prefer one all-provinces request. Keep the region fan-out as a
-        // compatibility fallback for older PSGC proxy routes.
-        let allProvinces = [];
-        const allRes = await fetch(`${PSGC_BASE}/provinces?limit=200`);
-
-        if (allRes.ok) {
-            const allJson = await allRes.json();
-            allProvinces = dedupeByCodeOrName(allJson.data || []);
-        }
-
-        if (allProvinces.length === 0) {
-            const regionsRes = await fetch(`${PSGC_BASE}/regions?limit=100`);
-
-            if (!regionsRes.ok) {
-                throw new Error('Request failed: ' + regionsRes.status);
-            }
-
-            const regionsJson = await regionsRes.json();
-            const regions = regionsJson.data || [];
-
-            const provinceResults = await Promise.all(
-                regions.map(async (r) => {
-                    try {
-                        const res = await fetch(`${PSGC_BASE}/provinces?region_code=${r.code}`);
-
-                        if (!res.ok) {
-                            return [];
-                        }
-
-                        const json = await res.json();
-
-                        return json.data || [];
-                    } catch {
-                        return [];
-                    }
-                })
-            );
-
-            allProvinces = dedupeByCodeOrName(provinceResults.flat());
-        }
-
-        if (allProvinces.length === 0) {
-            throw new Error('No provinces returned');
-        }
-
-        provinceCache.value = allProvinces;
-        writeAddressCache('buyer-address:provinces', allProvinces);
-        applyProvinceList(allProvinces);
-    } catch {
-        addressApiError.value =
-            'Could not load provinces from the PSGC API. Check your connection and retry.';
-    } finally {
-        loadingProvinces.value = false;
-    }
-}
-
-async function fetchMunicipalities(provinceCode, { preserveSelection = false } = {}) {
-    if (!preserveSelection) {
-        municipalityOptions.value = [];
-        barangayOptions.value = [];
-        draft.municipalityCode = '';
-        draft.municipalityName = '';
-        draft.barangay = '';
-    }
-
-    if (!provinceCode) {
-        return;
-    }
-
-    const cacheKey = `buyer-address:municipalities:${provinceCode}`;
-    const cachedData = municipalityCache.get(provinceCode) || readAddressCache(cacheKey);
-
-    if (cachedData?.length) {
-        municipalityCache.set(provinceCode, cachedData);
-
-        if (
-            preserveSelection &&
-            draft.municipalityCode &&
-            !cachedData.some((m) => m.code === draft.municipalityCode)
-        ) {
-            municipalityOptions.value = [
-                { code: draft.municipalityCode, name: draft.municipalityName },
-                ...cachedData
-            ];
-        } else {
-            municipalityOptions.value = cachedData;
-        }
-
-        return;
-    }
-
-    loadingMunicipalities.value = true;
-    addressApiError.value = '';
-
-    try {
-        const res = await fetch(`${PSGC_BASE}/cities-municipalities?province_code=${provinceCode}`);
-
-        if (!res.ok) {
-            throw new Error('Request failed: ' + res.status);
-        }
-
-        const json = await res.json();
-        const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
-
-        municipalityCache.set(provinceCode, data);
-        writeAddressCache(cacheKey, data);
-
-        if (
-            preserveSelection &&
-            draft.municipalityCode &&
-            !data.some((m) => m.code === draft.municipalityCode)
-        ) {
-            municipalityOptions.value = [
-                { code: draft.municipalityCode, name: draft.municipalityName },
-                ...data
-            ];
-        } else {
-            municipalityOptions.value = data;
-        }
-    } catch {
-        addressApiError.value = 'Could not load cities/municipalities. Please try again.';
-    } finally {
-        loadingMunicipalities.value = false;
-    }
-}
-
-async function fetchBarangays(municipalityCode, { preserveSelection = false } = {}) {
-    if (!preserveSelection) {
-        barangayOptions.value = [];
-        draft.barangay = '';
-    }
-
-    if (!municipalityCode) {
-        return;
-    }
-
-    const cacheKey = `buyer-address:barangays:${municipalityCode}`;
-    const cachedData = barangayCache.get(municipalityCode) || readAddressCache(cacheKey);
-
-    if (cachedData?.length) {
-        barangayCache.set(municipalityCode, cachedData);
-
-        if (preserveSelection && draft.barangay && !cachedData.some((b) => b.name === draft.barangay)) {
-            barangayOptions.value = [{ code: 'current', name: draft.barangay }, ...cachedData];
-        } else {
-            barangayOptions.value = cachedData;
-        }
-
-        return;
-    }
-
-    loadingBarangays.value = true;
-    addressApiError.value = '';
-
-    try {
-        const res = await fetch(
-            `${PSGC_BASE}/barangays?city_municipality_code=${municipalityCode}&limit=500`
-        );
-
-        if (!res.ok) {
-            throw new Error('Request failed: ' + res.status);
-        }
-
-        const json = await res.json();
-        const data = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
-
-        barangayCache.set(municipalityCode, data);
-        writeAddressCache(cacheKey, data);
-
-        if (preserveSelection && draft.barangay && !data.some((b) => b.name === draft.barangay)) {
-            barangayOptions.value = [{ code: 'current', name: draft.barangay }, ...data];
-        } else {
-            barangayOptions.value = data;
-        }
-    } catch {
-        addressApiError.value = 'Could not load barangays. Please try again.';
-    } finally {
-        loadingBarangays.value = false;
-    }
-}
-
-function onProvinceChange() {
-    const selected = provinceOptions.value.find((p) => p.code === draft.provinceCode);
-    draft.provinceName = selected?.name || '';
-    fetchMunicipalities(draft.provinceCode);
-}
-
-function onMunicipalityChange() {
-    const selected = municipalityOptions.value.find((m) => m.code === draft.municipalityCode);
-    draft.municipalityName = selected?.name || '';
-    fetchBarangays(draft.municipalityCode);
-}
-
-// ------------------------------------------------------------
-// Security & Password (email verification code flow — same
-// endpoints and steps as the admin account settings page).
-// ------------------------------------------------------------
-const passwordDots = '•'.repeat(12);
+/*
+|--------------------------------------------------------------------------
+| Password Change
+|--------------------------------------------------------------------------
+*/
 
 const showPasswordModal = ref(false);
-const passwordStep = ref('request'); // request | verify | update
-const sendingCode = ref(false);
+const passwordForm = reactive({ next: '', confirm: '' });
+const passwordVisible = ref(false);
 const passwordError = ref('');
-const codeDigits = ref(['', '', '', '', '', '']);
-const codeInputs = ref([]);
-const verifyingCode = ref(false);
-const verifyError = ref('');
-const countdown = ref(0);
-let countdownTimer = null;
-const newPassword = ref('');
-const confirmPassword = ref('');
-const updatingPassword = ref(false);
-const updateError = ref('');
-
-const maskedEmail = computed(() => {
-    const email = profile.value?.email || '';
-    const [user, domain] = email.split('@');
-
-    if (!domain) {
-        return email;
-    }
-
-    const visible = user.slice(0, Math.min(2, user.length));
-
-    return `${visible}${'*'.repeat(Math.max(user.length - visible.length, 1))}@${domain}`;
-});
-
-const formattedCountdown = computed(() => {
-    const m = Math.floor(countdown.value / 60);
-    const s = countdown.value % 60;
-
-    return `${m}:${String(s).padStart(2, '0')}`;
-});
-
-const passwordStrength = computed(() => {
-    const value = newPassword.value;
-    let score = 0;
-
-    if (value.length >= 8) score += 1;
-    if (value.length >= 12) score += 1;
-    if (/[A-Z]/.test(value)) score += 1;
-    if (/[0-9]/.test(value)) score += 1;
-    if (/[^A-Za-z0-9]/.test(value)) score += 1;
-
-    if (score <= 2) {
-        return { level: 'weak', label: 'Weak', percent: 33 };
-    }
-
-    if (score <= 3) {
-        return { level: 'medium', label: 'Medium', percent: 66 };
-    }
-
-    return { level: 'strong', label: 'Strong', percent: 100 };
-});
-
-const meetsPasswordRules = computed(
-    () =>
-        newPassword.value.length >= 8 &&
-        /[A-Z]/.test(newPassword.value) &&
-        /[0-9]/.test(newPassword.value) &&
-        /[^A-Za-z0-9]/.test(newPassword.value)
-);
-
-const canSubmitNewPassword = computed(
-    () =>
-        meetsPasswordRules.value &&
-        newPassword.value === confirmPassword.value &&
-        confirmPassword.value.length > 0
-);
-
-function startCountdown(seconds) {
-    clearInterval(countdownTimer);
-    countdown.value = seconds;
-    countdownTimer = setInterval(() => {
-        if (countdown.value <= 0) {
-            clearInterval(countdownTimer);
-            return;
-        }
-
-        countdown.value -= 1;
-    }, 1000);
-}
+const passwordSaving = ref(false);
+const passwordSuccess = ref(false);
 
 function openPasswordModal() {
-    passwordStep.value = 'request';
+    passwordForm.next = '';
+    passwordForm.confirm = '';
     passwordError.value = '';
-    codeDigits.value = ['', '', '', '', '', ''];
-    verifyError.value = '';
-    newPassword.value = '';
-    confirmPassword.value = '';
-    updateError.value = '';
+    passwordSuccess.value = false;
     showPasswordModal.value = true;
 }
 
 function closePasswordModal() {
     showPasswordModal.value = false;
-    clearInterval(countdownTimer);
-    countdown.value = 0;
-    codeDigits.value = ['', '', '', '', '', ''];
-    newPassword.value = '';
-    confirmPassword.value = '';
 }
 
-async function requestPasswordCode() {
-    sendingCode.value = true;
+async function submitPasswordChange() {
     passwordError.value = '';
 
-    try {
-        const response = await fetch('/api/password/send-code', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify({ email: profile.value?.email })
-        });
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            throw new Error(data.message || 'Failed to send verification code.');
-        }
-
-        startCountdown(data.expires_in_seconds || 15 * 60);
-        passwordStep.value = 'verify';
-        await nextTick();
-        codeInputs.value[0]?.focus();
-    } catch (error) {
-        passwordError.value = error.message;
-    } finally {
-        sendingCode.value = false;
-    }
-}
-
-async function resendCode() {
-    sendingCode.value = true;
-    verifyError.value = '';
-
-    try {
-        const response = await fetch('/api/password/resend-code', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify({ email: profile.value?.email })
-        });
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            throw new Error(data.message || 'Failed to resend code.');
-        }
-
-        startCountdown(data.expires_in_seconds || 15 * 60);
-        codeDigits.value = ['', '', '', '', '', ''];
-        await nextTick();
-        codeInputs.value[0]?.focus();
-    } catch (error) {
-        verifyError.value = error.message;
-    } finally {
-        sendingCode.value = false;
-    }
-}
-
-function onCodeInput(index, event) {
-    const raw = event.target.value.replace(/[^0-9]/g, '');
-    codeDigits.value[index] = raw.slice(-1);
-    verifyError.value = '';
-
-    if (raw && index < 5) {
-        codeInputs.value[index + 1]?.focus();
-    }
-
-    if (codeDigits.value.join('').length === 6) {
-        verifyCode();
-    }
-}
-
-function onCodeKeydown(index, event) {
-    if (event.key === 'Backspace' && !codeDigits.value[index] && index > 0) {
-        codeInputs.value[index - 1]?.focus();
-    }
-}
-
-async function verifyCode() {
-    const code = codeDigits.value.join('');
-
-    if (code.length !== 6) {
+    if (passwordForm.next.length < 8) {
+        passwordError.value = 'Use at least 8 characters.';
         return;
     }
 
-    verifyingCode.value = true;
-    verifyError.value = '';
-
-    try {
-        const response = await fetch('/api/password/verify-code', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify({ email: profile.value?.email, code })
-        });
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            throw new Error(data.message || 'The verification code entered is incorrect.');
-        }
-
-        passwordStep.value = 'update';
-    } catch (error) {
-        verifyError.value = error.message;
-    } finally {
-        verifyingCode.value = false;
-    }
-}
-
-async function submitNewPassword() {
-    if (!canSubmitNewPassword.value) {
+    if (passwordForm.next !== passwordForm.confirm) {
+        passwordError.value = 'Passwords do not match.';
         return;
     }
 
-    updatingPassword.value = true;
-    updateError.value = '';
+    passwordSaving.value = true;
 
-    try {
-        const response = await fetch('/api/password/reset', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify({
-                email: profile.value?.email,
-                code: codeDigits.value.join(''),
-                password: newPassword.value,
-                password_confirmation: confirmPassword.value
-            })
-        });
-        const data = await response.json().catch(() => ({}));
+    const { error } = await changePassword(passwordForm.next);
 
-        if (!response.ok) {
-            throw new Error(data.message || 'Failed to update password.');
-        }
+    passwordSaving.value = false;
 
-        closePasswordModal();
-        showMessage('Password changed successfully.');
-    } catch (error) {
-        updateError.value = error.message;
-    } finally {
-        updatingPassword.value = false;
-    }
-}
-
-// ------------------------------------------------------------
-// Logout
-// ------------------------------------------------------------
-const showLogoutConfirm = ref(false);
-
-// ------------------------------------------------------------
-// Danger Zone — self-deactivation
-// ------------------------------------------------------------
-const showDeactivateStep1 = ref(false);
-const showDeactivateStep2 = ref(false);
-const confirmPhrase = ref('');
-const deactivatePassword = ref('');
-const deactivateFormError = ref('');
-const deactivating = ref(false);
-const deactivateCountdown = ref(30);
-let deactivateTimer = null;
-
-function openDeactivateStep1() {
-    confirmPhrase.value = '';
-    showDeactivateStep1.value = true;
-}
-
-function openDeactivateStep2() {
-    if (confirmPhrase.value !== 'DEACTIVATE') {
+    if (error) {
+        passwordError.value = error;
         return;
     }
 
-    showDeactivateStep1.value = false;
-    showDeactivateStep2.value = true;
-    deactivatePassword.value = '';
-    deactivateFormError.value = '';
-    deactivateCountdown.value = 30;
-
-    clearInterval(deactivateTimer);
-    deactivateTimer = setInterval(() => {
-        if (deactivateCountdown.value <= 0) {
-            clearInterval(deactivateTimer);
-            return;
-        }
-
-        deactivateCountdown.value -= 1;
-    }, 1000);
+    passwordSuccess.value = true;
+    passwordForm.next = '';
+    passwordForm.confirm = '';
 }
 
-function closeDeactivateModals() {
-    showDeactivateStep1.value = false;
-    showDeactivateStep2.value = false;
-    confirmPhrase.value = '';
-    deactivatePassword.value = '';
-    clearInterval(deactivateTimer);
-}
+/*
+|--------------------------------------------------------------------------
+| Notification Preferences
+|--------------------------------------------------------------------------
+|
+| No `profiles` column or endpoint for these yet — same "confirms locally,
+| not actually persisted server-side" territory Footer.vue's newsletter
+| form already occupies in this codebase. Saved to localStorage (this is a
+| real browser app, not a sandboxed artifact) purely so a buyer's choice
+| survives a refresh; wiring these to something that actually changes what
+| emails/texts get sent is real backend work for later.
+|
+*/
 
-async function confirmDeactivate() {
-    if (!deactivatePassword.value || deactivateCountdown.value > 0) {
-        return;
-    }
+const NOTIF_STORAGE_KEY = 'nexmart_buyer_notification_prefs';
 
-    deactivating.value = true;
-    deactivateFormError.value = '';
-
-    try {
-        await deactivateBuyerAccount(confirmPhrase.value, deactivatePassword.value);
-
-        closeDeactivateModals();
-        showMessage('Your account has been deactivated. Signing you out…');
-        setTimeout(() => confirmLogout(), 1500);
-    } catch (error) {
-        deactivateFormError.value = error.message;
-    } finally {
-        deactivating.value = false;
-    }
-}
-
-// ------------------------------------------------------------
-// Escape key closes whichever modal is open
-// ------------------------------------------------------------
-function handleEscape(event) {
-    if (event.key !== 'Escape') {
-        return;
-    }
-
-    if (showPasswordModal.value) {
-        closePasswordModal();
-    } else if (showDeactivateStep2.value || showDeactivateStep1.value) {
-        closeDeactivateModals();
-    }
-}
-
-onMounted(async () => {
-    window.addEventListener('keydown', handleEscape);
-
-    await loadBuyerAccount();
-    copyStateToDraft();
-
-    if (loadError.value) {
-        showMessage(loadError.value, 'error');
-    }
-
-    // Show the saved address immediately (no blank <select> while the
-    // full option lists load), then fetch those lists in the background.
-    // Does not block the page — Edit Profile still awaits these directly
-    // in startEditing(), but by then they're normally already cached.
-    seedAddressOptionsFromDraft();
-
-    const lookups = [fetchProvinces()];
-
-    if (draft.provinceCode) {
-        lookups.push(fetchMunicipalities(draft.provinceCode, { preserveSelection: true }));
-    }
-
-    if (draft.municipalityCode) {
-        lookups.push(fetchBarangays(draft.municipalityCode, { preserveSelection: true }));
-    }
-
-    void Promise.allSettled(lookups);
+const notifPrefs = reactive({
+    email: true,
+    sms: false,
+    newsletter: true
 });
 
-onBeforeUnmount(() => {
-    window.removeEventListener('keydown', handleEscape);
-    clearInterval(countdownTimer);
-    clearInterval(deactivateTimer);
+onMounted(() => {
+    try {
+        const saved = JSON.parse(localStorage.getItem(NOTIF_STORAGE_KEY) || 'null');
+
+        if (saved) {
+            Object.assign(notifPrefs, saved);
+        }
+    } catch (err) {
+        // Corrupt/unavailable storage — fall back to the defaults above.
+    }
 });
+
+function persistNotifPrefs() {
+    try {
+        localStorage.setItem(NOTIF_STORAGE_KEY, JSON.stringify(notifPrefs));
+    } catch (err) {
+        // Storage unavailable (private browsing etc.) — preference just
+        // won't survive a refresh; nothing to recover from mid-session.
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Delete Account
+|--------------------------------------------------------------------------
+|
+| There's no account-deletion endpoint to call. Rather than fake success
+| or leave a dead button, this routes to a pre-filled support email —
+| a real, working action, and an honest one: even apps with this feature
+| fully built often route it through a support/manual process rather than
+| instant self-service deletion.
+|
+*/
+
+const showDeleteModal = ref(false);
+
+const deleteMailtoHref = computed(() => {
+    const subject = encodeURIComponent('Account Deletion Request');
+    const body = encodeURIComponent(
+        `Please delete my BuyTheWay buyer account.\n\nName: ${buyerFullName.value}\nAccount email: ${buyerProfile.value?.email || ''}\nAccount ID: ${buyerProfile.value?.id || ''}`
+    );
+
+    return `mailto:support@nexmart.com?subject=${subject}&body=${body}`;
+});
+
+/*
+|--------------------------------------------------------------------------
+| Sidebar / Section Scroll
+|--------------------------------------------------------------------------
+*/
+
+function scrollToSection(id) {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/*
+|--------------------------------------------------------------------------
+| Header Relay
+|--------------------------------------------------------------------------
+*/
+
+function handleHeaderSearch(query) {
+    emit('search', query);
+}
+
+function handleHeaderSelectCategory(category) {
+    emit('select-category', category);
+}
 </script>
 
 <template>
-    <div class="buyer-page buyer-account-page">
-        <header class="account-page-header">
-            <button
-                type="button"
-                class="account-back-button"
-                @click="emit('back')"
-            >
-                Back to Shop
-            </button>
 
-            <div>
-                <h1>My Account</h1>
-                <p>
-                    View and manage your Buyer information.
-                </p>
-            </div>
+    <div class="buyer-page">
 
-            <div class="account-header-actions">
-                <button
-                    type="button"
-                    class="account-back-button"
-                    @click="emit('view-orders')"
-                >
-                    My Orders
-                </button>
+        <Header
+            active-category=""
+            @select-category="handleHeaderSelectCategory"
+            @cart-click="emit('open-cart')"
+            @account-click="() => {}"
+            @logo-click="emit('back')"
+            @search="handleHeaderSearch"
+        />
 
-                <button
-                    type="button"
-                    class="account-back-button"
-                    @click="navigate('vouchers')"
-                >
-                    My Vouchers
-                </button>
+        <main class="max-w-7xl mx-auto w-full px-4 lg:px-8 py-10">
 
-                <button
-                    type="button"
-                    class="account-back-button"
-                    @click="showLogoutConfirm = true"
-                >
-                    Log Out
-                </button>
-            </div>
-        </header>
-
-        <transition name="account-fade">
+            <!-- Not Signed In -->
             <div
-                v-if="message"
-                class="account-toast"
-                :class="messageType === 'error' ? 'account-toast-error' : 'account-toast-success'"
-                role="status"
+                v-if="!isLoadingSession && !buyerProfile"
+                class="max-w-lg mx-auto text-center bg-white rounded-3xl border border-slate-100 p-12"
+                style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
             >
-                <span class="account-toast-icon" v-html="messageType === 'error' ? icons.alert : icons.check"></span>
-                <span>{{ message }}</span>
-                <button type="button" class="account-toast-close" aria-label="Dismiss message" @click="message = ''">
-                    <span v-html="icons.close"></span>
-                </button>
+                <div class="w-16 h-16 rounded-full bg-teal-50 text-brand flex items-center justify-center mx-auto mb-6">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                        <circle cx="12" cy="7" r="4" />
+                    </svg>
+                </div>
+                <h2 class="text-xl font-bold text-slate-900 mb-2">Sign in to view your account</h2>
+                <p class="text-slate-500 mb-6">Your profile, orders, and settings live here once you're signed in.</p>
+                <a
+                    href="/login"
+                    class="inline-block bg-brand hover:bg-brand-dark text-white font-bold text-sm px-8 py-3 rounded-full transition-colors"
+                >
+                    Sign In
+                </a>
             </div>
-        </transition>
 
-        <main class="account-content">
-            <div v-if="isLoadingProfile && !profile" class="account-loading">
-                <div class="account-loading-spinner"></div>
+            <!-- Loading -->
+            <div
+                v-else-if="isLoadingSession"
+                class="empty-products"
+            >
+                <p>Loading your account&hellip;</p>
             </div>
 
-            <template v-else>
-                <section class="account-profile-card">
-                    <div class="account-avatar-wrap">
-                        <div
-                            class="account-avatar"
-                            :style="profile?.avatar_url ? { backgroundImage: `url(${profile.avatar_url})` } : {}"
-                        >
-                            <span v-if="!profile?.avatar_url">{{ buyerInitials }}</span>
-                        </div>
+            <!-- Loaded -->
+            <div
+                v-else
+                class="flex flex-col md:flex-row md:items-start gap-8"
+            >
+
+                <!-- ==================================================== -->
+                <!-- SIDEBAR NAV -->
+                <!-- ==================================================== -->
+
+                <aside class="w-full md:w-64 shrink-0 md:sticky md:top-36">
+                    <nav class="bg-white rounded-3xl border border-slate-100 p-4 space-y-1" style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);">
+
                         <button
                             type="button"
-                            class="account-avatar-edit"
-                            :disabled="uploadingAvatar"
-                            aria-label="Change profile picture"
-                            @click="triggerAvatarUpload"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-slate-100 text-brand font-semibold transition-colors"
+                            @click="scrollToSection('profile-section')"
                         >
-                            <span v-html="icons.camera"></span>
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+                            </svg>
+                            My Profile
                         </button>
-                        <input
-                            ref="avatarInput"
-                            type="file"
-                            accept="image/png,image/jpeg,image/webp"
-                            class="account-avatar-input"
-                            tabindex="-1"
-                            @change="onAvatarSelected"
+
+                        <button
+                            type="button"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
+                            @click="emit('view-orders')"
                         >
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" />
+                                <path d="M12 22V12" /><polyline points="3.29 7 12 12 20.71 7" /><path d="m7.5 4.27 9 5.15" />
+                            </svg>
+                            My Orders
+                        </button>
+
+                        <button
+                            type="button"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
+                            @click="emit('view-wishlist')"
+                        >
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
+                            </svg>
+                            Wishlist
+                        </button>
+
+                        <button
+                            type="button"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
+                            @click="emit('view-reviews')"
+                        >
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" />
+                            </svg>
+                            My Reviews
+                        </button>
+
+                        <button
+                            type="button"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
+                            @click="emit('view-addresses')"
+                        >
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" />
+                            </svg>
+                            Saved Addresses
+                        </button>
+
+                        <button
+                            type="button"
+                            class="flex items-center gap-3 w-full px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 transition-colors"
+                            @click="emit('view-payments')"
+                        >
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" />
+                            </svg>
+                            Payment Methods
+                        </button>
+
+                    </nav>
+                </aside>
+
+                <!-- ==================================================== -->
+                <!-- CONTENT -->
+                <!-- ==================================================== -->
+
+                <div class="flex-1 space-y-8 min-w-0">
+
+                    <div class="mb-2">
+                        <h1 class="text-3xl font-bold text-slate-900 tracking-tight">Account Settings</h1>
+                        <p class="text-slate-500 mt-1">Manage your profile, security, and notification preferences.</p>
                     </div>
 
-                    <div class="account-profile-summary">
-                        <div class="account-name-row">
-                            <h2>{{ buyerFullName }}</h2>
-                            <span
-                                class="account-status-badge"
-                                :class="{ 'account-status-badge--warning': profile?.account_status !== 'active' }"
-                            >
-                                {{ accountStatusLabel }}
-                            </span>
-                        </div>
-                        <p>{{ profile?.email }}</p>
-                        <span>
-                            Buyer since {{ formatDate(profile?.created_at?.slice(0, 10)) }}
-                        </span>
-                    </div>
-
-                    <button
-                        v-if="!isEditing"
-                        type="button"
-                        class="account-edit-button"
-                        @click="startEditing"
+                    <p
+                        v-if="successMessage"
+                        role="status"
+                        class="flex items-center gap-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-2xl px-5 py-3 text-sm font-medium"
                     >
-                        Edit Profile
-                    </button>
-                </section>
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+                            <path d="M20 6 9 17l-5-5" />
+                        </svg>
+                        {{ successMessage }}
+                    </p>
 
-                <section class="account-information-card">
-                        <form
-                            class="account-form"
-                            @submit.prevent="saveProfile"
-                        >
-                            <!-- ==================================================== -->
-                            <!-- PERSONAL INFORMATION -->
-                            <!-- ==================================================== -->
-                            <div class="account-section-heading">
-                                <div>
-                                    <span>Buyer Profile</span>
-                                    <h2>Personal Information</h2>
-                                </div>
-                                <p v-if="isEditing">
-                                    Fields marked with * are required.
-                                </p>
+                    <!-- Profile Information -->
+                    <section
+                        id="profile-section"
+                        class="bg-white rounded-3xl border border-slate-100 p-8 scroll-mt-24"
+                        style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                    >
+                        <div class="flex items-center justify-between mb-8">
+                            <h2 class="text-xl font-bold text-slate-900">Profile Information</h2>
+                            <button
+                                v-if="!isEditing"
+                                type="button"
+                                class="px-4 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                                @click="startEditing"
+                            >
+                                Edit Profile
+                            </button>
+                        </div>
+
+                        <div class="flex flex-col sm:flex-row items-start sm:items-center gap-6 mb-8 pb-8 border-b border-slate-50">
+                            <div class="w-24 h-24 rounded-full bg-teal-50 text-brand flex items-center justify-center text-2xl font-bold border-4 border-slate-50 shrink-0">
+                                {{ buyerInitials }}
                             </div>
+                            <div>
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <h3 class="text-lg font-bold text-slate-900">{{ buyerFullName }}</h3>
+                                    <span
+                                        v-if="buyerProfile.account_status"
+                                        class="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full"
+                                        :class="buyerProfile.account_status === 'active'
+                                            ? 'bg-emerald-50 text-emerald-600'
+                                            : 'bg-amber-50 text-amber-600'"
+                                    >
+                                        {{ buyerProfile.account_status }}
+                                    </span>
+                                </div>
+                                <p class="text-slate-500 text-sm mt-1">{{ buyerProfile.email }}</p>
+                            </div>
+                        </div>
 
-                            <div class="account-form-grid">
-                                <label class="account-field">
-                                    <span>First Name *</span>
+                        <form @submit.prevent="saveProfile">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-6">
+
+                                <label class="block">
+                                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">First Name *</span>
                                     <input
                                         v-model="draft.firstName"
                                         type="text"
                                         autocomplete="given-name"
                                         :disabled="!isEditing"
-                                        :class="{ invalid: errors.firstName }"
+                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
+                                        :class="errors.firstName ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
                                     >
-                                    <small v-if="errors.firstName">{{ errors.firstName }}</small>
+                                    <small v-if="errors.firstName" class="block text-red-500 text-xs mt-1">{{ errors.firstName }}</small>
                                 </label>
 
-                                <label class="account-field">
-                                    <span>Middle Initial</span>
+                                <label class="block">
+                                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Middle Initial</span>
                                     <input
                                         v-model="draft.middleInitial"
                                         type="text"
                                         maxlength="1"
                                         autocomplete="additional-name"
                                         :disabled="!isEditing"
-                                        :class="{ invalid: errors.middleInitial }"
+                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
+                                        :class="errors.middleInitial ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
                                     >
-                                    <small v-if="errors.middleInitial">{{ errors.middleInitial }}</small>
+                                    <small v-if="errors.middleInitial" class="block text-red-500 text-xs mt-1">{{ errors.middleInitial }}</small>
                                 </label>
 
-                                <label class="account-field">
-                                    <span>Last Name *</span>
+                                <label class="block">
+                                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Last Name *</span>
                                     <input
                                         v-model="draft.lastName"
                                         type="text"
                                         autocomplete="family-name"
                                         :disabled="!isEditing"
-                                        :class="{ invalid: errors.lastName }"
+                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
+                                        :class="errors.lastName ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
                                     >
-                                    <small v-if="errors.lastName">{{ errors.lastName }}</small>
+                                    <small v-if="errors.lastName" class="block text-red-500 text-xs mt-1">{{ errors.lastName }}</small>
                                 </label>
 
-                                <label class="account-field">
-                                    <span>Sex *</span>
+                                <label class="block">
+                                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Sex *</span>
                                     <select
+                                        v-if="isEditing"
                                         v-model="draft.sex"
-                                        :disabled="!isEditing"
-                                        :class="{ invalid: errors.sex }"
+                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
+                                        :class="errors.sex ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
                                     >
                                         <option value="" disabled>Select sex</option>
                                         <option value="Male">Male</option>
                                         <option value="Female">Female</option>
+                                        <option value="Prefer not to say">Prefer not to say</option>
                                     </select>
-                                    <small v-if="errors.sex">{{ errors.sex }}</small>
+                                    <p v-else class="text-sm text-slate-900 font-medium py-2.5">{{ draft.sex || '—' }}</p>
+                                    <small v-if="errors.sex" class="block text-red-500 text-xs mt-1">{{ errors.sex }}</small>
                                 </label>
 
-                                <label class="account-field">
-                                    <span>Birthday *</span>
+                                <label class="block">
+                                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Contact Number *</span>
                                     <input
+                                        :value="draft.contactNumber"
+                                        type="tel"
+                                        inputmode="numeric"
+                                        autocomplete="tel-national"
+                                        placeholder="09171234567"
+                                        :disabled="!isEditing"
+                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 disabled:bg-transparent disabled:border-transparent disabled:px-0 disabled:font-medium border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
+                                        :class="errors.contactNumber ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
+                                        @input="onContactInput"
+                                    >
+                                    <small
+                                        v-if="errors.contactNumber"
+                                        class="block text-red-500 text-xs mt-1"
+                                    >{{ errors.contactNumber }}</small>
+                                    <small
+                                        v-else-if="isEditing"
+                                        class="block text-slate-400 text-xs mt-1"
+                                    >11-digit mobile number, digits only.</small>
+                                </label>
+
+                                <label class="block">
+                                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Birthday *</span>
+                                    <input
+                                        v-if="isEditing"
                                         v-model="draft.birthday"
                                         type="date"
                                         autocomplete="bday"
                                         :max="maximumBirthday"
-                                        :disabled="!isEditing"
-                                        :class="{ invalid: errors.birthday }"
+                                        class="w-full px-4 py-2.5 rounded-xl text-sm text-slate-900 border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
+                                        :class="errors.birthday ? 'border-red-300' : 'border-slate-200 bg-slate-50'"
                                     >
-                                    <small v-if="errors.birthday">{{ errors.birthday }}</small>
+                                    <p v-else class="text-sm text-slate-900 font-medium py-2.5">
+                                        {{ draft.birthday
+                                            ? new Date(`${draft.birthday}T00:00:00`).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+                                            : '—' }}
+                                    </p>
+                                    <small v-if="errors.birthday" class="block text-red-500 text-xs mt-1">{{ errors.birthday }}</small>
                                 </label>
 
-                                <label class="account-field">
-                                    <span>Age</span>
-                                    <input
-                                        :value="(isEditing ? draftAge : buyerAge) ?? 'Not available'"
-                                        type="text"
-                                        disabled
-                                    >
-                                    <small class="account-field-note">
-                                        Automatically calculated from birthday.
-                                    </small>
+                                <label class="block">
+                                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Age</span>
+                                    <p class="text-sm text-slate-900 font-medium py-2.5">
+                                        {{ (isEditing ? draftAge : buyerAge) ?? 'Not available' }}
+                                    </p>
+                                    <small class="block text-slate-400 text-xs mt-1">Calculated from birthday.</small>
                                 </label>
 
-                                <label class="account-field">
-                                    <span>Contact Number *</span>
-                                    <input
-                                        v-model="draft.contactNumber"
-                                        type="tel"
-                                        autocomplete="tel"
-                                        placeholder="09XXXXXXXXX"
-                                        :disabled="!isEditing"
-                                        :class="{ invalid: errors.contactNumber }"
-                                    >
-                                    <small v-if="errors.contactNumber">{{ errors.contactNumber }}</small>
-                                </label>
-
-                                <label class="account-field account-field-wide">
-                                    <span>Email Address</span>
-                                    <div class="account-readonly-field">
-                                        <input :value="profile?.email" type="email" disabled>
-                                        <span class="account-lock-icon" v-html="icons.lock" title="Email cannot be changed"></span>
-                                    </div>
-                                    <small class="account-field-note">
-                                        Contact support to change the email on your account.
-                                    </small>
-                                </label>
                             </div>
 
-                            <!-- ==================================================== -->
-                            <!-- HOME ADDRESS -->
-                            <!-- ==================================================== -->
-                            <div class="account-section-heading account-section-heading-spaced">
-                                <div>
-                                    <span class="account-section-icon" v-html="icons.location"></span>
-                                    <div>
-                                        <span>Delivery Details</span>
-                                        <h2>Home Address</h2>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="account-form-grid">
-                                <label class="account-field">
-                                    <span>Region *</span>
-                                    <select
-                                        v-model="draft.regionCode"
-                                        :disabled="!isEditing"
-                                        :class="{ invalid: errors.region }"
-                                        @change="onRegionChange"
-                                    >
-                                        <option value="">Select region</option>
-                                        <option v-for="r in REGION_OPTIONS" :key="r" :value="r">
-                                            {{ r }}
-                                        </option>
-                                    </select>
-                                    <small v-if="errors.region">{{ errors.region }}</small>
-                                </label>
-
-                                <label class="account-field">
-                                    <span>Province *</span>
-                                    <select
-                                        v-model="draft.provinceCode"
-                                        :disabled="!isEditing || loadingProvinces || !draft.regionCode"
-                                        :class="{ invalid: errors.province }"
-                                        @change="onProvinceChange"
-                                    >
-                                        <option value="">
-                                            {{ loadingProvinces ? 'Loading provinces…' : (draft.regionCode ? 'Select province' : 'Select a region first') }}
-                                        </option>
-                                        <option v-for="p in filteredProvinceOptions" :key="p.code" :value="p.code">
-                                            {{ p.name }}
-                                        </option>
-                                    </select>
-                                    <small v-if="errors.province">{{ errors.province }}</small>
-                                </label>
-
-                                <label class="account-field">
-                                    <span>Municipality / City *</span>
-                                    <select
-                                        v-model="draft.municipalityCode"
-                                        :disabled="!isEditing || loadingMunicipalities || !draft.provinceCode"
-                                        :class="{ invalid: errors.municipality }"
-                                        @change="onMunicipalityChange"
-                                    >
-                                        <option value="">
-                                            {{ loadingMunicipalities ? 'Loading…' : 'Select municipality/city' }}
-                                        </option>
-                                        <option v-for="m in municipalityOptions" :key="m.code" :value="m.code">
-                                            {{ m.name }}
-                                        </option>
-                                    </select>
-                                    <small v-if="errors.municipality">{{ errors.municipality }}</small>
-                                </label>
-
-                                <label class="account-field">
-                                    <span>Barangay *</span>
-                                    <select
-                                        v-model="draft.barangay"
-                                        :disabled="!isEditing || loadingBarangays || !draft.municipalityCode"
-                                        :class="{ invalid: errors.barangay }"
-                                    >
-                                        <option value="">
-                                            {{ loadingBarangays ? 'Loading…' : 'Select barangay' }}
-                                        </option>
-                                        <option v-for="b in barangayOptions" :key="b.code" :value="b.name">
-                                            {{ b.name }}
-                                        </option>
-                                    </select>
-                                    <small v-if="errors.barangay">{{ errors.barangay }}</small>
-                                </label>
-
-                                <label class="account-field">
-                                    <span>House / Unit No.</span>
-                                    <input
-                                        v-model="draft.houseNo"
-                                        type="text"
-                                        placeholder="123"
-                                        :disabled="!isEditing"
-                                    >
-                                </label>
-
-                                <label class="account-field account-field-wide">
-                                    <span>Street *</span>
-                                    <input
-                                        v-model="draft.street"
-                                        type="text"
-                                        placeholder="Rizal St."
-                                        :disabled="!isEditing"
-                                        :class="{ invalid: errors.street }"
-                                    >
-                                    <small v-if="errors.street">{{ errors.street }}</small>
-                                </label>
-                            </div>
-
-                            <div class="account-pin" data-field="pin">
-                                <AddressPinPicker
-                                    v-model="draft.pin"
-                                    :disabled="!isEditing"
-                                    :street="draft.street"
-                                    :barangay="draft.barangay"
-                                    :municipality="draft.municipalityName"
-                                    :province="draft.provinceName"
-                                    hint="Required — pin your door so the rider finds you without calling."
-                                />
-                                <small v-if="errors.pin" class="account-pin-error" role="alert">{{ errors.pin }}</small>
-                            </div>
-
-                            <p v-if="addressApiError" class="account-form-error">
-                                {{ addressApiError }}
-                                <button type="button" class="account-inline-retry" @click="fetchProvinces">Retry</button>
-                            </p>
+                            <p v-if="errors.form" class="text-sm text-red-500 mt-6">{{ errors.form }}</p>
 
                             <footer
                                 v-if="isEditing"
-                                class="account-form-actions"
+                                class="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-50"
                             >
                                 <button
                                     type="button"
-                                    class="account-cancel-button"
-                                    :disabled="isSaving"
+                                    class="px-5 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
                                     @click="cancelEditing"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
-                                    class="account-save-button"
                                     :disabled="isSaving"
+                                    class="px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-brand hover:bg-brand-dark disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                                 >
                                     {{ isSaving ? 'Saving…' : 'Save Changes' }}
                                 </button>
                             </footer>
                         </form>
-                </section>
-
-                <div class="account-page-grid">
-                    <div class="account-main-column">
-                    <!-- ==================================================== -->
-                    <!-- SECURITY & PASSWORD -->
-                    <!-- ==================================================== -->
-                    <section class="account-security-card">
-                        <div class="account-section-heading">
-                            <span class="account-section-icon account-section-icon-key" v-html="icons.key"></span>
-                            <div>
-                                <span>Security</span>
-                                <h2>Security &amp; Password</h2>
-                            </div>
-                        </div>
-
-                        <p class="account-section-desc">
-                            Your password is never shown — only its presence is confirmed below.
-                        </p>
-
-                        <div class="account-password-display">
-                            <span class="account-password-dots" aria-hidden="true">{{ passwordDots }}</span>
-                            <span class="account-password-note">Password set</span>
-                        </div>
-
-                        <button type="button" class="account-security-button" @click="openPasswordModal">
-                            <span v-html="icons.key"></span> Change Password
-                        </button>
                     </section>
 
-                    <SwitchAccountCard :client="getSupabase()" :full-name="buyerFullName" :email="profile?.email" />
+                    <!-- Password & Security -->
+                    <section
+                        class="bg-white rounded-3xl border border-slate-100 p-8"
+                        style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                    >
+                        <h2 class="text-xl font-bold text-slate-900 mb-8">Password &amp; Security</h2>
 
-                    <!-- ==================================================== -->
-                    <!-- DANGER ZONE -->
-                    <!-- ==================================================== -->
-                    <section class="account-danger-card">
-                        <div class="account-section-heading">
-                            <span class="account-section-icon account-section-icon-warning" v-html="icons.warning"></span>
-                            <div>
-                                <span class="account-danger-eyebrow">Danger Zone</span>
-                                <h2 class="account-danger-title">Deactivate Account</h2>
+                        <div class="space-y-8">
+                            <div class="flex items-center justify-between gap-6 pb-8 border-b border-slate-50">
+                                <div>
+                                    <h3 class="font-bold text-slate-900">Account Password</h3>
+                                    <p class="text-sm text-slate-500">Change your password any time.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    class="shrink-0 px-4 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                                    @click="openPasswordModal"
+                                >
+                                    Change Password
+                                </button>
+                            </div>
+
+                            <div class="flex items-center justify-between gap-6">
+                                <div>
+                                    <h3 class="font-bold text-slate-900 flex items-center gap-2">
+                                        Two-Factor Authentication (2FA)
+                                        <span class="text-[9px] font-bold uppercase tracking-wide bg-slate-100 text-slate-400 px-2 py-0.5 rounded-full">Soon</span>
+                                    </h3>
+                                    <p class="text-sm text-slate-500">Secure your account with an extra verification layer via SMS or Authenticator App.</p>
+                                </div>
+                                <div
+                                    class="relative w-11 h-6 bg-slate-200 rounded-full shrink-0 opacity-60 cursor-not-allowed"
+                                    title="Coming soon"
+                                >
+                                    <div class="absolute top-[2px] left-[2px] bg-white rounded-full h-5 w-5"></div>
+                                </div>
                             </div>
                         </div>
-
-                        <p class="account-section-desc">
-                            Deactivating your account is irreversible and immediately ends your session.
-                        </p>
-
-                        <button type="button" class="account-danger-button" @click="openDeactivateStep1">
-                            <span v-html="icons.warning"></span> Deactivate Account
-                        </button>
                     </section>
+
+                    <!-- Notifications & Marketing -->
+                    <section
+                        id="notifications-section"
+                        class="bg-white rounded-3xl border border-slate-100 p-8 scroll-mt-24"
+                        style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                    >
+                        <div class="flex items-baseline justify-between mb-1">
+                            <h2 class="text-xl font-bold text-slate-900">Notifications &amp; Marketing</h2>
+                        </div>
+                        <p class="text-xs text-slate-400 mb-8">Saved on this device.</p>
+
+                        <div class="space-y-8">
+                            <div class="flex items-center justify-between gap-6">
+                                <div class="max-w-xl">
+                                    <h3 class="font-bold text-slate-900">Email Notifications</h3>
+                                    <p class="text-sm text-slate-500">Receive transaction invoices, order shipping alerts, and product tracking links via email.</p>
+                                </div>
+                                <label class="inline-flex items-center cursor-pointer shrink-0">
+                                    <input
+                                        v-model="notifPrefs.email"
+                                        type="checkbox"
+                                        class="sr-only peer"
+                                        @change="persistNotifPrefs"
+                                    >
+                                    <div class="relative w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
+                                </label>
+                            </div>
+
+                            <div class="flex items-center justify-between gap-6">
+                                <div class="max-w-xl">
+                                    <h3 class="font-bold text-slate-900">SMS Alerts</h3>
+                                    <p class="text-sm text-slate-500">Instant text message updates for immediate dispatch and delivery notifications.</p>
+                                </div>
+                                <label class="inline-flex items-center cursor-pointer shrink-0">
+                                    <input
+                                        v-model="notifPrefs.sms"
+                                        type="checkbox"
+                                        class="sr-only peer"
+                                        @change="persistNotifPrefs"
+                                    >
+                                    <div class="relative w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
+                                </label>
+                            </div>
+
+                            <div class="flex items-center justify-between gap-6">
+                                <div class="max-w-xl">
+                                    <h3 class="font-bold text-slate-900">Newsletter Subscription</h3>
+                                    <p class="text-sm text-slate-500">Get exclusive weekly offers, member discount codes, and curated product launches.</p>
+                                </div>
+                                <label class="inline-flex items-center cursor-pointer shrink-0">
+                                    <input
+                                        v-model="notifPrefs.newsletter"
+                                        type="checkbox"
+                                        class="sr-only peer"
+                                        @change="persistNotifPrefs"
+                                    >
+                                    <div class="relative w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
+                                </label>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Danger Zone -->
+                    <div class="flex items-center justify-start py-4">
+                        <button
+                            type="button"
+                            class="text-red-500 hover:text-red-600 text-sm font-semibold transition-colors flex items-center gap-2"
+                            @click="showDeleteModal = true"
+                        >
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10 11v6" /><path d="M14 11v6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                                <path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                            Delete Account
+                        </button>
                     </div>
 
-                    <aside class="account-overview-card">
-                        <div class="account-section-heading">
-                            <div>
-                                <span>Account</span>
-                                <h2>Account Overview</h2>
-                            </div>
-                        </div>
-
-                        <dl class="account-overview-list">
-                            <div>
-                                <dt>Account Status</dt>
-                                <dd :class="{ 'account-overview-success': profile?.account_status === 'active' }">
-                                    {{ accountStatusLabel }}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt>Address on File</dt>
-                                <dd>{{ fullAddressOnFile }}</dd>
-                            </div>
-                            <div>
-                                <dt>Buyer Since</dt>
-                                <dd>{{ formatDate(profile?.created_at?.slice(0, 10)) }}</dd>
-                            </div>
-                            <div>
-                                <dt>Last Updated</dt>
-                                <dd>{{ formatDateTime(profile?.updated_at) }}</dd>
-                            </div>
-                        </dl>
-                    </aside>
                 </div>
-            </template>
+
+            </div>
+
         </main>
 
-        <AvatarCropper :file="cropFile" @cancel="cancelAvatarCrop" @crop="onAvatarCropped" />
+        <Footer
+            @browse-all="emit('select-category', 'All')"
+            @browse-categories="emit('select-category', 'All')"
+            @cart-click="emit('open-cart')"
+        />
 
         <!-- ==================================================== -->
-        <!-- PASSWORD CHANGE MODAL -->
+        <!-- CHANGE PASSWORD MODAL -->
         <!-- ==================================================== -->
-        <div v-if="showPasswordModal" class="account-modal-overlay" @click.self="closePasswordModal">
-            <div class="account-modal-panel" role="dialog" aria-modal="true" aria-label="Change password">
-                <div class="account-modal-header">
-                    <h3>Change Password</h3>
-                    <button class="account-modal-close" aria-label="Close" @click="closePasswordModal">
-                        <span v-html="icons.close"></span>
+
+        <div
+            v-if="showPasswordModal"
+            class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40"
+            @click.self="closePasswordModal"
+        >
+            <div class="bg-white rounded-3xl w-full max-w-md p-8" style="box-shadow: 0 20px 50px -12px rgba(0,0,0,0.25);">
+
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-lg font-bold text-slate-900">Change Password</h2>
+                    <button
+                        type="button"
+                        class="text-slate-400 hover:text-slate-600 transition-colors"
+                        @click="closePasswordModal"
+                    >
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+                        </svg>
                     </button>
                 </div>
 
-                <template v-if="passwordStep === 'request'">
-                    <p class="account-modal-desc">
-                        We'll send a 6-digit verification code to
-                        <strong>{{ maskedEmail }}</strong> to confirm it's really you before changing your password.
-                    </p>
-                    <p v-if="passwordError" class="account-field-error account-mb-2">{{ passwordError }}</p>
-                    <div class="account-modal-actions">
-                        <button class="account-btn-outline" @click="closePasswordModal">Cancel</button>
-                        <button class="account-btn-primary" :disabled="sendingCode" @click="requestPasswordCode">
-                            {{ sendingCode ? 'Sending…' : 'Send Code' }}
-                        </button>
+                <div v-if="passwordSuccess" class="text-center py-4">
+                    <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-4">
+                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 6 9 17l-5-5" />
+                        </svg>
                     </div>
-                </template>
+                    <p class="text-slate-900 font-semibold mb-1">Password changed</p>
+                    <p class="text-slate-500 text-sm mb-6">Use your new password next time you sign in.</p>
+                    <button
+                        type="button"
+                        class="px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-brand hover:bg-brand-dark transition-colors"
+                        @click="closePasswordModal"
+                    >
+                        Done
+                    </button>
+                </div>
 
-                <template v-else-if="passwordStep === 'verify'">
-                    <p class="account-modal-desc">Enter the 6-digit code sent to <strong>{{ maskedEmail }}</strong>.</p>
-
-                    <div class="account-otp-row">
-                        <input
-                            v-for="(digit, i) in codeDigits"
-                            :key="i"
-                            :ref="(el) => (codeInputs[i] = el)"
-                            v-model="codeDigits[i]"
-                            class="account-otp-box"
-                            :class="{ invalid: verifyError }"
-                            inputmode="numeric"
-                            maxlength="1"
-                            @input="onCodeInput(i, $event)"
-                            @keydown="onCodeKeydown(i, $event)"
-                        >
-                    </div>
-
-                    <p v-if="verifyError" class="account-field-error account-text-center account-mb-2">{{ verifyError }}</p>
-
-                    <p class="account-otp-timer">
-                        <span v-if="countdown > 0">Code expires in {{ formattedCountdown }}</span>
-                        <button v-else type="button" class="account-link-button" :disabled="sendingCode" @click="resendCode">
-                            {{ sendingCode ? 'Sending…' : 'Resend code' }}
-                        </button>
-                    </p>
-
-                    <div class="account-modal-actions">
-                        <button class="account-btn-outline" @click="passwordStep = 'request'">Back</button>
-                        <button
-                            class="account-btn-primary"
-                            :disabled="verifyingCode || codeDigits.join('').length !== 6"
-                            @click="verifyCode"
-                        >
-                            {{ verifyingCode ? 'Verifying…' : 'Verify' }}
-                        </button>
-                    </div>
-                </template>
-
-                <template v-else-if="passwordStep === 'update'">
-                    <p class="account-modal-desc">Choose a new password for your account.</p>
-
-                    <label class="account-field account-mb-3">
-                        <span>New Password</span>
-                        <input v-model="newPassword" type="password" @input="updateError = ''">
-                        <div class="account-strength-meter">
-                            <div
-                                class="account-strength-bar"
-                                :class="`account-strength-${passwordStrength.level}`"
-                                :style="{ width: passwordStrength.percent + '%' }"
-                            ></div>
+                <form
+                    v-else
+                    class="space-y-4"
+                    @submit.prevent="submitPasswordChange"
+                >
+                    <label class="block">
+                        <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">New Password</span>
+                        <div class="relative">
+                            <input
+                                v-model="passwordForm.next"
+                                :type="passwordVisible ? 'text' : 'password'"
+                                autocomplete="new-password"
+                                placeholder="At least 8 characters"
+                                class="w-full px-4 py-2.5 pr-11 rounded-xl text-sm bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
+                            >
+                            <button
+                                type="button"
+                                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                :title="passwordVisible ? 'Hide password' : 'Show password'"
+                                @click="passwordVisible = !passwordVisible"
+                            >
+                                <svg v-if="passwordVisible" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
+                                    <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
+                                    <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
+                                    <path d="m2 2 20 20" />
+                                </svg>
+                                <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+                                    <circle cx="12" cy="12" r="3" />
+                                </svg>
+                            </button>
                         </div>
-                        <small :class="`account-strength-text-${passwordStrength.level}`">
-                            {{ newPassword ? passwordStrength.label : 'Enter a password' }}
-                        </small>
-                        <ul class="account-requirements-list">
-                            <li :class="{ met: newPassword.length >= 8 }">At least 8 characters</li>
-                            <li :class="{ met: /[A-Z]/.test(newPassword) }">One uppercase letter</li>
-                            <li :class="{ met: /[0-9]/.test(newPassword) }">One number</li>
-                            <li :class="{ met: /[^A-Za-z0-9]/.test(newPassword) }">One special character</li>
-                        </ul>
                     </label>
 
-                    <label class="account-field account-mb-2">
-                        <span>Confirm Password</span>
+                    <label class="block">
+                        <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Confirm New Password</span>
                         <input
-                            v-model="confirmPassword"
-                            type="password"
-                            :class="{ invalid: confirmPassword && confirmPassword !== newPassword }"
-                            @input="updateError = ''"
+                            v-model="passwordForm.confirm"
+                            :type="passwordVisible ? 'text' : 'password'"
+                            autocomplete="new-password"
+                            class="w-full px-4 py-2.5 rounded-xl text-sm bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
                         >
-                        <small v-if="confirmPassword && confirmPassword !== newPassword" class="account-field-error">
-                            Passwords do not match.
-                        </small>
                     </label>
 
-                    <p v-if="updateError" class="account-field-error account-mb-2">{{ updateError }}</p>
+                    <p v-if="passwordError" class="text-sm text-red-500">{{ passwordError }}</p>
 
-                    <div class="account-modal-actions">
-                        <button class="account-btn-outline" @click="closePasswordModal">Cancel</button>
-                        <button
-                            class="account-btn-primary"
-                            :disabled="!canSubmitNewPassword || updatingPassword"
-                            @click="submitNewPassword"
-                        >
-                            {{ updatingPassword ? 'Updating…' : 'Update Password' }}
-                        </button>
-                    </div>
-                </template>
-            </div>
-        </div>
-
-        <!-- ==================================================== -->
-        <!-- DEACTIVATION MODAL — STEP 1 -->
-        <!-- ==================================================== -->
-        <div v-if="showDeactivateStep1" class="account-modal-overlay" @click.self="closeDeactivateModals">
-            <div class="account-modal-panel" role="dialog" aria-modal="true" aria-label="Deactivate account">
-                <div class="account-modal-header">
-                    <h3 class="account-danger-title">Deactivate your account?</h3>
-                    <button class="account-modal-close" aria-label="Close" @click="closeDeactivateModals">
-                        <span v-html="icons.close"></span>
-                    </button>
-                </div>
-
-                <div class="account-danger-callout">
-                    <span class="account-section-icon account-section-icon-warning" v-html="icons.warning"></span>
-                    <div>
-                        <p class="account-modal-desc account-mb-1"><strong>This action is irreversible.</strong> Deactivating your account will:</p>
-                        <ul class="account-requirements-list account-danger-list">
-                            <li>Immediately end your buyer session</li>
-                            <li>Hide your order history from active use</li>
-                            <li>Require support assistance to reactivate</li>
-                        </ul>
-                    </div>
-                </div>
-
-                <label class="account-field">
-                    <span>Type <strong>DEACTIVATE</strong> to confirm you understand</span>
-                    <input v-model="confirmPhrase" autocomplete="off" placeholder="DEACTIVATE">
-                </label>
-
-                <div class="account-modal-actions">
-                    <button class="account-btn-outline" @click="closeDeactivateModals">Cancel</button>
                     <button
-                        class="account-btn-danger"
-                        :disabled="confirmPhrase !== 'DEACTIVATE'"
-                        @click="openDeactivateStep2"
+                        type="submit"
+                        :disabled="passwordSaving"
+                        class="w-full mt-2 px-6 py-3 rounded-xl text-sm font-bold text-white bg-brand hover:bg-brand-dark disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                     >
-                        Continue
+                        {{ passwordSaving ? 'Saving…' : 'Update Password' }}
                     </button>
-                </div>
+                </form>
+
             </div>
         </div>
 
         <!-- ==================================================== -->
-        <!-- DEACTIVATION MODAL — STEP 2 (final) -->
+        <!-- DELETE ACCOUNT MODAL -->
         <!-- ==================================================== -->
-        <div v-if="showDeactivateStep2" class="account-modal-overlay" @click.self="closeDeactivateModals">
-            <div class="account-modal-panel" role="dialog" aria-modal="true" aria-label="Confirm deactivation">
-                <div class="account-modal-header">
-                    <h3 class="account-danger-title">Last step — this cannot be undone</h3>
-                    <button class="account-modal-close" aria-label="Close" @click="closeDeactivateModals">
-                        <span v-html="icons.close"></span>
-                    </button>
+
+        <div
+            v-if="showDeleteModal"
+            class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40"
+            @click.self="showDeleteModal = false"
+        >
+            <div class="bg-white rounded-3xl w-full max-w-md p-8" style="box-shadow: 0 20px 50px -12px rgba(0,0,0,0.25);">
+
+                <div class="w-12 h-12 rounded-full bg-red-50 text-red-500 flex items-center justify-center mb-5">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10 11v6" /><path d="M14 11v6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                        <path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
                 </div>
 
-                <p class="account-modal-desc">
-                    Enter your current password to permanently deactivate your account.
+                <h2 class="text-lg font-bold text-slate-900 mb-2">Delete your account?</h2>
+                <p class="text-sm text-slate-500 mb-6">
+                    Account deletion isn't self-service yet — we'll open an email to our support team with your
+                    account details pre-filled. They'll take it from there.
                 </p>
 
-                <label class="account-field account-mb-2">
-                    <span>Current Password</span>
-                    <input v-model="deactivatePassword" type="password" @input="deactivateFormError = ''">
-                </label>
-
-                <p v-if="deactivateFormError" class="account-field-error account-mb-2">{{ deactivateFormError }}</p>
-
-                <div class="account-modal-actions">
-                    <button class="account-btn-outline" @click="closeDeactivateModals">Cancel</button>
+                <div class="flex gap-3">
                     <button
-                        class="account-btn-danger"
-                        :disabled="!deactivatePassword || deactivateCountdown > 0 || deactivating"
-                        @click="confirmDeactivate"
+                        type="button"
+                        class="flex-1 px-5 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 border border-slate-200 transition-colors"
+                        @click="showDeleteModal = false"
                     >
-                        {{ deactivating ? 'Deactivating…' : deactivateCountdown > 0 ? `Confirm (${deactivateCountdown}s)` : 'Deactivate My Account' }}
+                        Cancel
                     </button>
+                    <a
+                        :href="deleteMailtoHref"
+                        class="flex-1 text-center px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-red-500 hover:bg-red-600 transition-colors"
+                        @click="showDeleteModal = false"
+                    >
+                        Email Support
+                    </a>
                 </div>
+
             </div>
         </div>
 
-        <!-- ==================================================== -->
-        <!-- LOGOUT CONFIRM MODAL -->
-        <!-- ==================================================== -->
-        <div v-if="showLogoutConfirm" class="account-modal-overlay" @click.self="showLogoutConfirm = false">
-            <div class="account-modal-panel" role="dialog" aria-modal="true" aria-label="Log out">
-                <div class="account-modal-header">
-                    <h3>Log out?</h3>
-                    <button class="account-modal-close" aria-label="Close" @click="showLogoutConfirm = false">
-                        <span v-html="icons.close"></span>
-                    </button>
-                </div>
-
-                <p class="account-modal-desc">
-                    You'll need to sign in again to access your buyer account.
-                </p>
-
-                <div class="account-modal-actions">
-                    <button class="account-btn-outline" @click="showLogoutConfirm = false">Cancel</button>
-                    <button class="account-btn-primary" @click="confirmLogout">Log Out</button>
-                </div>
-            </div>
-        </div>
     </div>
+
 </template>

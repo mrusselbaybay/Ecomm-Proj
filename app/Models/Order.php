@@ -3,10 +3,12 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasUuidPrimaryKey;
+use App\Support\ProductImage;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
 /**
@@ -338,7 +340,7 @@ class Order extends Model
             ?->reasonLabel();
     }
 
-    private function physicalReturns(): \Illuminate\Support\Collection
+    private function physicalReturns(): Collection
     {
         if (! $this->relationLoaded('returnRequests')) {
             return collect();
@@ -403,7 +405,7 @@ class Order extends Model
             // live join back to the product, since OrderItem doesn't store
             // one of its own.
             'previewName' => $itemCount > 1 ? "{$itemCount} items" : $firstItem?->product_name,
-            'previewImage' => ($firstItem?->product?->images ?? [])[0]['url'] ?? null,
+            'previewImage' => $firstItem?->product ? ProductImage::cardUrl($firstItem->product) : null,
         ];
     }
 }

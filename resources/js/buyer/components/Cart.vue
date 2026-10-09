@@ -1,18 +1,19 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useBuyer } from '../composables/useBuyer';
+import { useBuyerSession } from '../composables/useBuyerSession';
 import { formatPrice } from '../composables/useCategoryMeta';
 import { useConfirm } from '../composables/useConfirm';
+import { shippingOptions } from '../composables/useShipping';
 import { useToasts } from '../composables/useToasts';
 import CartItemCard from './CartItemCard.vue';
 import Footer from './Footer.vue';
 import Header from './Header.vue';
 import ProductCard from './ProductCard.vue';
-import ProductReviewsDrawer from './ProductReviewsDrawer.vue';
 
 defineProps({
     // Real catalog items (Dashboard passes bestSellers). Rendered as
-    // "People Also Bought" only when non-empty — never fabricated.
+    // "You might also like" (most-reviewed products) only when non-empty — never fabricated.
     recommendedProducts: {
         type: Array,
         default: () => [],
@@ -56,6 +57,7 @@ const {
     validateCartAgainstCatalog,
 } = useBuyer();
 
+const { buyerProfile, isLoadingSession } = useBuyerSession();
 const { success, info } = useToasts();
 const { confirm } = useConfirm();
 
@@ -65,16 +67,14 @@ const { confirm } = useConfirm();
 |--------------------------------------------------------------------------
 */
 
-const hasValidatedOnce = ref(false);
-
-onMounted(async () => {
-    await validateCartAgainstCatalog();
-    hasValidatedOnce.value = true;
+// The saved lines render immediately; while the re-check runs, quantity
+// controls and checkout are locked (prices or stock may still change) and
+// a small status line says so.
+onMounted(() => {
+    validateCartAgainstCatalog();
 });
 
-const showSkeleton = computed(
-    () => cart.value.length > 0 && isValidatingCart.value && !hasValidatedOnce.value,
-);
+const isCheckingCatalog = computed(() => cart.value.length > 0 && isValidatingCart.value);
 
 /*
 |--------------------------------------------------------------------------
@@ -195,22 +195,81 @@ function handleDeselectBlocked() {
 
 /*
 |--------------------------------------------------------------------------
-| Reviews drawer
+| Summary estimate
 |--------------------------------------------------------------------------
+|
+| CheckoutService charges one flat shipping fee per seller order, so the
+| estimate uses Standard delivery for each seller among the selected items.
+| The buyer can still pick Express at checkout, and the server recalculates
+| every price and fee, so the total is labelled as an estimate.
+|
 */
 
-const reviewsOpen = ref(false);
-const reviewsProduct = ref(null);
+const checkoutSellerCount = computed(
+    () => new Set(selectedValidItems.value.map((item) => item.seller)).size,
+);
 
-function openReviews(item) {
-    reviewsProduct.value = {
-        id: item.productId,
-        name: item.name,
-        rating: item.rating,
-        reviewCount: item.reviewCount,
-    };
-    reviewsOpen.value = true;
+const estimatedShipping = computed(() => lowestShippingFee * checkoutSellerCount.value);
+
+const estimatedTotal = computed(() => cartSubtotal.value + estimatedShipping.value);
+
+/*
+|--------------------------------------------------------------------------
+| Mobile checkout bar
+|--------------------------------------------------------------------------
+|
+| Below the lg breakpoint the summary stacks under the items. A slim bar
+| keeps the estimated total and the checkout action in reach, and hides
+| whenever the summary itself is on screen so nothing is covered twice.
+|
+*/
+
+const summaryCard = ref(null);
+const isCompact = ref(false);
+const isSummaryVisible = ref(true);
+
+let compactQuery = null;
+let summaryObserver = null;
+
+function onCompactChange(event) {
+    isCompact.value = event.matches;
 }
+
+function observeSummary() {
+    summaryObserver?.disconnect();
+    summaryObserver = null;
+
+    if (!summaryCard.value || typeof IntersectionObserver === 'undefined') {
+        isSummaryVisible.value = true;
+
+        return;
+    }
+
+    summaryObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+            isSummaryVisible.value = entry.isIntersecting;
+        });
+    });
+
+    summaryObserver.observe(summaryCard.value);
+}
+
+watch(summaryCard, observeSummary);
+
+onMounted(() => {
+    compactQuery = window.matchMedia('(max-width: 1023px)');
+    isCompact.value = compactQuery.matches;
+    compactQuery.addEventListener('change', onCompactChange);
+});
+
+onBeforeUnmount(() => {
+    compactQuery?.removeEventListener('change', onCompactChange);
+    summaryObserver?.disconnect();
+});
+
+const showCheckoutBar = computed(
+    () => isCompact.value && !isSummaryVisible.value && cart.value.length > 0,
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -221,11 +280,27 @@ function openReviews(item) {
 const isCheckingOut = ref(false);
 
 const canCheckout = computed(
-    () => !checkoutBlockReason.value && !isCheckingOut.value && selectedValidItems.value.length > 0,
+    () => !checkoutBlockReason.value
+        && !isCheckingOut.value
+        && !isValidatingCart.value
+        && selectedValidItems.value.length > 0,
 );
+
+// Checkout needs a signed-in buyer (the API rejects guests), so ask before
+// the buyer fills anything in rather than failing at Place Order. The cart
+// lives in localStorage, so nothing is lost by leaving to sign in.
+const needsSignIn = ref(false);
+
+const lowestShippingFee = Math.min(...shippingOptions.map((option) => option.fee));
 
 function checkout() {
     if (!canCheckout.value) {
+        return;
+    }
+
+    if (!isLoadingSession.value && !buyerProfile.value) {
+        needsSignIn.value = true;
+
         return;
     }
 
@@ -241,6 +316,7 @@ function checkout() {
             variantId: item.variantId || null,
             name: item.name,
             price: effectivePrice(item),
+            image: item.image || null,
             category: item.category,
             seller: item.seller,
             variation: item.variation,
@@ -269,7 +345,10 @@ function selectRecommendedProduct(product) {
 </script>
 
 <template>
-    <div class="buyer-page min-h-screen bg-slate-50 text-slate-800">
+    <div
+        class="buyer-page min-h-screen bg-slate-50 text-slate-800"
+        :class="{ 'pb-20': showCheckoutBar }"
+    >
         <Header
             @select-category="handleHeaderSelectCategory"
             @cart-click="() => {}"
@@ -347,14 +426,14 @@ function selectRecommendedProduct(product) {
                         Your cart is empty
                     </h2>
                     <p class="text-slate-500 mb-6">
-                        Browse BuyTheWay and add items you like — they'll wait for you here, even after a refresh.
+                        Browse the catalog and add what you like. Your cart is saved on this device, even after a refresh.
                     </p>
                     <button
                         type="button"
-                        class="inline-flex items-center justify-center min-h-[44px] bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm px-8 rounded-full transition-colors"
-                        @click="emit('back')"
+                        class="inline-flex items-center justify-center min-h-[44px] bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm px-8 rounded-xl transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
+                        @click="emit('browse-all')"
                     >
-                        Continue shopping
+                        Browse products
                     </button>
                 </div>
 
@@ -363,7 +442,7 @@ function selectRecommendedProduct(product) {
                     class="mt-16"
                 >
                     <h2 class="text-xl font-bold text-slate-900 mb-6">
-                        Popular on BuyTheWay
+                        Worth a look
                     </h2>
                     <div class="product-grid">
                         <ProductCard
@@ -382,139 +461,136 @@ function selectRecommendedProduct(product) {
 
             <div
                 v-else
-                class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start"
+                class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-8 items-start"
             >
-                <div class="lg:col-span-2 space-y-5">
-                    <!-- Skeleton while first revalidation runs -->
-                    <div
-                        v-if="showSkeleton"
-                        class="bg-white rounded-2xl border border-slate-100 divide-y divide-slate-100"
-                        aria-hidden="true"
+                <div class="min-w-0 space-y-5">
+                    <!-- Re-check in progress: the saved lines are already shown -->
+                    <p
+                        v-if="isCheckingCatalog"
+                        class="flex items-center gap-2.5 rounded-xl bg-white border border-slate-100 px-4 py-3 text-sm text-slate-600"
+                        role="status"
                     >
-                        <div
-                            v-for="n in 3"
-                            :key="n"
-                            class="flex gap-4 p-5"
-                        >
-                            <div class="w-24 h-24 rounded-xl bg-slate-100 animate-pulse shrink-0" />
-                            <div class="flex-1 space-y-3 py-1">
-                                <div class="h-4 bg-slate-100 rounded animate-pulse w-2/3" />
-                                <div class="h-3 bg-slate-100 rounded animate-pulse w-1/3" />
-                                <div class="h-8 bg-slate-100 rounded animate-pulse w-40" />
+                        <span
+                            class="h-4 w-4 shrink-0 rounded-full border-2 border-slate-300 border-t-teal-600 motion-safe:animate-spin"
+                            aria-hidden="true"
+                        />
+                        Checking latest stock and prices. Quantities and checkout unlock in a moment.
+                    </p>
+
+                    <!-- Cart-wide issues banner -->
+                    <div
+                        v-if="cartHasIssues"
+                        class="bg-amber-50 border border-amber-200 rounded-2xl p-4"
+                        role="status"
+                    >
+                        <div class="flex items-start gap-3">
+                            <svg
+                                viewBox="0 0 24 24"
+                                width="18"
+                                height="18"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2.25"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                class="text-amber-600 shrink-0 mt-0.5"
+                                aria-hidden="true"
+                            >
+                                <path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                            </svg>
+                            <div class="min-w-0">
+                                <p class="text-sm font-bold text-amber-900">
+                                    Some items need your attention
+                                </p>
+                                <p class="text-xs text-amber-800 mt-0.5">
+                                    We re-checked your cart against the latest stock and prices. Nothing was removed — review the flagged items below.
+                                </p>
+                                <div class="flex flex-wrap gap-2 mt-3">
+                                    <button
+                                        v-if="selectedBlockedItems.length > 0"
+                                        type="button"
+                                        class="min-h-[36px] px-3 rounded-lg bg-white border border-amber-300 text-xs font-bold text-amber-800 hover:bg-amber-100 transition-colors"
+                                        @click="handleDeselectBlocked"
+                                    >
+                                        Deselect unavailable items
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="min-h-[36px] px-3 rounded-lg bg-white border border-amber-300 text-xs font-bold text-amber-800 hover:bg-amber-100 transition-colors"
+                                        @click="handleRemoveUnavailable"
+                                    >
+                                        Remove unavailable items
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <template v-else>
-                        <!-- Cart-wide issues banner -->
-                        <div
-                            v-if="cartHasIssues"
-                            class="bg-amber-50 border border-amber-200 rounded-2xl p-4"
+                    <!-- Select all -->
+                    <div class="flex items-center justify-between bg-white rounded-2xl border border-slate-100 px-5 py-3.5">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                class="w-5 h-5 accent-teal-600 cursor-pointer"
+                                :checked="allItemsSelected"
+                                aria-label="Select all items"
+                                @change="handleSelectAll"
+                            >
+                            <span class="text-sm font-semibold text-slate-900">Select all</span>
+                        </label>
+                        <span
+                            class="text-xs font-semibold text-slate-500"
                             role="status"
+                            aria-atomic="true"
                         >
-                            <div class="flex items-start gap-3">
-                                <svg
-                                    viewBox="0 0 24 24"
-                                    width="18"
-                                    height="18"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2.25"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    class="text-amber-600 shrink-0 mt-0.5"
-                                    aria-hidden="true"
-                                >
-                                    <path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                                </svg>
-                                <div class="min-w-0">
-                                    <p class="text-sm font-bold text-amber-900">
-                                        Some items need your attention
-                                    </p>
-                                    <p class="text-xs text-amber-800 mt-0.5">
-                                        We re-checked your cart against the latest stock and prices. Nothing was removed — review the flagged items below.
-                                    </p>
-                                    <div class="flex flex-wrap gap-2 mt-3">
-                                        <button
-                                            v-if="selectedBlockedItems.length > 0"
-                                            type="button"
-                                            class="min-h-[36px] px-3 rounded-lg bg-white border border-amber-300 text-xs font-bold text-amber-800 hover:bg-amber-100 transition-colors"
-                                            @click="handleDeselectBlocked"
-                                        >
-                                            Deselect unavailable items
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="min-h-[36px] px-3 rounded-lg bg-white border border-amber-300 text-xs font-bold text-amber-800 hover:bg-amber-100 transition-colors"
-                                            @click="handleRemoveUnavailable"
-                                        >
-                                            Remove unavailable items
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                            {{ selectedItems.length }} of {{ cart.length }} selected
+                        </span>
+                    </div>
 
-                        <!-- Select all -->
-                        <div class="flex items-center justify-between bg-white rounded-2xl border border-slate-100 px-5 py-3.5">
-                            <label class="flex items-center gap-3 cursor-pointer">
+                    <!-- Per-seller groups -->
+                    <div
+                        v-for="seller in sellers"
+                        :key="seller"
+                        class="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm"
+                    >
+                        <div class="flex items-center justify-between gap-3 px-5 py-3.5 bg-teal-50/70 border-b border-slate-100">
+                            <label class="flex items-center gap-3 cursor-pointer min-w-0">
                                 <input
                                     type="checkbox"
-                                    class="w-5 h-5 accent-teal-600 cursor-pointer"
-                                    :checked="allItemsSelected"
-                                    aria-label="Select all items"
-                                    @change="handleSelectAll"
+                                    class="w-5 h-5 accent-teal-600 cursor-pointer shrink-0"
+                                    :checked="isSellerSelected(seller)"
+                                    :aria-label="`Select all items from ${seller}`"
+                                    @change="handleSellerSelection(seller, $event)"
                                 >
-                                <span class="text-sm font-semibold text-slate-900">Select all</span>
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    width="15"
+                                    height="15"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    class="text-teal-700 shrink-0"
+                                    aria-hidden="true"
+                                >
+                                    <path d="M3 9 5 3h14l2 6M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9M3 9h18" />
+                                </svg>
+                                <strong class="text-sm text-slate-900 truncate">{{ seller }}</strong>
                             </label>
                             <span
-                                class="text-xs font-semibold text-slate-500"
-                                role="status"
-                                aria-atomic="true"
+                                v-if="sellerSubtotal(seller) > 0"
+                                class="text-xs font-semibold text-slate-500 tabular-nums shrink-0"
                             >
-                                {{ selectedItems.length }} of {{ cart.length }} selected
+                                Subtotal {{ formatPrice(sellerSubtotal(seller)) }}
                             </span>
                         </div>
 
-                        <!-- Per-seller groups -->
-                        <div
-                            v-for="seller in sellers"
-                            :key="seller"
-                            class="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm"
+                        <TransitionGroup
+                            name="cart-row"
+                            tag="div"
+                            class="divide-y divide-slate-100"
                         >
-                            <div class="flex items-center justify-between gap-3 px-5 py-3.5 bg-teal-50/70 border-b border-slate-100">
-                                <label class="flex items-center gap-3 cursor-pointer min-w-0">
-                                    <input
-                                        type="checkbox"
-                                        class="w-5 h-5 accent-teal-600 cursor-pointer shrink-0"
-                                        :checked="isSellerSelected(seller)"
-                                        :aria-label="`Select all items from ${seller}`"
-                                        @change="handleSellerSelection(seller, $event)"
-                                    >
-                                    <svg
-                                        viewBox="0 0 24 24"
-                                        width="15"
-                                        height="15"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="2"
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        class="text-teal-700 shrink-0"
-                                        aria-hidden="true"
-                                    >
-                                        <path d="M3 9 5 3h14l2 6M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9M3 9h18" />
-                                    </svg>
-                                    <strong class="text-sm text-slate-900 truncate">{{ seller }}</strong>
-                                </label>
-                                <span
-                                    v-if="sellerSubtotal(seller) > 0"
-                                    class="text-xs font-semibold text-slate-500 tabular-nums shrink-0"
-                                >
-                                    Subtotal {{ formatPrice(sellerSubtotal(seller)) }}
-                                </span>
-                            </div>
-
                             <CartItemCard
                                 v-for="item in sellerItems(seller)"
                                 :key="item.cartId"
@@ -523,74 +599,101 @@ function selectRecommendedProduct(product) {
                                 @update-quantity="handleQuantity"
                                 @remove="handleRemove"
                                 @toggle-select="toggleCartItem"
-                                @view-reviews="openReviews"
                             />
-                        </div>
+                        </TransitionGroup>
+                    </div>
 
-                        <button
-                            type="button"
-                            class="inline-flex items-center gap-2 text-sm font-semibold text-teal-700 hover:text-teal-800 transition-colors"
-                            @click="emit('back')"
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-2 text-sm font-semibold text-teal-700 hover:text-teal-800 transition-colors"
+                        @click="emit('back')"
+                    >
+                        <svg
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
                         >
-                            <svg
-                                viewBox="0 0 24 24"
-                                width="16"
-                                height="16"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                aria-hidden="true"
-                            >
-                                <path d="m15 18-6-6 6-6" />
-                            </svg>
-                            Continue shopping
-                        </button>
-                    </template>
+                            <path d="m15 18-6-6 6-6" />
+                        </svg>
+                        Continue shopping
+                    </button>
                 </div>
 
                 <!-- ======================================================== -->
                 <!-- ORDER SUMMARY -->
                 <!-- ======================================================== -->
 
-                <aside class="lg:sticky lg:top-32">
+                <aside
+                    ref="summaryCard"
+                    class="lg:sticky lg:top-32"
+                    aria-labelledby="cart-summary-title"
+                >
                     <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-                        <h2 class="text-lg font-bold text-slate-900 mb-5">
+                        <h2
+                            id="cart-summary-title"
+                            class="text-lg font-bold text-slate-900 mb-5"
+                        >
                             Order Summary
                         </h2>
 
                         <dl class="space-y-3 text-sm">
-                            <div class="flex justify-between">
-                                <dt class="text-slate-500">Selected items</dt>
+                            <div class="flex justify-between gap-4">
+                                <dt class="text-slate-500">Items selected</dt>
                                 <dd class="font-semibold text-slate-900 tabular-nums">{{ selectedItemCount }}</dd>
                             </div>
-                            <div class="flex justify-between">
-                                <dt class="text-slate-500">Merchandise subtotal</dt>
-                                <dd class="font-semibold text-slate-900 tabular-nums">{{ formatPrice(cartSubtotal) }}</dd>
+                            <div class="flex justify-between gap-4">
+                                <dt class="text-slate-500">Subtotal</dt>
+                                <dd class="font-semibold text-slate-900 tabular-nums">
+                                    <Transition
+                                        name="cart-amount"
+                                        mode="out-in"
+                                    >
+                                        <span :key="cartSubtotal">{{ formatPrice(cartSubtotal) }}</span>
+                                    </Transition>
+                                </dd>
                             </div>
-                            <div class="flex justify-between">
-                                <dt class="text-slate-500">Shipping</dt>
-                                <dd class="text-slate-500 text-right text-xs max-w-[55%]">
-                                    Calculated at checkout<br>
-                                    <span class="text-[11px]">(charged per seller)</span>
+                            <div class="flex justify-between gap-4">
+                                <dt class="text-slate-500">
+                                    Shipping
+                                    <span
+                                        v-if="checkoutSellerCount > 0"
+                                        class="block text-xs text-slate-400"
+                                    >
+                                        Standard, {{ checkoutSellerCount }} {{ checkoutSellerCount === 1 ? 'seller' : 'sellers' }} × {{ formatPrice(lowestShippingFee) }}
+                                    </span>
+                                </dt>
+                                <dd class="font-semibold text-slate-900 tabular-nums">
+                                    {{ checkoutSellerCount > 0 ? formatPrice(estimatedShipping) : formatPrice(0) }}
                                 </dd>
                             </div>
                         </dl>
 
                         <div class="h-px bg-slate-100 my-4" />
 
-                        <div class="flex justify-between items-baseline mb-1">
+                        <div class="flex justify-between items-baseline gap-4 mb-1">
                             <span class="text-base font-bold text-slate-900">Estimated total</span>
-                            <span class="text-lg font-bold text-teal-700 tabular-nums">{{ formatPrice(cartSubtotal) }}</span>
+                            <span class="text-xl font-bold text-slate-900 tabular-nums">
+                                <Transition
+                                    name="cart-amount"
+                                    mode="out-in"
+                                >
+                                    <span :key="estimatedTotal">{{ formatPrice(estimatedTotal) }}</span>
+                                </Transition>
+                            </span>
                         </div>
-                        <p class="text-[11px] text-slate-400 mb-5">
-                            Excludes shipping, shown at checkout.
+                        <p class="text-xs text-slate-500 mb-5">
+                            May change at checkout: shipping depends on the delivery option you choose, and prices and stock are re-checked when you place the order.
                         </p>
 
                         <button
                             type="button"
-                            class="w-full min-h-[48px] bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-center rounded-xl font-bold text-[15px] transition-colors"
+                            class="w-full min-h-[48px] bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-center rounded-xl font-bold text-[15px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
                             :disabled="!canCheckout"
                             :aria-describedby="checkoutBlockReason ? 'checkout-block-reason' : undefined"
                             @click="checkout"
@@ -626,36 +729,34 @@ function selectRecommendedProduct(product) {
                             {{ checkoutBlockReason }}
                         </p>
 
-                        <div class="mt-5 space-y-2.5">
-                            <p class="flex items-center gap-2 text-xs text-slate-500">
-                                <svg
-                                    viewBox="0 0 24 24"
-                                    width="15"
-                                    height="15"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    class="text-teal-600 shrink-0"
-                                    aria-hidden="true"
-                                >
-                                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                                </svg>
-                                Prices and stock are re-checked before your order is placed.
+                        <div
+                            v-if="needsSignIn && !buyerProfile"
+                            class="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700"
+                            role="status"
+                        >
+                            <p class="font-semibold text-slate-900">Sign in to check out</p>
+                            <p class="mt-0.5 text-xs text-slate-500">
+                                Your cart is saved on this device and will be here when you come back.
                             </p>
+                            <a
+                                href="/login"
+                                class="mt-2 inline-flex min-h-[40px] items-center rounded-lg bg-slate-900 px-4 text-sm font-bold text-white hover:bg-slate-800"
+                            >
+                                Sign in
+                            </a>
                         </div>
+
                     </div>
                 </aside>
             </div>
 
-            <!-- People Also Bought -->
+            <!-- You might also like -->
             <section
                 v-if="cart.length > 0 && recommendedProducts.length > 0"
                 class="mt-20"
             >
                 <h2 class="text-xl font-bold text-slate-900 mb-6">
-                    People Also Bought
+                    You might also like
                 </h2>
                 <div class="product-grid">
                     <ProductCard
@@ -674,10 +775,70 @@ function selectRecommendedProduct(product) {
             @cart-click="() => {}"
         />
 
-        <ProductReviewsDrawer
-            :show="reviewsOpen"
-            :product="reviewsProduct"
-            @close="reviewsOpen = false"
-        />
+        <Transition name="cart-bar">
+            <div
+                v-if="showCheckoutBar"
+                class="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 pt-2.5 pb-[calc(12px+env(safe-area-inset-bottom))] shadow-[0_-6px_18px_rgba(15,23,42,0.06)]"
+            >
+                <div class="min-w-0">
+                    <p class="text-base font-bold tabular-nums text-slate-900">{{ formatPrice(estimatedTotal) }}</p>
+                    <p class="text-xs text-slate-500">Estimated total</p>
+                </div>
+                <button
+                    type="button"
+                    class="min-h-[44px] shrink-0 rounded-xl bg-teal-600 px-5 text-sm font-bold text-white transition-colors hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
+                    :disabled="!canCheckout"
+                    :aria-describedby="checkoutBlockReason ? 'checkout-block-reason' : undefined"
+                    @click="checkout"
+                >
+                    Checkout ({{ selectedValidItems.length }})
+                </button>
+            </div>
+        </Transition>
     </div>
 </template>
+
+<style scoped>
+.cart-row-enter-active,
+.cart-row-leave-active {
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.cart-row-enter-from,
+.cart-row-leave-to {
+    opacity: 0;
+    transform: translateX(-12px);
+}
+
+.cart-amount-enter-active,
+.cart-amount-leave-active {
+    transition: opacity 0.12s ease;
+}
+
+.cart-amount-enter-from,
+.cart-amount-leave-to {
+    opacity: 0.35;
+}
+
+.cart-bar-enter-active,
+.cart-bar-leave-active {
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.cart-bar-enter-from,
+.cart-bar-leave-to {
+    transform: translateY(100%);
+    opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cart-row-enter-active,
+    .cart-row-leave-active,
+    .cart-amount-enter-active,
+    .cart-amount-leave-active,
+    .cart-bar-enter-active,
+    .cart-bar-leave-active {
+        transition: none;
+    }
+}
+</style>

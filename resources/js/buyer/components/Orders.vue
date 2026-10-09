@@ -1,36 +1,47 @@
+<script>
+import { ref } from 'vue';
+
+// The chosen tab outlives this component, so leaving for Wishlist or an
+// order's details and coming back lands on the same tab.
+const selectedTab = ref('all');
+</script>
+
 <script setup>
 /*
 |--------------------------------------------------------------------------
-| Orders.vue — My Orders (list)
+| Orders.vue — My Orders
 |--------------------------------------------------------------------------
 |
-| Same Tailwind/Header/Footer/sidebar treatment as Account.vue and
-| OrderDetails.vue, extended here since this is what "My Orders" in that
-| shared sidebar actually opens — it had zero CSS backing before this
-| (no `.orders-*` rules existed anywhere in layout.css), same gap as
-| Account.vue and OrderDetails.vue had. No design doc was pasted for this
-| specific list page; this reuses the same sidebar, header, card, and
-| status-badge language already established for the rest of the account
-| area so the whole My Orders flow (list -> detail) feels like one place
-| rather than two different apps stitched together.
+| The list of the buyer's orders, rendered in AccountLayout's content
+| column (the sidebar never moves). Opening one swaps in OrderDetails or
+| OrderTracking in the same place; their own logic is unchanged.
 |
-| All the underlying logic (tabs, filtering, formatters) is unchanged
-| from before — only the template changed.
+| Tabs follow the order's `stage` from the orders API (App\Support\
+| OrderStage): To Pay, To Ship, To Receive, Completed, Cancelled and
+| Return/Refund, plus All. The stored status stays the order's real status
+| and is shown on the card when it says more than the tab ("Confirmed",
+| "Ready for Pickup"). Counts come from the full order list the API
+| returns, so they're always the tab's real size.
 |
-| "Order Tracking" isn't in this page's sidebar, real or disabled — same
-| reasoning as Account.vue: it only means anything once a specific order
-| is selected, and this list page is exactly the "no order selected yet"
-| state. It appears (real) once you open an order via OrderDetails.vue.
+| Item photos come with the order (variant photo, else product photo),
+| shown by OrderItemThumb.
+|
+| A card's header and items open the order's details: the order number is
+| a real button whose click area is stretched over that part of the card
+| (keyboard: Tab to it, Enter). The footer's buttons sit outside it, so
+| they never open details too. Completed orders offer Buy again (see
+| useBuyAgain.js) in place of View details.
+|
 */
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, reactive } from 'vue';
 
 import OrderDetails from './OrderDetails.vue';
+import OrderItemThumb from './OrderItemThumb.vue';
 import OrderTracking from './OrderTracking.vue';
-import Header from './Header.vue';
-import AccountSidebar from './AccountSidebar.vue';
-import Footer from './Footer.vue';
 import { useBuyer } from '../composables/useBuyer';
-import { metaFor } from '../composables/useCategoryMeta';
+import { buyAgain } from '../composables/useBuyAgain';
+import { formatPrice } from '../composables/useCategoryMeta';
+import { useToasts } from '../composables/useToasts';
 
 const emit = defineEmits([
     'back',
@@ -49,12 +60,12 @@ const {
     orders,
     isLoadingOrders,
     ordersLoadError,
-    loadOrders,
-    ORDER_STATUSES
+    loadOrders
 } = useBuyer();
 
 onMounted(() => {
     loadOrders();
+    revealActiveTab();
 });
 
 /*
@@ -66,13 +77,17 @@ onMounted(() => {
 const selectedOrder = ref(null);
 
 // Which view to show for the selected order — OrderDetails or
-// OrderTracking (see OrderDetails.vue's sidebar "Order Tracking" link and
-// its "Track Package" header button, both emitting 'track-order').
+// OrderTracking (OrderDetails' "Track Package" emits 'track-order').
 const isTrackingView = ref(false);
 
 function viewOrderDetails(order) {
     selectedOrder.value = order;
     isTrackingView.value = false;
+}
+
+function trackOrder(order) {
+    selectedOrder.value = order;
+    isTrackingView.value = true;
 }
 
 function backToOrders() {
@@ -82,404 +97,565 @@ function backToOrders() {
 
 /*
 |--------------------------------------------------------------------------
-| Order Tabs
+| Tabs
 |--------------------------------------------------------------------------
 */
 
-// De-duplicated: ORDER_STATUSES maps a couple of legacy UI labels onto the
-// same real order status (see useBuyer.js), so building this from the raw
-// values would otherwise show "In Transit" / "Cancelled" twice.
-const tabs = [
-    'All',
-    ORDER_STATUSES.TO_SHIP,
-    ORDER_STATUSES.PROCESSING,
-    ORDER_STATUSES.IN_TRANSIT,
-    ORDER_STATUSES.DELIVERED,
-    'To Return',
-    'Returned',
-    ORDER_STATUSES.CANCELLED
+const TABS = [
+    { id: 'all', label: 'All' },
+    { id: 'to_pay', label: 'To Pay' },
+    { id: 'to_ship', label: 'To Ship' },
+    { id: 'to_receive', label: 'To Receive' },
+    { id: 'completed', label: 'Completed' },
+    { id: 'cancelled', label: 'Cancelled' },
+    { id: 'return_refund', label: 'Return/Refund' }
 ];
 
-// Approved Return + Refund progress (order.returnState from the API) —
-// these two tabs filter on it instead of the order's own status.
-const RETURN_TABS = { 'To Return': 'to_return', Returned: 'returned' };
+const STAGE_LABELS = Object.fromEntries(TABS.map(tab => [tab.id, tab.label]));
 
-function displayStatus(order) {
-    if (order.returnState === 'to_return') {
-        return 'To Return';
+// What an empty tab says — including why To Pay stays empty for cash on
+// delivery, the only payment method checkout offers.
+const EMPTY = {
+    all: { title: 'No orders yet', text: 'When you buy something, it shows up here so you can follow it to your door.' },
+    to_pay: { title: 'Nothing to pay', text: 'Orders paid online wait here until payment goes through. Cash on delivery orders are paid when they arrive, so they go straight to To Ship.' },
+    to_ship: { title: 'Nothing waiting to ship', text: 'Orders the seller is still preparing show up here.' },
+    to_receive: { title: 'Nothing on the way', text: 'Orders handed to the courier show up here until they’re delivered.' },
+    completed: { title: 'No completed orders yet', text: 'Delivered orders show up here, where you can review them or request a return.' },
+    cancelled: { title: 'No cancelled orders', text: 'Orders you or a seller cancel show up here.' },
+    return_refund: { title: 'No returns or refunds', text: 'Return and refund requests you open on delivered items show up here with their progress.' }
+};
+
+const stageOf = order => order.stage || 'to_ship';
+
+const counts = computed(() => {
+    const result = Object.fromEntries(TABS.map(tab => [tab.id, 0]));
+
+    for (const order of orders.value) {
+        result.all += 1;
+        result[stageOf(order)] = (result[stageOf(order)] || 0) + 1;
     }
 
-    return order.returnState === 'returned' ? 'Returned' : order.status;
-}
-
-const selectedStatus = ref('All');
-
-/*
-|--------------------------------------------------------------------------
-| Filtered Orders
-|--------------------------------------------------------------------------
-*/
-
-const filteredOrders = computed(() => {
-    if (selectedStatus.value === 'All') {
-        return orders.value;
-    }
-
-    if (RETURN_TABS[selectedStatus.value]) {
-        return orders.value.filter(order => order.returnState === RETURN_TABS[selectedStatus.value]);
-    }
-
-    return orders.value.filter(
-        order =>
-            order.status === selectedStatus.value
-    );
+    return result;
 });
 
-/*
-|--------------------------------------------------------------------------
-| Helpers
-|--------------------------------------------------------------------------
-*/
+const filteredOrders = computed(() => (selectedTab.value === 'all'
+    ? orders.value
+    : orders.value.filter(order => stageOf(order) === selectedTab.value)));
 
-function formatPrice(price) {
-    return `₱${Number(price || 0).toFixed(2)}`;
-}
+const tabButtons = ref([]);
 
-function formatDate(date) {
-    if (!date) {
-        return 'No date';
-    }
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    return new Date(date).toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
+// On phones the tab row scrolls sideways: keep the chosen tab in view.
+function revealActiveTab() {
+    nextTick(() => {
+        tabButtons.value[TABS.findIndex(tab => tab.id === selectedTab.value)]?.scrollIntoView({
+            block: 'nearest',
+            inline: 'nearest',
+            behavior: prefersReducedMotion ? 'auto' : 'smooth'
+        });
     });
 }
 
-function formatPaymentMethod(method) {
-    if (!method) {
-        return 'Not specified';
-    }
-
-    if (method === 'cod') {
-        return 'Cash on Delivery';
-    }
-
-    if (method === 'gcash') {
-        return 'GCash';
-    }
-
-    if (method === 'card') {
-        return 'Credit / Debit Card';
-    }
-
-    return method;
+function selectTab(id) {
+    selectedTab.value = id;
+    revealActiveTab();
 }
 
-function formatShippingMethod(method) {
-    if (!method) {
-        return 'Not specified';
+// Arrow keys move between tabs (and select), Home / End jump to the ends.
+function handleTabKeydown(event, index) {
+    const last = TABS.length - 1;
+    const next = {
+        ArrowRight: index === last ? 0 : index + 1,
+        ArrowLeft: index === 0 ? last : index - 1,
+        Home: 0,
+        End: last
+    }[event.key];
+
+    if (next === undefined) {
+        return;
     }
 
-    if (method === 'standard') {
-        return 'Standard Delivery';
-    }
-
-    if (method === 'express') {
-        return 'Express Delivery';
-    }
-
-    if (method === 'same_day') {
-        return 'Same Day Delivery';
-    }
-
-    return method;
-}
-
-// Same four-color scheme as OrderDetails.vue's Order Summary Bar status
-// badge, so a status reads the same color wherever it shows up.
-function statusBadgeClass(status) {
-    if (status === 'To Return') {
-        return 'bg-orange-50 text-orange-600';
-    }
-
-    if (status === 'Returned') {
-        return 'bg-slate-100 text-slate-600';
-    }
-
-    if (status === ORDER_STATUSES.IN_TRANSIT) {
-        return 'bg-blue-50 text-blue-600';
-    }
-
-    if (status === ORDER_STATUSES.TO_SHIP || status === ORDER_STATUSES.PROCESSING) {
-        return 'bg-amber-50 text-amber-600';
-    }
-
-    if (status === ORDER_STATUSES.DELIVERED) {
-        return 'bg-emerald-50 text-emerald-600';
-    }
-
-    if (status === ORDER_STATUSES.CANCELLED) {
-        return 'bg-red-50 text-red-600';
-    }
-
-    return 'bg-slate-100 text-slate-500';
-}
-
-function getItemPrice(item) {
-    return Number(
-        item.unit_price ??
-        item.price ??
-        0
-    );
+    event.preventDefault();
+    selectTab(TABS[next].id);
+    nextTick(() => tabButtons.value[next]?.focus());
 }
 
 /*
 |--------------------------------------------------------------------------
-| Header Relay
+| Card Helpers
 |--------------------------------------------------------------------------
 */
 
-function handleHeaderSearch(query) {
-    emit('search', query);
+function formatDate(date) {
+    if (!date) {
+        return '';
+    }
+
+    return new Date(date).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function handleHeaderSelectCategory(category) {
-    emit('select-category', category);
+function formatPaymentMethod(method) {
+    return {
+        cod: 'Cash on Delivery',
+        gcash: 'GCash',
+        card: 'Credit / Debit Card'
+    }[method] || method || 'Payment not specified';
 }
+
+// The seller's own status, when it adds something to the tab name.
+function statusDetail(order) {
+    const status = (order.status || '').trim();
+
+    return status && status.toLowerCase() !== (STAGE_LABELS[stageOf(order)] || '').toLowerCase() ? status : '';
+}
+
+function itemCount(order) {
+    return (order.items || []).reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+}
+
+function returnLabel(item) {
+    const request = item.returnRequest;
+
+    if (!request) {
+        return '';
+    }
+
+    const type = request.requestType === 'refund_only' ? 'Refund' : 'Return';
+
+    return `${type} ${(request.status || '').toLowerCase()}`;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Buy Again
+|--------------------------------------------------------------------------
+|
+| One run per order at a time (the button is disabled while it runs). The
+| outcome stays on the card: what couldn't be added and why, plus a way to
+| the cart; a toast sums it up.
+|
+*/
+
+const { success: toastSuccess, warning: toastWarning, error: toastError } = useToasts();
+
+// orderId -> { status: 'loading' | 'done' | 'error', added, problems, message }
+const buyAgainRuns = reactive({});
+
+function countLabel(n) {
+    return `${n} ${n === 1 ? 'item' : 'items'}`;
+}
+
+async function handleBuyAgain(order) {
+    if (buyAgainRuns[order.orderId]?.status === 'loading') {
+        return;
+    }
+
+    buyAgainRuns[order.orderId] = { status: 'loading', added: [], problems: [], message: '' };
+
+    try {
+        const { added, problems } = await buyAgain(order);
+
+        buyAgainRuns[order.orderId] = { status: 'done', added, problems, message: '' };
+
+        if (added.length && !problems.length) {
+            toastSuccess(`Added ${countLabel(added.length)} to your cart.`);
+        } else if (added.length) {
+            toastWarning(`Added ${countLabel(added.length)} to your cart. ${countLabel(problems.length)} couldn’t be added.`);
+        } else {
+            toastError('None of these items can be added to your cart right now.');
+        }
+    } catch {
+        buyAgainRuns[order.orderId] = {
+            status: 'error',
+            added: [],
+            problems: [],
+            message: 'We couldn’t check these items right now. Please try again.'
+        };
+        toastError('We couldn’t add these items. Please try again.');
+    }
+}
+
+function dismissBuyAgain(order) {
+    delete buyAgainRuns[order.orderId];
+}
+
+const skeletons = [0, 1];
 </script>
 
 <template>
 
-    <!-- ================================================================ -->
-    <!-- ORDER TRACKING -->
-    <!-- ================================================================ -->
-
-    <OrderTracking
-        v-if="selectedOrder && isTrackingView"
-        :order="selectedOrder"
-        @back="isTrackingView = false"
-        @view-orders="backToOrders"
-        @go-home="emit('go-home')"
-        @search="emit('search', $event)"
-        @select-category="emit('select-category', $event)"
-        @open-cart="emit('open-cart')"
-        @view-profile="emit('view-profile')"
-        @view-wishlist="emit('view-wishlist')"
-        @view-reviews="emit('view-reviews')"
-        @view-addresses="emit('view-addresses')"
-        @view-payments="emit('view-payments')"
-    />
-
-    <!-- ================================================================ -->
-    <!-- ORDER DETAILS -->
-    <!-- ================================================================ -->
-
-    <OrderDetails
-        v-else-if="selectedOrder"
-        :order="selectedOrder"
-        @back="backToOrders"
-        @go-home="emit('go-home')"
-        @search="emit('search', $event)"
-        @select-category="emit('select-category', $event)"
-        @open-cart="emit('open-cart')"
-        @view-profile="emit('view-profile')"
-        @view-wishlist="emit('view-wishlist')"
-        @view-reviews="emit('view-reviews')"
-        @view-addresses="emit('view-addresses')"
-        @view-payments="emit('view-payments')"
-        @track-order="isTrackingView = true"
-    />
-
-    <!-- ================================================================ -->
-    <!-- ORDERS LIST -->
-    <!-- ================================================================ -->
-
-    <div
-        v-else
-        class="buyer-page"
+    <Transition
+        name="acc-swap"
+        mode="out-in"
     >
+        <!-- ================================================================ -->
+        <!-- ORDER TRACKING -->
+        <!-- ================================================================ -->
 
-        <Header
-            active-category=""
-            @select-category="handleHeaderSelectCategory"
-            @cart-click="emit('open-cart')"
-            @account-click="emit('view-profile')"
-            @logo-click="emit('go-home')"
-            @search="handleHeaderSearch"
+        <OrderTracking
+            v-if="selectedOrder && isTrackingView"
+            :order="selectedOrder"
+            @back="isTrackingView = false"
+            @view-orders="backToOrders"
+            @go-home="emit('go-home')"
+            @search="emit('search', $event)"
+            @select-category="emit('select-category', $event)"
+            @open-cart="emit('open-cart')"
+            @view-profile="emit('view-profile')"
+            @view-wishlist="emit('view-wishlist')"
+            @view-reviews="emit('view-reviews')"
+            @view-addresses="emit('view-addresses')"
+            @view-payments="emit('view-payments')"
         />
 
-        <main class="max-w-7xl mx-auto w-full px-4 lg:px-8 py-10">
-            <div class="flex flex-col lg:flex-row lg:items-start gap-8">
+        <!-- ================================================================ -->
+        <!-- ORDER DETAILS -->
+        <!-- ================================================================ -->
 
-                <!-- ============================================================ -->
-                <!-- SIDEBAR NAV -->
-                <!-- ============================================================ -->
+        <OrderDetails
+            v-else-if="selectedOrder"
+            :order="selectedOrder"
+            @back="backToOrders"
+            @go-home="emit('go-home')"
+            @search="emit('search', $event)"
+            @select-category="emit('select-category', $event)"
+            @open-cart="emit('open-cart')"
+            @view-profile="emit('view-profile')"
+            @view-wishlist="emit('view-wishlist')"
+            @view-reviews="emit('view-reviews')"
+            @view-addresses="emit('view-addresses')"
+            @view-payments="emit('view-payments')"
+            @track-order="isTrackingView = true"
+        />
 
-                <AccountSidebar active="orders" />
+        <!-- ================================================================ -->
+        <!-- ORDERS LIST -->
+        <!-- ================================================================ -->
 
-                <!-- ============================================================ -->
-                <!-- MAIN CONTENT -->
-                <!-- ============================================================ -->
+        <section
+            v-else
+            class="acc-view ord"
+            aria-labelledby="orders-title"
+        >
+            <header class="acc-head">
+                <h1
+                    id="orders-title"
+                    class="acc-title"
+                >
+                    My Orders
+                </h1>
+                <p class="acc-lede">Follow your orders from checkout to your door.</p>
+            </header>
 
-                <div class="flex-1 space-y-6 min-w-0">
+            <!-- Tabs -->
+            <div
+                class="ord-tabs"
+                role="tablist"
+                aria-label="Orders by status"
+            >
+                <button
+                    v-for="(tab, index) in TABS"
+                    :id="`orders-tab-${tab.id}`"
+                    :key="tab.id"
+                    :ref="el => (tabButtons[index] = el)"
+                    type="button"
+                    role="tab"
+                    class="ord-tab"
+                    :class="{ 'is-active': selectedTab === tab.id }"
+                    :aria-selected="selectedTab === tab.id"
+                    aria-controls="orders-panel"
+                    :tabindex="selectedTab === tab.id ? 0 : -1"
+                    @click="selectTab(tab.id)"
+                    @keydown="handleTabKeydown($event, index)"
+                >
+                    {{ tab.label }}
+                    <span
+                        v-if="!isLoadingOrders && !ordersLoadError && counts[tab.id] > 0"
+                        class="ord-tab-count"
+                    >
+                        {{ counts[tab.id] }}<span class="sr-only"> {{ counts[tab.id] === 1 ? 'order' : 'orders' }}</span>
+                    </span>
+                </button>
+            </div>
 
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div>
-                            <button
-                                type="button"
-                                class="inline-flex items-center gap-2 text-sm font-semibold text-[#0d9488] hover:underline mb-2"
-                                @click="emit('back')"
-                            >
-                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="m12 19-7-7 7-7" /><path d="M19 12H5" />
-                                </svg>
-                                Back to Shopping
-                            </button>
-                            <h1 class="text-3xl font-bold text-slate-900 tracking-tight">My Orders</h1>
-                            <p class="text-slate-500 mt-1">View and track your purchases.</p>
+            <div
+                id="orders-panel"
+                class="ord-panel"
+                role="tabpanel"
+                :aria-labelledby="`orders-tab-${selectedTab}`"
+                :aria-busy="isLoadingOrders"
+            >
+                <!-- Loading -->
+                <div
+                    v-if="isLoadingOrders && orders.length === 0"
+                    class="ord-list"
+                    aria-hidden="true"
+                >
+                    <div
+                        v-for="n in skeletons"
+                        :key="n"
+                        class="ord-card is-skeleton"
+                    >
+                        <div class="ord-card-head">
+                            <span class="skeleton is-line"></span>
+                        </div>
+                        <div class="ord-item">
+                            <span class="skeleton ord-thumb"></span>
+                            <span class="ord-item-text">
+                                <span class="skeleton is-line"></span>
+                                <span class="skeleton is-line is-short"></span>
+                            </span>
                         </div>
                     </div>
-
-                    <!-- Status Tabs -->
-                    <div class="flex items-center gap-2 overflow-x-auto pb-1">
-                        <button
-                            v-for="tab in tabs"
-                            :key="tab"
-                            type="button"
-                            class="px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-colors shrink-0"
-                            :class="selectedStatus === tab
-                                ? 'bg-[#0d9488] text-white'
-                                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'"
-                            @click="selectedStatus = tab"
-                        >
-                            {{ tab }}
-                        </button>
-                    </div>
-
-                    <!-- Loading / Error -->
-                    <div
-                        v-if="isLoadingOrders"
-                        class="empty-products"
-                    >
-                        <p>Loading your orders&hellip;</p>
-                    </div>
-
-                    <div
-                        v-else-if="ordersLoadError"
-                        class="empty-products"
-                    >
-                        <p>{{ ordersLoadError }}</p>
-                    </div>
-
-                    <!-- Empty -->
-                    <div
-                        v-else-if="filteredOrders.length === 0"
-                        class="empty-products"
-                    >
-                        <span class="empty-products-icon" aria-hidden="true">🔍</span>
-                        <p>You currently have no orders under "{{ selectedStatus }}".</p>
-                        <button
-                            v-if="selectedStatus !== 'All'"
-                            type="button"
-                            class="clear-filters-button"
-                            @click="selectedStatus = 'All'"
-                        >
-                            Show All Orders
-                        </button>
-                    </div>
-
-                    <!-- Order Cards -->
-                    <div
-                        v-else
-                        class="space-y-6"
-                    >
-                        <article
-                            v-for="order in filteredOrders"
-                            :key="order.orderId"
-                            class="bg-white rounded-3xl border border-slate-100 overflow-hidden"
-                            style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
-                        >
-
-                            <!-- Card Header -->
-                            <div class="flex flex-wrap items-center justify-between gap-3 px-8 py-5 border-b border-slate-100">
-                                <div>
-                                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Order {{ order.orderId }}</span>
-                                    <span class="text-sm text-slate-500">{{ formatDate(order.createdAt) }}</span>
-                                </div>
-                                <span
-                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold"
-                                    :class="statusBadgeClass(displayStatus(order))"
-                                    :title="order.returnReason ? `Return reason: ${order.returnReason}` : undefined"
-                                >
-                                    {{ displayStatus(order) }}
-                                </span>
-                            </div>
-
-                            <!-- Items -->
-                            <div class="divide-y divide-slate-50">
-                                <div
-                                    v-for="(item, index) in order.items"
-                                    :key="`${order.orderId}-${index}`"
-                                    class="flex items-center gap-5 px-8 py-5"
-                                >
-                                    <div
-                                        class="w-16 h-16 rounded-2xl flex items-center justify-center shrink-0"
-                                        :class="'accent-' + metaFor(item.category).accent"
-                                        style="background: var(--accent-bg, #f1f5f9); color: var(--accent-fg, #64748b);"
-                                    >
-                                        <span class="w-7 h-7" v-html="metaFor(item.category).icon"></span>
-                                    </div>
-                                    <div class="flex-1 min-w-0">
-                                        <h3 class="font-bold text-slate-900 truncate">{{ item.name || `Product #${item.product_id}` }}</h3>
-                                        <p class="text-sm text-slate-500 mt-0.5">
-                                            {{ item.seller || 'BuyTheWay Seller' }}
-                                            <template v-if="item.variation"> • {{ item.variation }}</template>
-                                            • Qty {{ item.quantity }}
-                                        </p>
-                                    </div>
-                                    <div class="text-right shrink-0">
-                                        <span class="font-bold text-slate-900">{{ formatPrice(getItemPrice(item)) }}</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Card Footer -->
-                            <div class="flex flex-wrap items-center justify-between gap-4 px-8 py-5 bg-slate-50">
-                                <div class="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-slate-500">
-                                    <span>{{ formatPaymentMethod(order.payment_method) }}</span>
-                                    <span>{{ formatShippingMethod(order.shipping_method) }}</span>
-                                </div>
-                                <div class="flex items-center gap-6">
-                                    <div class="text-right">
-                                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Total</span>
-                                        <span class="text-lg font-bold text-[#0d9488]">{{ formatPrice(order.total) }}</span>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        class="px-5 py-2.5 bg-[#0d9488] text-white rounded-xl text-sm font-bold hover:bg-[#0f766e] transition-colors"
-                                        @click="viewOrderDetails(order)"
-                                    >
-                                        View Details
-                                    </button>
-                                </div>
-                            </div>
-
-                        </article>
-                    </div>
-
+                    <p class="sr-only">Loading your orders…</p>
                 </div>
 
+                <!-- Error -->
+                <div
+                    v-else-if="ordersLoadError"
+                    class="ord-state"
+                    role="alert"
+                >
+                    <h2>We couldn&rsquo;t load your orders</h2>
+                    <p>{{ ordersLoadError }}</p>
+                    <button
+                        type="button"
+                        class="btn btn-primary"
+                        @click="loadOrders"
+                    >
+                        Try again
+                    </button>
+                </div>
+
+                <!-- Empty tab -->
+                <Transition
+                    v-else
+                    name="ord-fade"
+                    mode="out-in"
+                >
+                    <div
+                        v-if="filteredOrders.length === 0"
+                        :key="`empty-${selectedTab}`"
+                        class="ord-state"
+                    >
+                        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M21 8 12 3 3 8v8l9 5 9-5Z" />
+                            <path d="m3 8 9 5 9-5M12 13v8" />
+                        </svg>
+                        <h2>{{ EMPTY[selectedTab].title }}</h2>
+                        <p>{{ EMPTY[selectedTab].text }}</p>
+                        <button
+                            v-if="selectedTab !== 'all' && counts.all > 0"
+                            type="button"
+                            class="btn btn-secondary"
+                            @click="selectTab('all')"
+                        >
+                            Show all orders
+                        </button>
+                        <button
+                            v-else-if="counts.all === 0"
+                            type="button"
+                            class="btn btn-primary"
+                            @click="emit('back')"
+                        >
+                            Start shopping
+                        </button>
+                    </div>
+
+                    <!-- Orders -->
+                    <ul
+                        v-else
+                        :key="`list-${selectedTab}`"
+                        class="ord-list"
+                    >
+                        <li
+                            v-for="order in filteredOrders"
+                            :key="order.orderId"
+                        >
+                            <article
+                                class="ord-card"
+                                :aria-labelledby="`order-${order.orderId}`"
+                            >
+                                <div class="ord-card-main">
+                                <header class="ord-card-head">
+                                    <div class="ord-card-meta">
+                                        <span class="ord-seller">
+                                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M3 9h18l-1.5-5h-15Z" /><path d="M4 9v11h16V9" /><path d="M9 20v-6h6v6" />
+                                            </svg>
+                                            {{ order.seller || 'BuyTheWay Seller' }}
+                                        </span>
+                                        <!-- The card's open action: its click area covers the
+                                             whole header + items region (.ord-open::after). -->
+                                        <button
+                                            :id="`order-${order.orderId}`"
+                                            type="button"
+                                            class="ord-number ord-open"
+                                            :aria-label="`Order ${order.orderId}, ${STAGE_LABELS[stageOf(order)]} — view details`"
+                                            @click="viewOrderDetails(order)"
+                                        >Order {{ order.orderId }}<template v-if="order.createdAt"> · {{ formatDate(order.createdAt) }}</template></button>
+                                    </div>
+                                    <div class="ord-card-status">
+                                        <span
+                                            v-if="statusDetail(order)"
+                                            class="ord-status-detail"
+                                        >{{ statusDetail(order) }}</span>
+                                        <span
+                                            class="ord-stage"
+                                            :class="`is-${stageOf(order)}`"
+                                        >{{ STAGE_LABELS[stageOf(order)] }}</span>
+                                        <svg class="ord-open-chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                                    </div>
+                                </header>
+
+                                <ul class="ord-items">
+                                    <li
+                                        v-for="(item, index) in order.items"
+                                        :key="item.id || `${order.orderId}-${index}`"
+                                        class="ord-item"
+                                    >
+                                        <OrderItemThumb
+                                            :src="item.image || ''"
+                                            :category="item.category || ''"
+                                        />
+                                        <div class="ord-item-text">
+                                            <p class="ord-item-name">{{ item.name || 'Product' }}</p>
+                                            <p class="ord-item-meta">
+                                                <span v-if="item.variation">{{ item.variation }}</span>
+                                                <span>Qty {{ item.quantity }}</span>
+                                                <span
+                                                    v-if="returnLabel(item)"
+                                                    class="ord-item-return"
+                                                >{{ returnLabel(item) }}</span>
+                                            </p>
+                                        </div>
+                                        <span class="ord-item-price">{{ formatPrice(item.unit_price ?? item.price ?? 0) }}</span>
+                                    </li>
+                                </ul>
+                                </div>
+
+                                <footer class="ord-card-foot">
+                                    <p class="ord-foot-meta">
+                                        {{ formatPaymentMethod(order.payment_method) }}
+                                        <span aria-hidden="true">·</span>
+                                        {{ itemCount(order) }} {{ itemCount(order) === 1 ? 'item' : 'items' }}
+                                    </p>
+                                    <p class="ord-total">
+                                        <span>Order total</span>
+                                        <strong>{{ formatPrice(order.total) }}</strong>
+                                    </p>
+                                    <div class="ord-actions">
+                                        <button
+                                            v-if="stageOf(order) === 'to_receive'"
+                                            type="button"
+                                            class="btn btn-secondary"
+                                            @click="trackOrder(order)"
+                                        >
+                                            Track order
+                                        </button>
+                                        <button
+                                            v-if="stageOf(order) === 'completed'"
+                                            type="button"
+                                            class="btn btn-primary ord-buy-again"
+                                            :disabled="buyAgainRuns[order.orderId]?.status === 'loading'"
+                                            :aria-busy="buyAgainRuns[order.orderId]?.status === 'loading'"
+                                            @click="handleBuyAgain(order)"
+                                        >
+                                            <span
+                                                v-if="buyAgainRuns[order.orderId]?.status === 'loading'"
+                                                class="ord-spinner"
+                                                aria-hidden="true"
+                                            ></span>
+                                            <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16" /><path d="M3 21v-5h5" /></svg>
+                                            {{ buyAgainRuns[order.orderId]?.status === 'loading' ? 'Adding…' : 'Buy again' }}
+                                        </button>
+                                        <button
+                                            v-else
+                                            type="button"
+                                            class="btn btn-primary"
+                                            @click="viewOrderDetails(order)"
+                                        >
+                                            View details
+                                        </button>
+                                    </div>
+                                </footer>
+
+                                <!-- Buy again outcome: what was added, what wasn't and why -->
+                                <div
+                                    v-if="buyAgainRuns[order.orderId] && buyAgainRuns[order.orderId].status !== 'loading'"
+                                    class="ord-buy-result"
+                                    :class="{ 'has-problems': buyAgainRuns[order.orderId].problems.length || buyAgainRuns[order.orderId].status === 'error' }"
+                                    role="status"
+                                >
+                                    <div class="ord-buy-result-text">
+                                        <p
+                                            v-if="buyAgainRuns[order.orderId].status === 'error'"
+                                            class="ord-buy-result-title"
+                                        >
+                                            {{ buyAgainRuns[order.orderId].message }}
+                                        </p>
+                                        <template v-else>
+                                            <p class="ord-buy-result-title">
+                                                <template v-if="buyAgainRuns[order.orderId].added.length">
+                                                    Added {{ countLabel(buyAgainRuns[order.orderId].added.length) }} to your cart at today’s prices.
+                                                </template>
+                                                <template v-else>Nothing was added to your cart.</template>
+                                            </p>
+                                            <ul
+                                                v-if="buyAgainRuns[order.orderId].problems.length || buyAgainRuns[order.orderId].added.some(a => a.note)"
+                                                class="ord-buy-result-list"
+                                            >
+                                                <li
+                                                    v-for="problem in buyAgainRuns[order.orderId].problems"
+                                                    :key="`p-${problem.name}`"
+                                                >
+                                                    <strong>{{ problem.name }}</strong> {{ problem.message }}
+                                                </li>
+                                                <template
+                                                    v-for="entry in buyAgainRuns[order.orderId].added"
+                                                    :key="`a-${entry.name}`"
+                                                >
+                                                    <li v-if="entry.note">
+                                                        <strong>{{ entry.name }}</strong>: {{ entry.note }}.
+                                                    </li>
+                                                </template>
+                                            </ul>
+                                        </template>
+                                    </div>
+                                    <div class="ord-buy-result-actions">
+                                        <button
+                                            v-if="buyAgainRuns[order.orderId].added.length"
+                                            type="button"
+                                            class="btn btn-secondary"
+                                            @click="emit('open-cart')"
+                                        >
+                                            Go to cart
+                                        </button>
+                                        <button
+                                            v-else-if="buyAgainRuns[order.orderId].status === 'error'"
+                                            type="button"
+                                            class="btn btn-secondary"
+                                            @click="handleBuyAgain(order)"
+                                        >
+                                            Try again
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="icon-btn"
+                                            aria-label="Dismiss"
+                                            @click="dismissBuyAgain(order)"
+                                        >
+                                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </article>
+                        </li>
+                    </ul>
+                </Transition>
             </div>
-        </main>
-
-        <Footer
-            @browse-all="emit('go-home')"
-            @browse-categories="emit('go-home')"
-            @cart-click="emit('open-cart')"
-        />
-
-    </div>
+        </section>
+    </Transition>
 
 </template>

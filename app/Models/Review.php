@@ -3,12 +3,18 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasUuidPrimaryKey;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Review extends Model
 {
+    public function scopeEligible(Builder $query): Builder
+    {
+        return $query->whereNotNull('reviews.product_id')->whereBetween('reviews.rating', [1, 5]);
+    }
+
     use HasUuidPrimaryKey;
 
     protected $table = 'reviews';

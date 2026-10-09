@@ -1,35 +1,72 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 
 import ProductDetails from './ProductDetails.vue';
 import Cart from './Cart.vue';
 import Checkout from './Checkout.vue';
 import CategoryListing from './CategoryListing.vue';
+import StoreDirectory from './StoreDirectory.vue';
+import StorePage from './StorePage.vue';
 import Header from './Header.vue';
 import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
+import HeroBanner from './HeroBanner.vue';
+import ProductRail from './ProductRail.vue';
+import SearchResults from './SearchResults.vue';
+import OffersCarousel from './OffersCarousel.vue';
 import Orders from './Orders.vue';
-import Account from './Account.vue';
+import AccountArea from './AccountArea.vue';
+import AccountLayout from './AccountLayout.vue';
 import Wishlist from './Wishlist.vue';
 import Reviews from './Reviews.vue';
-import SavedAddresses from './SavedAddresses.vue';
-import PaymentMethods from './PaymentMethods.vue';
-import MyVouchers from './MyVouchers.vue';
-import Chat from './Chat.vue';
+import MessagesModal from './MessagesModal.vue';
 import ToastHost from './ToastHost.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
-import CustomerServicePage from '../../shared/CustomerServicePage.vue';
 
 import { useBuyer } from '../composables/useBuyer';
-import { navRequest } from '../composables/useBuyerNav';
 import { useBuyerProducts } from '../composables/useBuyerProducts';
 import { useBuyerSession } from '../composables/useBuyerSession';
+import { useBuyerChat } from '../composables/useBuyerChat';
+import { useBuyerNav } from '../composables/useBuyerNav';
+import { useConfirm } from '../composables/useConfirm';
+import {
+    SETTINGS_SECTIONS,
+    accountFromQuery,
+    accountUrl,
+    dirtyLabels,
+    discardUnsavedChanges,
+    hasUnsavedChanges
+} from '../composables/useAccountNav';
+import { vReveal } from '../composables/useReveal';
+import { fetchJson } from '../composables/useStores';
+import { applyStats, onReviewChange, withLatestStats } from '../composables/useReviewSync';
+import {
+    categoryFromQuery,
+    categoryUrl,
+    filterStateFromQuery,
+    rememberFilterState
+} from '../composables/useCategoryFilterState';
 import {
     categories,
-    metaFor,
-    discountPercent,
-    formatPrice
+    metaFor
 } from '../composables/useCategoryMeta';
+import {
+    directoryStateFromQuery,
+    directoryUrl,
+    isDirectoryQuery,
+    rememberDirectoryState,
+    rememberStoreState,
+    storeIdFromQuery,
+    storePageUrl,
+    storeStateFromQuery
+} from '../composables/useStoreBrowseState';
+import {
+    defaultSearchState,
+    rememberSearchState,
+    searchStateFromQuery,
+    searchTermFromQuery,
+    searchUrl
+} from '../composables/useSearchState';
 
 /*
 |--------------------------------------------------------------------------
@@ -39,44 +76,120 @@ import {
 
 const {
     removeFromCart,
-    placeOrder,
-    checkoutError
+    favoriteCount
 } = useBuyer();
 
 const {
     products,
     isLoadingProducts,
     loadError: productsLoadError,
+    productsLoadedAt,
     loadProducts,
-    getProductById
+    refreshProducts
 } = useBuyerProducts();
 
 const { loadSession } = useBuyerSession();
+
+const { navRequest } = useBuyerNav();
 
 /*
 |--------------------------------------------------------------------------
 | Dashboard State
 |--------------------------------------------------------------------------
+|
+| `searchQuery` is what's being typed in the header; `submittedQuery` is
+| the search that was actually run. Results only change on submit, so the
+| storefront doesn't reshuffle under the buyer on every keystroke.
+|
 */
 
-const searchQuery = ref('');
-const selectedCategory = ref('All');
+// ?search=<words>&filters (a refreshed or shared results page) runs that
+// search with its filters, sort and page (useSearchState.js).
+const initialSearch = searchTermFromQuery(window.location.search);
+
+if (initialSearch) {
+    rememberSearchState(searchStateFromQuery(window.location.search));
+}
+
+const searchQuery = ref(initialSearch);
+const submittedQuery = ref(initialSearch);
+
+// Bumped by every header search, so re-running the same words starts a
+// fresh results page (filters cleared, page 1).
+const searchRun = ref(0);
+
+// A shared / refreshed store link (?store=<id>&...) or store directory link
+// (?view=stores&...) opens straight onto that page with its browse state.
+const initialStoreId = storeIdFromQuery(window.location.search);
+const initialStoresView = !initialStoreId && isDirectoryQuery(window.location.search);
+
+if (initialStoreId) {
+    rememberStoreState(initialStoreId, storeStateFromQuery(window.location.search));
+}
+
+if (initialStoresView) {
+    rememberDirectoryState(directoryStateFromQuery(window.location.search));
+}
+
+// A shared / refreshed category link (?category=...&filters) opens straight
+// onto that category page with its filters; anything else starts home.
+const initialCategory = (() => {
+    if (initialStoreId || initialStoresView || initialSearch) {
+        return null;
+    }
+
+    const fromUrl = categoryFromQuery(window.location.search);
+
+    if (!fromUrl || fromUrl === 'All' || !categories.includes(fromUrl)) {
+        return null;
+    }
+
+    rememberFilterState(fromUrl, filterStateFromQuery(window.location.search, fromUrl));
+
+    return fromUrl;
+})();
+
+const selectedCategory = ref(initialCategory || 'All');
 
 // Set to a specific category name to show CategoryListing (the dedicated
 // browse-by-category page) instead of the homepage — see selectCategory()
 // below. Stays null while selectedCategory is 'All'.
-const browsingCategory = ref(null);
+const browsingCategory = ref(initialCategory);
+
+// The store directory (StoreDirectory.vue) and one store's page
+// (StorePage.vue). browsingStore holds whatever is already known about the
+// store ({ id } at minimum) so its page can render the name immediately.
+const showStores = ref(initialStoresView);
+const browsingStore = ref(initialStoreId ? { id: initialStoreId } : null);
 
 const selectedProduct = ref(null);
 const showCart = ref(false);
-const showOrders = ref(false);
-const showAccount = ref(false);
-const showWishlist = ref(false);
-const showReviews = ref(false);
+// A refreshed or shared account link (?account=<id>) opens that page.
+const initialAccount = accountFromQuery(window.location.search);
+
+// ?messages opens the Messages modal (?messages=<conversation id> on that
+// conversation); the parameter is dropped once it has been read.
+const initialMessages = (() => {
+    const params = new URLSearchParams(window.location.search);
+
+    if (!params.has('messages')) {
+        return null;
+    }
+
+    const id = params.get('messages') || '';
+
+    return { id: /^[0-9a-f-]{36}$/i.test(id) ? id : null };
+})();
+
+const { openChat } = useBuyerChat();
+
+const showOrders = ref(initialAccount === 'orders');
+const showAccount = ref(SETTINGS_SECTIONS.includes(initialAccount));
+// Which settings section AccountArea shows (it stays mounted across them).
+const accountSection = ref(SETTINGS_SECTIONS.includes(initialAccount) ? initialAccount : 'profile');
+const showWishlist = ref(initialAccount === 'wishlist');
+const showReviews = ref(initialAccount === 'reviews');
 const showAddresses = ref(false);
-const showPayments = ref(false);
-const showVouchers = ref(false);
-const showCustomerService = ref(false);
 const checkoutItems = ref([]);
 const checkoutSource = ref(null);
 
@@ -86,119 +199,84 @@ const checkoutSource = ref(null);
 |--------------------------------------------------------------------------
 |
 | Backed by GET /api/products (App\Http\Controllers\ProductController) —
-| see useBuyerProducts.js. `products` itself is the ref returned by that
-| composable; loaded on mount below.
-|
-| Each product carries a real `rating` (average, or null when it has no
-| reviews) and `reviewCount` aggregated server-side from the reviews
-| table, plus a normalized `image` URL — no fabricated numbers, and the
-| card still renders "No reviews yet" when rating is null.
+| see useBuyerProducts.js. Each product carries a real `rating` (average,
+| or null when it has no reviews) and `reviewCount` aggregated server-side,
+| plus a normalized `image` URL — no fabricated numbers anywhere below.
 |
 */
 
-/*
-|--------------------------------------------------------------------------
-| Filter Products
-|--------------------------------------------------------------------------
-*/
+const inStockProducts = computed(() => products.value.filter(product => product.stock > 0));
 
-const filteredProducts = computed(() => {
-    const search = searchQuery.value
-        .trim()
-        .toLowerCase();
-
-    return products.value.filter(product => {
-        const matchesCategory =
-            selectedCategory.value === 'All' ||
-            product.category === selectedCategory.value;
-
-        const matchesSearch =
-            !search ||
-            product.name.toLowerCase().includes(search) ||
-            (product.category || '').toLowerCase().includes(search);
-
-        return matchesCategory && matchesSearch;
-    });
-});
-
-/*
-|--------------------------------------------------------------------------
-| Category Listing Page
-|--------------------------------------------------------------------------
-|
-| Every product already in memory (see useBuyerProducts.js) narrowed to
-| whatever category is currently being browsed — passed to
-| CategoryListing.vue as a prop rather than having that component fetch
-| its own copy, so it can never overwrite the shared `products` list the
-| homepage itself depends on.
-|
-*/
-
+// The catalog narrowed to the category being browsed — passed to
+// CategoryListing.vue as a prop so it never fetches (and can never
+// overwrite) the shared products list itself.
 const categoryProducts = computed(() => {
     if (!browsingCategory.value) {
         return [];
     }
 
-    return products.value.filter(
-        product => product.category === browsingCategory.value
-    );
+    return products.value.filter(product => product.category === browsingCategory.value);
 });
+
+function isOnSale(product) {
+    const oldPrice = Number(product.oldPrice);
+
+    return Number.isFinite(oldPrice) && oldPrice > Number(product.price);
+}
+
+function byNewest(a, b) {
+    return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+}
 
 /*
 |--------------------------------------------------------------------------
-| Curated Sections (Flash Deals / Recommended / Best Sellers)
+| Hero Shortcuts
 |--------------------------------------------------------------------------
 |
-| There is no orders/sales-aggregation endpoint yet to drive a *real*
-| units-sold ranking (that would need aggregating order_items across all
-| sellers), so these are explainable proxies over real data rather than
-| fabricated flags:
-|   - flashDeals: real products currently on sale (has a compare_price)
-|   - recommendedProducts: most recently listed in-stock products
-|   - bestSellers: in-stock products ranked by real review count, then
-|     average rating — the strongest popularity signal available until a
-|     sales aggregate exists.
-| Flagged in the final report as a partial gap, not hidden.
+| The hero (HeroBanner.vue) only links to sections that exist on this page:
+| the category grid, the live deals row, and the full catalog.
 |
 */
 
-const flashDeals = computed(() => {
-    return products.value
-        .filter(product => product.oldPrice && product.stock > 0)
-        .slice(0, 4);
-});
+const prefersReducedMotion = typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// Flash-deal cards show the real product photo when the API gave one
-// (normalized `image` string — see ProductController / App\Support\
-// ProductImage), same as ProductCard.vue. Fall back to the category-icon
-// tile for imageless products or if the image 404s. `v-for` renders many
-// cards, so failures are tracked per product id.
-const PLACEHOLDER_IMAGE = '/images/product-placeholder.svg';
-const failedDealImages = ref(new Set());
-
-function dealImage(deal) {
-    const src = deal.image;
-
-    if (!src || src === PLACEHOLDER_IMAGE || failedDealImages.value.has(deal.id)) {
-        return '';
-    }
-
-    return src;
+function scrollToSection(id) {
+    document.getElementById(id)?.scrollIntoView({
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+        block: 'start'
+    });
 }
 
-function handleDealImageError(deal) {
-    failedDealImages.value = new Set(failedDealImages.value).add(deal.id);
-}
+/*
+|--------------------------------------------------------------------------
+| Discovery Sections
+|--------------------------------------------------------------------------
+|
+| All explainable selections over real data:
+|   - flashDeals: in-stock products with a real, sane compare price
+|   - newArrivals: newest listings first
+|   - topRated: products that actually have reviews, best average first
+|   - spotlight: the category with the most in-stock products right now
+|   - bestSellers: most-reviewed in-stock products — a popularity proxy
+|     until a sales aggregate exists; Cart.vue uses it for its
+|     "you might also like" rail.
+|
+*/
 
-const recommendedProducts = computed(() => {
-    return products.value
-        .filter(product => product.stock > 0)
-        .slice(0, 8);
-});
+const flashDeals = computed(() => inStockProducts.value.filter(isOnSale).slice(0, 12));
+
+const newArrivals = computed(() => [...inStockProducts.value].sort(byNewest).slice(0, 12));
+
+const topRated = computed(() =>
+    products.value
+        .filter(product => typeof product.rating === 'number' && product.reviewCount > 0)
+        .sort((a, b) => b.rating - a.rating || b.reviewCount - a.reviewCount)
+        .slice(0, 12)
+);
 
 const bestSellers = computed(() => {
-    return [...products.value]
-        .filter(product => product.stock > 0)
+    return [...inStockProducts.value]
         .sort((a, b) =>
             (b.reviewCount || 0) - (a.reviewCount || 0)
             || (b.rating || 0) - (a.rating || 0)
@@ -207,156 +285,438 @@ const bestSellers = computed(() => {
         .slice(0, 8);
 });
 
+// Shown in the All products subtitle ("N products from M sellers").
+const sellerCount = computed(() =>
+    new Set(products.value.map(product => product.seller).filter(Boolean)).size
+);
+
 /*
 |--------------------------------------------------------------------------
-| Flash Deal Countdown
+| Shop by Category
 |--------------------------------------------------------------------------
 |
-| Cosmetic only — counts down from a fixed duration on page load. There is
-| no real deal-expiry timestamp from the backend yet, so this does not
-| reflect an actual sale end time.
+| 'All' is a filter state, not a real category — it never gets a tile.
+| Tiles are ordered by real in-stock product count (most-stocked first);
+| ties keep categories.js's original order (stable sort).
 |
 */
 
-const dealHours = ref(2);
-const dealMinutes = ref(45);
-const dealSeconds = ref(18);
+const categoryCounts = computed(() => {
+    const counts = {};
 
-let countdownTimer = null;
-
-function tickCountdown() {
-    if (dealSeconds.value > 0) {
-        dealSeconds.value--;
-        return;
+    for (const product of inStockProducts.value) {
+        counts[product.category] = (counts[product.category] || 0) + 1;
     }
 
-    if (dealMinutes.value > 0) {
-        dealMinutes.value--;
-        dealSeconds.value = 59;
-        return;
+    return counts;
+});
+
+const shopCategories = computed(() =>
+    categories
+        .filter(category => category !== 'All')
+        .map((category, index) => ({ category, index }))
+        .sort((a, b) =>
+            (categoryCounts.value[b.category] || 0) - (categoryCounts.value[a.category] || 0)
+            || a.index - b.index,
+        )
+        .map(entry => entry.category)
+);
+
+const failedCategoryImages = ref(new Set());
+
+function categoryImage(category) {
+    const src = metaFor(category).image;
+
+    if (!src || failedCategoryImages.value.has(category)) {
+        return '';
     }
 
-    if (dealHours.value > 0) {
-        dealHours.value--;
-        dealMinutes.value = 59;
-        dealSeconds.value = 59;
-        return;
-    }
-
-    // Reached zero — loop back so the demo banner keeps showing urgency.
-    dealHours.value = 2;
-    dealMinutes.value = 45;
-    dealSeconds.value = 18;
+    return src;
 }
 
-function pad(value) {
-    return String(value).padStart(2, '0');
+function handleCategoryImageError(category) {
+    failedCategoryImages.value = new Set(failedCategoryImages.value).add(category);
+}
+
+// Only worth showing once the catalog is big enough that the spotlight
+// adds something — on a small catalog it would just repeat New arrivals.
+const SPOTLIGHT_MIN_CATALOG = 16;
+
+const spotlightCategory = computed(() => {
+    const top = shopCategories.value[0];
+
+    if (inStockProducts.value.length < SPOTLIGHT_MIN_CATALOG) {
+        return null;
+    }
+
+    return top && (categoryCounts.value[top] || 0) >= 4 ? top : null;
+});
+
+const spotlightProducts = computed(() => {
+    if (!spotlightCategory.value) {
+        return [];
+    }
+
+    return inStockProducts.value
+        .filter(product => product.category === spotlightCategory.value)
+        .sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1) || byNewest(a, b))
+        .slice(0, 4);
+});
+
+/*
+|--------------------------------------------------------------------------
+| All Products
+|--------------------------------------------------------------------------
+|
+| The full catalog with a sort control and incremental "Show more" so the
+| page stays light. Sorting only reorders — it never changes which
+| products are listed.
+|
+*/
+
+const PAGE_SIZE = 20;
+
+const sortMode = ref('newest');
+const visibleCount = ref(PAGE_SIZE);
+
+const sortModes = [
+    { id: 'newest', label: 'Newest' },
+    { id: 'priceAsc', label: 'Price: low to high' },
+    { id: 'priceDesc', label: 'Price: high to low' },
+    { id: 'rating', label: 'Top rated' },
+    { id: 'reviews', label: 'Most reviewed' }
+];
+
+const sortedProducts = computed(() => {
+    const list = [...products.value];
+
+    switch (sortMode.value) {
+        case 'priceAsc':
+            return list.sort((a, b) => a.price - b.price);
+        case 'priceDesc':
+            return list.sort((a, b) => b.price - a.price);
+        case 'rating':
+            return list.sort((a, b) =>
+                (b.rating ?? -1) - (a.rating ?? -1) || (b.reviewCount || 0) - (a.reviewCount || 0)
+            );
+        case 'reviews':
+            return list.sort((a, b) =>
+                (b.reviewCount || 0) - (a.reviewCount || 0) || (b.rating || 0) - (a.rating || 0)
+            );
+        default:
+            return list.sort(byNewest);
+    }
+});
+
+const visibleProducts = computed(() => sortedProducts.value.slice(0, visibleCount.value));
+
+watch(sortMode, () => {
+    visibleCount.value = PAGE_SIZE;
+});
+
+const skeletonCards = Array.from({ length: 10 });
+
+/*
+|--------------------------------------------------------------------------
+| Scroll Position
+|--------------------------------------------------------------------------
+|
+| Views are swapped with v-if, so the storefront / results / category page
+| remount when the buyer comes back from a product. Remember where they
+| were and put them back there; every other view change starts at the top.
+|
+*/
+
+const currentView = computed(() => {
+    if (showOrders.value) {
+        return 'orders';
+    }
+
+    if (showAccount.value) {
+        return `account-${accountSection.value}`;
+    }
+
+    if (showWishlist.value) {
+        return 'wishlist';
+    }
+
+    if (showReviews.value) {
+        return 'reviews';
+    }
+
+    if (showAddresses.value) {
+        return 'addresses';
+    }
+
+    if (checkoutItems.value.length > 0) {
+        return 'checkout';
+    }
+
+    if (showCart.value) {
+        return 'cart';
+    }
+
+    if (selectedProduct.value) {
+        return `product-${selectedProduct.value.id}`;
+    }
+
+    if (browsingStore.value) {
+        return `store-${browsingStore.value.id}`;
+    }
+
+    if (showStores.value) {
+        return 'stores';
+    }
+
+    if (browsingCategory.value) {
+        return `category-${browsingCategory.value}`;
+    }
+
+    if (submittedQuery.value) {
+        return `search-${submittedQuery.value}`;
+    }
+
+    return 'home';
+});
+
+const savedScroll = new Map();
+let restoreTarget = null;
+let browseViewBeforeProduct = null;
+
+// flush: 'pre' runs before the DOM swaps, so window.scrollY is still the
+// outgoing view's position when it's recorded.
+watch(currentView, async (next, previous) => {
+    if (previous) {
+        savedScroll.set(previous, window.scrollY);
+    }
+
+    await nextTick();
+
+    if (restoreTarget === next && savedScroll.has(next)) {
+        window.scrollTo(0, savedScroll.get(next));
+    } else {
+        window.scrollTo(0, 0);
+    }
+
+    restoreTarget = null;
+});
+
+/*
+|--------------------------------------------------------------------------
+| Browser History
+|--------------------------------------------------------------------------
+|
+| Each view change pushes a history entry holding a plain snapshot of the
+| view state, so the browser's Back / Forward buttons move between buyer
+| views (product -> results -> storefront ...) instead of leaving the app,
+| and the scroll watcher above restores where the buyer was.
+|
+*/
+
+let applyingHistory = false;
+
+function plain(value) {
+    return value ? JSON.parse(JSON.stringify(value)) : null;
+}
+
+function viewSnapshot() {
+    return {
+        view: currentView.value,
+        showCart: showCart.value,
+        showOrders: showOrders.value,
+        showAccount: showAccount.value,
+        accountSection: accountSection.value,
+        showWishlist: showWishlist.value,
+        showReviews: showReviews.value,
+        showAddresses: showAddresses.value,
+        product: plain(selectedProduct.value),
+        browsingCategory: browsingCategory.value,
+        showStores: showStores.value,
+        browsingStore: plain(browsingStore.value),
+        submittedQuery: submittedQuery.value,
+        checkoutItems: plain(checkoutItems.value) || [],
+        checkoutSource: checkoutSource.value
+    };
+}
+
+function applySnapshot(state) {
+    applyingHistory = true;
+    restoreTarget = state.view;
+
+    showCart.value = state.showCart;
+    showOrders.value = state.showOrders;
+    showAccount.value = state.showAccount;
+    accountSection.value = state.accountSection || 'profile';
+    showWishlist.value = state.showWishlist;
+    showReviews.value = state.showReviews;
+    showAddresses.value = state.showAddresses;
+    selectedProduct.value = state.product
+        ? products.value.find(product => product.id === state.product.id) || state.product
+        : null;
+    completeSelectedProduct();
+    browsingCategory.value = state.browsingCategory;
+    showStores.value = Boolean(state.showStores);
+    browsingStore.value = state.browsingStore || null;
+    selectedCategory.value = state.browsingCategory || 'All';
+    submittedQuery.value = state.submittedQuery;
+    searchQuery.value = state.submittedQuery;
+    checkoutItems.value = state.checkoutItems;
+    checkoutSource.value = state.checkoutSource;
+
+    // Nothing changed (e.g. a duplicate entry) — don't swallow the next push.
+    nextTick(() => {
+        applyingHistory = false;
+    });
+}
+
+watch(currentView, () => {
+    if (applyingHistory) {
+        return;
+    }
+
+    window.history.pushState(viewSnapshot(), '', urlForCurrentView());
+}, { flush: 'post' });
+
+// Category pages, the store directory and store pages carry their browse
+// state in the URL (each page keeps the current entry up to date); every
+// other view uses the bare page URL.
+function urlForCurrentView() {
+    if (showAccount.value) {
+        return accountUrl(accountSection.value);
+    }
+
+    if (['orders', 'wishlist', 'reviews'].includes(currentView.value)) {
+        return accountUrl(currentView.value);
+    }
+
+    if (browsingStore.value && currentView.value.startsWith('store-')) {
+        return storePageUrl(browsingStore.value.id);
+    }
+
+    if (currentView.value === 'stores') {
+        return directoryUrl();
+    }
+
+    if (currentView.value.startsWith('search-')) {
+        return searchUrl(submittedQuery.value);
+    }
+
+    return browsingCategory.value && currentView.value.startsWith('category-')
+        ? categoryUrl(browsingCategory.value)
+        : window.location.pathname;
+}
+
+function handlePopState(event) {
+    // The entry's URL is the truth for a store page's / the directory's state.
+    if (event.state?.browsingStore && storeIdFromQuery(window.location.search) === event.state.browsingStore.id) {
+        rememberStoreState(event.state.browsingStore.id, storeStateFromQuery(window.location.search));
+    } else if (event.state?.showStores && isDirectoryQuery(window.location.search)) {
+        rememberDirectoryState(directoryStateFromQuery(window.location.search));
+    }
+
+    // The entry's URL is the truth for a search's filters, sort and page.
+    if (event.state?.submittedQuery && searchTermFromQuery(window.location.search) === event.state.submittedQuery) {
+        rememberSearchState(searchStateFromQuery(window.location.search));
+    }
+
+    // The entry's URL is the truth for a category page's filters.
+    if (event.state?.browsingCategory && categoryFromQuery(window.location.search) === event.state.browsingCategory) {
+        rememberFilterState(
+            event.state.browsingCategory,
+            filterStateFromQuery(window.location.search, event.state.browsingCategory)
+        );
+    }
+
+    if (event.state?.view) {
+        applySnapshot(event.state);
+    }
 }
 
 onMounted(() => {
-    countdownTimer = setInterval(tickCountdown, 1000);
-
-    // per_page bumped to the API's max (see ProductController@index) so
-    // CategoryListing — which filters this same in-memory list rather
-    // than issuing its own request (see categoryProducts above) — has
-    // as full a picture of each category as this endpoint can give
-    // without pagination support. Real limit worth flagging: a category
-    // with more than 100 live products would still only show the first
-    // 100 until the catalog endpoint grows real server-side pagination.
-    loadProducts({ per_page: 100 });
-    // Populates buyerProfile if a Supabase session already exists (e.g.
-    // carried over from the auth page); browsing itself stays public
-    // either way — see useBuyerSession.js.
-    loadSession();
-
+    window.history.scrollRestoration = 'manual';
+    window.history.replaceState(viewSnapshot(), '', urlForCurrentView());
     window.addEventListener('popstate', handlePopState);
+
+    if (initialMessages) {
+        openChat({ conversationId: initialMessages.id });
+    }
+
+    loadCatalogFor(currentView.value);
+    // Populates buyerProfile if a Supabase session already exists; browsing
+    // itself stays public either way — see useBuyerSession.js.
+    loadSession();
 });
 
 onUnmounted(() => {
-    if (countdownTimer) {
-        clearInterval(countdownTimer);
-    }
-
     window.removeEventListener('popstate', handlePopState);
+    stopReviewSync();
 });
+
+function retryProducts() {
+    loadProducts({ per_page: 100 });
+}
 
 /*
 |--------------------------------------------------------------------------
-| Overlay History
+| In-memory Catalogue (loaded when a view needs it)
 |--------------------------------------------------------------------------
 |
-| This SPA never changes the URL — Account/Orders/Cart/Checkout/Product
-| Details are all just local flags — so the browser has no history entry
-| for them. Without this, pressing the physical Back button while any of
-| these is open skips straight past the dashboard to whatever page you
-| arrived from (e.g. sign-up), which reads as "Back takes me to sign up".
-|
-| Fix: push one history entry the moment any overlay opens, and pop it
-| again when the last one closes (however it closes — an in-app back
-| arrow, search, placing an order, etc. all count) so Back always has an
-| SPA-internal state to land on first. `closingViaPopState` distinguishes
-| "the browser already moved back, just update state" from "state closed
-| in-app, now consume the pushed entry" so the two paths don't fight.
+| The storefront, category pages, deals and product pages work from one
+| in-memory list (per_page bumped to the API's max, see
+| ProductController@index). Search results, the store directory and store
+| pages query the server themselves, so opening one of those (a shared
+| search link, a refresh) no longer downloads the catalogue first: that
+| request used to compete with — and on a single-worker server, queue in
+| front of — the results the buyer asked for. It loads the first time a
+| view that needs it opens.
 |
 */
 
-const isOverlayOpen = computed(() =>
-    !!selectedProduct.value ||
-    showCart.value ||
-    showOrders.value ||
-    showAccount.value ||
-    checkoutItems.value.length > 0
-);
+let catalogRequested = false;
 
-let closingViaPopState = false;
+// Coming back to a catalogue view after this long reloads the list in the
+// background (ratings, prices and stock change while the tab stays open);
+// the buyer keeps seeing the current list until the new one arrives.
+const CATALOG_MAX_AGE_MS = 60 * 1000;
 
-function handlePopState() {
-    if (!isOverlayOpen.value) {
-        return;
-    }
-
-    closingViaPopState = true;
-
-    selectedProduct.value = null;
-    showCart.value = false;
-    showOrders.value = false;
-    showAccount.value = false;
-    checkoutItems.value = [];
+function viewNeedsCatalog(view) {
+    return !(view.startsWith('search-') || view.startsWith('store-') || view === 'stores');
 }
 
-watch(isOverlayOpen, (open, wasOpen) => {
-    if (open && !wasOpen) {
-        history.pushState({ buyerOverlay: true }, '');
+function loadCatalogFor(view) {
+    if (!viewNeedsCatalog(view)) {
+        return;
+    }
+
+    if (!catalogRequested) {
+        catalogRequested = true;
+        loadProducts({ per_page: 100 });
 
         return;
     }
 
-    if (!open && wasOpen) {
-        if (closingViaPopState) {
-            closingViaPopState = false;
-        } else {
-            history.back();
-        }
+    if (productsLoadedAt.value && Date.now() - productsLoadedAt.value > CATALOG_MAX_AGE_MS) {
+        refreshProducts();
     }
-});
+}
+
+watch(currentView, view => loadCatalogFor(view));
 
 /*
 |--------------------------------------------------------------------------
 | Category
 |--------------------------------------------------------------------------
 |
-| Choosing 'All' behaves as it always has (go/stay home, filter the
-| homepage's own grid). Choosing any real category now navigates to the
-| dedicated CategoryListing page for it — from the homepage's category
-| cards, from the header's subnav on ANY page, all the same entry point.
-|--------------------------------------------------------------------------
+| Choosing 'All' goes/stays home. Choosing any real category navigates to
+| the dedicated CategoryListing page for it — from the category rail, the
+| header's category bar or drawer, on ANY page.
+|
 */
 
-// Drops every full-screen sub-view (cart, orders, account, wishlist,
-// reviews, product details, checkout) back to the dashboard. Anything
-// that navigates the buyer "somewhere else" — a category, a global
-// search, the logo — has to run this first, otherwise the old view stays
-// mounted on top and the click looks like it did nothing.
+// Drops every full-screen sub-view back to the dashboard. Anything that
+// navigates the buyer "somewhere else" — a category, a global search, the
+// logo — has to run this first, otherwise the old view stays mounted on
+// top and the click looks like it did nothing.
 function closeAllSubViews() {
     selectedProduct.value = null;
     showCart.value = false;
@@ -365,16 +725,24 @@ function closeAllSubViews() {
     showWishlist.value = false;
     showReviews.value = false;
     showAddresses.value = false;
-    showPayments.value = false;
-    showVouchers.value = false;
     checkoutItems.value = [];
     checkoutSource.value = null;
 }
 
+// The store pages are browse views like a category page: leaving for a
+// category, a global search or home closes them.
+function closeStoreViews() {
+    showStores.value = false;
+    browsingStore.value = null;
+}
+
 function selectCategory(category) {
     selectedCategory.value = category;
+    submittedQuery.value = '';
+    searchQuery.value = '';
 
     closeAllSubViews();
+    closeStoreViews();
 
     browsingCategory.value = category === 'All' ? null : category;
 }
@@ -386,12 +754,107 @@ function selectCategory(category) {
 */
 
 function viewProduct(product) {
+    // Remember which browse view the product was opened from, so "back"
+    // restores that view's scroll position instead of jumping to the top.
+    if (!currentView.value.startsWith('product-')) {
+        browseViewBeforeProduct = currentView.value;
+    }
+
     closeAllSubViews();
     selectedProduct.value = product;
+    completeSelectedProduct();
 }
 
+// The product page shows straight away with what the buyer clicked, then
+// the live product replaces it, so the rating, review count, price and stock
+// are current even when the card came from a list loaded a while ago.
+// Search results carry card fields only (options / variants are null — see
+// ProductController fields=card): those are marked detailsPending until the
+// full product arrives. A complete copy is refreshed quietly.
+let productRequestSeq = 0;
+
+async function completeSelectedProduct() {
+    const product = selectedProduct.value;
+
+    if (!product) {
+        return;
+    }
+
+    const isComplete = product.variants != null;
+    const seq = ++productRequestSeq;
+    const startedAt = Date.now();
+
+    if (!isComplete) {
+        selectedProduct.value = { ...product, detailsPending: true, detailsError: '' };
+    }
+
+    try {
+        const body = await fetchJson(`/api/products/${encodeURIComponent(product.id)}`);
+
+        // Only the newest request for the product still on screen counts.
+        if (seq === productRequestSeq && selectedProduct.value?.id === product.id && body?.data) {
+            selectedProduct.value = withLatestStats(body.data, startedAt);
+        }
+    } catch (err) {
+        if (isComplete) {
+            // The page already shows a complete product; keep it.
+            return;
+        }
+
+        if (seq === productRequestSeq && selectedProduct.value?.id === product.id) {
+            selectedProduct.value = {
+                ...selectedProduct.value,
+                detailsPending: false,
+                detailsError: err?.status === 404
+                    ? 'This product is no longer available.'
+                    : 'We couldn’t load this product’s options. Go back and open it again.'
+            };
+        }
+    }
+}
+
+const stopReviewSync = onReviewChange((stats) => {
+    applyStats(selectedProduct.value, stats);
+});
+
 function backToProducts() {
+    restoreTarget = browseViewBeforeProduct;
     selectedProduct.value = null;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Stores
+|--------------------------------------------------------------------------
+|
+| The directory and a store page sit at the same level as a category page,
+| so opening either leaves category / search browsing. Opening a store from
+| the directory keeps the directory underneath; its breadcrumb returns
+| there with the directory's own state intact.
+|
+*/
+
+function leaveCatalogBrowsing() {
+    closeAllSubViews();
+    browsingCategory.value = null;
+    selectedCategory.value = 'All';
+    submittedQuery.value = '';
+    searchQuery.value = '';
+}
+
+function openStores() {
+    leaveCatalogBrowsing();
+    browsingStore.value = null;
+    showStores.value = true;
+}
+
+function openStore(store) {
+    if (!store?.id) {
+        return;
+    }
+
+    leaveCatalogBrowsing();
+    browsingStore.value = plain(store);
 }
 
 /*
@@ -440,6 +903,10 @@ function buyNow(item) {
             variantId: variant?.id || null,
             name: item.product.name,
             price: Number(variant?.price ?? item.product.price),
+            image: variant?.image?.url
+                || (Array.isArray(item.product.images) ? item.product.images[0] : null)
+                || item.product.image
+                || null,
             category: item.product.category,
             seller:
                 item.product.seller ||
@@ -477,6 +944,7 @@ function checkoutFromCart(items) {
             variantId: item.variantId || null,
             name: item.name,
             price: Number(item.price),
+            image: item.image || null,
             category: item.category,
             seller:
                 item.seller ||
@@ -502,6 +970,10 @@ function handleOrderPlaced() {
     | Only remove products when checkout came from the cart.
     | Buy Now does not affect the existing cart.
     |
+    | checkoutItems is deliberately kept: Checkout stays mounted to show its
+    | confirmation view, and its "View my orders" / "Continue shopping"
+    | buttons leave through openOrders() / backFromCheckout().
+    |
     */
 
     if (checkoutSource.value === 'cart') {
@@ -511,18 +983,18 @@ function handleOrderPlaced() {
             }
         });
     }
+}
 
-    /*
-    |--------------------------------------------------------------------------
-    | Reset Checkout
-    |--------------------------------------------------------------------------
-    */
+// A line the server rejected (e.g. just sold out) can be dropped without
+// leaving checkout. Nothing is removed from the cart itself.
+function removeCheckoutItem(key) {
+    checkoutItems.value = checkoutItems.value.filter(
+        item => `${item.productId}-${item.variantId || 'simple'}` !== key
+    );
+}
 
-    checkoutItems.value = [];
-    checkoutSource.value = null;
-
-    showCart.value = false;
-    selectedProduct.value = null;
+function editCartFromCheckout() {
+    openCart();
 }
 /*
 |--------------------------------------------------------------------------
@@ -537,20 +1009,15 @@ function backFromCheckout() {
 
 /*
 |--------------------------------------------------------------------------
-| Clear Filters
+| Clear Search
 |--------------------------------------------------------------------------
 */
 
-function clearFilters() {
+function clearSearch() {
     searchQuery.value = '';
+    submittedQuery.value = '';
     selectedCategory.value = 'All';
 }
-
-/*
-|--------------------------------------------------------------------------
-| Newsletter (local-only mock — no subscribers API yet)
-|--------------------------------------------------------------------------
-*/
 
 /*
 |--------------------------------------------------------------------------
@@ -585,6 +1052,9 @@ const relatedProducts = computed(() => {
 
 function handleSearch(query) {
     searchQuery.value = query;
+    submittedQuery.value = (query || '').trim();
+    rememberSearchState(defaultSearchState(submittedQuery.value));
+    searchRun.value += 1;
 
     // A search from the header is global — leave whatever sub-view the
     // buyer was on (Orders, Order Details, Order Tracking, Account, ...)
@@ -592,6 +1062,7 @@ function handleSearch(query) {
     selectedCategory.value = 'All';
     browsingCategory.value = null;
     closeAllSubViews();
+    closeStoreViews();
 }
 
 function handleSelectCategory(category) {
@@ -600,8 +1071,11 @@ function handleSelectCategory(category) {
 
 function handleBrowseAll() {
     selectedCategory.value = 'All';
+    searchQuery.value = '';
+    submittedQuery.value = '';
     browsingCategory.value = null;
     closeAllSubViews();
+    closeStoreViews();
 }
 
 /*
@@ -615,14 +1089,12 @@ function handleBrowseAll() {
 |--------------------------------------------------------------------------
 */
 
-function openAccount() {
+function openAccount(section = 'profile') {
     closeAllSubViews();
+    accountSection.value = SETTINGS_SECTIONS.includes(section) ? section : 'profile';
     showAccount.value = true;
 }
 
-function closeAccount() {
-    showAccount.value = false;
-}
 
 function openOrders() {
     closeAllSubViews();
@@ -652,194 +1124,178 @@ function closeReviews() {
     showReviews.value = false;
 }
 
+// The address book is now a section of the account settings.
 function openAddresses() {
-    closeAllSubViews();
-    showAddresses.value = true;
+    openAccount('addresses');
 }
 
-function closeAddresses() {
-    showAddresses.value = false;
-}
 
-// From Checkout's "Manage" link: overlay the address book without
-// clearing checkoutItems, so closing it lands back on checkout.
-function manageAddressesFromCheckout() {
-    showAddresses.value = true;
-}
-
+// Payment methods are a section of the account settings.
 function openPayments() {
-    closeAllSubViews();
-    showPayments.value = true;
+    openAccount('payments');
+}
+/*
+|--------------------------------------------------------------------------
+| Cross-page Navigation (see useBuyerNav.js)
+|--------------------------------------------------------------------------
+*/
+
+function goToDeals() {
+    handleBrowseAll();
+
+    // Wait for the storefront to mount before scrolling to the deals row.
+    setTimeout(() => scrollToSection('flash-deals'), 80);
 }
 
-function closePayments() {
-    showPayments.value = false;
-}
-
-// Header / account-sidebar navigation from any page (see useBuyerNav.js).
-const NAV_HANDLERS = {
-    profile: () => openAccount(),
-    orders: () => openOrders(),
-    wishlist: () => openWishlist(),
-    reviews: () => openReviews(),
-    addresses: () => openAddresses(),
-    payments: () => openPayments(),
-    vouchers: () => openVouchers(),
+const navHandlers = {
+    home: handleBrowseAll,
+    cart: openCart,
+    account: (payload) => openAccount(payload?.section),
+    messages: (payload) => openChat({ conversationId: payload?.conversationId || null }),
+    orders: openOrders,
+    wishlist: openWishlist,
+    reviews: openReviews,
+    addresses: openAddresses,
+    payments: openPayments,
+    deals: goToDeals,
+    stores: openStores,
+    store: openStore,
+    category: (category) => category && selectCategory(category),
+    product: (product) => product && viewProduct(product)
 };
 
-watch(navRequest, (request) => {
-    NAV_HANDLERS[request?.view]?.();
+const { confirm } = useConfirm();
+
+/**
+ * Leaving the account area (or switching section) with unsaved edits asks
+ * first; choosing to leave discards them.
+ */
+async function confirmLeaveAccount(targetView) {
+    if (!showAccount.value || !hasUnsavedChanges() || targetView === currentView.value) {
+        return true;
+    }
+
+    const ok = await confirm({
+        title: 'Leave without saving?',
+        message: `Your changes in ${dirtyLabels().join(' and ')} haven’t been saved.`,
+        confirmLabel: 'Leave without saving',
+        cancelLabel: 'Keep editing',
+        tone: 'danger'
+    });
+
+    if (ok) {
+        discardUnsavedChanges();
+    }
+
+    return ok;
+}
+
+watch(navRequest, async (request) => {
+    if (!request) {
+        return;
+    }
+
+    const target = request.view === 'account' ? `account-${request.payload?.section || 'profile'}` : request.view;
+
+    if (!(await confirmLeaveAccount(target))) {
+        return;
+    }
+
+    navHandlers[request.view]?.(request.payload);
 });
 
-function openVouchers() {
-    closeAllSubViews();
-    showVouchers.value = true;
-}
+// Every page that lives in AccountLayout, and the sidebar item it marks.
+const isAccountPage = computed(() => showOrders.value || showAccount.value || showWishlist.value || showReviews.value);
 
-// Wallet entries only carry the product id; fetch the product to open it.
-async function openVoucherProduct(productId) {
-    const product = await getProductById(productId);
-
-    if (product) {
-        viewProduct(product);
+const accountNavActive = computed(() => {
+    if (showOrders.value) {
+        return 'orders';
     }
-}
 
-function openCustomerService() {
-    showCustomerService.value = true;
-}
+    if (showWishlist.value) {
+        return 'wishlist';
+    }
 
-function closeCustomerService() {
-    showCustomerService.value = false;
+    if (showReviews.value) {
+        return 'reviews';
+    }
+
+    return accountSection.value;
+});
+
+function guardedFromAccount(action) {
+    return async (...args) => {
+        if (await confirmLeaveAccount(null)) {
+            action(...args);
+        }
+    };
 }
 </script>
 
 <template>
 
     <!-- ================================================================ -->
-    <!-- ORDERS -->
+    <!-- ACCOUNT: settings, orders, wishlist, reviews -->
+    <!-- One AccountLayout (header, sidebar, frame) stays mounted while the -->
+    <!-- page inside it changes; only the content transitions. -->
     <!-- ================================================================ -->
 
-    <Orders
-        v-if="showOrders"
-        @back="closeOrders"
-        @go-home="handleBrowseAll"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-        @view-profile="openAccount"
-        @view-wishlist="openWishlist"
-        @view-reviews="openReviews"
-        @view-addresses="openAddresses"
-        @view-payments="openPayments"
-    />
+    <AccountLayout
+        v-if="isAccountPage"
+        :active="accountNavActive"
+        @back="guardedFromAccount(handleBrowseAll)()"
+        @search="guardedFromAccount(handleSearch)($event)"
+        @select-category="guardedFromAccount(handleSelectCategory)($event)"
+        @open-cart="guardedFromAccount(openCart)()"
+    >
+        <Transition
+            name="acc-swap"
+            mode="out-in"
+        >
+            <Orders
+                v-if="showOrders"
+                key="orders"
+                @back="closeOrders"
+                @go-home="handleBrowseAll"
+                @view-profile="openAccount"
+                @view-wishlist="openWishlist"
+                @view-reviews="openReviews"
+                @view-addresses="openAddresses"
+                @view-payments="openPayments"
+            />
 
-    <!-- ================================================================ -->
-    <!-- ACCOUNT -->
-    <!-- ================================================================ -->
+            <AccountArea
+                v-else-if="showAccount"
+                key="settings"
+                :section="accountSection"
+            />
 
-    <Account
-        v-else-if="showAccount"
-        @back="closeAccount"
-        @view-orders="openOrders"
-        @view-wishlist="openWishlist"
-        @view-reviews="openReviews"
-        @view-addresses="openAddresses"
-        @view-payments="openPayments"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-    />
+            <Wishlist
+                v-else-if="showWishlist"
+                key="wishlist"
+                @back="closeWishlist"
+                @go-home="handleBrowseAll"
+                @view-profile="openAccount"
+                @view-orders="openOrders"
+                @view-reviews="openReviews"
+                @view-addresses="openAddresses"
+                @view-payments="openPayments"
+                @select-product="viewProduct"
+            />
 
-    <!-- ================================================================ -->
-    <!-- WISHLIST -->
-    <!-- ================================================================ -->
-
-    <Wishlist
-        v-else-if="showWishlist"
-        @back="closeWishlist"
-        @go-home="handleBrowseAll"
-        @view-profile="openAccount"
-        @view-orders="openOrders"
-        @view-reviews="openReviews"
-        @view-addresses="openAddresses"
-        @view-payments="openPayments"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-        @select-product="viewProduct"
-    />
-
-    <!-- ================================================================ -->
-    <!-- REVIEWS -->
-    <!-- ================================================================ -->
-
-    <Reviews
-        v-else-if="showReviews"
-        @back="closeReviews"
-        @go-home="handleBrowseAll"
-        @view-profile="openAccount"
-        @view-orders="openOrders"
-        @view-wishlist="openWishlist"
-        @view-addresses="openAddresses"
-        @view-payments="openPayments"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-    />
-
-    <!-- ================================================================ -->
-    <!-- SAVED ADDRESSES -->
-    <!-- ================================================================ -->
-
-    <SavedAddresses
-        v-else-if="showAddresses"
-        :from-checkout="checkoutItems.length > 0"
-        @back="closeAddresses"
-        @go-home="handleBrowseAll"
-        @view-profile="openAccount"
-        @view-orders="openOrders"
-        @view-wishlist="openWishlist"
-        @view-reviews="openReviews"
-        @view-payments="openPayments"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-    />
-
-    <!-- ================================================================ -->
-    <!-- PAYMENT METHODS -->
-    <!-- ================================================================ -->
-
-    <PaymentMethods
-        v-else-if="showPayments"
-        @back="closePayments"
-        @go-home="handleBrowseAll"
-        @view-profile="openAccount"
-        @view-orders="openOrders"
-        @view-wishlist="openWishlist"
-        @view-reviews="openReviews"
-        @view-addresses="openAddresses"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-    />
-
-    <!-- ================================================================ -->
-    <!-- MY VOUCHERS -->
-    <!-- ================================================================ -->
-
-    <MyVouchers
-        v-else-if="showVouchers"
-        @back="openPayments"
-        @go-home="handleBrowseAll"
-        @view-profile="openAccount"
-        @view-payments="openPayments"
-        @open-product="openVoucherProduct"
-        @search="handleSearch"
-        @select-category="handleSelectCategory"
-        @open-cart="openCart"
-    />
+            <Reviews
+                v-else
+                key="reviews"
+                @back="closeReviews"
+                @go-home="handleBrowseAll"
+                @view-profile="openAccount"
+                @view-orders="openOrders"
+                @view-wishlist="openWishlist"
+                @view-addresses="openAddresses"
+                @view-payments="openPayments"
+            />
+        </Transition>
+    </AccountLayout>
 
     <!-- ================================================================ -->
     <!-- CHECKOUT -->
@@ -848,9 +1304,13 @@ function closeCustomerService() {
     <Checkout
         v-else-if="checkoutItems.length > 0"
         :items="checkoutItems"
+        :source="checkoutSource || 'cart'"
         @back="backFromCheckout"
-        @manage-addresses="manageAddressesFromCheckout"
         @place-order="handleOrderPlaced"
+        @view-orders="openOrders"
+        @view-profile="openAccount"
+        @edit-cart="editCartFromCheckout"
+        @remove-item="removeCheckoutItem"
         @search="handleSearch"
         @select-category="handleSelectCategory"
         @browse-all="handleBrowseAll"
@@ -894,6 +1354,42 @@ function closeCustomerService() {
     />
 
     <!-- ================================================================ -->
+    <!-- STORE PAGE -->
+    <!-- ================================================================ -->
+
+    <StorePage
+        v-else-if="browsingStore"
+        :key="browsingStore.id"
+        :store-id="browsingStore.id"
+        :initial-store="browsingStore.name ? browsingStore : null"
+        @back="handleBrowseAll"
+        @open-stores="openStores"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+        @account-click="openAccount"
+        @select-product="viewProduct"
+        @browse-all="handleBrowseAll"
+        @browse-categories="handleBrowseAll"
+    />
+
+    <!-- ================================================================ -->
+    <!-- STORE DIRECTORY -->
+    <!-- ================================================================ -->
+
+    <StoreDirectory
+        v-else-if="showStores"
+        @back="handleBrowseAll"
+        @search="handleSearch"
+        @select-category="handleSelectCategory"
+        @open-cart="openCart"
+        @account-click="openAccount"
+        @open-store="openStore"
+        @browse-all="handleBrowseAll"
+        @browse-categories="handleBrowseAll"
+    />
+
+    <!-- ================================================================ -->
     <!-- CATEGORY LISTING -->
     <!-- ================================================================ -->
 
@@ -912,10 +1408,12 @@ function closeCustomerService() {
         @select-product="viewProduct"
         @browse-all="handleBrowseAll"
         @browse-categories="handleBrowseAll"
+        @view-orders="openOrders"
+        @retry="retryProducts"
     />
 
     <!-- ================================================================ -->
-    <!-- BUYER DASHBOARD -->
+    <!-- STOREFRONT + SEARCH RESULTS -->
     <!-- ================================================================ -->
 
     <div
@@ -924,343 +1422,325 @@ function closeCustomerService() {
     >
 
         <Header
-            v-model:search-query="searchQuery"
-            :active-category="selectedCategory"
+            :search-query="submittedQuery"
+            :active-category="submittedQuery ? '' : selectedCategory"
+            @update:search-query="searchQuery = $event"
+            @search="handleSearch"
             @select-category="selectCategory"
             @cart-click="openCart"
             @account-click="openAccount"
         />
 
-        <!-- Main -->
-        <main class="buyer-main">
+        <main
+            id="main-content"
+            class="buyer-main"
+            tabindex="-1"
+        >
 
-            <!-- Hero -->
-            <section class="buyer-hero">
+            <SearchResults
+                v-if="submittedQuery"
+                :key="searchRun"
+                :query="submittedQuery"
+                @view-product="viewProduct"
+                @open-store="openStore"
+                @clear-search="clearSearch"
+            />
 
-                <img
-                    class="buyer-hero-image"
-                    src="https://images.unsplash.com/photo-1556910103-1c02745aae4d?auto=format&fit=crop&q=80&w=2000"
-                    alt=""
-                    aria-hidden="true"
+            <template v-else>
+
+                <HeroBanner
+                    @shop-categories="scrollToSection('shop-by-category')"
+                    @browse-all="scrollToSection('buyer-products')"
+                />
+
+                <!-- Buyer shortcuts: a browse link to real markdowns, plus the two
+                     account destinations buyers return for. Orders and Wishlist
+                     handle the signed-out case on their own pages. -->
+                <nav
+                    class="quicklinks"
+                    aria-label="Shortcuts"
                 >
-
-                <div class="buyer-hero-overlay"></div>
-
-                <div class="buyer-hero-content">
-
-                    <span class="buyer-hero-badge">
-                        BuyTheWay Marketplace
-                    </span>
-
-                    <h1>
-                        Shop Local, <br>
-                        <span>Delivered To You</span>
-                    </h1>
-
-                    <p>
-                        Discover electronics, fashion, home essentials and more from verified local sellers, all in one place.
-                    </p>
-
-                    <a
-                        href="#buyer-products"
-                        class="buyer-hero-cta"
-                    >
-                        Browse Products
-                    </a>
-
-                </div>
-
-            </section>
-
-            <!-- Categories -->
-            <section>
-
-                <div class="buyer-section-head">
-                    <h2>
-                        Popular Categories
-                    </h2>
-                </div>
-
-                <div class="category-grid">
-
                     <button
-                        v-for="category in categories"
-                        :key="category"
+                        v-if="flashDeals.length > 0"
                         type="button"
-                        class="category-card"
-                        :class="[
-                            'accent-' + metaFor(category).accent,
-                            { active: selectedCategory === category }
-                        ]"
-                        :aria-pressed="selectedCategory === category"
-                        @click="selectCategory(category)"
+                        class="quicklink is-deal"
+                        @click="scrollToSection('flash-deals')"
                     >
-                        <span
-                            class="category-card-icon"
-                            v-html="metaFor(category).icon"
-                        ></span>
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z" /><circle cx="7.5" cy="7.5" r="1.5" /></svg>
+                        <span>Shop {{ flashDeals.length }} {{ flashDeals.length === 1 ? 'item' : 'items' }} on sale</span>
+                        <svg class="quicklink-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+                    </button>
 
-                        <span class="category-card-label">
-                            {{ category }}
+                    <div class="quicklinks-group">
+                        <button
+                            type="button"
+                            class="quicklink"
+                            @click="openOrders"
+                        >
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7" /><circle cx="7" cy="17.5" r="1.5" /><circle cx="17" cy="17.5" r="1.5" /></svg>
+                            <span>Track an order</span>
+                        </button>
+                        <button
+                            type="button"
+                            class="quicklink"
+                            :aria-label="favoriteCount > 0 ? `Wishlist, ${favoriteCount} saved` : 'Wishlist'"
+                            @click="openWishlist"
+                        >
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.2-9.4C1.7 7.9 3.9 4.5 7.4 4.5c2 0 3.5 1.1 4.6 2.7 1.1-1.6 2.6-2.7 4.6-2.7 3.5 0 5.7 3.4 4.6 6.6-1.7 4.8-9.2 9.4-9.2 9.4Z" /></svg>
+                            <span>Wishlist</span>
+                            <span
+                                v-if="favoriteCount > 0"
+                                class="quicklink-count"
+                                aria-hidden="true"
+                            >{{ favoriteCount }}</span>
+                        </button>
+                    </div>
+                </nav>
+
+                <!-- Categories -->
+                <section
+                    id="shop-by-category"
+                    v-reveal
+                    aria-labelledby="categories-title"
+                >
+                    <div class="section-head">
+                        <div>
+                            <h2
+                                id="categories-title"
+                                class="section-title"
+                            >
+                                Shop by category
+                            </h2>
+                            <p class="section-sub">Sorted by what&rsquo;s in stock right now</p>
+                        </div>
+                    </div>
+
+                    <ul class="cat-grid">
+                        <li
+                            v-for="category in shopCategories"
+                            :key="category"
+                        >
+                            <button
+                                type="button"
+                                class="cat-tile"
+                                :class="'accent-' + metaFor(category).accent"
+                                @click="selectCategory(category)"
+                            >
+                                <span class="cat-tile-media">
+                                    <img
+                                        v-if="categoryImage(category)"
+                                        :src="categoryImage(category)"
+                                        alt=""
+                                        width="240"
+                                        height="240"
+                                        loading="lazy"
+                                        @error="handleCategoryImageError(category)"
+                                    >
+                                    <span
+                                        v-else
+                                        class="cat-tile-icon"
+                                        aria-hidden="true"
+                                        v-html="metaFor(category).icon"
+                                    ></span>
+                                </span>
+                                <span class="cat-tile-label">{{ category }}</span>
+                                <span class="cat-tile-count">
+                                    <template v-if="isLoadingProducts">&nbsp;</template>
+                                    <template v-else-if="categoryCounts[category]">{{ categoryCounts[category] }} in stock</template>
+                                    <template v-else>Nothing in stock yet</template>
+                                </span>
+                            </button>
+                        </li>
+                    </ul>
+                </section>
+
+                <!-- Deals — seller-set markdowns on in-stock items -->
+                <OffersCarousel
+                    id="flash-deals"
+                    :products="flashDeals"
+                    @view-product="viewProduct"
+                    @shop-deals="sortMode = 'priceAsc'; scrollToSection('buyer-products')"
+                />
+
+                <ProductRail
+                    id="new-arrivals"
+                    title="New arrivals"
+                    subtitle="The latest listings from sellers"
+                    action-label="See all"
+                    :products="newArrivals"
+                    @view-product="viewProduct"
+                    @action="sortMode = 'newest'; scrollToSection('buyer-products')"
+                />
+
+                <!-- Category spotlight — the most-stocked category -->
+                <section
+                    v-if="spotlightCategory && spotlightProducts.length >= 2"
+                    v-reveal
+                    class="spotlight"
+                    aria-labelledby="spotlight-title"
+                >
+                    <button
+                        type="button"
+                        class="spotlight-feature"
+                        :class="'accent-' + metaFor(spotlightCategory).accent"
+                        @click="selectCategory(spotlightCategory)"
+                    >
+                        <img
+                            v-if="categoryImage(spotlightCategory)"
+                            :src="categoryImage(spotlightCategory)"
+                            alt=""
+                            width="800"
+                            height="800"
+                            loading="lazy"
+                            @error="handleCategoryImageError(spotlightCategory)"
+                        >
+                        <span class="spotlight-copy">
+                            <span class="eyebrow is-light">Most stocked right now</span>
+                            <span
+                                id="spotlight-title"
+                                class="spotlight-title"
+                            >{{ spotlightCategory }}</span>
+                            <span class="spotlight-meta">{{ categoryCounts[spotlightCategory] }} products in stock</span>
+                            <span class="btn btn-light">
+                                Shop the category
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+                            </span>
                         </span>
                     </button>
 
-                </div>
-
-            </section>
-
-            <!-- Flash Deals -->
-            <section v-if="flashDeals.length > 0">
-
-                <div class="flash-deals-card">
-
-                    <div class="flash-deals-head">
-
-                        <div class="flash-deals-title">
-
-                            <h2>
-                                Flash Deals
-                            </h2>
-
-                            <div class="flash-deals-countdown">
-
-                                <span class="flash-deals-countdown-label">
-                                    Ending In:
-                                </span>
-
-                                <div class="flash-deals-countdown-digits">
-                                    <span>{{ pad(dealHours) }}</span>
-                                    <span>{{ pad(dealMinutes) }}</span>
-                                    <span>{{ pad(dealSeconds) }}</span>
-                                </div>
-
-                            </div>
-
-                        </div>
-
-                    </div>
-
-                    <div class="flash-deals-grid">
-
-                        <div
-                            v-for="deal in flashDeals"
-                            :key="deal.id"
-                            class="flash-deal-card"
-                            :class="'accent-' + metaFor(deal.category).accent"
-                            @click="viewProduct(deal)"
+                    <ul class="spotlight-grid">
+                        <li
+                            v-for="product in spotlightProducts"
+                            :key="product.id"
                         >
+                            <ProductCard
+                                :product="product"
+                                @view="viewProduct"
+                            />
+                        </li>
+                    </ul>
+                </section>
 
-                            <div class="flash-deal-image">
-                                <span class="flash-deal-badge">
-                                    -{{ discountPercent(deal) }}%
-                                </span>
-                                <img
-                                    v-if="dealImage(deal)"
-                                    class="flash-deal-photo"
-                                    :src="dealImage(deal)"
-                                    :alt="deal.name"
-                                    loading="lazy"
-                                    @error="handleDealImageError(deal)"
-                                >
-                                <span
-                                    v-else
-                                    class="flash-deal-icon"
-                                    v-html="metaFor(deal.category).icon"
-                                ></span>
-                            </div>
+                <ProductRail
+                    v-if="topRated.length >= 2"
+                    title="Top rated by buyers"
+                    subtitle="Highest average rating from buyers who ordered them"
+                    :products="topRated"
+                    @view-product="viewProduct"
+                />
 
-                            <div class="flash-deal-info">
-
-                                <h3>
-                                    {{ deal.name }}
-                                </h3>
-
-                                <div class="flash-deal-price-row">
-                                    <span class="flash-deal-price">
-                                        {{ formatPrice(deal.price) }}
-                                    </span>
-                                    <span class="flash-deal-old-price">
-                                        {{ formatPrice(deal.oldPrice) }}
-                                    </span>
-                                </div>
-
-                                <div class="flash-deal-stock-row">
-                                    <span class="flash-deal-stock-label">
-                                        Selling Fast
-                                    </span>
-                                    <span class="flash-deal-stock-value">
-                                        {{ discountPercent(deal) }}%
-                                    </span>
-                                </div>
-
-                                <div class="flash-deal-stock-bar">
-                                    <div
-                                        class="flash-deal-stock-fill"
-                                        :style="{ width: discountPercent(deal) + '%' }"
-                                    ></div>
-                                </div>
-
-                            </div>
-
+                <!-- All products -->
+                <section
+                    id="buyer-products"
+                    v-reveal
+                    aria-labelledby="all-products-title"
+                >
+                    <div class="section-head">
+                        <div>
+                            <h2
+                                id="all-products-title"
+                                class="section-title"
+                            >
+                                All products
+                            </h2>
+                            <p class="section-sub">
+                                <template v-if="isLoadingProducts">Loading the catalog&hellip;</template>
+                                <template v-else>{{ products.length }} {{ products.length === 1 ? 'product' : 'products' }} from {{ sellerCount }} {{ sellerCount === 1 ? 'seller' : 'sellers' }}</template>
+                            </p>
                         </div>
 
+                        <label
+                            v-if="products.length > 1"
+                            class="select-field"
+                        >
+                            <span class="select-field-label">Sort by</span>
+                            <select v-model="sortMode">
+                                <option
+                                    v-for="mode in sortModes"
+                                    :key="mode.id"
+                                    :value="mode.id"
+                                >
+                                    {{ mode.label }}
+                                </option>
+                            </select>
+                        </label>
                     </div>
 
-                </div>
-
-            </section>
-
-            <!-- Recommended For You -->
-            <section v-if="recommendedProducts.length > 0">
-
-                <div class="buyer-section-head">
-                    <h2>
-                        Recommended For You
-                    </h2>
-                </div>
-
-                <div class="product-grid">
-
-                    <ProductCard
-                        v-for="product in recommendedProducts"
-                        :key="product.id"
-                        :product="product"
-                        @view="viewProduct"
-                    />
-
-                </div>
-
-            </section>
-
-            <!-- Info Banner -->
-            <section class="info-banner">
-
-                <div class="info-banner-left">
-
-                    <div class="info-banner-icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/>
-                            <path d="M15 18H9"/>
-                            <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/>
-                            <circle cx="17" cy="18" r="2"/>
-                            <circle cx="7" cy="18" r="2"/>
-                        </svg>
-                    </div>
-
-                    <div class="info-banner-text">
-
-                        <h3>
-                            Reliable Delivery, Every Order
-                        </h3>
-
-                        <p>
-                            We work with trusted local sellers and couriers to get your orders to your door safely.
-                        </p>
-
-                    </div>
-
-                </div>
-
-            </section>
-
-            <!-- Best Sellers -->
-            <section v-if="bestSellers.length > 0">
-
-                <div class="buyer-section-head">
-                    <h2>
-                        Best Sellers
-                    </h2>
-                </div>
-
-                <div class="product-grid">
-
-                    <ProductCard
-                        v-for="product in bestSellers"
-                        :key="product.id"
-                        :product="product"
-                        @view="viewProduct"
-                    />
-
-                </div>
-
-            </section>
-
-            <!-- All Products -->
-            <section id="buyer-products">
-
-                <div class="buyer-section-head">
-                    <h2>
-                        All Products
-                    </h2>
-
-                    <span class="buyer-section-tag">
-                        {{ filteredProducts.length }} items
-                    </span>
-                </div>
-
-                <!-- Loading -->
-                <div
-                    v-if="isLoadingProducts"
-                    class="empty-products"
-                >
-                    <p>Loading products&hellip;</p>
-                </div>
-
-                <!-- Load Error -->
-                <div
-                    v-else-if="productsLoadError"
-                    class="empty-products"
-                >
-                    <p>{{ productsLoadError }}</p>
-                </div>
-
-                <!-- No Products -->
-                <div
-                    v-else-if="filteredProducts.length === 0"
-                    class="empty-products"
-                >
-
-                    <span
-                        class="empty-products-icon"
+                    <ul
+                        v-if="isLoadingProducts"
+                        class="product-grid"
                         aria-hidden="true"
                     >
-                        🔍
-                    </span>
+                        <li
+                            v-for="(_, index) in skeletonCards"
+                            :key="index"
+                            class="pcard-skeleton"
+                        >
+                            <span class="skeleton is-media"></span>
+                            <span class="skeleton is-line"></span>
+                            <span class="skeleton is-line is-short"></span>
+                        </li>
+                    </ul>
 
-                    <p>
-                        No products found.
-                    </p>
-
-                    <button
-                        type="button"
-                        class="clear-filters-button"
-                        @click="clearFilters"
+                    <div
+                        v-else-if="productsLoadError"
+                        class="state-block"
+                        role="alert"
                     >
-                        Clear Filters
-                    </button>
+                        <h3>We couldn&rsquo;t load products</h3>
+                        <p>{{ productsLoadError }}</p>
+                        <button
+                            type="button"
+                            class="btn btn-primary"
+                            @click="retryProducts"
+                        >
+                            Try again
+                        </button>
+                    </div>
 
-                </div>
+                    <div
+                        v-else-if="products.length === 0"
+                        class="state-block"
+                    >
+                        <h3>No products listed yet</h3>
+                        <p>Sellers haven&rsquo;t published anything here yet. Check back soon.</p>
+                    </div>
 
-                <!-- Products -->
-                <div
-                    v-else
-                    class="product-grid"
-                >
+                    <template v-else>
+                        <ul class="product-grid">
+                            <li
+                                v-for="product in visibleProducts"
+                                :key="product.id"
+                            >
+                                <ProductCard
+                                    :product="product"
+                                    @view="viewProduct"
+                                />
+                            </li>
+                        </ul>
 
-                    <ProductCard
-                        v-for="product in filteredProducts"
-                        :key="product.id"
-                        :product="product"
-                        @view="viewProduct"
-                    />
+                        <div
+                            v-if="visibleProducts.length < sortedProducts.length"
+                            class="load-more"
+                        >
+                            <p>Showing {{ visibleProducts.length }} of {{ sortedProducts.length }}</p>
+                            <button
+                                type="button"
+                                class="btn btn-secondary"
+                                @click="visibleCount += PAGE_SIZE"
+                            >
+                                Show more products
+                            </button>
+                        </div>
+                    </template>
+                </section>
 
-                </div>
-
-            </section>
+            </template>
 
         </main>
 
         <Footer
+            @browse-all="handleBrowseAll"
             @browse-categories="selectCategory('All')"
             @cart-click="openCart"
         />
@@ -1268,52 +1748,13 @@ function closeCustomerService() {
     </div>
 
     <!-- Messaging popup — mounted once here, outside the view switch above,
-         so it stays alive on every buyer page. The header's message icon
-         drives it straight through useBuyerChat; nothing to wire per page. -->
-    <Chat />
+         so it stays alive on every buyer page. -->
 
-    <button
-        type="button"
-        class="customer-service-launcher"
-        aria-label="Open Customer Service"
-        @click="openCustomerService"
-    >
-        Customer Service
-    </button>
-    <CustomerServicePage
-        v-if="showCustomerService"
-        modal
-        @close="closeCustomerService"
-    />
+    <!-- Buyer-wide notification + confirmation hosts, mounted once outside
+         the view switch so they cover every buyer page. -->
+    <MessagesModal />
 
-    <!-- Buyer-wide notification + confirmation hosts. Same "mount once,
-         outside the view switch" pattern as <Chat /> — every buyer page
-         renders inside this component, so these cover all of them. Driven
-         by useToasts / useConfirm; nothing to wire per page. -->
     <ToastHost />
     <ConfirmDialog />
 
 </template>
-
-<style scoped>
-.customer-service-launcher {
-    position: fixed;
-    right: 1.25rem;
-    bottom: 1.25rem;
-    z-index: 45;
-    border: 1px solid #0d9488;
-    border-radius: 999px;
-    padding: 0.75rem 1rem;
-    background: #0d9488;
-    color: #fff;
-    box-shadow: 0 10px 28px rgba(13, 148, 136, 0.28);
-    font: inherit;
-    font-size: 0.82rem;
-    font-weight: 800;
-    cursor: pointer;
-}
-
-.customer-service-launcher:hover {
-    background: #0f766e;
-}
-</style>

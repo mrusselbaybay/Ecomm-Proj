@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Buyer;
 use App\Http\Controllers\Controller;
 use App\Models\OrderItem;
 use App\Models\Review;
+use App\Support\ProductImage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -67,7 +68,7 @@ class ReviewController extends Controller
             ->where('id', $data['order_item_id'])
             ->first();
 
-        if (!$orderItem || $orderItem->order?->buyer_profile_id !== $buyer->id) {
+        if (! $orderItem || $orderItem->order?->buyer_profile_id !== $buyer->id) {
             throw ValidationException::withMessages([
                 'order_item_id' => 'This order item was not found on one of your orders.',
             ]);
@@ -111,7 +112,7 @@ class ReviewController extends Controller
 
         $review = Review::where('id', $id)->where('buyer_id', $buyer->id)->first();
 
-        if (!$review) {
+        if (! $review) {
             return response()->json(['message' => 'Review not found.'], 404);
         }
 
@@ -138,7 +139,7 @@ class ReviewController extends Controller
 
         $review = Review::where('id', $id)->where('buyer_id', $buyer->id)->first();
 
-        if (!$review) {
+        if (! $review) {
             return response()->json(['message' => 'Review not found.'], 404);
         }
 
@@ -160,13 +161,13 @@ class ReviewController extends Controller
             // aren't duplicated onto the review row, so a deleted product
             // genuinely has neither to show.
             'category' => $product?->category,
-            'image' => is_array($product?->images) && count($product->images) > 0 ? $product->images[0] : null,
+            'image' => $product ? ProductImage::cardUrl($product) : null,
             'rating' => $review->rating,
             'comment' => $review->comment,
             'createdAt' => optional($review->created_at)->toIso8601String(),
             'updatedAt' => optional($review->updated_at)->toIso8601String(),
             'isEdited' => $review->updated_at && $review->created_at
-                && !$review->updated_at->equalTo($review->created_at),
+                && ! $review->updated_at->equalTo($review->created_at),
             'sellerResponse' => $review->seller_response,
             'respondedAt' => optional($review->responded_at)->toIso8601String(),
         ];

@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue';
 
 import { buyerApi } from './useBuyerApi';
-import { useBuyerAccount } from './useBuyerAccount';
+import { useBuyerSession } from './useBuyerSession';
 
 /*
 |--------------------------------------------------------------------------
@@ -98,10 +98,10 @@ const hasAddresses = computed(() => addresses.value.length > 0);
 // (BuyerAddressSync), so refresh the account state after a mutation if
 // it's already been loaded this session.
 function refreshAccount() {
-    const { profile, loadBuyerAccount } = useBuyerAccount();
+    const { buyerProfile, loadSession } = useBuyerSession();
 
-    if (profile.value) {
-        loadBuyerAccount();
+    if (buyerProfile.value) {
+        loadSession();
     }
 }
 

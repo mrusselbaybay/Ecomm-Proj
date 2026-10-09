@@ -41,16 +41,53 @@ const ICON_SVG = {
     baby: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 16c.5.3 1.2.5 2 .5s1.5-.2 2-.5"/><path d="M15 12h.01"/><path d="M19.38 6.813A9 9 0 0 1 20.8 10.2a2 2 0 0 1 0 3.6 9 9 0 0 1-17.6 0 2 2 0 0 1 0-3.6A9 9 0 0 1 12 3c2 0 3.5 1.1 3.5 2.5s-.9 2.5-2 2.5c-.8 0-1.5-.4-1.5-1"/><path d="M9 12h.01"/></svg>'
 };
 
+// `image` is real stock photography (Unsplash, free/commercial-use
+// license) representing each line of business — not a real product photo,
+// since no single product can honestly stand in for an entire category
+// (see the "Shop by Category" redesign notes). 'All' has none: it's a
+// filter state, not a real category, and never gets a tile.
 const categoryMeta = {
     'All': { icon: ICON_SVG.bag, accent: 'slate' },
-    'Pet Supplies': { icon: ICON_SVG.paw, accent: 'teal' },
-    'Kids and Baby': { icon: ICON_SVG.baby, accent: 'orange' },
-    'Electronics and Gadgets': { icon: ICON_SVG.cpu, accent: 'indigo' },
-    'House and Garden': { icon: ICON_SVG.sofa, accent: 'amber' },
-    "Woman's Apparel": { icon: ICON_SVG.shirt, accent: 'pink' },
-    "Men's Apparel": { icon: ICON_SVG.shirt, accent: 'blue' },
-    'Sports and Outdoors': { icon: ICON_SVG.trophy, accent: 'green' },
-    'Health and Beauty': { icon: ICON_SVG.sparkles, accent: 'purple' }
+    'Pet Supplies': {
+        icon: ICON_SVG.paw,
+        accent: 'teal',
+        image: 'https://images.unsplash.com/photo-1591946614720-90a587da4a36?auto=format&fit=crop&q=80&w=800'
+    },
+    'Kids and Baby': {
+        icon: ICON_SVG.baby,
+        accent: 'orange',
+        image: 'https://images.unsplash.com/photo-1575676515211-a2977fb6a383?auto=format&fit=crop&q=80&w=800'
+    },
+    'Electronics and Gadgets': {
+        icon: ICON_SVG.cpu,
+        accent: 'indigo',
+        image: 'https://images.unsplash.com/photo-1542983396-d903783bb96b?auto=format&fit=crop&q=80&w=800'
+    },
+    'House and Garden': {
+        icon: ICON_SVG.sofa,
+        accent: 'amber',
+        image: 'https://images.unsplash.com/photo-1759238136854-a43787126db7?auto=format&fit=crop&q=80&w=800'
+    },
+    "Woman's Apparel": {
+        icon: ICON_SVG.shirt,
+        accent: 'pink',
+        image: 'https://images.unsplash.com/photo-1761090617068-f1b3257d27ad?auto=format&fit=crop&q=80&w=800'
+    },
+    "Men's Apparel": {
+        icon: ICON_SVG.shirt,
+        accent: 'blue',
+        image: 'https://images.unsplash.com/photo-1772131575602-8828196f47dc?auto=format&fit=crop&q=80&w=800'
+    },
+    'Sports and Outdoors': {
+        icon: ICON_SVG.trophy,
+        accent: 'green',
+        image: 'https://images.unsplash.com/photo-1653681498612-37ec55093e29?auto=format&fit=crop&q=80&w=800'
+    },
+    'Health and Beauty': {
+        icon: ICON_SVG.sparkles,
+        accent: 'purple',
+        image: 'https://images.unsplash.com/photo-1625093742435-6fa192b6fb10?auto=format&fit=crop&q=80&w=800'
+    }
 };
 
 export function metaFor(category) {

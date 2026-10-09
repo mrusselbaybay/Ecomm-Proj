@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Voucher;
 use App\Services\CheckoutService;
+use App\Services\StoreCatalog;
 use App\Services\Vouchers\PlatformVoucherService;
 use App\Services\Vouchers\VoucherService;
 use Illuminate\Http\JsonResponse;
@@ -26,6 +27,7 @@ class VoucherController extends Controller
         private VoucherService $vouchers,
         private PlatformVoucherService $platformVouchers,
         private CheckoutService $checkout,
+        private StoreCatalog $stores,
     ) {}
 
     /** GET /api/products/{id}/vouchers — public: claimable vouchers for this product's page. */
@@ -36,6 +38,19 @@ class VoucherController extends Controller
         return response()->json([
             'data' => $this->vouchers->claimableForProduct($product)
                 ->map(fn (Voucher $v) => $this->vouchers->presentClaimable($v, $product)),
+        ]);
+    }
+
+    /** GET /api/stores/{id}/vouchers — public shop-wide offers. */
+    public function forStore(string $id): JsonResponse
+    {
+        if (! $this->stores->isVisibleStore($id)) {
+            return response()->json(['message' => 'Store not found.'], 404);
+        }
+
+        return response()->json([
+            'data' => $this->vouchers->claimableForStore($id)
+                ->map(fn (Voucher $voucher) => $this->vouchers->presentClaimable($voucher)),
         ]);
     }
 

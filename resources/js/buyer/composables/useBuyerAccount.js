@@ -1,68 +1,65 @@
-
-import { computed, ref } from 'vue';
-import { apiFetch as sharedApiFetch, getSupabase } from './useBuyerSession';
+import { computed } from 'vue';
+import { buyerApi } from './useBuyerApi';
+import { useBuyerSession, getSupabase } from './useBuyerSession';
 
 /*
 |--------------------------------------------------------------------------
-| Shared Buyer Account State
+| Buyer Account
 |--------------------------------------------------------------------------
 |
-| Backed by the Laravel Buyer API (routes/buyer.php + App\Http\Controllers\
-| Buyer\BuyerProfileController), the same pattern useBuyer.js already uses
-| for checkout/orders: every request forwards the current Supabase access
-| token as a Bearer header (see useBuyerSession.js).
+| Was previously a second, unrelated `buyerProfile` ref hardcoded to fake
+| data ("Juan Dela Cruz", buyer@nexmart.test, ...) — Account.vue rendered
+| that instead of whoever was actually signed in. This now wraps the ONE
+| real buyerProfile singleton from useBuyerSession.js (populated from
+| Supabase Auth + a real `profiles` row — see loadSession() there), so
+| there's a single source of truth instead of two.
 |
-| profile/address are refs outside the composable so edits made on the
-| Account page stay visible while the Buyer switches views.
+| Profile writes go through the Laravel Buyer API
+| (PUT /api/buyer/account/profile -> App\Http\Controllers\Buyer\
+| AccountController), NOT straight to Supabase: the direct-to-Supabase
+| path bypassed Profile::booted()'s guard against role escalation. The
+| endpoint whitelists exactly the editable fields and runs that guard.
+| changePassword() still goes to Supabase Auth's updateUser() — that's
+| the auth record, not this table.
+|
+| Column names match the real `profiles` table (see the schema this app
+| was built from): first_name, middle_initial, last_name, sex, contact_no,
+| birthday, email, account_status — snake_case, not the old mock's
+| camelCase invented field names.
+|
+| `sex` keeps the same option set the previous mock UI used
+| (Male/Female/Prefer not to say) since the actual Postgres enum's exact
+| values aren't visible from here — if the real enum uses different
+| casing/values, the <select> in Account.vue is the one place to fix it.
+|
+| Email is intentionally read-only here: it lives in both `profiles.email`
+| and Supabase Auth's own user record, and only Auth's copy is what's
+| actually used to sign in. Editing it safely means Supabase's email-change
+| confirmation flow (a verification link to the new address), not a plain
+| profile field update — out of scope for this pass, so it's surfaced as
+| account info, not an editable field.
 |
 */
 
-const profile = ref(null); // public.profiles row (snake_case, as returned by the API)
-const address = ref(null); // public.addresses row (owner_kind = 'profile'), or null if none saved yet
-
-const isLoadingProfile = ref(false);
-const loadError = ref('');
-
-const isSaving = ref(false);
-const saveError = ref('');
-const saveSuccess = ref('');
-
-const isDeactivating = ref(false);
-const deactivateError = ref('');
-
-function apiFetch(path, options = {}) {
-    return sharedApiFetch(`/buyer${path}`, options);
-}
+const { buyerProfile, isLoadingSession } = useBuyerSession();
 
 function calculateAge(birthday) {
     if (!birthday) {
         return null;
     }
 
-    const birthDate = new Date(
-        `${birthday}T00:00:00`
-    );
+    const birthDate = new Date(`${birthday}T00:00:00`);
 
     if (Number.isNaN(birthDate.getTime())) {
         return null;
     }
 
     const today = new Date();
-    let age =
-        today.getFullYear() -
-        birthDate.getFullYear();
+    let age = today.getFullYear() - birthDate.getFullYear();
 
-    const monthDifference =
-        today.getMonth() -
-        birthDate.getMonth();
+    const monthDifference = today.getMonth() - birthDate.getMonth();
 
-    if (
-        monthDifference < 0 ||
-        (
-            monthDifference === 0 &&
-            today.getDate() < birthDate.getDate()
-        )
-    ) {
+    if (monthDifference < 0 || (monthDifference === 0 && today.getDate() < birthDate.getDate())) {
         age--;
     }
 
@@ -70,227 +67,107 @@ function calculateAge(birthday) {
 }
 
 const buyerFullName = computed(() => {
-    if (!profile.value) {
-        return 'Buyer';
+    if (!buyerProfile.value) {
+        return '';
     }
 
-    const middle = profile.value.middle_initial
-        ? `${profile.value.middle_initial}.`
+    const middle = buyerProfile.value.middle_initial
+        ? `${buyerProfile.value.middle_initial}.`
         : '';
 
-    return [
-        profile.value.first_name,
-        middle,
-        profile.value.last_name
-    ]
+    return [buyerProfile.value.first_name, middle, buyerProfile.value.last_name]
         .filter(Boolean)
-        .join(' ') || 'Buyer';
+        .join(' ');
 });
 
 const buyerInitials = computed(() => {
-    const firstInitial =
-        profile.value?.first_name?.charAt(0) ||
-        '';
-
-    const lastInitial =
-        profile.value?.last_name?.charAt(0) ||
-        '';
-
-    return `${firstInitial}${lastInitial}`
-        .toUpperCase() ||
-        'BU';
-});
-
-const buyerAge = computed(() => {
-    return calculateAge(profile.value?.birthday);
-});
-
-/**
- * GET /api/buyer/profile — loads this buyer's profile + on-file address.
- */
-async function loadBuyerAccount() {
-    isLoadingProfile.value = true;
-    loadError.value = '';
-
-    try {
-        const body = await apiFetch('/profile');
-
-        profile.value = body.profile;
-        address.value = body.address;
-
-        return profile.value;
-    } catch (err) {
-        console.error('Error loading buyer account:', err);
-        loadError.value = err?.message || 'Something went wrong while loading your account.';
-
-        return null;
-    } finally {
-        isLoadingProfile.value = false;
-    }
-}
-
-/**
- * PUT /api/buyer/profile — saves personal info + address in one request.
- * `payload` is the flat draft object built by Account.vue (snake_case
- * keys matching UpdateBuyerProfileRequest's validated fields).
- */
-async function updateBuyerProfile(payload) {
-    if (!payload) {
-        return null;
+    if (!buyerProfile.value) {
+        return '';
     }
 
-    isSaving.value = true;
-    saveError.value = '';
-    saveSuccess.value = '';
+    const firstInitial = buyerProfile.value.first_name?.charAt(0) || '';
+    const lastInitial = buyerProfile.value.last_name?.charAt(0) || '';
+
+    return `${firstInitial}${lastInitial}`.toUpperCase() || 'BU';
+});
+
+const buyerAge = computed(() => calculateAge(buyerProfile.value?.birthday));
+
+/*
+|--------------------------------------------------------------------------
+| Update Profile
+|--------------------------------------------------------------------------
+|
+| Accepts the same camelCase draft shape Account.vue's form already
+| collects (firstName, middleInitial, lastName, sex, contactNumber,
+| birthday) and maps it onto the real columns. Returns { data, error } —
+| Account.vue is responsible for showing `error` rather than assuming success.
+*/
+async function updateBuyerProfile(draft) {
+    if (!buyerProfile.value?.id) {
+        return { data: null, error: 'You need to be signed in to update your profile.' };
+    }
 
     try {
-        const body = await apiFetch('/profile', {
+        const data = await buyerApi('/buyer/account/profile', {
             method: 'PUT',
-            body: JSON.stringify(payload)
-        });
-
-        profile.value = body.profile;
-        address.value = body.address;
-        saveSuccess.value = body.message || 'Your profile was updated successfully.';
-
-        return profile.value;
-    } catch (err) {
-        console.error('Error saving buyer profile:', err);
-        saveError.value = err?.message || 'Something went wrong while saving your profile.';
-
-        return null;
-    } finally {
-        isSaving.value = false;
-    }
-}
-
-/**
- * POST /api/buyer/profile/avatar — uploads/replaces the profile picture.
- * Doesn't go through the shared apiFetch()/authHeaders() helpers since
- * those hardcode `Content-Type: application/json`, which breaks a
- * multipart FormData upload (the browser needs to set that header itself,
- * with the boundary, for the file to actually parse server-side).
- *
- * `file` may be a real File (a name of its own) or a plain Blob — the
- * cropped image AvatarCropper.vue hands back via canvas.toBlob() has no
- * filename, so one is always supplied explicitly to FormData here rather
- * than relying on `file.name`.
- */
-async function uploadBuyerAvatar(file) {
-    isSaving.value = true;
-    saveError.value = '';
-
-    try {
-        const supabase = getSupabase();
-        const {
-            data: { session }
-        } = await supabase.auth.getSession();
-        const token = session?.access_token;
-
-        if (!token) {
-            throw new Error('Please sign in to continue.');
-        }
-
-        const formData = new FormData();
-        formData.append('avatar', file, 'avatar.jpg');
-
-        const response = await fetch('/api/buyer/profile/avatar', {
-            method: 'POST',
-            headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-            body: formData
-        });
-        const body = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            throw new Error(body.message || 'Failed to upload profile picture.');
-        }
-
-        if (profile.value) {
-            profile.value = { ...profile.value, avatar_url: body.avatar_url };
-        }
-
-        return true;
-    } catch (err) {
-        console.error('Error uploading avatar:', err);
-        saveError.value = err?.message || 'Failed to upload profile picture.';
-
-        return false;
-    } finally {
-        isSaving.value = false;
-    }
-}
-
-/**
- * DELETE /api/buyer/account/deactivate — the "Danger Zone" self-
- * deactivation flow. Requires the typed "DEACTIVATE" phrase and the
- * buyer's current password (re-verified server-side either way).
- */
-async function deactivateBuyerAccount(confirmationPhrase, password) {
-    isDeactivating.value = true;
-    deactivateError.value = '';
-
-    try {
-        const body = await apiFetch('/account/deactivate', {
-            method: 'DELETE',
             body: JSON.stringify({
-                confirmation_phrase: confirmationPhrase,
-                password
-            })
+                first_name: draft.firstName?.trim() || '',
+                last_name: draft.lastName?.trim() || '',
+                middle_initial: draft.middleInitial?.trim() || null,
+                sex: draft.sex || null,
+                contact_no: draft.contactNumber?.trim() || null,
+                birthday: draft.birthday || null,
+            }),
         });
 
-        return body;
-    } catch (err) {
-        deactivateError.value = err?.message || 'Deactivation failed. Please try again.';
+        // Merge onto the existing row so fields the endpoint doesn't
+        // return (it returns a safe subset) aren't dropped from the
+        // in-memory profile.
+        buyerProfile.value = { ...buyerProfile.value, ...data };
 
-        throw err;
-    } finally {
-        isDeactivating.value = false;
+        return { data: buyerProfile.value, error: null };
+    } catch (err) {
+        console.error('Error updating buyer profile:', err);
+
+        const first = err?.body?.errors
+            ? Object.values(err.body.errors).flat()[0]
+            : null;
+
+        return { data: null, error: first || err?.message || 'Could not save your changes.' };
     }
 }
 
-/**
- * Ends the Supabase session and returns to the landing page — used after a
- * successful self-deactivation, same as useSeller.js's confirmLogout().
- */
-async function confirmLogout() {
-    try {
-        const supabase = getSupabase();
-        await supabase.auth.signOut();
-    } catch (err) {
-        console.error('Logout error:', err);
-    } finally {
-        // The login page reads this cookie to auto-redirect signed-in
-        // visitors back to their dashboard. Leaving it behind after
-        // sign-out sent people straight back to /buyer/dashboard with no
-        // real session, which showed "Access Denied" before they could
-        // reach the login form.
-        document.cookie =
-            'buytheway_session=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
-        window.location.href = '/';
+/*
+|--------------------------------------------------------------------------
+| Change Password
+|--------------------------------------------------------------------------
+|
+| Supabase Auth's own updateUser() call — no Laravel endpoint needed, this
+| operates on the buyer's already-authenticated session directly.
+*/
+async function changePassword(newPassword) {
+    const supabase = getSupabase();
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+
+    if (error) {
+        console.error('Error changing password:', error);
+
+        return { error: error.message || 'Could not change your password.' };
     }
+
+    return { error: null };
 }
 
 export function useBuyerAccount() {
     return {
-        profile,
-        address,
-        isLoadingProfile,
-        loadError,
-        isSaving,
-        saveError,
-        saveSuccess,
-        isDeactivating,
-        deactivateError,
-
+        buyerProfile,
+        isLoadingSession,
         buyerFullName,
         buyerInitials,
         buyerAge,
         calculateAge,
-
-        loadBuyerAccount,
         updateBuyerProfile,
-        uploadBuyerAvatar,
-        deactivateBuyerAccount,
-        confirmLogout
+        changePassword,
     };
 }

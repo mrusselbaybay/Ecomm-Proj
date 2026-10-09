@@ -84,12 +84,12 @@ const ariaLabel = computed(() => {
 .star-rating-value {
     font-size: 13px;
     font-weight: 700;
-    color: #0f172a;
+    color: var(--nx-ink);
     font-variant-numeric: tabular-nums;
 }
 
 .star-rating-count {
     font-size: 12.5px;
-    color: #64748b;
+    color: var(--nx-muted);
 }
 </style>

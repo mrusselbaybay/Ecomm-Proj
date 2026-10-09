@@ -56,13 +56,6 @@ class ChatAutomationService
             return null;
         }
 
-        if (! Message::query()->where('conversation_id', $conversation->id)->where('sender_role', 'buyer')->where('id', '<>', $buyerMessage->id)->exists()
-            && ! Message::query()->where('conversation_id', $conversation->id)->where('source', 'auto_reply_welcome')->exists()) {
-            $welcome = str_replace('[Shop Name]', $this->shopName($conversation), self::DEFAULT_WELCOME);
-
-            return $this->sendAutomatedMessage($conversation, $buyerMessage, $welcome, 'auto_reply_welcome', null, 'needs_reply', null);
-        }
-
         $order = $this->resolveOrder($conversation, $buyerMessage);
         $match = $this->matchedResponse($conversation, $buyerMessage, $questionKey, $order);
 
@@ -100,6 +93,13 @@ class ChatAutomationService
             $this->markNeedsReply($conversation);
 
             return null;
+        }
+
+        if (! Message::query()->where('conversation_id', $conversation->id)->where('sender_role', 'buyer')->where('id', '<>', $buyerMessage->id)->exists()
+            && ! Message::query()->where('conversation_id', $conversation->id)->where('source', 'auto_reply_welcome')->exists()) {
+            $welcome = str_replace('[Shop Name]', $this->shopName($conversation), self::DEFAULT_WELCOME);
+
+            return $this->sendAutomatedMessage($conversation, $buyerMessage, $welcome, 'auto_reply_welcome', null, 'needs_reply', null);
         }
 
         return $this->sendAutomatedMessage(

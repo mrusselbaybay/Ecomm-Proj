@@ -32,10 +32,8 @@
 |
 */
 import { computed, ref } from 'vue';
-import Header from './Header.vue';
-import AccountSidebar from './AccountSidebar.vue';
-import Footer from './Footer.vue';
 import ProductCard from './ProductCard.vue';
+import { freezeLeaving } from '../composables/useListMotion';
 import { useBuyer } from '../composables/useBuyer';
 import { useBuyerProducts } from '../composables/useBuyerProducts';
 import { categories, metaFor, discountPercent, formatPrice } from '../composables/useCategoryMeta';
@@ -140,251 +138,213 @@ function handleAddToCart(product) {
 function handleRemove(product) {
     toggleFavorite(product.id);
 }
-
-/*
-|--------------------------------------------------------------------------
-| Header Relay
-|--------------------------------------------------------------------------
-*/
-
-function handleHeaderSearch(query) {
-    emit('search', query);
-}
-
-function handleHeaderSelectCategory(category) {
-    emit('select-category', category);
-}
 </script>
 
 <template>
 
-    <div class="buyer-page">
+    <div class="acc-view">
 
-        <Header
-            active-category=""
-            @select-category="handleHeaderSelectCategory"
-            @cart-click="emit('open-cart')"
-            @account-click="emit('view-profile')"
-            @logo-click="emit('go-home')"
-            @search="handleHeaderSearch"
-        />
+        <div class="flex-1 space-y-10 min-w-0">
 
-        <main class="max-w-7xl mx-auto w-full px-4 lg:px-8 py-10">
-            <div class="flex flex-col lg:flex-row lg:items-start gap-8">
+            <!-- Page Header + Controls -->
+            <div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+                <div>
+                    <h1 class="text-3xl font-bold text-slate-900 tracking-tight">Wishlist</h1>
+                    <p class="text-slate-500 mt-2">
+                        <template v-if="favoriteCount > 0">
+                            You have <span class="font-bold text-slate-900">{{ favoriteCount }} {{ favoriteCount === 1 ? 'item' : 'items' }}</span> saved in your collection.
+                        </template>
+                        <template v-else>
+                            Save items you like and they'll show up here.
+                        </template>
+                    </p>
+                </div>
 
-                <!-- ==================================================== -->
-                <!-- SIDEBAR NAV (matching Account / Orders) -->
-                <!-- ==================================================== -->
-
-                <AccountSidebar active="wishlist" />
-
-                <!-- ==================================================== -->
-                <!-- MAIN CONTENT -->
-                <!-- ==================================================== -->
-
-                <div class="flex-1 space-y-10 min-w-0">
-
-                    <!-- Page Header + Controls -->
-                    <div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
-                        <div>
-                            <h1 class="text-3xl font-bold text-slate-900 tracking-tight">Wishlist</h1>
-                            <p class="text-slate-500 mt-2">
-                                <template v-if="favoriteCount > 0">
-                                    You have <span class="font-bold text-slate-900">{{ favoriteCount }} {{ favoriteCount === 1 ? 'item' : 'items' }}</span> saved in your collection.
-                                </template>
-                                <template v-else>
-                                    Save items you like and they'll show up here.
-                                </template>
-                            </p>
-                        </div>
-
-                        <div
-                            v-if="favoritedProducts.length > 0"
-                            class="flex items-center gap-3"
-                        >
-                            <div class="flex bg-white rounded-xl border border-slate-200 p-1" style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);">
-                                <button
-                                    type="button"
-                                    class="p-2 rounded-lg transition-colors"
-                                    :class="viewMode === 'grid' ? 'bg-slate-100 text-slate-700' : 'text-slate-400 hover:text-slate-600'"
-                                    title="Grid view"
-                                    @click="viewMode = 'grid'"
-                                >
-                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <rect width="7" height="7" x="3" y="3" rx="1" /><rect width="7" height="7" x="14" y="3" rx="1" />
-                                        <rect width="7" height="7" x="14" y="14" rx="1" /><rect width="7" height="7" x="3" y="14" rx="1" />
-                                    </svg>
-                                </button>
-                                <button
-                                    type="button"
-                                    class="p-2 rounded-lg transition-colors"
-                                    :class="viewMode === 'list' ? 'bg-slate-100 text-slate-700' : 'text-slate-400 hover:text-slate-600'"
-                                    title="List view"
-                                    @click="viewMode = 'list'"
-                                >
-                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M3 5h.01" /><path d="M3 12h.01" /><path d="M3 19h.01" />
-                                        <path d="M8 5h13" /><path d="M8 12h13" /><path d="M8 19h13" />
-                                    </svg>
-                                </button>
-                            </div>
-
-                            <select
-                                v-model="sortBy"
-                                class="bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d9488]/20"
-                                style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
-                            >
-                                <option value="recent">Recently Added</option>
-                                <option value="price-asc">Price: Low to High</option>
-                                <option value="price-desc">Price: High to Low</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <!-- Loading -->
-                    <div
-                        v-if="isLoadingProducts"
-                        class="empty-products"
-                    >
-                        <p>Loading your wishlist&hellip;</p>
-                    </div>
-
-                    <div
-                        v-else-if="loadError"
-                        class="empty-products"
-                    >
-                        <p>{{ loadError }}</p>
-                    </div>
-
-                    <!-- Empty -->
-                    <div
-                        v-else-if="favoritedProducts.length === 0"
-                        class="flex flex-col items-center justify-center py-20 text-center"
-                    >
-                        <div class="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 mb-6">
-                            <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
-                            </svg>
-                        </div>
-                        <h2 class="text-2xl font-bold text-slate-900">Your wishlist is empty</h2>
-                        <p class="text-slate-500 mt-2 max-w-xs">Tap the heart on any product to save it here for later.</p>
+                <div
+                    v-if="favoritedProducts.length > 0"
+                    class="flex items-center gap-3"
+                >
+                    <div class="flex bg-white rounded-xl border border-slate-200 p-1" style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);">
                         <button
                             type="button"
-                            class="mt-8 px-8 py-4 bg-[#0d9488] text-white rounded-2xl font-bold hover:bg-[#0f766e] transition-all"
-                            @click="emit('go-home')"
+                            class="p-2 rounded-lg transition-colors"
+                            :class="viewMode === 'grid' ? 'bg-slate-100 text-slate-700' : 'text-slate-400 hover:text-slate-600'"
+                            title="Grid view"
+                            @click="viewMode = 'grid'"
                         >
-                            Start Shopping
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect width="7" height="7" x="3" y="3" rx="1" /><rect width="7" height="7" x="14" y="3" rx="1" />
+                                <rect width="7" height="7" x="14" y="14" rx="1" /><rect width="7" height="7" x="3" y="14" rx="1" />
+                            </svg>
+                        </button>
+                        <button
+                            type="button"
+                            class="p-2 rounded-lg transition-colors"
+                            :class="viewMode === 'list' ? 'bg-slate-100 text-slate-700' : 'text-slate-400 hover:text-slate-600'"
+                            title="List view"
+                            @click="viewMode = 'list'"
+                        >
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 5h.01" /><path d="M3 12h.01" /><path d="M3 19h.01" />
+                                <path d="M8 5h13" /><path d="M8 12h13" /><path d="M8 19h13" />
+                            </svg>
                         </button>
                     </div>
 
-                    <!-- Grouped Wishlist -->
-                    <template v-else>
-                        <section
-                            v-for="group in groupedFavorites"
-                            :key="group.category"
-                            class="space-y-6"
-                        >
-                            <div class="flex items-center gap-4">
-                                <h2 class="text-sm font-bold text-slate-400 uppercase tracking-[0.2em]">{{ group.category }}</h2>
-                                <div class="h-px bg-slate-200 flex-1"></div>
-                            </div>
-
-                            <!-- Grid View -->
-                            <div
-                                v-if="viewMode === 'grid'"
-                                class="product-grid"
-                            >
-                                <ProductCard
-                                    v-for="product in group.products"
-                                    :key="product.id"
-                                    :product="product"
-                                    @view="handleView"
-                                />
-                            </div>
-
-                            <!-- List View -->
-                            <div
-                                v-else
-                                class="flex flex-col divide-y divide-slate-100 bg-white rounded-3xl border border-slate-100 overflow-hidden"
-                                style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
-                            >
-                                <div
-                                    v-for="product in group.products"
-                                    :key="product.id"
-                                    class="flex flex-col sm:flex-row sm:items-center gap-4 p-5"
-                                >
-                                    <button
-                                        type="button"
-                                        class="w-full sm:w-20 h-20 rounded-2xl overflow-hidden shrink-0 flex items-center justify-center"
-                                        :class="'accent-' + metaFor(product.category).accent"
-                                        style="background: var(--accent-bg, #f1f5f9); color: var(--accent-fg, #64748b);"
-                                        @click="handleView(product)"
-                                    >
-                                        <span class="w-8 h-8" v-html="metaFor(product.category).icon"></span>
-                                    </button>
-
-                                    <div class="flex-1 min-w-0">
-                                        <button
-                                            type="button"
-                                            class="text-left"
-                                            @click="handleView(product)"
-                                        >
-                                            <h3 class="text-sm font-semibold text-slate-800 hover:text-[#0d9488] transition-colors">{{ product.name }}</h3>
-                                        </button>
-                                        <p class="text-xs text-slate-400 mt-1">
-                                            <span :class="product.stock > 0 ? 'text-emerald-600' : 'text-red-500'">
-                                                {{ product.stock > 0 ? 'In Stock' : 'Out of Stock' }}
-                                            </span>
-                                        </p>
-                                    </div>
-
-                                    <div class="flex items-center justify-between sm:justify-end gap-4 shrink-0">
-                                        <div class="flex flex-col sm:items-end">
-                                            <span class="text-base font-bold text-slate-900">{{ formatPrice(product.price) }}</span>
-                                            <span
-                                                v-if="product.oldPrice"
-                                                class="text-[11px] text-slate-400 line-through"
-                                            >
-                                                {{ formatPrice(product.oldPrice) }}
-                                            </span>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            class="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center hover:bg-[#0d9488] transition-colors shrink-0"
-                                            title="Add to cart"
-                                            @click="handleAddToCart(product)"
-                                        >
-                                            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" />
-                                                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-                                            </svg>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="w-9 h-9 rounded-xl border border-slate-200 text-slate-400 flex items-center justify-center hover:bg-red-50 hover:text-red-500 hover:border-red-100 transition-colors shrink-0"
-                                            title="Remove from wishlist"
-                                            @click="handleRemove(product)"
-                                        >
-                                            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </section>
-                    </template>
-
+                    <select
+                        v-model="sortBy"
+                        class="bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand/20"
+                        style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                    >
+                        <option value="recent">Recently Added</option>
+                        <option value="price-asc">Price: Low to High</option>
+                        <option value="price-desc">Price: High to Low</option>
+                    </select>
                 </div>
-
             </div>
-        </main>
 
-        <Footer
-            @browse-all="emit('go-home')"
-            @browse-categories="emit('go-home')"
-            @cart-click="emit('open-cart')"
-        />
+            <!-- Loading -->
+            <div
+                v-if="isLoadingProducts"
+                class="empty-products"
+            >
+                <p>Loading your wishlist&hellip;</p>
+            </div>
+
+            <div
+                v-else-if="loadError"
+                class="empty-products"
+            >
+                <p>{{ loadError }}</p>
+            </div>
+
+            <!-- Empty -->
+            <div
+                v-else-if="favoritedProducts.length === 0"
+                class="flex flex-col items-center justify-center py-20 text-center"
+            >
+                <div class="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 mb-6">
+                    <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+                    </svg>
+                </div>
+                <h2 class="text-2xl font-bold text-slate-900">Your wishlist is empty</h2>
+                <p class="text-slate-500 mt-2 max-w-xs">Tap the heart on any product to save it here for later.</p>
+                <button
+                    type="button"
+                    class="mt-8 px-8 py-4 bg-brand text-white rounded-2xl font-bold hover:bg-brand-dark transition-all"
+                    @click="emit('go-home')"
+                >
+                    Start Shopping
+                </button>
+            </div>
+
+            <!-- Grouped Wishlist -->
+            <template v-else>
+                <section
+                    v-for="group in groupedFavorites"
+                    :key="group.category"
+                    class="space-y-6"
+                >
+                    <div class="flex items-center gap-4">
+                        <h2 class="text-sm font-bold text-slate-400 uppercase tracking-[0.2em]">{{ group.category }}</h2>
+                        <div class="h-px bg-slate-200 flex-1"></div>
+                    </div>
+
+                    <!-- Grid View: an un-hearted card fades out and the rest
+                         slide into its place (useListMotion.js) -->
+                    <TransitionGroup
+                        v-if="viewMode === 'grid'"
+                        name="lx"
+                        tag="div"
+                        class="product-grid lx-group"
+                        @before-leave="freezeLeaving"
+                    >
+                        <ProductCard
+                            v-for="product in group.products"
+                            :key="product.id"
+                            :product="product"
+                            @view="handleView"
+                        />
+                    </TransitionGroup>
+
+                    <!-- List View -->
+                    <TransitionGroup
+                        v-else
+                        name="lx"
+                        tag="div"
+                        class="lx-group flex flex-col divide-y divide-slate-100 bg-white rounded-3xl border border-slate-100 overflow-hidden"
+                        style="box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05), 0 2px 8px -2px rgba(0,0,0,0.04);"
+                        @before-leave="freezeLeaving"
+                    >
+                        <div
+                            v-for="product in group.products"
+                            :key="product.id"
+                            class="flex flex-col sm:flex-row sm:items-center gap-4 p-5"
+                        >
+                            <button
+                                type="button"
+                                class="w-full sm:w-20 h-20 rounded-2xl overflow-hidden shrink-0 flex items-center justify-center"
+                                :class="'accent-' + metaFor(product.category).accent"
+                                style="background: var(--accent-bg, #f1f5f9); color: var(--accent-fg, #64748b);"
+                                @click="handleView(product)"
+                            >
+                                <span class="w-8 h-8" v-html="metaFor(product.category).icon"></span>
+                            </button>
+
+                            <div class="flex-1 min-w-0">
+                                <button
+                                    type="button"
+                                    class="text-left"
+                                    @click="handleView(product)"
+                                >
+                                    <h3 class="text-sm font-semibold text-slate-800 hover:text-brand transition-colors">{{ product.name }}</h3>
+                                </button>
+                                <p class="text-xs text-slate-400 mt-1">
+                                    <span :class="product.stock > 0 ? 'text-emerald-600' : 'text-red-500'">
+                                        {{ product.stock > 0 ? 'In Stock' : 'Out of Stock' }}
+                                    </span>
+                                </p>
+                            </div>
+
+                            <div class="flex items-center justify-between sm:justify-end gap-4 shrink-0">
+                                <div class="flex flex-col sm:items-end">
+                                    <span class="text-base font-bold text-slate-900">{{ formatPrice(product.price) }}</span>
+                                    <span
+                                        v-if="product.oldPrice"
+                                        class="text-[11px] text-slate-400 line-through"
+                                    >
+                                        {{ formatPrice(product.oldPrice) }}
+                                    </span>
+                                </div>
+                                <button
+                                    type="button"
+                                    class="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center hover:bg-brand transition-colors shrink-0"
+                                    title="Add to cart"
+                                    @click="handleAddToCart(product)"
+                                >
+                                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" />
+                                        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+                                    </svg>
+                                </button>
+                                <button
+                                    type="button"
+                                    class="w-9 h-9 rounded-xl border border-slate-200 text-slate-400 flex items-center justify-center hover:bg-red-50 hover:text-red-500 hover:border-red-100 transition-colors shrink-0"
+                                    title="Remove from wishlist"
+                                    @click="handleRemove(product)"
+                                >
+                                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </TransitionGroup>
+                </section>
+            </template>
+
+        </div>
 
     </div>
 
