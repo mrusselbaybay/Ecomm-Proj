@@ -61,7 +61,8 @@ class MessageController extends Controller
         $conversations = Conversation::query()
             ->with(['seller.sellerDetail', 'product', 'order'])
             ->where('buyer_id', $buyer->id)
-            ->orderByRaw('last_message_at desc nulls last')
+            ->orderByRaw('last_message_at is null')
+            ->orderByDesc('last_message_at')
             ->orderByDesc('created_at')
             ->get();
 

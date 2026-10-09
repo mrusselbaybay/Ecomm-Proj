@@ -55,6 +55,7 @@ it('lists conversations by recent activity without loading message bodies or mar
     $buyer = makeBuyer();
     $older = threadWith($buyer, makeSeller(), ['last_message_at' => now()->subDay(), 'last_message_preview' => 'Old', 'last_message_sender_role' => 'seller', 'buyer_unread_count' => 2]);
     $newer = threadWith($buyer, makeSeller(), ['last_message_at' => now(), 'last_message_preview' => 'Thanks!', 'last_message_sender_role' => 'buyer']);
+    $withoutMessage = threadWith($buyer, makeSeller());
     addMessage($older, 'seller', 'Old', now()->subDay());
 
     actingAsBuyer($buyer);
@@ -63,7 +64,9 @@ it('lists conversations by recent activity without loading message bodies or mar
         ->assertOk()
         ->assertJsonPath('data.0.id', $newer->id)
         ->assertJsonPath('data.0.lastMessageFromMe', true)
+        ->assertJsonPath('data.1.id', $older->id)
         ->assertJsonPath('data.1.unread', 2)
+        ->assertJsonPath('data.2.id', $withoutMessage->id)
         ->assertJsonPath('meta.unread_total', 2);
 
     expect($response->json('data.0'))->not->toHaveKey('messages');
