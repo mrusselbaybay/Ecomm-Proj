@@ -17,6 +17,7 @@
 //     put the old rating back.
 import { ref } from 'vue';
 import { applyStats, onReviewChange, withLatestStats } from './useReviewSync';
+import { authHeaders } from './useBuyerSession';
 
 const products = ref([]);
 const isLoadingProducts = ref(true);
@@ -41,8 +42,15 @@ function catalogUrl(params) {
 }
 
 async function requestCatalog(params) {
+    let headers = { Accept: 'application/json' };
+    try {
+        const authenticated = await authHeaders();
+        headers.Authorization = authenticated.Authorization;
+    } catch {
+        // The catalog is public; signed-out browsing is expected.
+    }
     const response = await fetch(catalogUrl(params), {
-        headers: { Accept: 'application/json' },
+        headers,
     });
     const body = await response.json().catch(() => ({}));
 
@@ -135,7 +143,7 @@ async function getProductById(id) {
 
     try {
         const response = await fetch(`/api/products/${encodeURIComponent(id)}`, {
-            headers: { Accept: 'application/json' },
+            headers: await optionalCatalogHeaders(),
         });
         const body = await response.json().catch(() => ({}));
 
@@ -148,6 +156,15 @@ async function getProductById(id) {
         console.error('Error loading product:', err);
 
         return null;
+    }
+}
+
+async function optionalCatalogHeaders() {
+    try {
+        const headers = await authHeaders();
+        return { Accept: 'application/json', Authorization: headers.Authorization };
+    } catch {
+        return { Accept: 'application/json' };
     }
 }
 

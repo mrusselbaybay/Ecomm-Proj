@@ -752,7 +752,13 @@ class MessageController extends Controller
                     ->whereNull('conversation_participants.left_at');
             })
             ->where('conversations.seller_id', $sellerId)
-            ->where('conversations.type', '!=', 'support');
+            ->where('conversations.type', '!=', 'support')
+            ->where(fn (Builder $q) => $q->where('conversations.type', '!=', 'direct')
+                ->orWhereNotNull('conversations.order_id')
+                ->orWhereNotExists(fn ($blocked) => $blocked->selectRaw('1')
+                    ->from('buyer_store_blocks')
+                    ->whereColumn('buyer_store_blocks.buyer_id', 'conversations.buyer_id')
+                    ->whereColumn('buyer_store_blocks.seller_id', 'conversations.seller_id')));
 
         if ($search = $request->string('search')->toString()) {
             $query->where(function (Builder $q) use ($search) {
@@ -818,6 +824,12 @@ class MessageController extends Controller
         return Conversation::with($with)
             ->where('seller_id', $request->user()->id)
             ->where('type', '!=', 'support')
+            ->where(fn (Builder $q) => $q->where('type', '!=', 'direct')
+                ->orWhereNotNull('order_id')
+                ->orWhereNotExists(fn ($blocked) => $blocked->selectRaw('1')
+                    ->from('buyer_store_blocks')
+                    ->whereColumn('buyer_store_blocks.buyer_id', 'conversations.buyer_id')
+                    ->whereColumn('buyer_store_blocks.seller_id', 'conversations.seller_id')))
             ->whereHas('participantRecords', fn (Builder $query) => $query
                 ->where('user_id', $request->user()->id)
                 ->whereNull('left_at'))

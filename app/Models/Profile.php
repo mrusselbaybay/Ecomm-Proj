@@ -51,6 +51,8 @@ class Profile extends Authenticatable
     // Roles that go through the registration/approval workflow.
     public const REGISTRABLE_ROLES = ['buyer', 'seller', 'courier', 'driver', 'logistics'];
 
+    public const ROLE_BUYER = 'buyer';
+
     public const ROLE_ADMIN = 'admin';
 
     public const ROLE_LOGISTICS_ADMIN = 'logistics_admin';

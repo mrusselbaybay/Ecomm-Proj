@@ -16,14 +16,15 @@
 // average only the server can recompute, so revisiting either shows the
 // new numbers.
 import { applyStats, onReviewChange } from './useReviewSync';
+import { authHeaders, buyerProfile } from './useBuyerSession';
 
 const cache = new Map();
 const MAX_CACHED = 40;
 
 onReviewChange((stats) => {
-    for (const [url, body] of [...cache.entries()]) {
-        if (url.startsWith('/api/stores')) {
-            cache.delete(url);
+    for (const [key, body] of [...cache.entries()]) {
+        if (key.includes('|/api/stores')) {
+            cache.delete(key);
         } else if (Array.isArray(body?.data)) {
             body.data.forEach(product => applyStats(product, stats));
         } else if (body?.data && typeof body.data === 'object') {
@@ -69,7 +70,15 @@ export function storeProductsEndpoint(sellerId, params) {
 }
 
 export function cachedResponse(url) {
-    return cache.get(url) || null;
+    return cache.get(cacheKey(url)) || null;
+}
+
+function cacheKey(url) {
+    return `${buyerProfile.value?.id || 'guest'}|${url}`;
+}
+
+export function clearBuyerStoreCache() {
+    cache.clear();
 }
 
 // Longest a catalogue request may take before the page gives up and offers
@@ -103,8 +112,15 @@ export async function fetchJson(url, { signal, timeout = REQUEST_TIMEOUT_MS } = 
     let body;
 
     try {
+        let headers = { Accept: 'application/json' };
+        try {
+            const authenticated = await authHeaders();
+            headers = { ...headers, Authorization: authenticated.Authorization };
+        } catch {
+            // Public catalog browsing remains available to signed-out guests.
+        }
         response = await fetch(url, {
-            headers: { Accept: 'application/json' },
+            headers,
             signal: controller.signal
         });
         body = await response.json().catch(() => ({}));
@@ -129,8 +145,9 @@ export async function fetchJson(url, { signal, timeout = REQUEST_TIMEOUT_MS } = 
         throw error;
     }
 
-    cache.delete(url);
-    cache.set(url, body);
+    const key = cacheKey(url);
+    cache.delete(key);
+    cache.set(key, body);
 
     if (cache.size > MAX_CACHED) {
         cache.delete(cache.keys().next().value);

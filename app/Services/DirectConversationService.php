@@ -13,6 +13,8 @@ use Throwable;
 
 class DirectConversationService
 {
+    public function __construct(private BuyerStoreBlocks $blocks) {}
+
     /**
      * Finds (or creates) the ONE conversation between this buyer and
      * seller — identity is (buyer_id, seller_id) only, never the order or
@@ -60,6 +62,10 @@ class DirectConversationService
             $orderNumber,
             $productId,
         );
+
+        if (! $order && $this->blocks->isBlocked($buyer->id, $seller->id)) {
+            abort(403, 'You cannot start a chat with this shop.');
+        }
 
         $contextKey = Conversation::makeContextKey('direct', 'buyer-seller', [$buyer->id, $seller->id]);
 

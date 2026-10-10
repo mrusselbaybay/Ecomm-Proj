@@ -895,25 +895,27 @@
         </div>
 
         <!-- Report buyer modal -->
-        <div v-if="showReportModal" class="modal-overlay" @click.self="showReportModal = false">
+        <div v-if="showReportModal" class="modal-overlay" @click.self="!isReporting && (showReportModal = false)">
             <div class="modal-panel">
                 <div class="modal-header">
                     <h3>Report {{ activeConversation?.buyer?.name || 'this buyer' }}?</h3>
-                    <button type="button" class="modal-close" aria-label="Close" @click="showReportModal = false">
+                    <button type="button" class="modal-close" aria-label="Close" :disabled="isReporting" @click="showReportModal = false">
                         <svg class="icon" viewBox="0 0 20 20" fill="none"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
                     </button>
                 </div>
                 <p class="modal-desc">This flags the conversation for review. Only report if there's an actual policy violation.</p>
+                <p v-if="reportError" class="report-inline-error" role="alert">{{ reportError }}</p>
                 <label class="field-label" for="msg-report-reason">Reason</label>
                 <textarea id="msg-report-reason" v-model="reportReason" class="field-input" rows="3" placeholder="What happened?"></textarea>
                 <div class="modal-actions">
-                    <button type="button" class="btn-outline" style="flex: 1" @click="showReportModal = false">Cancel</button>
+                    <button type="button" class="btn-outline" style="flex: 1" :disabled="isReporting" @click="showReportModal = false">Cancel</button>
                     <button type="button" class="btn-danger" style="flex: 1" :disabled="!reportReason.trim() || isReporting" @click="confirmReport">
                         {{ isReporting ? 'Reporting…' : 'Report' }}
                     </button>
                 </div>
             </div>
         </div>
+        <div v-if="reportToast" class="report-success-toast" role="status">✓ Conversation report submitted for review.</div>
     </div>
 </template>
 
@@ -1134,6 +1136,9 @@ const deleteError = ref('');
 const showReportModal = ref(false);
 const reportReason = ref('');
 const isReporting = ref(false);
+const reportError = ref('');
+const reportToast = ref(false);
+let reportToastTimer;
 const logisticsContacts = ref([]);
 const selectedLogisticsAssignment = ref('');
 const openingLogisticsChat = ref(false);
@@ -1561,14 +1566,28 @@ async function runDeleteConversation() {
 function openReportModal() {
     showMoreMenu.value = false;
     reportReason.value = '';
+    reportError.value = '';
     showReportModal.value = true;
 }
 async function confirmReport() {
-    if (!reportReason.value.trim() || !activeConversationId.value) return;
+    if (!reportReason.value.trim() || !activeConversationId.value || isReporting.value) return;
     isReporting.value = true;
-    await reportBuyer(activeConversationId.value, reportReason.value.trim());
-    isReporting.value = false;
-    showReportModal.value = false;
+    reportError.value = '';
+    try {
+        const submitted = await reportBuyer(activeConversationId.value, reportReason.value.trim());
+        if (!submitted) {
+            reportError.value = 'Could not submit this conversation report. Your details are still here; please try again.';
+            return;
+        }
+        showReportModal.value = false;
+        reportToast.value = true;
+        clearTimeout(reportToastTimer);
+        reportToastTimer = setTimeout(() => { reportToast.value = false; }, 3000);
+    } catch (error) {
+        reportError.value = error?.message || 'Could not submit this conversation report. Your details are still here; please try again.';
+    } finally {
+        isReporting.value = false;
+    }
 }
 
 function onDocClick(e) {
@@ -1584,7 +1603,7 @@ function onGlobalKeydown(e) {
     if (e.key !== 'Escape') return;
     if (showAutomationSettings.value) {
         closeAutomationSettings();
-    } else if (showReportModal.value) {
+    } else if (showReportModal.value && !isReporting.value) {
         showReportModal.value = false;
     } else if (pendingParcelInquiry.value) {
         pendingParcelInquiry.value = null;
@@ -1667,6 +1686,7 @@ async function contactLogistics() {
 }
 onBeforeUnmount(() => {
     clearTimeout(searchDebounce);
+    clearTimeout(reportToastTimer);
     messageRealtimeChannel?.unsubscribe();
     inboxRealtimeChannel?.unsubscribe();
     document.removeEventListener('click', onDocClick);

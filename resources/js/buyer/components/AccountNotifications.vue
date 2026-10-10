@@ -9,20 +9,34 @@
 | account and security emails are listed for clarity but can't be turned
 | off.
 |
-| Honest about today: BuyTheWay currently emails buyers only about their
-| account. Order-update and promotional emails aren't sent yet; the saved
-| choices are what they'll follow when they start. There are no push or
-| SMS notifications, so no controls for them.
+| Report outcome email updates follow the buyer's preference below.
+| Order-update and promotional email preferences are saved for their
+| eventual rollout. The buyer app currently has no push or SMS channel.
 |
 */
 import { onMounted, reactive, ref } from 'vue';
 import { useAccountSettings } from '../composables/useAccountSettings';
+import { buyerApi } from '../composables/useBuyerApi';
 
 const { preferences, preferencesError, loadPreferences, savePreferences } = useAccountSettings();
 
 const loading = ref(!preferences.value);
 const saving = reactive({});
 const status = reactive({});
+const reportNotifications = ref([]);
+const reportNotificationsLoading = ref(true);
+
+async function loadReportNotifications() {
+    reportNotificationsLoading.value = true;
+    try {
+        const response = await buyerApi('/buyer/report-notifications');
+        reportNotifications.value = response.data || [];
+    } catch {
+        reportNotifications.value = [];
+    } finally {
+        reportNotificationsLoading.value = false;
+    }
+}
 
 async function load(force = false) {
     loading.value = !preferences.value || force;
@@ -36,7 +50,10 @@ async function load(force = false) {
     }
 }
 
-onMounted(() => load());
+onMounted(() => {
+    load();
+    loadReportNotifications();
+});
 
 const OPTIONAL = [
     {
@@ -48,6 +65,11 @@ const OPTIONAL = [
         key: 'promotions_email',
         title: 'Deals and recommendations',
         body: 'Occasional emails about sales and products you might like. Off unless you turn it on.'
+    },
+    {
+        key: 'case_updates_email',
+        title: 'Report case updates',
+        body: 'An email when the Platform Admin completes a review of a report you submitted.'
     }
 ];
 
@@ -93,12 +115,24 @@ async function toggle(key) {
             >
                 Notifications
             </h1>
-            <p class="acc-lede">Choose which optional emails you&rsquo;d like. They go to your sign-in email.</p>
+            <p class="acc-lede">View report outcomes and choose which optional emails you&rsquo;d like.</p>
         </header>
 
         <div class="acc-note">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" /></svg>
-            <p>Right now BuyTheWay only emails you about your account. Order and promotional emails haven&rsquo;t started yet; when they do, they&rsquo;ll follow the choices you save here.</p>
+            <p>Report outcomes can arrive in this inbox and by email when enabled below. Order and promotional emails will follow their saved choices when those channels launch.</p>
+        </div>
+
+        <div class="acc-block">
+            <h2 class="acc-subtitle">Report updates</h2>
+            <p v-if="reportNotificationsLoading" class="acc-hint" aria-busy="true">Loading report updates…</p>
+            <p v-else-if="!reportNotifications.length" class="acc-hint">No report outcomes yet.</p>
+            <ul v-else class="acc-plain-list">
+                <li v-for="notice in reportNotifications" :key="notice.id">
+                    <strong>{{ notice.title }}</strong> — {{ notice.message }}
+                    <small class="block">{{ new Date(notice.created_at).toLocaleString() }}</small>
+                </li>
+            </ul>
         </div>
 
         <div class="acc-block">

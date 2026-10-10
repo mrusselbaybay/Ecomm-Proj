@@ -142,15 +142,23 @@ class SellerComplianceController extends Controller
             $reason,
         ): void {
             if ($action === 'verify') {
-                $product->update(['status' => 'active']);
+                $product->update(['status' => 'active', 'report_hold' => false]);
             }
 
             if ($action === 'remove') {
-                $product->update(['status' => 'archived']);
+                $product->update(['status' => 'archived', 'report_hold' => false]);
             }
 
             if ($action === 'restore') {
-                $product->update(['status' => 'pending_review']);
+                $product->update(['status' => 'pending_review', 'report_hold' => false]);
+            }
+
+            if ($action === 'hide') {
+                $product->update(['status' => 'pending_review', 'report_hold' => false]);
+            }
+
+            if ($action === 'unhide') {
+                $product->update(['status' => 'active', 'report_hold' => false]);
             }
 
             if ($action === 'suspend') {
@@ -177,7 +185,7 @@ class SellerComplianceController extends Controller
             ]);
         });
 
-        if (in_array($action, ['warn', 'remove', 'suspend'], true)) {
+        if (in_array($action, ['warn', 'remove', 'suspend', 'hide', 'unhide'], true)) {
             Mail::to($seller->email)->queue(new SellerComplianceNotice(
                 sellerName: $seller->full_name,
                 productName: $product->name,
@@ -193,8 +201,63 @@ class SellerComplianceController extends Controller
                 'remove' => 'Product moved to the archive and the seller was notified.',
                 'restore' => 'Product restored to the pending review queue.',
                 'suspend' => 'Seller suspended and notified.',
+                'hide' => 'Product temporarily hidden and seller notified.',
+                'unhide' => 'Product made visible to buyers again and seller notified.',
             },
         ]);
+    }
+
+    public function storeAction(Request $request, string $sellerId): JsonResponse
+    {
+        $data = $request->validate([
+            'action' => ['required', 'in:warn,suspend,reinstate'],
+            'reason' => ['nullable', 'required_unless:action,reinstate', 'string', 'min:5', 'max:1000'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+        $seller = \App\Models\Profile::query()->with('sellerDetail')->whereKey($sellerId)
+            ->where('role', 'seller')->firstOrFail();
+        $action = $data['action'];
+
+        DB::transaction(function () use ($request, $seller, $data, $action): void {
+            if ($action === 'suspend' || $action === 'reinstate') {
+                $newStatus = $action === 'suspend' ? 'suspended' : 'active';
+                $oldStatus = $seller->account_status;
+                $seller->update(['account_status' => $newStatus]);
+                StatusAuditLog::create([
+                    'entity_type' => 'profile',
+                    'entity_id' => $seller->id,
+                    'old_status' => $oldStatus,
+                    'new_status' => $newStatus,
+                    'reason' => $data['reason'] ?? 'Seller reinstated after review.',
+                    'changed_by' => $request->user()->id,
+                ]);
+            }
+
+            SellerComplianceAction::create([
+                'seller_id' => $seller->id,
+                'product_id' => null,
+                'action' => $action,
+                'reason' => $data['reason'] ?? null,
+                'notes' => $data['notes'] ?? null,
+                'admin_id' => $request->user()->id,
+            ]);
+        });
+
+        if (in_array($action, ['warn', 'suspend'], true) && $seller->email) {
+            Mail::to($seller->email)->queue(new SellerComplianceNotice(
+                sellerName: $seller->full_name,
+                productName: $seller->sellerDetail?->business_name ?: $seller->full_name,
+                action: $action,
+                reason: $data['reason'] ?? null,
+                targetType: 'shop',
+            ));
+        }
+
+        return response()->json(['message' => match ($action) {
+            'warn' => 'Shop warning recorded and seller notified.',
+            'suspend' => 'Seller suspended and notified.',
+            'reinstate' => 'Seller account reinstated.',
+        }]);
     }
 
     /**

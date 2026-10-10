@@ -408,7 +408,7 @@ async function deliver(id, pending) {
 
         pending.serverId = result.id;
         mergeMessages(t, [result]);
-        if (result.autoReply) mergeMessages(t, [result.autoReply]);
+        if (result.autoReply) mergeMessages(t, [{ ...result.autoReply, productContext: result.autoReply.productContext || result.productContext }]);
         t.pending = t.pending.filter(p => p.localId !== pending.localId);
 
         upsertConversation({ id, updatedAt: result.at, lastMessagePreview: result.text || 'Photo', lastMessageFromMe: true });

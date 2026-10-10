@@ -61,8 +61,10 @@ import {
     sanitizeStoreState,
     storeIdFromQuery,
     storeProductParams,
-    storeStateFromQuery
+    storeStateFromQuery,
+    storePageUrl
 } from '../composables/useStoreBrowseState';
+import { clearBuyerStoreCache } from '../composables/useStores';
 
 const props = defineProps({
     storeId: {
@@ -860,6 +862,168 @@ function seeAllFeatured() {
 const toasts = useToasts();
 const { buyerProfile } = useBuyerSession();
 
+const storeReportOpen = ref(false);
+const storeReportReason = ref('');
+const storeReportDetails = ref('');
+const storeReportAnonymous = ref(false);
+const storeReportFiles = ref([]);
+const storeReportBusy = ref(false);
+const storeReportSubmitError = ref('');
+const storeReportDropActive = ref(false);
+const storeReportEvidenceInput = ref(null);
+const storeReportPreviewUrls = new Map();
+watch(storeReportOpen, (isOpen) => {
+    if (!isOpen) {
+        for (const url of storeReportPreviewUrls.values()) URL.revokeObjectURL(url);
+        storeReportPreviewUrls.clear();
+    }
+});
+const storeReportReasons = [
+    { value: 'fraud_deception', label: 'Fraud and Deception' },
+    { value: 'legal_regulatory', label: 'Legal and Regulatory' },
+    { value: 'discriminatory_offensive', label: 'Discriminatory or Offensive Conduct' },
+    { value: 'policy_violations', label: 'Policy Violations' },
+    { value: 'product_issues', label: 'Product Issues' },
+    { value: 'pricing_fees', label: 'Pricing and Fees' },
+    { value: 'shipping_problems', label: 'Shipping Problems' },
+    { value: 'customer_service', label: 'Customer Service and Communication' },
+];
+const storeActionsMenu = ref(null);
+const storeBlockBusy = ref(false);
+
+function closeStoreActions() {
+    storeActionsMenu.value?.removeAttribute('open');
+}
+
+async function shareStore() {
+    closeStoreActions();
+    try {
+        await navigator.clipboard.writeText(new URL(storePageUrl(props.storeId), window.location.origin).toString());
+        toasts.success('✓ Shop Link copied', { timeout: 2500 });
+    } catch {
+        toasts.error('Could not copy the shop link.');
+    }
+}
+
+function openStoreReportFromMenu() {
+    closeStoreActions();
+    openStoreReport();
+}
+
+async function blockStore() {
+    closeStoreActions();
+    if (!buyerProfile.value) {
+        toasts.warning('Sign in to block a shop.');
+        return;
+    }
+    if (storeBlockBusy.value || !window.confirm(`Block ${identity.value?.name || 'this shop'}? Its shop and products will be hidden from you. Order conversations remain available.`)) return;
+
+    storeBlockBusy.value = true;
+    try {
+        await buyerApi(`/buyer/stores/${encodeURIComponent(props.storeId)}/block`, { method: 'POST' });
+        clearBuyerStoreCache();
+        toasts.success('Shop blocked.');
+        emit('back');
+    } catch (err) {
+        toasts.error(err?.message || 'Could not block this shop.');
+    } finally {
+        storeBlockBusy.value = false;
+    }
+}
+
+function openStoreReport() {
+    if (!buyerProfile.value) {
+        toasts.warning('Sign in to report this store.');
+        return;
+    }
+
+    storeReportReason.value = '';
+    storeReportDetails.value = '';
+    storeReportAnonymous.value = false;
+    storeReportFiles.value = [];
+    storeReportSubmitError.value = '';
+    for (const url of storeReportPreviewUrls.values()) URL.revokeObjectURL(url);
+    storeReportPreviewUrls.clear();
+    storeReportOpen.value = true;
+}
+
+function selectStoreReportFiles(event) {
+    addStoreReportFiles(event.target.files);
+    event.target.value = '';
+}
+
+function addStoreReportFiles(fileList) {
+    const next = [...storeReportFiles.value];
+    for (const file of Array.from(fileList || [])) {
+        if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime'].includes(file.type)) {
+            toasts.error(`${file.name} isn't a supported image or video.`);
+            continue;
+        }
+        if (file.size > 50 * 1024 * 1024) {
+            toasts.error(`${file.name} is larger than 50 MB.`);
+            continue;
+        }
+        if (next.length >= 8) {
+            toasts.warning('You can attach up to 8 files.');
+            break;
+        }
+        if (!next.some(existing => existing.name === file.name && existing.size === file.size && existing.lastModified === file.lastModified)) next.push(file);
+    }
+    storeReportFiles.value = next;
+}
+
+function removeStoreReportFile(index) {
+    const [removed] = storeReportFiles.value.splice(index, 1);
+    if (removed && storeReportPreviewUrls.has(removed)) {
+        URL.revokeObjectURL(storeReportPreviewUrls.get(removed));
+        storeReportPreviewUrls.delete(removed);
+    }
+}
+
+function storeReportPreviewUrl(file) {
+    if (!storeReportPreviewUrls.has(file)) storeReportPreviewUrls.set(file, URL.createObjectURL(file));
+    return storeReportPreviewUrls.get(file);
+}
+
+function handleStoreReportDrop(event) {
+    storeReportDropActive.value = false;
+    addStoreReportFiles(event.dataTransfer?.files);
+}
+
+async function submitStoreReport() {
+    if (!buyerProfile.value || !props.storeId || !storeReportReason.value || !storeReportDetails.value.trim() || storeReportBusy.value) return;
+    storeReportBusy.value = true;
+    storeReportSubmitError.value = '';
+
+    try {
+        const evidence = await Promise.all(storeReportFiles.value.map(async (file) => {
+            const form = new FormData();
+            form.append('file', file);
+            form.append('path', `${buyerProfile.value.id}/reports/${crypto.randomUUID()}-${file.name.replace(/[^A-Za-z0-9_.-]/g, '_')}`);
+            return (await buyerApi('/storage/report-evidence', { method: 'POST', body: form })).path;
+        }));
+
+        await buyerApi('/buyer/reports', {
+            method: 'POST',
+            body: JSON.stringify({
+                target_type: 'store',
+                target_id: props.storeId,
+                reason: storeReportReason.value,
+                details: storeReportDetails.value.trim(),
+                anonymous: storeReportAnonymous.value,
+                evidence,
+            }),
+        });
+
+        storeReportOpen.value = false;
+        toasts.success('Shop report submitted for review.');
+    } catch (err) {
+        storeReportSubmitError.value = err?.message || 'Could not submit this report. Your details are still here; please try again.';
+    } finally {
+        storeReportBusy.value = false;
+    }
+}
+
 const isFollowing = ref(false);
 const followerCount = ref(null);
 const followBusy = ref(false);
@@ -1219,6 +1383,16 @@ const skeletons = Array.from({ length: 8 });
                                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.9A8 8 0 1 1 21 12Z" /></svg>
                                 Sign in to chat
                             </a>
+                            <details ref="storeActionsMenu" class="store-actions-menu">
+                                <summary aria-label="Shop actions" title="Shop actions">
+                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+                                </summary>
+                                <div class="store-actions-popover" role="menu">
+                                    <button type="button" role="menuitem" @click="shareStore">Share shop</button>
+                                    <button type="button" role="menuitem" @click="openStoreReportFromMenu">Report this user</button>
+                                    <button type="button" role="menuitem" :disabled="storeBlockBusy" @click="blockStore">{{ storeBlockBusy ? 'Blocking…' : 'Block this user' }}</button>
+                                </div>
+                            </details>
                         </div>
                     </div>
 
@@ -2039,6 +2213,51 @@ const skeletons = Array.from({ length: 8 });
             @browse-categories="emit('browse-categories')"
             @cart-click="emit('open-cart')"
         />
+
+        <Teleport to="body">
+            <div v-if="storeReportOpen" class="store-report-backdrop" @click.self="!storeReportBusy && (storeReportOpen = false)">
+                <form class="store-report-dialog" role="dialog" aria-modal="true" aria-labelledby="store-report-title" @submit.prevent="submitStoreReport">
+                    <header>
+                        <h2 id="store-report-title">Report {{ identity?.name || 'store' }}</h2>
+                        <button type="button" aria-label="Close report form" :disabled="storeReportBusy" @click="storeReportOpen = false">×</button>
+                    </header>
+                    <label class="store-report-field">
+                        <span>Reason</span>
+                        <select v-model="storeReportReason" required>
+                            <option value="" disabled>Select a reason</option>
+                            <option v-for="reason in storeReportReasons" :key="reason.value" :value="reason.value">{{ reason.label }}</option>
+                        </select>
+                    </label>
+                    <label class="store-report-field">
+                        <span>Details</span>
+                        <textarea v-model="storeReportDetails" required maxlength="2000" rows="4" placeholder="Explain what happened and why this should be reviewed."></textarea>
+                    </label>
+                    <label class="store-report-anonymous"><input v-model="storeReportAnonymous" type="checkbox"><span>Submit anonymously</span></label>
+                    <div class="store-report-field">
+                        <span>Evidence <small>(optional, up to 8 images or videos)</small></span>
+                        <input ref="storeReportEvidenceInput" class="store-report-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" multiple @change="selectStoreReportFiles">
+                        <button type="button" class="store-report-dropzone" :class="{ 'is-active': storeReportDropActive }" @click="storeReportEvidenceInput?.click()" @dragover.prevent="storeReportDropActive = true" @dragleave.prevent="storeReportDropActive = false" @drop.prevent="handleStoreReportDrop">
+                            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+                            <strong>Drop files here or <span>browse</span></strong>
+                            <small>Images and videos, up to 50 MB each</small>
+                        </button>
+                        <ul v-if="storeReportFiles.length" class="store-report-attachments">
+                            <li v-for="(file, index) in storeReportFiles" :key="`${file.name}-${file.size}-${file.lastModified}`">
+                                <img v-if="file.type.startsWith('image/')" :src="storeReportPreviewUrl(file)" alt="">
+                                <span v-else class="store-report-video-thumb"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></span>
+                                <span class="store-report-file-name">{{ file.name }}</span>
+                                <button type="button" :aria-label="`Remove ${file.name}`" @click="removeStoreReportFile(index)">×</button>
+                            </li>
+                        </ul>
+                    </div>
+                    <p v-if="storeReportSubmitError" class="store-report-error" role="alert">{{ storeReportSubmitError }}</p>
+                    <footer>
+                        <button type="button" class="store-report-cancel" :disabled="storeReportBusy" @click="storeReportOpen = false">Cancel</button>
+                        <button type="submit" class="store-report-submit" :disabled="storeReportBusy || !storeReportReason || !storeReportDetails.trim()">{{ storeReportBusy ? 'Submitting…' : 'Submit report' }}</button>
+                    </footer>
+                </form>
+            </div>
+        </Teleport>
 
     </div>
 

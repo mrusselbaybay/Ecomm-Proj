@@ -17,7 +17,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class FileController extends Controller
 {
     /** Buckets the browser may upload into, each scoped to the user's own folder. */
-    private const CLIENT_UPLOAD_BUCKETS = ['avatars', 'product-images', 'return-evidence'];
+    private const CLIENT_UPLOAD_BUCKETS = ['avatars', 'product-images', 'return-evidence', 'report-evidence'];
 
     public function __construct(private readonly FileStorage $files) {}
 
@@ -41,7 +41,7 @@ class FileController extends Controller
 
         $data = $request->validate([
             'path' => ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9_\-]+(\/[A-Za-z0-9_.\-]+)+$/', 'not_regex:/\.\./'],
-            'file' => ['required', 'file', 'max:10240', 'mimetypes:image/jpeg,image/png,image/webp,image/gif'],
+            'file' => ['required', 'file', 'max:51200', 'mimetypes:image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime'],
         ]);
 
         abort_unless(in_array($bucket, self::CLIENT_UPLOAD_BUCKETS, true), 403, 'Uploads to this bucket are not allowed.');

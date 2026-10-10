@@ -20,10 +20,12 @@ class SellerDetail extends Model
     protected $fillable = [
         'profile_id', 'business_name', 'line_of_business',
         'application_status', 'application_reason', 'applied_at',
+        'report_hold',
     ];
 
     protected $casts = [
         'applied_at' => 'datetime',
+        'report_hold' => 'boolean',
     ];
 
     public function isApproved(): bool

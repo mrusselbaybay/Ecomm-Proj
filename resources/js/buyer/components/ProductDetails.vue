@@ -63,7 +63,7 @@ const emit = defineEmits([
 ]);
 
 const { addToCart, toggleFavorite, isFavorite } = useBuyer();
-const { warning } = useToasts();
+const { warning, success, error: toastError } = useToasts();
 
 const quantity = ref(1);
 // Guards against a double-tap firing two adds before the button settles.
@@ -1336,10 +1336,157 @@ const followerLabel = computed(() => {
 });
 
 const { messageSeller } = useBuyerChat();
+const reportDialogOpen = ref(false);
+const reportTarget = ref('store');
+const reportReason = ref('');
+const reportDetails = ref('');
+const reportAnonymous = ref(false);
+const reportFiles = ref([]);
+const reportBusy = ref(false);
+const reportSubmitError = ref('');
+const reportDropActive = ref(false);
+const reportEvidenceInput = ref(null);
+const reportPreviewUrls = new Map();
+watch(reportDialogOpen, (isOpen) => {
+    if (!isOpen) {
+        for (const url of reportPreviewUrls.values()) URL.revokeObjectURL(url);
+        reportPreviewUrls.clear();
+    }
+});
+const blockedShop = ref(false);
+const reportReasons = {
+    store: [
+        { value: 'fraud_deception', label: 'Fraud and Deception' },
+        { value: 'legal_regulatory', label: 'Legal and Regulatory' },
+        { value: 'discriminatory_offensive', label: 'Discriminatory or Offensive Conduct' },
+        { value: 'policy_violations', label: 'Policy Violations' },
+        { value: 'product_issues', label: 'Product Issues' },
+        { value: 'pricing_fees', label: 'Pricing and Fees' },
+        { value: 'shipping_problems', label: 'Shipping Problems' },
+        { value: 'customer_service', label: 'Customer Service and Communication' },
+    ],
+    product: [
+        { value: 'prohibited_items', label: 'Prohibited (Banned) Items' },
+        { value: 'counterfeit_copyright', label: 'Counterfeits and Copyright' },
+        { value: 'offensive_items', label: 'Offensive or Potentially Offensive Items' },
+        { value: 'fraudulent_listing', label: 'Fraudulent Listings (illegal seller demands, etc.)' },
+        { value: 'off_platform_transactions', label: 'Directing Transactions Outside Shopee' },
+        { value: 'others', label: 'Others' },
+    ],
+};
+
+watch([shopId, buyerProfile], async () => {
+    blockedShop.value = false;
+
+    if (!buyerProfile.value || !shopId.value) return;
+
+    try {
+        const ids = await buyerApi('/buyer/blocked-stores');
+        blockedShop.value = (Array.isArray(ids?.data) ? ids.data : ids).includes(shopId.value);
+    } catch {
+        blockedShop.value = false;
+    }
+}, { immediate: true });
+
+function openReport(target) {
+    if (!buyerProfile.value) {
+        warning('Sign in to report this product.');
+        return;
+    }
+
+    reportTarget.value = target;
+    reportReason.value = '';
+    reportDetails.value = '';
+    reportAnonymous.value = false;
+    reportFiles.value = [];
+    reportSubmitError.value = '';
+    for (const url of reportPreviewUrls.values()) URL.revokeObjectURL(url);
+    reportPreviewUrls.clear();
+    reportDialogOpen.value = true;
+}
+
+function selectReportFiles(event) {
+    addReportFiles(event.target.files);
+    event.target.value = '';
+}
+
+function addReportFiles(fileList) {
+    const next = [...reportFiles.value];
+    for (const file of Array.from(fileList || [])) {
+        if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime'].includes(file.type)) {
+            toastError(`${file.name} isn't a supported image or video.`);
+            continue;
+        }
+        if (file.size > 50 * 1024 * 1024) {
+            toastError(`${file.name} is larger than 50 MB.`);
+            continue;
+        }
+        if (next.length >= 8) {
+            warning('You can attach up to 8 files.');
+            break;
+        }
+        if (!next.some(existing => existing.name === file.name && existing.size === file.size && existing.lastModified === file.lastModified)) next.push(file);
+    }
+    reportFiles.value = next;
+}
+
+function removeReportFile(index) {
+    const [removed] = reportFiles.value.splice(index, 1);
+    if (removed && reportPreviewUrls.has(removed)) {
+        URL.revokeObjectURL(reportPreviewUrls.get(removed));
+        reportPreviewUrls.delete(removed);
+    }
+}
+
+function reportPreviewUrl(file) {
+    if (!reportPreviewUrls.has(file)) reportPreviewUrls.set(file, URL.createObjectURL(file));
+    return reportPreviewUrls.get(file);
+}
+
+function handleReportDrop(event) {
+    reportDropActive.value = false;
+    addReportFiles(event.dataTransfer?.files);
+}
+
+async function submitReport() {
+    if (!shopId.value || !reportReason.value || !reportDetails.value.trim() || reportBusy.value) return;
+    reportBusy.value = true;
+    reportSubmitError.value = '';
+
+    try {
+        const evidence = await Promise.all(reportFiles.value.map(async (file) => {
+            const form = new FormData();
+            form.append('file', file);
+            form.append('path', `${buyerProfile.value.id}/reports/${crypto.randomUUID()}-${file.name.replace(/[^A-Za-z0-9_.-]/g, '_')}`);
+            const uploaded = await buyerApi('/storage/report-evidence', { method: 'POST', body: form });
+            return uploaded.path;
+        }));
+
+        await buyerApi('/buyer/reports', {
+            method: 'POST',
+            body: JSON.stringify({
+                target_type: reportTarget.value,
+                target_id: reportTarget.value === 'product' ? props.product.id : shopId.value,
+                reason: reportReason.value,
+                details: reportDetails.value.trim(),
+                anonymous: reportAnonymous.value,
+                evidence,
+            }),
+        });
+
+        reportDialogOpen.value = false;
+        success(reportTarget.value === 'product' ? 'Product report submitted for review.' : 'Shop report submitted for review.');
+    } catch (err) {
+        reportSubmitError.value = err?.message || 'Could not submit this report. Your details are still here; please try again.';
+    } finally {
+        reportBusy.value = false;
+    }
+}
 
 /** Opens Messages on this shop's thread, asking about this product. */
 function messageShop() {
-    if (!props.product?.seller_id) {
+    if (!props.product?.seller_id || blockedShop.value) {
+        if (blockedShop.value) warning('You have blocked this shop.');
         return;
     }
 
@@ -1674,12 +1821,18 @@ watch(
                 <!-- Purchase panel: title, proof, price, terms, choice, buy -->
                 <div class="pd-panel">
 
-                    <h1
-                        id="pd-title"
-                        class="pd-title"
-                    >
-                        {{ product.name }}
-                    </h1>
+                    <div class="pd-title-row">
+                        <h1 id="pd-title" class="pd-title">{{ product.name }}</h1>
+                        <button
+                            type="button"
+                            class="pd-product-report-button"
+                            aria-label="Report product"
+                            title="Report product"
+                            @click="openReport('product')"
+                        >
+                            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"/><path d="M5 4c5-3 9 3 14 0v11c-5 3-9-3-14 0"/></svg>
+                        </button>
+                    </div>
 
                     <div class="pd-meta">
                         <button
@@ -2145,15 +2298,18 @@ watch(
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
                             Sign in to follow
                         </a>
-                        <button
-                            type="button"
-                            class="pd-btn pd-btn-ghost pd-shop-btn"
-                            aria-haspopup="dialog"
-                            @click="messageShop"
-                        >
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.9A8 8 0 1 1 21 12Z" /></svg>
-                            Message seller
-                        </button>
+                        <div class="pd-contact-row">
+                            <button
+                                type="button"
+                                class="pd-btn pd-btn-ghost pd-shop-btn"
+                                aria-haspopup="dialog"
+                                :disabled="blockedShop"
+                                @click="messageShop"
+                            >
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.9A8 8 0 1 1 21 12Z" /></svg>
+                                {{ blockedShop ? 'Shop blocked' : 'Message seller' }}
+                            </button>
+                        </div>
                         <button
                             type="button"
                             class="pd-btn pd-btn-ghost pd-shop-btn"
@@ -2853,6 +3009,52 @@ watch(
             </Transition>
         </Teleport>
 
+        <Teleport to="body">
+            <div v-if="reportDialogOpen" class="pd-report-backdrop" @click.self="!reportBusy && (reportDialogOpen = false)">
+                <form class="pd-report-dialog" role="dialog" aria-modal="true" aria-labelledby="pd-report-title" @submit.prevent="submitReport">
+                    <header>
+                        <h2 id="pd-report-title">Report {{ reportTarget === 'product' ? 'product' : 'shop' }}</h2>
+                        <button type="button" aria-label="Close report form" :disabled="reportBusy" @click="reportDialogOpen = false">×</button>
+                    </header>
+                    <label class="pd-report-field">
+                        <span>Reason</span>
+                        <select v-model="reportReason" required>
+                            <option value="" disabled>Select a reason</option>
+                            <option v-for="reason in reportReasons[reportTarget]" :key="reason.value" :value="reason.value">{{ reason.label }}</option>
+                        </select>
+                    </label>
+                    <label class="pd-report-field">
+                        <span>Details</span>
+                        <textarea v-model="reportDetails" required maxlength="2000" rows="4" placeholder="Explain what happened and why this should be reviewed."></textarea>
+                    </label>
+                    <label class="pd-report-anonymous"><input v-model="reportAnonymous" type="checkbox"><span>Submit anonymously</span></label>
+                    <div class="pd-report-field">
+                        <span>Evidence <small>(optional, up to 8 images or videos)</small></span>
+                        <input ref="reportEvidenceInput" class="pd-report-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" multiple @change="selectReportFiles">
+                        <button type="button" class="pd-report-dropzone" :class="{ 'is-active': reportDropActive }" @click="reportEvidenceInput?.click()" @dragover.prevent="reportDropActive = true" @dragleave.prevent="reportDropActive = false" @drop.prevent="handleReportDrop">
+                            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+                            <strong>Drop files here or <span>browse</span></strong>
+                            <small>Images and videos, up to 50 MB each</small>
+                        </button>
+                        <ul v-if="reportFiles.length" class="pd-report-attachments">
+                            <li v-for="(file, index) in reportFiles" :key="`${file.name}-${file.size}-${file.lastModified}`">
+                                <img v-if="file.type.startsWith('image/')" :src="reportPreviewUrl(file)" alt="">
+                                <span v-else class="pd-report-video-thumb"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></span>
+                                <span class="pd-report-file-name">{{ file.name }}</span>
+                                <button type="button" :aria-label="`Remove ${file.name}`" @click="removeReportFile(index)">×</button>
+                            </li>
+                        </ul>
+                    </div>
+                    <p class="pd-report-note">Urgent reports are prioritized and may temporarily hide listings from discovery while Platform Admin reviews them.</p>
+                    <p v-if="reportSubmitError" class="pd-report-error" role="alert">{{ reportSubmitError }}</p>
+                    <footer>
+                        <button type="button" class="pd-report-cancel" :disabled="reportBusy" @click="reportDialogOpen = false">Cancel</button>
+                        <button type="submit" class="pd-report-submit" :disabled="reportBusy || !reportReason || !reportDetails.trim()">{{ reportBusy ? 'Submitting…' : 'Submit report' }}</button>
+                    </footer>
+                </form>
+            </div>
+        </Teleport>
+
     </div>
 
 </template>
@@ -3211,6 +3413,39 @@ watch(
 
 .pd-panel {
     min-width: 0;
+}
+
+.pd-title-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.pd-title-row .pd-title {
+    flex: 1;
+    min-width: 0;
+}
+
+.pd-product-report-button {
+    display: inline-flex;
+    flex: 0 0 42px;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    margin-top: -5px;
+    border: 1px solid var(--nx-line);
+    border-radius: 10px;
+    background: var(--nx-surface);
+    color: var(--nx-text-2);
+    cursor: pointer;
+    transition: background-color var(--nx-dur-fast) var(--nx-ease), color var(--nx-dur-fast) var(--nx-ease), border-color var(--nx-dur-fast) var(--nx-ease);
+}
+
+.pd-product-report-button:hover {
+    border-color: var(--nx-accent);
+    background: var(--nx-accent-soft);
+    color: var(--nx-accent);
 }
 
 #buyer-app .pd-title {
@@ -3759,7 +3994,7 @@ button.pd-meta-stat:hover strong {
 /* The same surface as the main container, a little quieter (no shadow),
    with hairlines between identity, reviews and products. */
 .pd-shop {
-    margin-top: 24px;
+    margin-top: 16px;
     padding: clamp(18px, 2.4vw, 32px);
 
     border: 1px solid var(--nx-line);
@@ -3923,6 +4158,14 @@ button.pd-meta-stat:hover strong {
     gap: 8px;
 }
 
+.pd-contact-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pd-contact-row .pd-shop-btn { flex: 1; width: auto; }
+
 .pd-shop-btn {
     width: 100%;
     min-height: 44px;
@@ -3948,6 +4191,55 @@ button.pd-meta-stat:hover strong {
 .pd-shop-btn[disabled] {
     cursor: progress;
 }
+
+.pd-report-backdrop {
+    position: fixed;
+    z-index: 120;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(15, 23, 42, .48);
+}
+.pd-report-dialog {
+    display: grid;
+    width: min(100%, 520px);
+    gap: 16px;
+    padding: 20px;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 24px 64px rgba(15, 23, 42, .22);
+}
+.pd-report-dialog header,
+.pd-report-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pd-report-dialog header h2 { margin: 0; color: #0f172a; font-size: 20px; }
+.pd-report-dialog header button { width: 40px; height: 40px; border: 0; border-radius: 10px; background: #f1f5f9; font-size: 24px; cursor: pointer; }
+.pd-report-field { display: grid; gap: 6px; color: #334155; font-size: 14px; font-weight: 600; }
+.pd-report-field small { color: #64748b; font-weight: 400; }
+.pd-report-anonymous { display: flex; align-items: center; gap: 9px; color: #334155; font-size: 14px; }
+.pd-report-field select,
+.pd-report-field textarea { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; color: #0f172a; font: inherit; }
+.pd-report-field textarea { resize: vertical; }
+.pd-report-file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+.pd-report-dropzone { display: grid; justify-items: center; gap: 8px; width: 100%; min-height: 142px; padding: 20px; border: 1.5px dashed #aab9b2; border-radius: 12px; background: #f8fbf9; color: #64748b; font: inherit; cursor: pointer; transition: border-color .16s ease, background-color .16s ease, color .16s ease; }
+.pd-report-dropzone:hover,
+.pd-report-dropzone.is-active { border-color: #0f766e; background: #eef8f4; color: #0f766e; }
+.pd-report-dropzone strong { color: #0f172a; font-size: 14px; }
+.pd-report-dropzone strong span { color: #0f766e; text-decoration: underline; }
+.pd-report-dropzone small { color: #64748b; font-size: 12px; font-weight: 400; }
+.pd-report-attachments { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.pd-report-attachments li { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px; border: 1px solid #e2e8f0; border-radius: 9px; background: #fff; }
+.pd-report-attachments li > img,
+.pd-report-video-thumb { display: grid; flex: 0 0 42px; place-items: center; width: 42px; height: 42px; border-radius: 6px; background: #f1f5f9; object-fit: cover; color: #0f766e; }
+.pd-report-file-name { flex: 1; overflow: hidden; color: #0f172a; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.pd-report-attachments li > button { flex: 0 0 34px; width: 34px; height: 34px; border: 0; border-radius: 7px; background: transparent; color: #64748b; font-size: 22px; cursor: pointer; }
+.pd-report-attachments li > button:hover { background: #fff0f0; color: #c62828; }
+.pd-report-note { margin: 0; color: #64748b; font-size: 12px; line-height: 1.5; }
+.pd-report-error { margin: 0; padding: 10px 12px; border: 1px solid #fecaca; border-radius: 8px; background: #fef2f2; color: #b91c1c; font-size: 13px; }
+.pd-report-cancel,
+.pd-report-submit { min-height: 44px; padding: 0 16px; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.pd-report-submit { margin-left: auto; border-color: #0f766e; background: #0f766e; color: #fff; }
+.pd-report-submit:disabled { opacity: .55; cursor: wait; }
 
 .pd-shop-block {
     margin-top: 24px;
@@ -4176,8 +4468,8 @@ button.pd-meta-stat:hover strong {
 
 .pd-about,
 .pd-related {
-    margin-top: 72px;
-    padding-top: 40px;
+    margin-top: 40px;
+    padding-top: 24px;
 
     border-top: 1px solid var(--nx-line);
 }
@@ -4249,7 +4541,7 @@ button.pd-meta-stat:hover strong {
 /* Reviews: one contained panel, like the product and store panels above */
 
 .pd-reviews {
-    margin-top: 56px;
+    margin-top: 36px;
     padding: clamp(20px, 2.6vw, 36px);
 
     border: 1px solid var(--nx-line);
@@ -5067,8 +5359,8 @@ button.pd-meta-stat:hover strong {
 
     .pd-about,
     .pd-related {
-        margin-top: 48px;
-        padding-top: 32px;
+        margin-top: 28px;
+        padding-top: 20px;
     }
 
     /* Edge to edge on phones and tablets, like the store panel. */
@@ -5144,6 +5436,8 @@ button.pd-meta-stat:hover strong {
         flex: none;
         width: 100%;
     }
+
+    .pd-contact-row .pd-shop-btn { flex: 1; width: auto; }
 
     /* Labels above their controls on narrow screens. */
     .pd-row {

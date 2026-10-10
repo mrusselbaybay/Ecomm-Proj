@@ -17,12 +17,7 @@ class ComplaintStatusChanged extends Mailable implements ShouldQueue
     /**
      * Create a new message instance.
      */
-    public function __construct(
-        public string $complaintSubject,
-        public string $status,
-        public string $notes,
-        public ?string $resolution = null,
-    ) {}
+    public function __construct(public string $notes) {}
 
     /**
      * Get the message envelope.
@@ -30,7 +25,7 @@ class ComplaintStatusChanged extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'BuyTheWay complaint update: '.$this->complaintSubject,
+            subject: 'BuyTheWay report review complete',
         );
     }
 

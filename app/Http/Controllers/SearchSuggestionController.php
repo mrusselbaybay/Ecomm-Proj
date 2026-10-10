@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Services\StoreCatalog;
+use App\Services\AuthSession;
+use App\Services\BuyerStoreBlocks;
+use App\Models\Profile;
 use App\Support\ProductImage;
 use App\Support\ProductSearch;
 use Illuminate\Http\JsonResponse;
@@ -29,7 +32,7 @@ class SearchSuggestionController extends Controller
 
     private const STORES = 4;
 
-    public function __construct(private StoreCatalog $stores) {}
+    public function __construct(private StoreCatalog $stores, private AuthSession $sessions, private BuyerStoreBlocks $blocks) {}
 
     public function __invoke(Request $request): JsonResponse
     {
@@ -41,20 +44,21 @@ class SearchSuggestionController extends Controller
 
         return response()->json([
             'query' => $search,
-            'products' => $this->products($search),
-            'stores' => $this->storeMatches($search),
+            'products' => $this->products($search, $this->buyer($request)),
+            'stores' => $this->storeMatches($search, $this->buyer($request)),
         ]);
     }
 
     /**
      * @return list<array{id: string, name: string, price: float, image: string|null, category: string|null}>
      */
-    private function products(string $search): array
+    private function products(string $search, ?Profile $buyer): array
     {
         $query = ProductImage::selectWithLiteImages(
             Product::query()->active()->whereHas('seller', fn ($seller) => $seller->where('account_status', 'active')),
             ['products.id', 'products.name', 'products.price', 'products.category', 'products.created_at', 'products.updated_at'],
         );
+        $this->blocks->constrainProducts($query, $buyer);
 
         ProductSearch::apply($query, $search);
         ProductSearch::orderByRelevance($query, $search);
@@ -76,9 +80,9 @@ class SearchSuggestionController extends Controller
     /**
      * @return list<array{id: string, name: string, category: string|null, logo: string|null}>
      */
-    private function storeMatches(string $search): array
+    private function storeMatches(string $search, ?Profile $buyer): array
     {
-        $query = $this->stores->visibleStores()
+        $query = $this->blocks->constrainStores($this->stores->visibleStores(), $buyer)
             ->select(['profiles.id', 'profiles.avatar_path', 'seller_details.business_name', 'seller_details.line_of_business']);
 
         ProductSearch::applyToStores($query, $search);
@@ -95,5 +99,12 @@ class SearchSuggestionController extends Controller
                 'logo' => $this->stores->logoUrl($store->avatar_path),
             ])
             ->all();
+    }
+
+    private function buyer(Request $request): ?Profile
+    {
+        $profile = $this->sessions->resolve($request->bearerToken());
+
+        return $profile?->role === Profile::ROLE_BUYER ? $profile : null;
     }
 }

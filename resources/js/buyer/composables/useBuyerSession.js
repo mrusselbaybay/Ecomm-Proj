@@ -25,6 +25,7 @@ export { getSupabase };
 // carries over here). Cart/Checkout/Orders check this before proceeding.
 const buyerProfile = ref(null);
 const isLoadingSession = ref(true);
+export { buyerProfile };
 
 async function loadSession() {
     isLoadingSession.value = true;

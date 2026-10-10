@@ -21,8 +21,8 @@ class StoreSellerComplianceActionRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'action' => ['required', Rule::in(['verify', 'warn', 'remove', 'restore', 'suspend'])],
-            'reason' => ['nullable', 'required_unless:action,verify,restore', 'string', 'min:5', 'max:1000'],
+            'action' => ['required', Rule::in(['verify', 'warn', 'remove', 'restore', 'suspend', 'hide', 'unhide'])],
+            'reason' => ['nullable', 'required_unless:action,verify,restore,unhide', 'string', 'min:5', 'max:1000'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ];
     }

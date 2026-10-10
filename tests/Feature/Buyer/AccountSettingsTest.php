@@ -86,12 +86,13 @@ it('saves email preferences with marketing off by default', function () {
 
     $this->getJson('/api/buyer/account/preferences')
         ->assertOk()
-        ->assertJsonPath('data', ['order_updates_email' => true, 'promotions_email' => false, 'saved' => false]);
+        ->assertJsonPath('data', ['order_updates_email' => true, 'promotions_email' => false, 'case_updates_email' => true, 'saved' => false]);
 
     $this->putJson('/api/buyer/account/preferences', ['promotions_email' => true])
         ->assertOk()
         ->assertJsonPath('data.promotions_email', true)
         ->assertJsonPath('data.order_updates_email', true)
+        ->assertJsonPath('data.case_updates_email', true)
         ->assertJsonPath('data.saved', true);
 
     $this->putJson('/api/buyer/account/preferences', ['order_updates_email' => false])
@@ -100,6 +101,10 @@ it('saves email preferences with marketing off by default', function () {
         ->assertJsonPath('data.order_updates_email', false);
 
     expect(BuyerNotificationPreference::findOrFail($buyer->id)->order_updates_email)->toBeFalse();
+
+    $this->putJson('/api/buyer/account/preferences', ['case_updates_email' => false])
+        ->assertOk()
+        ->assertJsonPath('data.case_updates_email', false);
 
     $this->putJson('/api/buyer/account/preferences', ['promotions_email' => 'sometimes'])
         ->assertUnprocessable();

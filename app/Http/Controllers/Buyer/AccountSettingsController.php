@@ -101,7 +101,7 @@ class AccountSettingsController extends Controller
         $row = BuyerNotificationPreference::find($buyer->id)
             ?? new BuyerNotificationPreference(array_merge(['buyer_profile_id' => $buyer->id], BuyerNotificationPreference::DEFAULTS));
 
-        $row->fill($request->safe()->only(['order_updates_email', 'promotions_email']))->save();
+        $row->fill($request->safe()->only(['order_updates_email', 'promotions_email', 'case_updates_email']))->save();
 
         return response()->json([
             'message' => 'Preferences saved.',
@@ -207,6 +207,7 @@ class AccountSettingsController extends Controller
         return [
             'order_updates_email' => $row ? $row->order_updates_email : BuyerNotificationPreference::DEFAULTS['order_updates_email'],
             'promotions_email' => $row ? $row->promotions_email : BuyerNotificationPreference::DEFAULTS['promotions_email'],
+            'case_updates_email' => $row ? $row->case_updates_email : BuyerNotificationPreference::DEFAULTS['case_updates_email'],
             'saved' => (bool) $row,
         ];
     }

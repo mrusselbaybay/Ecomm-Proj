@@ -6,8 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\BuyerVoucher;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\Profile;
 use App\Models\Voucher;
 use App\Services\CheckoutService;
+use App\Services\AuthSession;
+use App\Services\BuyerStoreBlocks;
 use App\Services\StoreCatalog;
 use App\Services\Vouchers\PlatformVoucherService;
 use App\Services\Vouchers\VoucherService;
@@ -28,12 +31,17 @@ class VoucherController extends Controller
         private PlatformVoucherService $platformVouchers,
         private CheckoutService $checkout,
         private StoreCatalog $stores,
+        private AuthSession $sessions,
+        private BuyerStoreBlocks $blocks,
     ) {}
 
     /** GET /api/products/{id}/vouchers — public: claimable vouchers for this product's page. */
-    public function forProduct(string $id): JsonResponse
+    public function forProduct(Request $request, string $id): JsonResponse
     {
         $product = Product::where('status', 'active')->findOrFail($id);
+        $buyer = $this->buyer($request);
+
+        abort_if($buyer && $this->blocks->isBlocked($buyer->id, $product->seller_id), 404, 'Product not found.');
 
         return response()->json([
             'data' => $this->vouchers->claimableForProduct($product)
@@ -42,9 +50,10 @@ class VoucherController extends Controller
     }
 
     /** GET /api/stores/{id}/vouchers — public shop-wide offers. */
-    public function forStore(string $id): JsonResponse
+    public function forStore(Request $request, string $id): JsonResponse
     {
-        if (! $this->stores->isVisibleStore($id)) {
+        $buyer = $this->buyer($request);
+        if (! $this->stores->isVisibleStore($id) || ($buyer && $this->blocks->isBlocked($buyer->id, $id))) {
             return response()->json(['message' => 'Store not found.'], 404);
         }
 
@@ -57,7 +66,10 @@ class VoucherController extends Controller
     /** GET /api/buyer/vouchers — the buyer's wallet. */
     public function index(Request $request): JsonResponse
     {
-        $entries = $this->vouchers->wallet($request->user());
+        $blockedSellers = $this->blocks->sellerIds($request->user()->id);
+        $entries = $this->vouchers->wallet($request->user())
+            ->reject(fn (BuyerVoucher $entry) => in_array($entry->voucher?->seller_id, $blockedSellers, true))
+            ->values();
         $used = $this->vouchers->usageByBuyer($request->user(), $entries->pluck('voucher_id')->all());
 
         return response()->json([
@@ -68,6 +80,8 @@ class VoucherController extends Controller
     /** POST /api/buyer/vouchers/{voucherId}/claim */
     public function claim(Request $request, string $voucherId): JsonResponse
     {
+        $voucherSellerId = Voucher::query()->whereKey($voucherId)->value('seller_id');
+        abort_if($voucherSellerId && $this->blocks->isBlocked($request->user()->id, $voucherSellerId), 404, 'Voucher not found.');
         try {
             $bc = $this->vouchers->claim($request->user(), $voucherId);
         } catch (ValidationException $e) {
@@ -78,6 +92,13 @@ class VoucherController extends Controller
             ->loadCount('products');
 
         return response()->json(['data' => $this->vouchers->presentWalletEntry($bc)], 201);
+    }
+
+    private function buyer(Request $request): ?Profile
+    {
+        $profile = $this->sessions->resolve($request->bearerToken());
+
+        return $profile?->role === Profile::ROLE_BUYER ? $profile : null;
     }
 
     /**

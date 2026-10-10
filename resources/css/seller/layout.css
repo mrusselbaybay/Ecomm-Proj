@@ -1569,6 +1569,29 @@ body {
     margin-bottom: 1rem;
     line-height: 1.45;
 }
+.report-inline-error {
+    margin: 0 0 0.9rem;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #fecaca;
+    border-radius: 0.6rem;
+    background: #fef2f2;
+    color: #b91c1c;
+    font-size: 0.82rem;
+}
+.report-success-toast {
+    position: fixed;
+    z-index: 80;
+    right: 1.25rem;
+    bottom: 1.25rem;
+    max-width: min(28rem, calc(100vw - 2.5rem));
+    padding: 0.85rem 1rem;
+    border-radius: 0.75rem;
+    background: #0f766e;
+    color: #fff;
+    box-shadow: 0 12px 32px rgb(15 23 42 / 20%);
+    font-size: 0.9rem;
+    font-weight: 700;
+}
 .modal-actions {
     display: flex;
     gap: 0.6rem;

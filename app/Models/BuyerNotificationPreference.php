@@ -20,6 +20,7 @@ class BuyerNotificationPreference extends Model
     public const DEFAULTS = [
         'order_updates_email' => true,
         'promotions_email' => false,
+        'case_updates_email' => true,
     ];
 
     protected $table = 'buyer_notification_preferences';
@@ -30,10 +31,11 @@ class BuyerNotificationPreference extends Model
 
     protected $keyType = 'string';
 
-    protected $fillable = ['buyer_profile_id', 'order_updates_email', 'promotions_email'];
+    protected $fillable = ['buyer_profile_id', 'order_updates_email', 'promotions_email', 'case_updates_email'];
 
     protected $casts = [
         'order_updates_email' => 'boolean',
         'promotions_email' => 'boolean',
+        'case_updates_email' => 'boolean',
     ];
 }

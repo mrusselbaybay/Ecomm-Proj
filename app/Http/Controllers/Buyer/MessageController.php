@@ -19,6 +19,7 @@ use App\Models\ProductVariant;
 use App\Models\Profile;
 use App\Policies\ConversationPolicy;
 use App\Services\ChatAutomationService;
+use App\Services\BuyerStoreBlocks;
 use App\Services\DeliveryConversationService;
 use App\Services\DirectConversationService;
 use App\Services\MessageAttachmentService;
@@ -53,6 +54,7 @@ class MessageController extends Controller
         private ConversationPolicy $conversationPolicy,
         private MessageAttachmentService $messageAttachmentService,
         private ChatAutomationService $chatAutomationService,
+        private BuyerStoreBlocks $blocks,
     ) {}
 
     public function quickQuestions(Request $request): JsonResponse
@@ -72,6 +74,9 @@ class MessageController extends Controller
             }
 
             $order = $conversation->order;
+            if ($conversation->type === 'direct' && $this->blocks->isBlocked($request->user()->id, (string) $conversation->seller_id)) {
+                return response()->json(['data' => []]);
+            }
             if (! empty($data['order_id'])) {
                 $order = Order::query()
                     ->whereKey($data['order_id'])
@@ -133,6 +138,9 @@ class MessageController extends Controller
             ->with(['seller.sellerDetail', 'courier', 'order', 'product', 'participantRecords'])
             ->where('buyer_id', $buyer->id)
             ->where('type', '!=', 'support')
+            ->where(fn ($q) => $q->where('type', '!=', 'direct')
+                ->orWhereNotNull('order_id')
+                ->orWhereNotIn('seller_id', $this->blocks->sellerIds($buyer->id)))
             ->whereHas('participantRecords', function ($q) use ($buyer, $wantsArchived) {
                 $q->where('user_id', $buyer->id)->whereNull('left_at');
                 $wantsArchived ? $q->whereNotNull('archived_at') : $q->whereNull('archived_at');
@@ -162,9 +170,13 @@ class MessageController extends Controller
                 SUM(CASE WHEN conversation_participants.archived_at IS NULL THEN conversations.buyer_unread_count ELSE 0 END) AS unread_total,
                 SUM(CASE WHEN conversation_participants.archived_at IS NOT NULL THEN 1 ELSE 0 END) AS archived_total
             SQL)->first();
+        $blockedSellerIds = $this->blocks->sellerIds($buyer->id);
 
         return response()->json([
-            'data' => $paginated->getCollection()->map(fn (Conversation $c) => $this->transformConversation($c))->all(),
+            'data' => $paginated->getCollection()->map(fn (Conversation $c) => $this->transformConversation(
+                $c,
+                blocked: $c->type === 'direct' && $c->order_id !== null && in_array($c->seller_id, $blockedSellerIds, true),
+            ))->all(),
             'meta' => [
                 'currentPage' => $paginated->currentPage(),
                 'lastPage' => $paginated->lastPage(),
@@ -291,7 +303,11 @@ class MessageController extends Controller
         $userId = $request->user()->id;
 
         $response = response()->json([
-            'data' => $this->transformConversation($conversation),
+            'data' => $this->transformConversation(
+                $conversation,
+                blocked: $conversation->type === 'direct' && $conversation->order_id !== null
+                    && $this->blocks->isBlocked($request->user()->id, (string) $conversation->seller_id),
+            ),
         ]);
 
         // app()->terminating() (not dispatch()->afterResponse(), which
@@ -587,12 +603,24 @@ class MessageController extends Controller
 
         $productIds = $productIds->unique()->values();
 
+        $needsStockVariants = $messages->contains(fn (Message $message) => $message->quick_question_key === 'stock_availability' && $message->variant_id);
         $products = $productIds->isEmpty()
             ? collect()
-            : Product::query()->whereIn('id', $productIds)->get(['id', 'images', 'name', 'price'])->keyBy('id');
+            : Product::query()->whereIn('id', $productIds)
+                ->get($needsStockVariants ? ['id', 'images', 'name', 'price', 'stock'] : ['id', 'images', 'name', 'price'])->keyBy('id');
+
+        $variantIds = $messages
+            ->filter(fn (Message $message) => $message->quick_question_key === 'stock_availability' && $message->variant_id)
+            ->pluck('variant_id')->unique();
+        $variants = $variantIds->isEmpty()
+            ? collect()
+            : ProductVariant::query()->with('optionValues.option')->whereIn('id', $variantIds)->get()->keyBy('id');
 
         foreach ($messages as $message) {
             $message->setRelation('product', $message->product_id ? $products->get($message->product_id) : null);
+            if ($message->quick_question_key === 'stock_availability') {
+                $message->setRelation('variant', $message->variant_id ? $variants->get($message->variant_id) : null);
+            }
 
             foreach ($message->order?->items ?? [] as $item) {
                 $item->setRelation('product', $item->product_id ? $products->get($item->product_id) : null);
@@ -678,6 +706,9 @@ class MessageController extends Controller
 
         $payload = $this->transformMessage($message);
         $payload['autoReply'] = $autoReply ? $this->transformMessage($autoReply) : null;
+        if ($payload['autoReply'] && $quickQuestionKey === 'stock_availability') {
+            $payload['autoReply']['productContext'] = $payload['productContext'];
+        }
 
         return response()->json(['data' => $payload], 201);
     }
@@ -800,7 +831,7 @@ class MessageController extends Controller
      */
     private function findForBuyer(Request $request, string $id, array $with = []): ?Conversation
     {
-        return Conversation::with($with)
+        $conversation = Conversation::with($with)
             ->where('buyer_id', $request->user()->id)
             ->where('type', '!=', 'support')
             ->whereHas('participantRecords', fn ($query) => $query
@@ -808,6 +839,13 @@ class MessageController extends Controller
                 ->whereNull('left_at'))
             ->whereKey($id)
             ->first();
+
+        if ($conversation?->type === 'direct' && ! $conversation->order_id
+            && $this->blocks->isBlocked($request->user()->id, (string) $conversation->seller_id)) {
+            return null;
+        }
+
+        return $conversation;
     }
 
     /**
@@ -915,7 +953,7 @@ class MessageController extends Controller
      * courier who started it rather than a seller. Not renamed: internal
      * field names, never shown as literal text in the UI.
      */
-    private function transformConversation(Conversation $c, bool $withMessages = false): array
+    private function transformConversation(Conversation $c, bool $withMessages = false, bool $blocked = false): array
     {
         $isDelivery = $c->type === 'delivery';
         $counterparty = $isDelivery ? $c->courier : $c->seller;
@@ -937,6 +975,7 @@ class MessageController extends Controller
             // instead of showing every thread as if it were a seller.
             'sellerRole' => $isDelivery ? 'courier' : 'seller',
             'status' => $c->status,
+            'blocked' => $blocked,
             // Per-participant, not the shared `status` column — see
             // Conversation::archiveFor()/isArchivedFor(). Every conversation
             // in this controller already belongs to the authenticated
@@ -980,6 +1019,9 @@ class MessageController extends Controller
      */
     private function transformMessage(Message $m): array
     {
+        if ($m->quick_question_key === 'stock_availability') {
+            $m->loadMissing(['product', 'variant.optionValues.option']);
+        }
         $orderItem = ($m->order_id && $m->product_id)
             ? $m->order?->items?->firstWhere('product_id', $m->product_id)
             : null;
@@ -1012,6 +1054,9 @@ class MessageController extends Controller
                 'name' => $orderItem?->product_name ?? $m->product->name,
                 'price' => (float) ($orderItem?->subtotal ?? $m->product->price),
                 'image' => ProductImage::cardUrl($m->product),
+                'variantId' => $m->variant_id,
+                'stock' => $m->variant_id ? (int) ($m->variant?->stock ?? 0) : (int) $m->product->stock,
+                'variant' => $m->variant?->optionValues?->mapWithKeys(fn ($value) => [$value->option?->name ?? 'Option' => $value->value])->all() ?? [],
                 // Only resolvable when a message carries both order_id and
                 // product_id (the "Inquire about a certain product" card).
                 // Read from the already eager-loaded order.items instead of

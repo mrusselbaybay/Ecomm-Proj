@@ -9,6 +9,7 @@ use App\Models\Profile;
 use App\Models\Review;
 use App\Models\StoreFollow;
 use App\Services\AuthSession;
+use App\Services\BuyerStoreBlocks;
 use App\Services\StoreCatalog;
 use App\Support\CheckoutOptions;
 use App\Support\CompletedSales;
@@ -53,7 +54,7 @@ class StoreController extends Controller
      */
     private const PREVIEW_IMAGES = 3;
 
-    public function __construct(private StoreCatalog $stores, private AuthSession $sessions) {}
+    public function __construct(private StoreCatalog $stores, private AuthSession $sessions, private BuyerStoreBlocks $blocks) {}
 
     /**
      * GET /api/stores
@@ -82,7 +83,8 @@ class StoreController extends Controller
             : 'products';
         $perPage = min(max((int) $request->integer('per_page', 12), 1), 48);
 
-        $visible = $this->stores->visibleStores();
+        $buyer = $this->buyer($request);
+        $visible = $this->blocks->constrainStores($this->stores->visibleStores(), $buyer);
 
         if ($search !== '') {
             if (ProductSearch::isSearchable($search)) {
@@ -160,7 +162,8 @@ class StoreController extends Controller
             return response()->json(['message' => 'Store not found.'], 404);
         }
 
-        $store = $this->stores->withStoreColumns($this->stores->visibleStores(), withFollowerCount: true)
+        $buyer = $this->buyer($request);
+        $store = $this->stores->withStoreColumns($this->blocks->constrainStores($this->stores->visibleStores(), $buyer, includeReportHeld: true), withFollowerCount: true)
             ->where('profiles.id', $id)
             ->when($this->stores->hasTable('addresses'), fn ($query) => $query->with('address'))
             ->first();
@@ -192,7 +195,8 @@ class StoreController extends Controller
      */
     public function reviews(Request $request, string $id): JsonResponse
     {
-        if (! $this->stores->isVisibleStore($id)) {
+        $buyer = $this->buyer($request);
+        if (! $this->blocks->constrainStores($this->stores->visibleStores(), $buyer, includeReportHeld: true)->where('profiles.id', $id)->exists()) {
             return response()->json(['message' => 'Store not found.'], 404);
         }
 
@@ -301,6 +305,13 @@ class StoreController extends Controller
             ->where('buyer_profile_id', $viewer->id)
             ->where('seller_id', $storeId)
             ->exists();
+    }
+
+    private function buyer(Request $request): ?Profile
+    {
+        $profile = $this->sessions->resolve($request->bearerToken());
+
+        return $profile?->role === Profile::ROLE_BUYER ? $profile : null;
     }
 
     /**

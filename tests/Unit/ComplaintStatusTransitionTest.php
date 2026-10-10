@@ -6,7 +6,7 @@ it('allows investigation to begin from a pending complaint', function () {
     $complaint = new Complaint(['status' => 'pending']);
 
     expect($complaint->canTransitionTo('under_review'))->toBeTrue()
-        ->and($complaint->canTransitionTo('resolved'))->toBeFalse();
+        ->and($complaint->canTransitionTo('resolved'))->toBeTrue();
 });
 
 it('allows reviewed complaints to be resolved but not reset to pending', function () {
@@ -16,8 +16,8 @@ it('allows reviewed complaints to be resolved but not reset to pending', functio
         ->and($complaint->canTransitionTo('pending'))->toBeFalse();
 });
 
-it('allows closed complaints to be reopened for review', function (string $status) {
+it('keeps resolved and dismissed complaints terminal', function (string $status) {
     $complaint = new Complaint(['status' => $status]);
 
-    expect($complaint->canTransitionTo('under_review'))->toBeTrue();
+    expect($complaint->canTransitionTo('under_review'))->toBeFalse();
 })->with(['resolved', 'dismissed']);

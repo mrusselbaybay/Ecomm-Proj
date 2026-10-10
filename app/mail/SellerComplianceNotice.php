@@ -19,6 +19,7 @@ class SellerComplianceNotice extends Mailable implements ShouldQueue
         public string $productName,
         public string $action,
         public ?string $reason,
+        public string $targetType = 'product',
     ) {}
 
     public function envelope(): Envelope

@@ -525,6 +525,7 @@ Route::middleware(['auth.token', 'admin'])
 
         Route::get('/compliance/products', [SellerComplianceController::class, 'index'])->name('compliance.products.index');
         Route::post('/compliance/products/{product}/actions', [SellerComplianceController::class, 'store'])->name('compliance.products.actions.store');
+        Route::post('/compliance/stores/{sellerId}/actions', [SellerComplianceController::class, 'storeAction'])->name('compliance.stores.actions.store');
 
         Route::get('/complaints', [ComplaintController::class, 'index'])->name('complaints.index');
 

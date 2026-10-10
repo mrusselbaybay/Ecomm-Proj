@@ -38,12 +38,14 @@ class Complaint extends Model
     public const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
 
     public const ALLOWED_TRANSITIONS = [
-        'pending' => ['under_review', 'dismissed'],
+        'pending' => ['under_review', 'resolved', 'dismissed'],
         'under_review' => ['awaiting_response', 'resolved', 'dismissed'],
         'awaiting_response' => ['under_review', 'resolved', 'dismissed'],
-        'resolved' => ['under_review'],
-        'dismissed' => ['under_review'],
+        'resolved' => [],
+        'dismissed' => [],
     ];
+
+    public const DISMISSAL_REASONS = ['no_violation', 'duplicate', 'insufficient_evidence', 'out_of_scope', 'other'];
 
     public $incrementing = false;
 
@@ -51,12 +53,18 @@ class Complaint extends Model
 
     protected $fillable = [
         'complainant_id', 'respondent_id', 'order_id', 'assigned_admin_id',
+        'target_product_id', 'target_store_id', 'report_reason',
+        'reporter_is_anonymous', 'reporter_name_snapshot', 'target_name_snapshot',
+        'seller_name_snapshot', 'dismissal_reason',
+        'reporter_dismissed_count', 'urgent_review_due_at',
         'type', 'subject', 'description', 'evidence', 'status', 'priority',
         'resolution', 'resolved_at',
     ];
 
     protected $casts = [
         'evidence' => 'array',
+        'reporter_is_anonymous' => 'boolean',
+        'urgent_review_due_at' => 'datetime',
         'resolved_at' => 'datetime',
     ];
 
@@ -76,6 +84,16 @@ class Complaint extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function targetProduct(): BelongsTo
+    {
+        return $this->belongsTo(Product::class, 'target_product_id');
+    }
+
+    public function targetStore(): BelongsTo
+    {
+        return $this->belongsTo(Profile::class, 'target_store_id');
     }
 
     /** @return BelongsTo<Profile, $this> */

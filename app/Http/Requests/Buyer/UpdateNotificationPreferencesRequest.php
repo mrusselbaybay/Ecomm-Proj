@@ -19,6 +19,7 @@ class UpdateNotificationPreferencesRequest extends FormRequest
         return [
             'order_updates_email' => ['sometimes', 'boolean'],
             'promotions_email' => ['sometimes', 'boolean'],
+            'case_updates_email' => ['sometimes', 'boolean'],
         ];
     }
 }

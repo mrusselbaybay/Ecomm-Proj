@@ -11,7 +11,7 @@
     <p>Hello {{ $sellerName }},</p>
 
     <p>
-        An administrator reviewed your product
+        An administrator reviewed your {{ $targetType }}
         <strong>{{ $productName }}</strong> and took the following action:
         <strong>{{ ucfirst($action) }}</strong>.
     </p>
@@ -26,6 +26,10 @@
         <p>The product has been made inactive and is no longer available to buyers.</p>
     @elseif ($action === 'suspend')
         <p>Your seller account has been suspended. Contact platform support before attempting further activity.</p>
+    @elseif ($action === 'hide')
+        <p>The listing has been temporarily hidden while it is reviewed.</p>
+    @elseif ($action === 'unhide')
+        <p>The listing is visible to buyers again.</p>
     @endif
 
     <p>Thank you,<br>BuyTheWay Compliance Team</p>

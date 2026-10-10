@@ -30,6 +30,7 @@ class UpdateComplaintRequest extends FormRequest
             'assigned_admin_id' => ['nullable', 'uuid', Rule::exists('profiles', 'id')->where('role', 'admin')],
             'notes' => ['required', 'string', 'min:5', 'max:3000'],
             'resolution' => ['nullable', 'required_if:status,resolved', 'string', 'min:5', 'max:3000'],
+            'dismissal_reason' => ['nullable', 'required_if:status,dismissed', Rule::in(Complaint::DISMISSAL_REASONS)],
             'is_internal' => ['required', 'boolean'],
         ];
     }

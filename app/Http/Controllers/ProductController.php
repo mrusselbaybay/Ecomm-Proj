@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\Review;
+use App\Models\Profile;
+use App\Services\AuthSession;
+use App\Services\BuyerStoreBlocks;
 use App\Support\CategoryFieldConfig;
 use App\Support\ProductImage;
 use App\Support\ProductSearch;
@@ -25,6 +28,8 @@ use Illuminate\Support\Str;
  */
 class ProductController extends Controller
 {
+    public function __construct(private AuthSession $sessions, private BuyerStoreBlocks $blocks) {}
+
     /**
      * GET /api/products
      *
@@ -32,7 +37,7 @@ class ProductController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = $this->catalogQuery();
+        $query = $this->catalogQuery($this->buyer($request));
 
         if ($request->filled('ids')) {
             $ids = collect(explode(',', $request->string('ids')->toString()))->filter(fn (string $id) => Str::isUuid($id))->take(100);
@@ -127,7 +132,7 @@ class ProductController extends Controller
             return response()->json(['data' => [], 'basis' => null]);
         }
 
-        $anchors = $this->catalogQuery();
+        $anchors = $this->catalogQuery($this->buyer($request));
         ProductSearch::apply($anchors, $search);
         $categories = $anchors->limit(100)
             ->get(['products.category', 'products.subcategory'])
@@ -140,7 +145,7 @@ class ProductController extends Controller
             return response()->json(['data' => [], 'basis' => null]);
         }
 
-        $rowsQuery = $this->catalogQuery()
+        $rowsQuery = $this->catalogQuery($this->buyer($request))
             ->whereIn('products.category', $categories->pluck('category'));
         ProductSearch::exclude($rowsQuery, $search);
         $rows = $rowsQuery
@@ -154,9 +159,9 @@ class ProductController extends Controller
     /**
      * GET /api/products/{id}
      */
-    public function show(string $id): JsonResponse
+    public function show(Request $request, string $id): JsonResponse
     {
-        $product = $this->catalogQuery()->find($id);
+        $product = $this->visibleProduct($id, $this->buyer($request));
 
         if (! $product) {
             return response()->json(['message' => 'Product not found.'], 404);
@@ -181,7 +186,7 @@ class ProductController extends Controller
      */
     public function reviews(Request $request, string $id): JsonResponse
     {
-        $product = $this->visibleProduct($id);
+        $product = $this->visibleProduct($id, $this->buyer($request));
 
         if (! $product) {
             return response()->json(['message' => 'Product not found.'], 404);
@@ -219,12 +224,14 @@ class ProductController extends Controller
      * visibility rule catalogQuery() enforces, without the review
      * sub-selects (reviews() computes its own summary).
      */
-    private function visibleProduct(string $id): ?Product
+    private function visibleProduct(string $id, ?Profile $buyer = null): ?Product
     {
-        return Product::query()
+        $query = Product::query()
             ->active()
-            ->whereHas('seller', fn ($q) => $q->where('account_status', 'active'))
-            ->find($id);
+            ->whereHas('seller', fn ($q) => $q->where('account_status', 'active'));
+        $this->blocks->constrainProducts($query, $buyer);
+
+        return $query->find($id);
     }
 
     /**
@@ -303,9 +310,9 @@ class ProductController extends Controller
      * sub-selects (one extra scalar per row, no N+1, no dependency on a
      * relation being added to the shared Product model).
      */
-    private function catalogQuery()
+    private function catalogQuery(?Profile $buyer = null)
     {
-        return Product::query()
+        $query = Product::query()
             ->select('products.*')
             ->addSelect([
                 'reviews_count' => Review::query()
@@ -320,6 +327,15 @@ class ProductController extends Controller
             ->whereHas('seller', function ($q) {
                 $q->where('account_status', 'active');
             });
+
+        return $this->blocks->constrainProducts($query, $buyer);
+    }
+
+    private function buyer(Request $request): ?Profile
+    {
+        $profile = $this->sessions->resolve($request->bearerToken());
+
+        return $profile?->role === Profile::ROLE_BUYER ? $profile : null;
     }
 
     /**

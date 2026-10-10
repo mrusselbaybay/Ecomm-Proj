@@ -5,14 +5,10 @@
     <title>Complaint Update</title>
 </head>
 <body style="font-family: Arial, sans-serif; color: #334155; line-height: 1.6;">
-    <h1 style="color: #0f766e;">Complaint Update</h1>
-    <p>Your BuyTheWay complaint, <strong>{{ $complaintSubject }}</strong>, has been updated.</p>
-    <p><strong>Status:</strong> {{ ucwords(str_replace('_', ' ', $status)) }}</p>
-    <p><strong>Update:</strong> {{ $notes }}</p>
-    @if ($resolution)
-        <p><strong>Resolution:</strong> {{ $resolution }}</p>
-    @endif
-    <p>You may reply through the platform when participant messaging becomes available.</p>
+    <h1 style="color: #0f766e;">Report review complete</h1>
+    <p>We have completed our review of the report you submitted.</p>
+    <p>{{ $notes }}</p>
+    <p>This message does not include private investigation details.</p>
     <p>Thank you,<br>BuyTheWay Dispute Resolution Team</p>
 </body>
 </html>

@@ -32,6 +32,7 @@ import { formatPrice } from '../composables/useCategoryMeta';
 import { fetchJson } from '../composables/useStores';
 import { useToasts } from '../composables/useToasts';
 import { buyerApi, buyerApiWithMeta } from '../composables/useBuyerApi';
+import { useBuyer } from '../composables/useBuyer';
 
 const {
     conversations, inboxLoaded, inboxLoading, inboxError, activeId, threads,
@@ -42,6 +43,7 @@ const {
 } = useBuyerChat();
 const { buyerProfile, isLoadingSession } = useBuyerSession();
 const toasts = useToasts();
+const { cart, addToCart } = useBuyer();
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const compactQuery = window.matchMedia('(max-width: 899px)');
@@ -611,6 +613,35 @@ function chooseProduct(product, variant = null) {
     pendingQuestion.value = null;
     if (sendQuestion) nextTick(() => scrollToBottom(true));
     else nextTick(() => composer.value?.focus());
+}
+
+function addStockReplyToCart(row) {
+    const context = row.productContext;
+    if (!context?.id) return;
+
+    if (Number(context.stock) <= 0) {
+        toasts.warning('This variant is out of stock.');
+        return;
+    }
+
+    const variantId = context.variantId || null;
+    if (cart.value.some(item => item.productId === context.id && (item.variantId || null) === variantId)) {
+        toasts.info('Product already in cart');
+        return;
+    }
+
+    fetchJson(`/api/products/${encodeURIComponent(context.id)}`)
+        .then(({ data: product }) => {
+            if (!product) throw new Error('This product is no longer available.');
+            const variant = variantId ? product.variants?.find(item => item.id === variantId) : null;
+            if (variantId && !variant) throw new Error('This product variant is no longer available.');
+            if (Number(variant?.stock ?? product.stock) <= 0) {
+                toasts.warning('This variant is out of stock.');
+                return;
+            }
+            addToCart(product, variant, 1);
+        })
+        .catch(error => toasts.error(error.message || 'Could not add this product to your cart.'));
 }
 
 function selectQuestion(question) {
@@ -1645,6 +1676,7 @@ onUnmounted(() => {
                                                     </p>
                                                 </div>
 
+                                                <button v-if="row.kind === 'message' && row.isAutomatic && row.quickQuestionKey === 'stock_availability' && row.productContext" type="button" class="msg-stock-cart" @click="addStockReplyToCart(row)">Add to Cart</button>
                                                 <div v-if="row.kind === 'message' && row.isAutomatic" class="msg-assistant-actions">
                                                     <div v-if="assistantMenuOpen(row)" class="msg-assistant-menu">
                                                         <section v-for="section in assistantSections" :key="section.key" class="msg-assistant-section">
@@ -1738,6 +1770,8 @@ onUnmounted(() => {
                                     </button>
                                 </p>
 
+                                <p v-if="active?.blocked" class="msg-blocked-order-note">You've blocked this shop. This thread is only for order updates.</p>
+
                                 <p
                                     v-if="asking"
                                     class="msg-asking"
@@ -1754,9 +1788,9 @@ onUnmounted(() => {
                                     </button>
                                 </p>
 
-                                <div
-                                    v-if="pickerOpen"
-                                    class="msg-product-picker"
+                                    <div
+                                        v-if="pickerOpen && !active?.blocked"
+                                        class="msg-product-picker"
                                 >
                                     <div class="msg-picker-head">
                                         <strong>{{ selectedProduct ? `Choose a variant of ${selectedProduct.name}` : pickerMode === 'orders' ? 'Choose an order item' : 'Choose a product' }}</strong>
@@ -1766,17 +1800,17 @@ onUnmounted(() => {
                                         <button type="button" class="link-btn" @click="selectedProduct = null">Back to products</button>
                                         <div class="msg-picker-grid">
                                             <button
-                                                v-for="variant in selectedProduct.variants.filter(item => item.status === 'active' && Number(item.stock) > 0)"
+                                                v-for="variant in selectedProduct.variants.filter(item => item.status === 'active')"
                                                 :key="variant.id"
                                                 type="button"
                                                 class="msg-picker-item"
                                                 @click="chooseProduct(selectedProduct, variant)"
                                             >
                                                 <span>{{ Object.values(variant.optionValues || {}).join(' / ') }}</span>
-                                                <small>{{ formatPrice(variant.price) }}</small>
+                                                <small>{{ Number(variant.stock) > 0 ? formatPrice(variant.price) : 'Out of stock' }}</small>
                                             </button>
                                         </div>
-                                        <p v-if="!selectedProduct.variants.some(item => item.status === 'active' && Number(item.stock) > 0)" class="msg-picker-empty">No variants are currently available.</p>
+                                        <p v-if="!selectedProduct.variants.some(item => item.status === 'active')" class="msg-picker-empty">No variants are currently available.</p>
                                     </template>
                                     <template v-else>
                                         <form v-if="pickerMode === 'catalog'" class="msg-picker-search" @submit.prevent="loadProducts(1)">
@@ -1802,7 +1836,7 @@ onUnmounted(() => {
                                 </div>
 
                                 <div
-                                    v-if="suggestions.length"
+                                    v-if="suggestions.length && !active?.blocked"
                                     class="msg-suggest"
                                     role="group"
                                     aria-label="Suggested questions (fills the message box)"
@@ -1818,7 +1852,7 @@ onUnmounted(() => {
                                     </button>
                                 </div>
 
-                                <details v-if="menuQuestions.length" class="msg-question-menu">
+                                <details v-if="menuQuestions.length && !active?.blocked" class="msg-question-menu">
                                     <summary>More quick questions</summary>
                                     <div class="msg-question-list">
                                         <button v-for="question in menuQuestions" :key="question.key" type="button" class="msg-chip" @click="selectQuestion(question)">{{ question.question }}</button>
@@ -1865,6 +1899,7 @@ onUnmounted(() => {
                                     <label
                                         class="icon-btn msg-attach"
                                         :class="{ 'is-disabled': draft.files.length >= IMAGE_RULES.maxCount }"
+                                        v-if="!active?.blocked"
                                     >
                                         <input
                                             ref="fileInput"
@@ -1889,6 +1924,7 @@ onUnmounted(() => {
                                         rows="1"
                                         maxlength="4000"
                                         :placeholder="`Message ${active.seller}`"
+                                        :disabled="active?.blocked"
                                         :enterkeyhint="coarsePointer ? 'enter' : 'send'"
                                         @keydown="onKeydown"
                                         @input="onComposerInput"
@@ -1896,7 +1932,7 @@ onUnmounted(() => {
                                     <button
                                         type="submit"
                                         class="msg-send"
-                                        :disabled="!canSend"
+                                        :disabled="!canSend || active?.blocked"
                                         aria-label="Send message"
                                     >
                                         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
@@ -1904,6 +1940,7 @@ onUnmounted(() => {
                                 </div>
                                 <p
                                     v-if="!coarsePointer"
+                                    v-show="!active?.blocked"
                                     class="msg-hint"
                                 >
                                     Enter to send · Shift+Enter for a new line

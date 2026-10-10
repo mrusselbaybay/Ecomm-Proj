@@ -22,7 +22,7 @@ class Product extends Model
         'brand', 'condition', 'dimensions', 'weight', 'low_stock_threshold',
         'specifications',
         'price', 'compare_price', 'promo_code', 'stock', 'images', 'status',
-        'has_variants',
+        'has_variants', 'report_hold',
     ];
 
     protected $casts = [
@@ -35,6 +35,7 @@ class Product extends Model
         'dimensions' => 'array',
         'specifications' => 'array',
         'has_variants' => 'boolean',
+        'report_hold' => 'boolean',
     ];
 
     public function seller(): BelongsTo

@@ -6,6 +6,7 @@ use App\Http\Controllers\Buyer\AddressController;
 use App\Http\Controllers\Buyer\BuyerProfileController;
 use App\Http\Controllers\Buyer\CheckoutController;
 use App\Http\Controllers\Buyer\MessageController;
+use App\Http\Controllers\Buyer\MarketplaceSafetyController;
 use App\Http\Controllers\Buyer\OrderController;
 use App\Http\Controllers\Buyer\PaymentMethodController;
 use App\Http\Controllers\Buyer\ReturnController;
@@ -30,6 +31,10 @@ use Illuminate\Support\Facades\Route;
  * this buyer's own data and other sellers' inventory.
  */
 Route::middleware(['auth.token', 'buyer'])->prefix('api/buyer')->name('api.buyer.')->group(function () {
+    Route::post('/reports', [MarketplaceSafetyController::class, 'report'])->middleware('throttle:5,1')->name('reports.store');
+    Route::get('/report-notifications', [MarketplaceSafetyController::class, 'reportNotifications'])->name('reports.notifications');
+    Route::get('/blocked-stores', [MarketplaceSafetyController::class, 'blockedStores'])->name('blocked-stores.index');
+    Route::post('/stores/{storeId}/block', [MarketplaceSafetyController::class, 'block'])->name('stores.block');
     Route::get('/checkout/shipping-options', [CheckoutController::class, 'shippingOptions'])->name('checkout.shipping-options');
     Route::post('/checkout', [CheckoutController::class, 'store'])->name('checkout.store');
 

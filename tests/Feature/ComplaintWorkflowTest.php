@@ -10,7 +10,7 @@ it('defines safe complaint status transitions', function () {
     $complaint = new Complaint(['status' => 'pending']);
 
     expect($complaint->canTransitionTo('under_review'))->toBeTrue()
-        ->and($complaint->canTransitionTo('resolved'))->toBeFalse();
+        ->and($complaint->canTransitionTo('resolved'))->toBeTrue();
 
     $complaint->status = 'under_review';
 

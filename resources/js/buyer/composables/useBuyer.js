@@ -1,6 +1,6 @@
 import { ref, computed, watch } from 'vue';
 import { buyerApi } from './useBuyerApi';
-import { getSupabase } from './useBuyerSession';
+import { authHeaders, getSupabase } from './useBuyerSession';
 import { onReviewChange, publishReviewChange, withLatestStats } from './useReviewSync';
 import { useToasts } from './useToasts';
 
@@ -388,9 +388,14 @@ async function fetchCatalogProducts(ids) {
 
         try {
             const params = new URLSearchParams({ ids: chunk.join(','), per_page: '100' });
-            const response = await fetch(`/api/products?${params}`, {
-                headers: { Accept: 'application/json' },
-            });
+            let headers = { Accept: 'application/json' };
+            try {
+                const authenticated = await authHeaders();
+                headers.Authorization = authenticated.Authorization;
+            } catch {
+                // A guest cart can still revalidate against the public catalog.
+            }
+            const response = await fetch(`/api/products?${params}`, { headers });
 
             if (!response.ok) {
                 chunk.forEach((id) => map.set(id, undefined));
